@@ -257,7 +257,7 @@ public class CallActivity extends AppCompatActivity {
     private void watchForAnswer() {
         callRef.child("answer").addValueEventListener(new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists() || peerConnection == null || peerConnection.remoteDescription() != null) return;
+                if (!s.exists() || peerConnection == null || peerConnection.getRemoteDescription() != null) return;
                 String type = s.child("type").getValue(String.class);
                 String sdp  = s.child("sdp").getValue(String.class);
                 if (type == null || sdp == null) return;
@@ -276,7 +276,7 @@ public class CallActivity extends AppCompatActivity {
     private void watchForOffer() {
         callRef.child("offer").addValueEventListener(new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists() || peerConnection == null || peerConnection.remoteDescription() != null) return;
+                if (!s.exists() || peerConnection == null || peerConnection.getRemoteDescription() != null) return;
                 String type = s.child("type").getValue(String.class);
                 String sdp  = s.child("sdp").getValue(String.class);
                 if (type == null || sdp == null) return;
