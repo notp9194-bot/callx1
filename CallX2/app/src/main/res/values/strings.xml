@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CallX</string>
+    <string name="hint_email">Email</string>
+    <string name="hint_password">Password</string>
+    <string name="hint_message">Message…</string>
+    <string name="btn_send">Send</string>
+    <string name="tab_chats">Chats</string>
+    <string name="tab_status">Status</string>
+    <string name="tab_groups">Groups</string>
+    <string name="tab_calls">Calls</string>
+
+    <!-- Account Menu -->
+    <string name="account_menu_title">Account</string>
+    <string name="callx_id_label">CallX ID</string>
+    <string name="callx_id_copied">CallX ID copied!</string>
+    <string name="menu_privacy_security">Privacy &amp; Security</string>
+    <string name="menu_notifications">Notifications</string>
+    <string name="menu_storage">Storage &amp; Data</string>
+    <string name="menu_chats">Chats</string>
+    <string name="menu_help">Help &amp; Support</string>
+    <string name="menu_logout">Log Out</string>
+
+    <!-- Privacy & Security -->
+    <string name="privacy_title">Privacy &amp; Security</string>
+    <string name="section_privacy">Privacy</string>
+    <string name="section_security">Security</string>
+    <string name="toggle_read_receipts">Read Receipts</string>
+    <string name="toggle_read_receipts_desc">Show when you\'ve read messages</string>
+    <string name="toggle_last_seen">Last Seen</string>
+    <string name="toggle_last_seen_desc">Show your last active time</string>
+    <string name="toggle_profile_photo">Profile Photo Visible</string>
+    <string name="toggle_profile_photo_desc">Let others see your photo</string>
+    <string name="toggle_screenshot">Screenshot Lock</string>
+    <string name="toggle_screenshot_desc">Prevent screenshots in CallX</string>
+    <string name="menu_app_lock">App Lock</string>
+    <string name="menu_app_lock_desc">Lock app when in background</string>
+    <string name="menu_blocked">Blocked Contacts</string>
+    <string name="menu_blocked_desc">Manage blocked users</string>
+
+    <!-- App Lock -->
+    <string name="lock_none">None</string>
+    <string name="lock_pin">PIN</string>
+    <string name="lock_pattern">Pattern</string>
+    <string name="lock_fingerprint">Fingerprint / Face</string>
+    <string name="lock_set_success">Lock set successfully</string>
+    <string name="lock_removed">App lock removed</string>
+
+    <!-- Lock Screen -->
+    <string name="unlock_callx">Unlock CallX</string>
+    <string name="draw_pattern">Draw pattern to unlock</string>
+    <string name="touch_sensor">Touch the fingerprint sensor</string>
+</resources>

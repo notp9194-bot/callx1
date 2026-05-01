@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_primary">#7C7CFF</color>
+    <color name="brand_primary_dark">#5B5BF6</color>
+    <color name="brand_accent">#22D3A6</color>
+    <color name="brand_gradient_start">#5B5BF6</color>
+    <color name="brand_gradient_end">#9333EA</color>
+
+    <color name="surface_bg">#0B0F1A</color>
+    <color name="surface_card">#151B2B</color>
+    <color name="surface_chat_bg">#0F1422</color>
+    <color name="surface_input">#1E2538</color>
+
+    <color name="text_primary">#F8FAFC</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="text_muted">#64748B</color>
+    <color name="text_on_primary">#FFFFFF</color>
+
+    <color name="bubble_sent">#5B5BF6</color>
+    <color name="bubble_sent_text">#FFFFFF</color>
+    <color name="bubble_received">#1E2538</color>
+    <color name="bubble_received_text">#F8FAFC</color>
+
+    <color name="status_online">#22D3A6</color>
+    <color name="status_typing">#FACC15</color>
+    <color name="action_call_accept">#22C55E</color>
+    <color name="action_call_reject">#EF4444</color>
+    <color name="action_danger">#F87171</color>
+    <color name="divider">#1E2538</color>
+</resources>
