@@ -28,6 +28,15 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      # gradle-wrapper.jar repo mein 0 bytes hai — fresh download karo
+      - name: Fix gradle-wrapper.jar (download fresh)
+        run: |
+          GRADLE_VERSION="8.4"
+          JAR_URL="https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}.0/gradle/wrapper/gradle-wrapper.jar"
+          curl -fsSL "$JAR_URL" \
+            -o CallX2/gradle/wrapper/gradle-wrapper.jar
+          ls -lh CallX2/gradle/wrapper/gradle-wrapper.jar
+
       # google-services.json Firebase secret se inject karo
       - name: Inject google-services.json
         run: |
@@ -111,6 +120,12 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
+
+      # gradle-wrapper.jar repo mein 0 bytes hai — fresh download karo
+      - name: Fix gradle-wrapper.jar (download fresh)
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar" \
+            -o CallX2/gradle/wrapper/gradle-wrapper.jar
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
