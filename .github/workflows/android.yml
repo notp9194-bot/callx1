@@ -37,11 +37,11 @@ jobs:
             -o CallX2/gradle/wrapper/gradle-wrapper.jar
           ls -lh CallX2/gradle/wrapper/gradle-wrapper.jar
 
-      # google-services.json Firebase secret se inject karo
+      # google-services.json — base64 method use karo (echo JSON corrupt kar deta hai)
       - name: Inject google-services.json
         run: |
-          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
-        working-directory: CallX2
+          echo '${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}' | base64 --decode > CallX2/app/google-services.json
+          python3 -c "import json; json.load(open('CallX2/app/google-services.json')); print('google-services.json OK')"
 
       # Gradle cache for fast builds
       - name: Cache Gradle packages
@@ -108,8 +108,7 @@ jobs:
 
       - name: Inject google-services.json
         run: |
-          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
-        working-directory: CallX2
+          echo '${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}' | base64 --decode > CallX2/app/google-services.json
 
       - name: Cache Gradle packages
         uses: actions/cache@v4
