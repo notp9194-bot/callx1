@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Group chat dynamic menu item IDs (Features 9 & 10) -->
+    <item name="menu_invite"       type="id"/>
+    <item name="menu_starred"      type="id"/>
+    <item name="menu_admin_panel"  type="id"/>
+    <item name="menu_rename"       type="id"/>
+</resources>
