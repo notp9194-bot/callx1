@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/gradient_brand">
+
+    <!-- Caller subtitle -->
+    <TextView
+        android:id="@+id/tv_caller_sub"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Incoming CallX…"
+        android:textColor="#D0D5FF"
+        android:textSize="16sp"
+        android:letterSpacing="0.05"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="80dp"/>
+
+    <!-- Avatar with pulsing ring -->
+    <FrameLayout
+        android:id="@+id/fl_avatar_container"
+        android:layout_width="180dp"
+        android:layout_height="180dp"
+        app:layout_constraintTop_toBottomOf="@id/tv_caller_sub"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="32dp">
+
+        <!-- Outer pulse ring -->
+        <View
+            android:layout_width="180dp"
+            android:layout_height="180dp"
+            android:background="@drawable/pulse_ring_outer"
+            android:alpha="0.3"/>
+
+        <!-- Inner ring -->
+        <View
+            android:layout_width="160dp"
+            android:layout_height="160dp"
+            android:layout_gravity="center"
+            android:background="@drawable/pulse_ring_inner"
+            android:alpha="0.5"/>
+
+        <!-- Avatar -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_caller_avatar"
+            android:layout_width="140dp"
+            android:layout_height="140dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            app:civ_border_width="4dp"
+            app:civ_border_color="#FFFFFF"/>
+    </FrameLayout>
+
+    <!-- Caller name -->
+    <TextView
+        android:id="@+id/tv_caller_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/white"
+        android:textSize="34sp"
+        android:textStyle="bold"
+        android:text="Caller"
+        android:letterSpacing="-0.01"
+        app:layout_constraintTop_toBottomOf="@id/fl_avatar_container"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="24dp"/>
+
+    <!-- Call type label -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Voice Call"
+        android:textColor="#C7D2FE"
+        android:textSize="15sp"
+        android:id="@+id/tv_call_type"
+        app:layout_constraintTop_toBottomOf="@id/tv_caller_name"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="6dp"/>
+
+    <!-- Action buttons at bottom -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingHorizontal="40dp"
+        android:paddingBottom="72dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Reject -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <FrameLayout
+                android:layout_width="80dp"
+                android:layout_height="80dp">
+                <View
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:background="@drawable/circle_reject"
+                    android:alpha="0.25"/>
+                <ImageButton
+                    android:id="@+id/btn_reject"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_phone_off"
+                    android:tint="@color/white"
+                    android:background="@drawable/circle_reject"
+                    android:contentDescription="Reject"/>
+            </FrameLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Decline"
+                android:textColor="@color/white"
+                android:textSize="14sp"
+                android:layout_marginTop="12dp"/>
+        </LinearLayout>
+
+        <!-- Accept -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <FrameLayout
+                android:layout_width="80dp"
+                android:layout_height="80dp">
+                <View
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:background="@drawable/circle_accept"
+                    android:alpha="0.25"/>
+                <ImageButton
+                    android:id="@+id/btn_accept"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_phone"
+                    android:tint="@color/white"
+                    android:background="@drawable/circle_accept"
+                    android:contentDescription="Accept"/>
+            </FrameLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Answer"
+                android:textColor="@color/white"
+                android:textSize="14sp"
+                android:layout_marginTop="12dp"/>
+        </LinearLayout>
+    </LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>
