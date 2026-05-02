@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/surface_bg">
+
+    <!-- Background gradient splash -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/gradient_brand"
+        android:alpha="0.10"/>
+
+    <!-- Pulsing ring (outer) -->
+    <View
+        android:id="@+id/ring_outer"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="120dp"
+        android:background="@drawable/circle_status_unseen"
+        android:alpha="0.18"/>
+
+    <!-- Pulsing ring (inner) -->
+    <View
+        android:id="@+id/ring_inner"
+        android:layout_width="190dp"
+        android:layout_height="190dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="135dp"
+        android:background="@drawable/circle_status_unseen"
+        android:alpha="0.28"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:padding="32dp">
+
+        <TextView
+            android:id="@+id/tv_caller_sub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp"
+            android:letterSpacing="0.08"
+            android:layout_marginTop="60dp"
+            android:text="Incoming CallX..."/>
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_caller_avatar"
+            android:layout_width="150dp"
+            android:layout_height="150dp"
+            android:layout_marginTop="36dp"
+            android:src="@drawable/ic_person"
+            android:background="@color/surface_input"
+            app:civ_border_width="4dp"
+            app:civ_border_color="@color/brand_primary"
+            xmlns:app="http://schemas.android.com/apk/res-auto"/>
+
+        <TextView
+            android:id="@+id/tv_caller_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_primary"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:letterSpacing="-0.02"
+            android:layout_marginTop="20dp"/>
+
+        <!-- Spacer -->
+        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
+
+        <!-- Action buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="60dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+                <ImageButton
+                    android:id="@+id/btn_reject"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/ic_phone_off"
+                    android:background="@drawable/circle_reject"
+                    android:tint="@color/white"
+                    android:contentDescription="Reject"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Reject"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"
+                    android:layout_marginTop="10dp"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+                <ImageButton
+                    android:id="@+id/btn_accept"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/ic_phone"
+                    android:background="@drawable/circle_accept"
+                    android:tint="@color/white"
+                    android:contentDescription="Accept"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Accept"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"
+                    android:layout_marginTop="10dp"/>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

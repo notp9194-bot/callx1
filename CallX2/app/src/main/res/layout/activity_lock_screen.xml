@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/surface_bg">
+
+    <!-- Background gradient -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/gradient_brand"
+        android:alpha="0.08"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="40dp">
+
+        <!-- Logo -->
+        <FrameLayout
+            android:layout_width="90dp"
+            android:layout_height="90dp"
+            android:background="@drawable/circle_primary"
+            android:elevation="8dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="C"
+                android:textColor="@color/white"
+                android:textSize="44sp"
+                android:textStyle="bold"/>
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/unlock_callx"
+            android:textColor="@color/text_primary"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:letterSpacing="-0.02"
+            android:layout_marginTop="24dp"/>
+
+        <TextView
+            android:id="@+id/tv_lock_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/draw_pattern"
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp"
+            android:layout_marginTop="8dp"/>
+
+        <!-- Pattern lock view area -->
+        <com.andrognito.patternlockview.PatternLockView
+            android:id="@+id/pattern_lock_view"
+            android:layout_width="280dp"
+            android:layout_height="280dp"
+            android:layout_marginTop="40dp"
+            android:visibility="gone"/>
+
+        <!-- PIN entry area -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/til_pin"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="220dp"
+            android:layout_height="wrap_content"
+            android:hint="Enter PIN"
+            android:layout_marginTop="40dp"
+            android:visibility="gone"
+            app:boxCornerRadiusTopEnd="18dp"
+            app:boxCornerRadiusTopStart="18dp"
+            app:boxCornerRadiusBottomEnd="18dp"
+            app:boxCornerRadiusBottomStart="18dp"
+            xmlns:app="http://schemas.android.com/apk/res-auto">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_pin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="numberPassword"
+                android:maxLength="6"
+                android:gravity="center"
+                android:textSize="24sp"
+                android:letterSpacing="0.3"
+                android:paddingTop="18dp"
+                android:paddingBottom="18dp"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Fingerprint prompt -->
+        <LinearLayout
+            android:id="@+id/ll_fingerprint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginTop="40dp"
+            android:visibility="gone">
+            <FrameLayout
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:background="@drawable/bg_nav_indicator">
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_shield"
+                    android:tint="@color/brand_primary"/>
+            </FrameLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/touch_sensor"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:layout_marginTop="12dp"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_attempts"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/action_danger"
+            android:textSize="13sp"
+            android:layout_marginTop="16dp"
+            android:visibility="gone"/>
+    </LinearLayout>
+</FrameLayout>

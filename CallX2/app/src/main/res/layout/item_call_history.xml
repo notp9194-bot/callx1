@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="14dp"
+    android:layout_marginBottom="4dp"
+    android:background="@drawable/card_rounded"
+    android:gravity="center_vertical"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground">
+
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_avatar"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:src="@drawable/ic_person"
+        android:background="@color/surface_input"/>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="14dp">
+        <TextView
+            android:id="@+id/tv_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp"/>
+        <TextView
+            android:id="@+id/tv_meta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:layout_marginTop="2dp"/>
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:background="@drawable/bg_nav_indicator">
+        <ImageButton
+            android:id="@+id/btn_call_back"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_phone"
+            android:tint="@color/brand_primary"
+            android:background="@color/transparent"
+            android:contentDescription="Call back"/>
+    </FrameLayout>
+</LinearLayout>

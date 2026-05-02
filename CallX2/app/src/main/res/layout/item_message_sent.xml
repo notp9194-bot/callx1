@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="end"
+    android:padding="3dp">
+
+    <TextView
+        android:id="@+id/tv_pinned_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="📌 Pinned"
+        android:textSize="10sp"
+        android:textColor="@color/brand_primary"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="2dp"
+        android:visibility="gone"/>
+
+    <TextView
+        android:id="@+id/tv_forwarded"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="↪ Forwarded"
+        android:textSize="11sp"
+        android:textStyle="italic"
+        android:textColor="@color/text_muted"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="2dp"
+        android:visibility="gone"/>
+
+    <!-- Bubble -->
+    <LinearLayout
+        android:id="@+id/ll_bubble"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/bubble_sent"
+        android:minWidth="80dp"
+        android:maxWidth="290dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp">
+
+        <!-- Reply preview -->
+        <LinearLayout
+            android:id="@+id/ll_reply_preview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#33FFFFFF"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:layout_marginBottom="6dp"
+            android:minWidth="120dp"
+            android:visibility="gone">
+            <TextView
+                android:id="@+id/tv_reply_sender"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#D0D0FF"
+                android:textSize="11sp"
+                android:textStyle="bold"/>
+            <TextView
+                android:id="@+id/tv_reply_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp"
+                android:maxLines="2"
+                android:ellipsize="end"/>
+        </LinearLayout>
+
+        <!-- Message text -->
+        <TextView
+            android:id="@+id/tv_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/bubble_sent_text"
+            android:textSize="15sp"
+            android:lineSpacingMultiplier="1.3"
+            android:visibility="gone"/>
+
+        <!-- Image -->
+        <ImageView
+            android:id="@+id/iv_image"
+            android:layout_width="220dp"
+            android:layout_height="180dp"
+            android:scaleType="centerCrop"
+            android:visibility="gone"/>
+
+        <!-- File card -->
+        <LinearLayout
+            android:id="@+id/ll_file"
+            android:layout_width="220dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="10dp"
+            android:background="@drawable/file_card_bg"
+            android:visibility="gone">
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_file"
+                android:tint="@color/white"/>
+            <TextView
+                android:id="@+id/tv_file_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/white"
+                android:textSize="13sp"
+                android:maxLines="2"
+                android:layout_marginStart="8dp"
+                android:ellipsize="middle"/>
+        </LinearLayout>
+
+        <!-- Audio -->
+        <LinearLayout
+            android:id="@+id/ll_audio"
+            android:layout_width="200dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+            <ImageButton
+                android:id="@+id/btn_play_audio"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_play"
+                android:tint="@color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"/>
+            <SeekBar
+                android:id="@+id/seekbar_audio"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:progressTint="@color/white"
+                android:thumbTint="@color/white"/>
+            <TextView
+                android:id="@+id/tv_audio_duration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp"
+                android:layout_marginStart="6dp"/>
+        </LinearLayout>
+
+        <!-- Emoji reaction row -->
+        <LinearLayout
+            android:id="@+id/ll_reactions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp"
+            android:visibility="gone"/>
+
+        <!-- Timestamp + ticks -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_gravity="end"
+            android:layout_marginTop="4dp">
+            <TextView
+                android:id="@+id/tv_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#BBFFFFFF"
+                android:textSize="11sp"/>
+            <ImageView
+                android:id="@+id/iv_tick"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_send"
+                android:tint="#BBFFFFFF"/>
+        </LinearLayout>
+
+    </LinearLayout>
+</LinearLayout>
