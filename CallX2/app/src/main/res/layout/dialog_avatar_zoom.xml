@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#E0000000">
+
+    <ImageView
+        android:id="@+id/iv_avatar_zoom"
+        android:layout_width="300dp"
+        android:layout_height="300dp"
+        android:layout_gravity="center"
+        android:scaleType="centerCrop"
+        android:background="@drawable/circle_avatar_bg"
+        android:clipToOutline="true"
+        android:elevation="8dp"/>
+
+    <ImageButton
+        android:id="@+id/btn_close_zoom"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp"
+        android:src="@drawable/ic_back"
+        android:tint="@color/white"
+        android:background="@drawable/circle_primary"
+        android:contentDescription="Close"/>
+</FrameLayout>
