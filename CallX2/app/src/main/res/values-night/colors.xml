@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand (dark) -->
+    <color name="brand_primary">#A5B4FC</color>
+    <color name="brand_primary_dark">#818CF8</color>
+    <color name="brand_primary_container">#3730A3</color>
+    <color name="brand_accent">#34D399</color>
+    <color name="brand_gradient_start">#4F46E5</color>
+    <color name="brand_gradient_end">#7C3AED</color>
+
+    <!-- Dark surfaces -->
+    <color name="surface_bg">#0F0F1A</color>
+    <color name="surface_card">#1A1A2E</color>
+    <color name="surface_input">#1E1E30</color>
+    <color name="surface_variant">#2D2D45</color>
+    <color name="surface_chat_bg">#0D0D1A</color>
+
+    <!-- Text -->
+    <color name="text_primary">#E8E9FF</color>
+    <color name="text_secondary">#9699B8</color>
+    <color name="text_muted">#6B6E8A</color>
+
+    <!-- Dividers & borders -->
+    <color name="divider">#2D2D45</color>
+    <color name="outline">#3D3D60</color>
+
+    <!-- Bubbles (dark) -->
+    <color name="bubble_sent">#4F46E5</color>
+    <color name="bubble_sent_text">#FFFFFF</color>
+    <color name="bubble_received">#1E1E30</color>
+    <color name="bubble_received_text">#E8E9FF</color>
+
+    <!-- Status -->
+    <color name="status_online">#06D6A0</color>
+    <color name="action_accept">#10B981</color>
+    <color name="action_danger">#F87171</color>
+
+    <!-- Misc -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+
+    <!-- Legacy -->
+    <color name="colorPrimary">@color/brand_primary</color>
+    <color name="colorPrimaryDark">@color/brand_primary_dark</color>
+    <color name="colorAccent">@color/brand_accent</color>
+    <color name="colorSurface">@color/surface_card</color>
+    <color name="colorBackground">@color/surface_bg</color>
+    <color name="colorError">#F87171</color>
+    <color name="primary_container">#3730A3</color>
+</resources>
