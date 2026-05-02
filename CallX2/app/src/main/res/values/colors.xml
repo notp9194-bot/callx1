@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <resources>
+      <!-- Brand -->
+      <color name="brand_primary">#5B5BF6</color>
+      <color name="brand_primary_dark">#4747D9</color>
+      <color name="brand_accent">#22D3A6</color>
+      <color name="brand_gradient_start">#39FF14</color>
+      <color name="brand_gradient_end">#7FFF00</color>
+
+      <!-- Surfaces -->
+      <color name="surface_bg">#000000</color>
+      <color name="surface_card">#0D0D0D</color>
+      <color name="surface_chat_bg">#000000</color>
+      <color name="surface_input">#1A1A1A</color>
+
+      <!-- Bar colors (header + bottom nav) -->
+      <color name="bar_background">#000000</color>
+      <color name="bar_on_background">#FFFFFF</color>
+
+      <!-- Text -->
+      <color name="text_primary">#FFFFFF</color>
+      <color name="text_secondary">#A0AEC0</color>
+      <color name="text_muted">#CCFFFFFF</color>
+      <color name="text_on_primary">#FFFFFF</color>
+
+      <!-- Bubbles -->
+      <color name="bubble_sent">#39FF14</color>
+      <color name="bubble_sent_end">#7FFF00</color>
+      <color name="bubble_sent_text">#000000</color>
+      <color name="bubble_received">#8B00FF</color>
+      <color name="bubble_received_end">#B000FF</color>
+      <color name="bubble_received_text">#FFFFFF</color>
+
+      <!-- Status / actions -->
+      <color name="status_online">#39FF14</color>
+      <color name="status_typing">#39FF14</color>
+      <color name="action_call_accept">#22C55E</color>
+      <color name="action_call_reject">#EF4444</color>
+      <color name="action_danger">#EF4444</color>
+      <color name="divider">#2D2D2D</color>
+
+      <color name="white">#FFFFFF</color>
+      <color name="black">#000000</color>
+      <color name="transparent">#00000000</color>
+  </resources>
