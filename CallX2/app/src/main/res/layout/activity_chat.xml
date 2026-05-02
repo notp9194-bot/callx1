@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/surface_chat_bg">
+
+    <!-- Modern Toolbar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="68dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="12dp"
+        android:background="@color/surface_bg"
+        android:elevation="2dp">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="@color/text_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"/>
+
+        <FrameLayout
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_marginStart="2dp">
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_avatar"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:src="@drawable/ic_person"
+                android:background="@color/surface_input"/>
+            <View
+                android:id="@+id/indicator_online"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_gravity="bottom|end"
+                android:background="@drawable/circle_accept"
+                android:visibility="gone"/>
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="10dp">
+            <TextView
+                android:id="@+id/tv_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:textSize="17sp"/>
+            <TextView
+                android:id="@+id/tv_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/brand_primary"
+                android:textSize="12sp"
+                android:layout_marginTop="1dp"/>
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btn_video_call"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:src="@drawable/ic_video_call"
+            android:tint="@color/brand_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Video call"/>
+
+        <ImageButton
+            android:id="@+id/btn_voice_call"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:src="@drawable/ic_phone"
+            android:tint="@color/brand_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Voice call"/>
+
+        <ImageButton
+            android:id="@+id/btn_more"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:src="@drawable/ic_search"
+            android:tint="@color/text_secondary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="More"/>
+    </LinearLayout>
+
+    <!-- Messages list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_messages"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="8dp"
+        android:clipToPadding="false"/>
+
+    <!-- Reply preview bar -->
+    <LinearLayout
+        android:id="@+id/ll_reply_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="@color/surface_bg"
+        android:visibility="gone">
+        <View
+            android:layout_width="3dp"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_pill_brand"
+            android:layout_marginEnd="10dp"/>
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:id="@+id/tv_reply_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/brand_primary"
+                android:textSize="12sp"
+                android:textStyle="bold"/>
+            <TextView
+                android:id="@+id/tv_reply_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
+        <ImageButton
+            android:id="@+id/btn_cancel_reply"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_phone_off"
+            android:tint="@color/text_secondary"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+    </LinearLayout>
+
+    <!-- Input bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="@color/surface_bg">
+
+        <ImageButton
+            android:id="@+id/btn_attach"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:src="@drawable/ic_attach"
+            android:tint="@color/brand_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Attach"/>
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/rounded_input_bg"
+            android:minHeight="48dp">
+            <EditText
+                android:id="@+id/et_message"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:hint="@string/hint_message"
+                android:textColorHint="@color/text_muted"
+                android:textColor="@color/text_primary"
+                android:background="@color/transparent"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:maxLines="4"/>
+        </FrameLayout>
+
+        <ImageButton
+            android:id="@+id/btn_mic"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_mic"
+            android:background="@drawable/circle_primary"
+            android:tint="@color/white"
+            android:contentDescription="Voice message"/>
+
+        <ImageButton
+            android:id="@+id/btn_send"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_send_fill"
+            android:background="@drawable/circle_primary"
+            android:tint="@color/white"
+            android:layout_marginStart="6dp"
+            android:visibility="gone"
+            android:contentDescription="Send"/>
+    </LinearLayout>
+
+</LinearLayout>

@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/surface_bg">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface_bg"
+        app:elevation="0dp">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="68dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="6dp"
+            android:paddingEnd="16dp">
+            <ImageButton
+                android:id="@+id/btn_back"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_arrow_back"
+                android:tint="@color/text_primary"
+                android:background="?attr/selectableItemBackgroundBorderless"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Privacy &amp; Security"
+                android:textColor="@color/text_primary"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:layout_marginStart="8dp"/>
+        </LinearLayout>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="32dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
+
+            <!-- Section header -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="APP LOCK"
+                android:textColor="@color/brand_primary"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.12"
+                android:paddingStart="4dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"/>
+
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_app_lock"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_fingerprint"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_pin"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_pattern"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_biometric_fallback"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="PRIVACY"
+                android:textColor="@color/brand_primary"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.12"
+                android:paddingStart="4dp"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp"/>
+
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_read_receipts"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_last_seen"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_profile_photo"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_status_privacy"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_about_privacy"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_group_add"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_call_permission"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_screenshot"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_incognito"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_ghost"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="SECURITY"
+                android:textColor="@color/brand_primary"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.12"
+                android:paddingStart="4dp"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp"/>
+
+            <include layout="@layout/item_menu_row" android:id="@+id/row_two_step"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_secure_notifs"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_ip_protection"/>
+            <include layout="@layout/item_menu_row" android:id="@+id/row_auto_delete"/>
+            <include layout="@layout/item_privacy_toggle" android:id="@+id/toggle_security_alerts"/>
+            <include layout="@layout/item_menu_row" android:id="@+id/row_login_log"/>
+            <include layout="@layout/item_menu_row" android:id="@+id/row_blocked"/>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

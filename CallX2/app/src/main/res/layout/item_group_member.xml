@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="62dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:layout_marginBottom="4dp"
+    android:background="@drawable/card_rounded"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground">
+
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_avatar"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:src="@drawable/ic_person"
+        android:background="@color/surface_input"/>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="14dp">
+        <TextView
+            android:id="@+id/tv_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"/>
+        <TextView
+            android:id="@+id/tv_role"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/brand_primary"
+            android:textSize="12sp"
+            android:layout_marginTop="2dp"
+            android:visibility="gone"/>
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/btn_remove"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:src="@drawable/ic_phone_off"
+        android:tint="@color/action_danger"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:visibility="gone"/>
+</LinearLayout>
