@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black">
+
+    <!-- Full-screen remote video -->
+    <org.webrtc.SurfaceViewRenderer
+        android:id="@+id/remote_video"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
+    <!-- Dark scrim -->
+    <View android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="#55000000"/>
+
+    <!-- Local (PiP) video -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="110dp"
+        android:layout_height="155dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp"
+        android:layout_marginTop="64dp"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="12dp"
+        app:strokeWidth="2dp"
+        app:strokeColor="#40FFFFFF">
+        <org.webrtc.SurfaceViewRenderer
+            android:id="@+id/local_video"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Caller info (top-center) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:layout_marginTop="40dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_call_avatar"
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:src="@drawable/ic_person"
+            android:background="@color/surface_input"
+            app:civ_border_width="3dp"
+            app:civ_border_color="#60FFFFFF"/>
+
+        <TextView
+            android:id="@+id/tv_caller_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/white"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:layout_marginTop="14dp"/>
+
+        <TextView
+            android:id="@+id/tv_call_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#C7D2FE"
+            android:textSize="15sp"
+            android:layout_marginTop="6dp"/>
+    </LinearLayout>
+
+    <!-- Controls (bottom) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:paddingBottom="48dp"
+        android:paddingHorizontal="32dp"
+        android:gravity="center">
+
+        <!-- Secondary controls row -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="24dp">
+
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center" android:layout_marginHorizontal="24dp">
+                <ImageButton
+                    android:id="@+id/btn_toggle_speaker"
+                    android:layout_width="54dp"
+                    android:layout_height="54dp"
+                    android:src="@drawable/ic_audio"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:tint="@color/white"
+                    android:alpha="0.5"
+                    android:padding="14dp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Speaker" android:textColor="#99FFFFFF" android:textSize="11sp"
+                    android:layout_marginTop="6dp"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center" android:layout_marginHorizontal="24dp">
+                <ImageButton
+                    android:id="@+id/btn_switch_camera"
+                    android:layout_width="54dp"
+                    android:layout_height="54dp"
+                    android:src="@drawable/ic_camera"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:tint="@color/white"
+                    android:padding="14dp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Flip" android:textColor="#99FFFFFF" android:textSize="11sp"
+                    android:layout_marginTop="6dp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Primary controls row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                <ImageButton
+                    android:id="@+id/btn_toggle_mic"
+                    android:layout_width="62dp"
+                    android:layout_height="62dp"
+                    android:src="@drawable/ic_mic"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:tint="@color/white"
+                    android:padding="16dp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Mute" android:textColor="#99FFFFFF" android:textSize="11sp"
+                    android:layout_marginTop="8dp"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                <ImageButton
+                    android:id="@+id/btn_end_call"
+                    android:layout_width="76dp"
+                    android:layout_height="76dp"
+                    android:src="@drawable/ic_phone_off"
+                    android:background="@drawable/circle_reject"
+                    android:tint="@color/white"
+                    android:padding="18dp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="End" android:textColor="#99FFFFFF" android:textSize="11sp"
+                    android:layout_marginTop="8dp"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                <ImageButton
+                    android:id="@+id/btn_toggle_camera"
+                    android:layout_width="62dp"
+                    android:layout_height="62dp"
+                    android:src="@drawable/ic_video"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:tint="@color/white"
+                    android:padding="16dp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Video" android:textColor="#99FFFFFF" android:textSize="11sp"
+                    android:layout_marginTop="8dp"/>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

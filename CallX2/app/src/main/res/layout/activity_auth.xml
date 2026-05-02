@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/surface_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="28dp"
+        android:gravity="center_horizontal">
+
+        <!-- Logo area -->
+        <FrameLayout
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_marginTop="64dp"
+            android:background="@drawable/gradient_brand">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="C"
+                android:textColor="@color/white"
+                android:textSize="44sp"
+                android:textStyle="bold"/>
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CallX"
+            android:textSize="34sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginTop="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Connect. Call. Chat."
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp"
+            android:letterSpacing="0.05"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="40dp"/>
+
+        <!-- Avatar picker (signup only) -->
+        <FrameLayout
+            android:id="@+id/fl_avatar_picker"
+            android:layout_width="110dp"
+            android:layout_height="110dp"
+            android:layout_marginBottom="8dp"
+            android:visibility="gone">
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_avatar_preview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:src="@drawable/ic_person"
+                android:background="@color/surface_input"
+                app:civ_border_width="3dp"
+                app:civ_border_color="@color/brand_primary"/>
+            <FrameLayout
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_gravity="bottom|end"
+                android:background="@drawable/circle_primary">
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_camera"
+                    android:tint="@color/white"/>
+            </FrameLayout>
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/tv_avatar_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Add profile photo"
+            android:textColor="@color/brand_primary"
+            android:textSize="13sp"
+            android:layout_marginBottom="20dp"
+            android:visibility="gone"/>
+
+        <!-- Name field (signup) -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/til_name"
+            style="@style/Widget.CallX.TextInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Full Name"
+            android:layout_marginBottom="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPersonName"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Mobile field -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/til_mobile"
+            style="@style/Widget.CallX.TextInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Mobile Number (10 digit)"
+            android:layout_marginBottom="14dp"
+            app:prefixText="+">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_mobile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="phone"
+                android:maxLength="15"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Email field -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.CallX.TextInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Email"
+            android:layout_marginBottom="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_email"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textEmailAddress"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Password field -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.CallX.TextInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Password"
+            android:layout_marginBottom="8dp"
+            app:passwordToggleEnabled="true"
+            app:endIconMode="password_toggle">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Error text -->
+        <TextView
+            android:id="@+id/tv_error"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/action_danger"
+            android:textSize="13sp"
+            android:layout_marginTop="4dp"
+            android:visibility="gone"/>
+
+        <!-- Login button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_login"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Sign In"
+            android:textSize="16sp"
+            android:letterSpacing="0.02"
+            app:cornerRadius="18dp"
+            android:backgroundTint="@color/brand_primary"
+            android:layout_marginTop="24dp"/>
+
+        <!-- Divider -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginVertical="16dp">
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"
+                android:background="@color/divider"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="or" android:textColor="@color/text_muted" android:textSize="13sp"
+                android:paddingHorizontal="12dp"/>
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"
+                android:background="@color/divider"/>
+        </LinearLayout>
+
+        <!-- Signup button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_signup"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Create Account"
+            android:textSize="16sp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:cornerRadius="18dp"
+            app:strokeColor="@color/brand_primary"
+            android:textColor="@color/brand_primary"
+            android:layout_marginBottom="32dp"/>
+
+    </LinearLayout>
+</ScrollView>
