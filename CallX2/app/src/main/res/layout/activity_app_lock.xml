@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/surface_bg">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/gradient_brand"
+        app:elevation="0dp">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/transparent"
+            app:title="Set App Lock"
+            app:titleTextColor="@color/white"
+            app:navigationIcon="@drawable/ic_back"
+            app:navigationIconTint="@color/white"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="24dp"
+            android:gravity="center_horizontal">
+
+            <!-- Title / icon -->
+            <ImageView
+                android:id="@+id/iv_lock_icon"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:src="@drawable/ic_person"
+                android:tint="@color/brand_primary"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="12dp"/>
+
+            <TextView
+                android:id="@+id/tv_lock_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Set App Lock"
+                android:textColor="@color/text_primary"
+                android:textSize="22sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/tv_lock_desc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Protect your CallX with a lock"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="32dp"/>
+
+            <!-- PIN entry area -->
+            <LinearLayout
+                android:id="@+id/layout_pin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="gone">
+
+                <!-- PIN dots -->
+                <LinearLayout
+                    android:id="@+id/pin_dots"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="24dp"/>
+
+                <!-- Number pad -->
+                <GridLayout
+                    android:id="@+id/grid_numpad"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:columnCount="3"
+                    android:rowCount="4"/>
+            </LinearLayout>
+
+            <!-- Pattern area -->
+            <LinearLayout
+                android:id="@+id/layout_pattern"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="gone">
+
+                <com.andrognito.patternlockview.PatternLockView
+                    android:id="@+id/pattern_lock_view"
+                    android:layout_width="280dp"
+                    android:layout_height="280dp"
+                    app:correctStateColor="@color/brand_primary"
+                    app:normalStateColor="@color/text_secondary"
+                    app:wrongStateColor="@color/action_danger"
+                    app:dotCount="3"
+                    app:dotNormalSize="12dp"
+                    app:dotSelectedSize="18dp"
+                    app:pathWidth="3dp"
+                    android:layout_marginBottom="24dp"/>
+
+                <TextView
+                    android:id="@+id/tv_pattern_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Draw your pattern"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"/>
+            </LinearLayout>
+
+            <!-- Fingerprint area -->
+            <LinearLayout
+                android:id="@+id/layout_fingerprint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/ic_person"
+                    android:tint="@color/brand_primary"
+                    android:layout_marginBottom="16dp"/>
+
+                <TextView
+                    android:id="@+id/tv_fp_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Touch the fingerprint sensor"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="15sp"
+                    android:gravity="center"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_enable_fp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Enable Fingerprint"
+                    android:layout_marginTop="24dp"
+                    app:backgroundTint="@color/brand_primary"/>
+            </LinearLayout>
+
+            <!-- Confirm button (for PIN step 2) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_confirm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Confirm"
+                android:layout_marginTop="24dp"
+                android:visibility="gone"
+                app:backgroundTint="@color/brand_primary"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_remove_lock"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Remove Lock"
+                android:layout_marginTop="12dp"
+                android:visibility="gone"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                app:strokeColor="@color/action_danger"/>
+        </LinearLayout>
+    </ScrollView>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
