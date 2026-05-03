@@ -1,0 +1,68 @@
+<!--
+=============================================================================
+  AndroidManifest.xml — STATUS SYSTEM ADDITIONS
+  Add these entries to your existing AndroidManifest.xml
+=============================================================================
+
+1. Add FOREGROUND_SERVICE_DATA_SYNC permission (already present — verify):
+   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+
+2. Add this <service> block inside <application>:
+-->
+
+<!-- ── StatusBackgroundService: keeps status Firebase listener alive
+         even when the app process is killed, via DATA_SYNC foreground type.
+         stopWithTask="false" ensures it survives task removal.          ── -->
+<service
+    android:name=".services.StatusBackgroundService"
+    android:exported="false"
+    android:foregroundServiceType="dataSync"
+    android:stopWithTask="false"/>
+
+<!--
+3. Update the StatusViewerActivity entry to register the EXTRA_OWNER_UID intent:
+   (no manifest change needed — extras are runtime-only)
+
+4. Add these to <application> if not already present:
+   android:name=".CallxApp"   ← Already present
+
+=============================================================================
+  Firebase Realtime Database Security Rules additions
+  Add to your database.rules.json:
+=============================================================================
+
+{
+  "rules": {
+    "status": {
+      "$ownerUid": {
+        ".read": "auth != null",
+        "$statusId": {
+          ".write": "auth != null && (auth.uid == $ownerUid || data.child('seenBy').child(auth.uid).val() == null)",
+          "seenBy": {
+            "$viewerUid": {
+              ".write": "auth != null && auth.uid == $viewerUid"
+            }
+          },
+          "reactions": {
+            "$reactorUid": {
+              ".write": "auth != null && auth.uid == $reactorUid"
+            }
+          }
+        }
+      }
+    },
+    "statusSeen": {
+      "$viewerUid": {
+        ".read":  "auth != null && auth.uid == $viewerUid",
+        ".write": "auth != null && auth.uid == $viewerUid"
+      }
+    },
+    "statusHighlights": {
+      "$ownerUid": {
+        ".read":  "auth != null",
+        ".write": "auth != null && auth.uid == $ownerUid"
+      }
+    }
+  }
+}
+-->
