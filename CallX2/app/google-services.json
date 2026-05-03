@@ -1,0 +1,22 @@
+{
+  "project_info": {
+    "project_number": "286173223634",
+    "project_id": "sathix-97a76",
+    "storage_bucket": "sathix-97a76.firebasestorage.app",
+    "firebase_url": "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:286173223634:android:77c66dd61ac22411b16b0b",
+        "android_client_info": { "package_name": "com.callx.app" }
+      },
+      "oauth_client": [],
+      "api_key": [
+        { "current_key": "AIzaSyAl-UmdtYFQo5qX6QyiZnTVmC6AS2bwqR4" }
+      ],
+      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+    }
+  ],
+  "configuration_version": "1"
+}
