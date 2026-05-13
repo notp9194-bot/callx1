@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#121212">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+        <ImageButton android:id="@+id/btn_sts_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Share to Story" android:textColor="#FFFFFF"
+            android:textSize="18sp" android:textStyle="bold" android:paddingStart="12dp"/>
+    </LinearLayout>
+
+    <FrameLayout android:layout_width="match_parent" android:layout_height="200dp"
+        android:background="#000000">
+        <androidx.media3.ui.PlayerView android:id="@+id/player_story_preview"
+            android:layout_width="match_parent" android:layout_height="match_parent"/>
+        <ProgressBar android:id="@+id/progress_sts" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:layout_gravity="center" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_sts_sticker_on_video" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="18sp"
+            android:textStyle="bold" android:background="#88000000" android:padding="8dp"
+            android:layout_gravity="center" android:visibility="gone"/>
+    </FrameLayout>
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingBottom="24dp">
+
+            <TextView android:id="@+id/tv_sts_attribution" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:textColor="#888888" android:textSize="12sp"
+                android:paddingVertical="8dp"/>
+            <TextView android:id="@+id/tv_sts_story_count" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:textColor="#555555" android:textSize="12sp"
+                android:paddingBottom="8dp"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="CLIP LENGTH (max 15s)" android:textColor="#888888"
+                android:textSize="11sp" android:paddingBottom="4dp"/>
+            <TextView android:id="@+id/tv_sts_clip_label" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Clip length: 15s"
+                android:textColor="#FFFFFF" android:textSize="13sp"/>
+            <SeekBar android:id="@+id/sb_sts_clip_end" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:paddingBottom="8dp"/>
+
+            <EditText android:id="@+id/et_sts_caption" android:layout_width="match_parent"
+                android:layout_height="60dp" android:hint="Add story caption…"
+                android:textColor="#FFFFFF" android:textColorHint="#666666"
+                android:background="@drawable/bg_search_field" android:paddingHorizontal="16dp"
+                android:paddingTop="8dp" android:gravity="top" android:layout_marginBottom="8dp"/>
+
+            <EditText android:id="@+id/et_sts_sticker_text" android:layout_width="match_parent"
+                android:layout_height="44dp" android:hint="Add text sticker on video…"
+                android:textColor="#FFFFFF" android:textColorHint="#666666"
+                android:background="@drawable/bg_search_field" android:paddingHorizontal="16dp"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="PRIVACY" android:textColor="#888888" android:textSize="11sp" android:paddingBottom="4dp"/>
+            <RadioGroup android:id="@+id/rg_sts_privacy" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:orientation="vertical">
+                <RadioButton android:layout_width="wrap_content" android:layout_height="36dp"
+                    android:text="All Followers" android:textColor="#FFFFFF" android:checked="true"/>
+                <RadioButton android:layout_width="wrap_content" android:layout_height="36dp"
+                    android:text="Close Friends Only" android:textColor="#FFFFFF"/>
+                <RadioButton android:layout_width="wrap_content" android:layout_height="36dp"
+                    android:text="Public" android:textColor="#FFFFFF"/>
+            </RadioGroup>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="STORY DURATION" android:textColor="#888888" android:textSize="11sp"
+                android:paddingTop="8dp" android:paddingBottom="4dp"/>
+            <RadioGroup android:id="@+id/rg_sts_duration" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:orientation="horizontal">
+                <RadioButton android:layout_width="0dp" android:layout_height="36dp"
+                    android:layout_weight="1" android:text="15s" android:textColor="#FFFFFF" android:checked="true"/>
+                <RadioButton android:layout_width="0dp" android:layout_height="36dp"
+                    android:layout_weight="1" android:text="30s" android:textColor="#FFFFFF"/>
+                <RadioButton android:layout_width="0dp" android:layout_height="36dp"
+                    android:layout_weight="1" android:text="60s" android:textColor="#FFFFFF"/>
+            </RadioGroup>
+
+            <TextView android:id="@+id/tv_sts_expiry_note" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:textColor="#555555" android:textSize="11sp"
+                android:paddingTop="8dp" android:paddingBottom="12dp"/>
+
+            <Button android:id="@+id/btn_sts_share" android:layout_width="match_parent"
+                android:layout_height="52dp" android:text="✓ Share to Story"
+                android:backgroundTint="#FF3B5C" android:textColor="#FFFFFF" android:textSize="16sp"/>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

@@ -1,0 +1,687 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- FIX v14: shortService type — required for ReelNotificationService on Android 14+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS"/>
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+
+    <application
+        android:name=".CallxApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:label="CallX"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@style/Theme.CallX"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false"
+        android:supportsRtl="true">
+
+        <activity android:name=".activities.AuthActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".activities.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <!-- Handles taps on reel notifications when app is killed/Doze
+                 FCM notification payload: click_action = "OPEN_REEL_NOTIFICATION" -->
+            <intent-filter>
+                <action android:name="OPEN_REEL_NOTIFICATION"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".activities.ChatActivity"     android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.GroupChatActivity" android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.GroupInfoActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.GroupSettingsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.NewGroupActivity" android:exported="false"/>
+        <activity android:name=".activities.SearchActivity"   android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.RequestsActivity" android:exported="false"/>
+        <activity android:name=".activities.RequestPopupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Transparent"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""/>
+        <activity android:name=".activities.ProfileActivity"  android:exported="false"/>
+        <activity android:name=".activities.MediaViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"/>
+        <activity android:name=".activities.VideoPlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name=".activities.StatusViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"/>
+        <activity android:name=".activities.NewStatusActivity"
+            android:exported="false"/>
+        <activity android:name=".activities.StarredMessagesActivity"
+            android:exported="false"
+            android:parentActivityName=".activities.ChatActivity"/>
+        <activity android:name=".activities.JoinGroupActivity"
+            android:exported="true">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="join"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".activities.CallActivity" android:exported="false"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+        <activity android:name=".activities.IncomingCallActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+
+        <!-- ── Group Call Activities ── -->
+        <activity android:name=".activities.GroupCallActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+        <activity android:name=".activities.IncomingGroupCallActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+        <activity android:name=".activities.GroupCallSettingsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <service android:name=".services.CallxMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+            </intent-filter>
+        </service>
+        <service android:name=".services.CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall"/>
+
+        <activity android:name=".activities.SpecialRequestPopupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Transparent"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.callx.app.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
+
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="callx_calls"/>
+
+      <service
+          android:name=".services.IncomingRingService"
+          android:exported="false"
+          android:foregroundServiceType="phoneCall"
+          android:stopWithTask="false"/>
+
+      <!-- ReelNotificationService: stub only (v15). Notifications are now shown
+           directly from ReelFCMNotificationHandler using an Executor, same as
+           CallxMessagingService.showMessage(). No foreground service needed. -->
+      <service
+          android:name=".services.ReelNotificationService"
+          android:exported="false"
+          android:stopWithTask="false"/>
+
+      <receiver
+          android:name=".services.NotificationActionReceiver"
+          android:exported="false">
+          <intent-filter>
+              <action android:name="com.callx.app.ACCEPT_CALL"/>
+              <action android:name="com.callx.app.DECLINE_CALL"/>
+              <action android:name="com.callx.app.END_CALL"/>
+          </intent-filter>
+      </receiver>
+
+      <service
+          android:name=".services.GroupCallRingService"
+          android:exported="false"
+          android:foregroundServiceType="phoneCall"
+          android:stopWithTask="false"/>
+
+      <service
+          android:name=".services.GroupCallForegroundService"
+          android:exported="false"
+          android:foregroundServiceType="phoneCall"/>
+
+      <receiver
+          android:name=".services.GroupCallActionReceiver"
+          android:exported="false">
+          <intent-filter>
+              <action android:name="com.callx.app.ACTION_GROUP_DECLINE_CALL"/>
+              <action android:name="com.callx.app.ACTION_GROUP_END_CALL"/>
+              <action android:name="com.callx.app.ACTION_GROUP_JOIN_CALL"/>
+          </intent-filter>
+      </receiver>
+
+        <activity android:name=".activities.AccountMenuActivity" android:exported="false"/>
+        <activity android:name=".activities.PhoneAuthActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.ProfileSetupActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.AllNotificationsActivity" android:exported="false"/>
+        <activity android:name=".activities.PrivacySecurityActivity" android:exported="false"/>
+        <activity android:name=".activities.TwoStepVerificationActivity" android:exported="false"/>
+        <activity android:name=".activities.LoginActivityLogActivity" android:exported="false"/>
+        <activity android:name=".activities.AppLockActivity" android:exported="false"/>
+        <activity android:name=".activities.CacheStatsActivity" android:exported="false"/>
+        <activity android:name=".activities.ContactsActivity" android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.LockScreenActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.NoActionBar"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+
+        <!-- ── Reels System (Existing) ── -->
+        <activity android:name=".activities.HashtagReelsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+        <activity android:name=".activities.UserReelsActivity"
+            android:exported="false"/>
+        <activity android:name=".activities.ReelSearchActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.SingleReelPlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+        <activity android:name=".activities.ReelUploadActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.ReelCommentActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.SavedReelsActivity"
+            android:exported="false"
+            android:parentActivityName=".activities.ProfileActivity"/>
+
+        <!-- ── Reels System (New — Production Level) ── -->
+        <activity android:name=".activities.ReelCameraActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <activity android:name=".activities.ReelEditorActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name=".activities.MusicPickerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name=".activities.ReelDraftsActivity"
+            android:exported="false"/>
+
+        <activity android:name=".activities.ReelAnalyticsActivity"
+            android:exported="false"/>
+
+        <activity android:name=".activities.LikedReelsActivity"
+            android:exported="false"/>
+
+        <activity android:name=".activities.ReelReportActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name=".activities.ReelEditActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name=".activities.ReelShareSheetActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Transparent"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name=".activities.DuetReelActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <!-- ── Video Trim ── -->
+        <activity android:name=".activities.VideoTrimActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ── Sound Detail ── -->
+        <activity android:name=".activities.SoundDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"/>
+
+        <!-- ── Reel Filters & Effects ── -->
+        <activity android:name=".activities.ReelFiltersActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ── Stitch Reel ── -->
+        <activity android:name=".activities.StitchReelActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <!-- ── Multi-Clip Camera ── -->
+        <activity android:name=".activities.MultiClipCameraActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <!-- ── Reel Post Details ── -->
+        <activity android:name=".activities.ReelPostDetailsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ── Reel Creator Tools ── -->
+        <activity android:name=".activities.ReelCreatorToolsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ── Reel Remix Settings ── -->
+        <activity android:name=".activities.ReelRemixSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- ── Reel Deep Analytics ── -->
+        <activity android:name=".activities.ReelDeepAnalyticsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- ── Reel Notifications / Activity ── -->
+        <activity android:name=".activities.ReelNotificationsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- ── NEW CRITICAL SCREENS — Production Reels System v2         ── -->
+        <!-- ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Explore / Discover Page -->
+        <activity android:name=".activities.ReelExploreActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Audio Mixer (original vol + music vol + voiceover recording) -->
+        <activity android:name=".activities.ReelAudioMixerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <!-- Auto-Captions / Subtitles Editor -->
+        <activity android:name=".activities.ReelSubtitlesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Video Reply — record a video response to a comment -->
+        <activity android:name=".activities.ReelVideoReplyActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <!-- Creator Hub — main menu for all creator screens -->
+        <activity android:name=".activities.ReelCreatorHubActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <!-- Privacy and Security — TikTok-style settings screen -->
+        <activity android:name=".activities.ReelPrivacyAndSecurityActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <!-- Creator Dashboard — cross-reel analytics overview -->
+        <activity android:name=".activities.ReelCreatorDashboardActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Notification Center — unified notification log (foreground/background/killed) -->
+        <activity android:name=".activities.NotificationCenterActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Reel Scheduler — schedule reels to post at a future time -->
+        <activity android:name=".activities.ReelSchedulerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Saved Sounds — view & manage bookmarked audio tracks -->
+        <activity android:name=".activities.SavedSoundsActivity"
+            android:exported="false"
+            android:parentActivityName=".activities.MainActivity"/>
+
+        <!-- BroadcastReceiver: fires AlarmManager alarm to trigger scheduled reel upload -->
+        <receiver
+            android:name=".activities.ReelSchedulerActivity$ScheduledReelReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_POST_SCHEDULED_REEL"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- ── NEW CRITICAL PRODUCTION SCREENS v2                        ── -->
+        <!-- ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Thumbnail / Cover Frame Picker — choose a video frame as the reel cover -->
+        <activity android:name=".activities.ReelThumbnailPickerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Live Camera Effects — color presets, beauty, stickers on camera -->
+        <activity android:name=".activities.ReelEffectsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.Fullscreen"/>
+
+        <!-- Collab Invite Inbox — accept or decline collaboration requests -->
+        <activity android:name=".activities.ReelCollabInboxActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- ── NEW SCREENS v3 — Next Missing Production Screens          ── -->
+        <!-- ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Sticker Picker — emoji, text stickers, GIFs overlay on reel -->
+        <activity android:name=".activities.ReelStickerPickerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Voice Effects — pitch, speed, reverb, chipmunk, robot, etc. -->
+        <activity android:name=".activities.ReelVoiceEffectsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Following Feed — reels only from people you follow -->
+        <activity android:name=".activities.ReelFollowingFeedActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+
+        <!-- Transitions — clip-to-clip transition effect picker -->
+        <activity android:name=".activities.ReelTransitionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Audience Insights — age, gender, location, device, peak hours -->
+        <activity android:name=".activities.ReelAudienceInsightsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Challenges — trending hashtag challenges feed + join -->
+        <activity android:name=".activities.ReelChallengeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- ── NEW PRODUCTION SCREENS v4 — 10 Missing Critical Screens  ── -->
+        <!-- ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Reel Privacy Settings — view/comment/duet/stitch/download controls per reel -->
+        <activity android:name=".activities.ReelPrivacySettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Tag People — multi-select contacts to tag in a reel before publishing -->
+        <activity android:name=".activities.ReelTagPeopleActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Location Tag — add a place/location tag to a reel -->
+        <activity android:name=".activities.ReelLocationTagActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Text Overlay Editor — add styled text overlays to reels -->
+        <activity android:name=".activities.ReelTextOverlayActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Speed Control — select recording/playback speed 0.3x to 3x -->
+        <activity android:name=".activities.ReelSpeedControlActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Comment Moderation — keyword blocklist and creator moderation settings -->
+        <activity android:name=".activities.ReelModerationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Gifting / Coins — virtual gifts received dashboard with withdrawal CTA -->
+        <activity android:name=".activities.ReelGiftingActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Live Streaming — go live with real-time viewer count and chat overlay -->
+        <activity android:name=".activities.ReelLiveActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <!-- Collab Requests — send / receive / manage collaboration invites -->
+        <activity android:name=".activities.ReelCollabRequestActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- QR Code Share — generate branded QR code to share a specific reel -->
+        <activity android:name=".activities.ReelQRCodeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Feed Settings — FYP algorithm preferences, topic interests, not-interested list -->
+        <activity android:name=".activities.ReelFeedSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Pinned Comments — pin / unpin a comment to the top of a reel's comment section -->
+        <activity android:name=".activities.ReelPinnedCommentsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Bookmark Collections — organise saved reels into named collections / folders -->
+        <activity android:name=".activities.ReelBookmarkCollectionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Creator Fund — earnings dashboard, fund enrollment, payout history, withdrawal -->
+        <activity android:name=".activities.ReelCreatorFundActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Mentions — reels in which the current user has been @mentioned -->
+        <activity android:name=".activities.ReelMentionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Product Tag — tag shoppable products in a reel (up to 5 per reel) -->
+        <activity android:name=".activities.ReelProductTagActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Close Friends — manage the Close Friends list for restricted reel sharing -->
+        <activity android:name=".activities.ReelCloseFriendsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Trending Audio — dedicated trending audio browser with inline preview and Use button -->
+        <activity android:name=".activities.ReelTrendingAudioActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+
+        <!-- ═══ NEW SCREENS v5 ═══ -->
+        <activity android:name=".activities.ReelWatermarkSettingsActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.ReelSoundRecorderActivity"
+            android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".activities.ReelGreenScreenActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:configChanges="orientation|keyboardHidden|screenSize"/>
+        <activity android:name=".activities.ReelChallengeCreateActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.ReelLiveReplayActivity"
+            android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".activities.ReelShareToStoryActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".activities.ReelNotificationSettingsActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ═══ REEL NOTIFICATION SYSTEM v5 ═══ -->
+        <receiver android:name=".notifications.ReelNotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_LIKE_REEL"/>
+                <action android:name="com.callx.app.ACTION_REEL_COMMENT_REPLY"/>
+                <action android:name="com.callx.app.ACTION_LIKE_COMMENT"/>
+                <action android:name="com.callx.app.ACTION_FOLLOW_BACK"/>
+                <action android:name="com.callx.app.ACTION_COLLAB_ACCEPT"/>
+                <action android:name="com.callx.app.ACTION_COLLAB_DECLINE"/>
+                <action android:name="com.callx.app.ACTION_MARK_MENTIONS_READ"/>
+                <action android:name="com.callx.app.ACTION_DISMISS_REEL_NOTIF"/>
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".notifications.ReelNotificationBootReceiver"
+            android:exported="true">
+            <intent-filter android:priority="999">
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+    
+          <!-- ═══════════════════════════════════════════════════════ -->
+          <!-- NEW: Global Notification Settings (v19) -->
+          <!-- ═══════════════════════════════════════════════════════ -->
+          <activity
+              android:name=".activities.GlobalNotificationSettingsActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:windowSoftInputMode="adjustResize"/>
+
+          <activity
+              android:name=".activities.MutedChatsActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"/>
+
+          <!-- NEW: Quiet Hours AlarmManager receiver -->
+          <receiver
+              android:name=".services.QuietHoursReceiver"
+              android:exported="false">
+              <intent-filter>
+                  <action android:name="com.callx.app.ACTION_DND_START"/>
+                  <action android:name="com.callx.app.ACTION_DND_END"/>
+                  <action android:name="android.intent.action.BOOT_COMPLETED"/>
+              </intent-filter>
+          </receiver>
+
+          <!-- NEW: Notification Snooze receiver -->
+          <receiver
+              android:name=".services.NotificationSnoozeReceiver"
+              android:exported="false">
+              <intent-filter>
+                  <action android:name="com.callx.app.SNOOZE_1H"/>
+                  <action android:name="com.callx.app.SNOOZE_8H"/>
+                  <action android:name="com.callx.app.SNOOZE_24H"/>
+                  <action android:name="com.callx.app.SNOOZE_FIRE"/>
+              </intent-filter>
+          </receiver>
+
+          <!-- NEW: Status expiry reminder receiver -->
+          <receiver
+              android:name=".services.StatusExpiryReceiver"
+              android:exported="false">
+              <intent-filter>
+                  <action android:name="com.callx.app.STATUS_EXPIRY_REMINDER"/>
+              </intent-filter>
+          </receiver>
+
+      </application>
+</manifest>

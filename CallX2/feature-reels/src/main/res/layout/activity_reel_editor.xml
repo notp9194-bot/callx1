@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- Top bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <ImageButton
+            android:id="@+id/btn_editor_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/white"
+            android:contentDescription="Back"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Edit Reel"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"/>
+
+        <TextView
+            android:id="@+id/btn_editor_next"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Next"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="@drawable/bg_reel_follow_btn"/>
+    </LinearLayout>
+
+    <!-- Video Preview (9:16 aspect) -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/editor_player_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:use_controller="false"
+            app:resize_mode="fit"/>
+
+        <!-- Buffering -->
+        <ProgressBar
+            android:id="@+id/editor_progress_buffering"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:indeterminateTint="#FFFFFF"
+            android:visibility="gone"/>
+
+        <!-- Play/Pause -->
+        <ImageButton
+            android:id="@+id/btn_editor_play_pause"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_pause"
+            android:background="@drawable/circle_avatar_bg"
+            android:tint="#CCFFFFFF"
+            android:contentDescription="Play/Pause"/>
+
+        <!-- Text overlay preview -->
+        <TextView
+            android:id="@+id/tv_text_preview"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="60dp"
+            android:text=""
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:fontFamily="sans-serif-medium"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:background="#88000000"
+            android:visibility="gone"/>
+    </FrameLayout>
+
+    <!-- Editor controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#1A1A1A"
+        android:padding="16dp">
+
+        <!-- Trim section -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="TRIM"
+            android:textColor="#AAFFFFFF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_editor_trim_start"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="0:00"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp"/>
+
+            <SeekBar
+                android:id="@+id/sb_editor_trim_start"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:progressTint="@color/brand_primary"
+                android:thumbTint="@color/white"/>
+
+            <TextView
+                android:id="@+id/tv_editor_duration"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="0:30"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:id="@+id/tv_editor_trim_end"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="0:30"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp"/>
+
+            <SeekBar
+                android:id="@+id/sb_editor_trim_end"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:progressTint="@color/brand_accent"
+                android:thumbTint="@color/white"/>
+
+            <View
+                android:layout_width="40dp"
+                android:layout_height="1dp"/>
+        </LinearLayout>
+
+        <!-- Text overlay -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#33FFFFFF"
+            android:layout_marginVertical="12dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="TEXT OVERLAY"
+            android:textColor="#AAFFFFFF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <EditText
+                android:id="@+id/et_text_overlay"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:hint="Add text to video..."
+                android:textColorHint="#66FFFFFF"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/bg_comment_input"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:singleLine="true"/>
+
+            <TextView
+                android:id="@+id/btn_add_text"
+                android:layout_width="60dp"
+                android:layout_height="44dp"
+                android:text="Add"
+                android:gravity="center"
+                android:textColor="@color/brand_primary"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginStart="8dp"/>
+        </LinearLayout>
+
+        <!-- Editor tools row -->
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#33FFFFFF" android:layout_marginTop="12dp" android:layout_marginBottom="8dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="EDITING TOOLS" android:textColor="#AAFFFFFF" android:textSize="11sp"
+            android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
+            android:layout_marginBottom="8dp"/>
+        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:scrollbars="none">
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical">
+
+                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                    <ImageButton android:id="@+id/btn_tool_filters" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_filter" android:background="@drawable/bg_speed_chip"
+                        android:tint="@color/white" android:contentDescription="Filters"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Filters" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                    <ImageButton android:id="@+id/btn_tool_stickers" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_sparkle" android:background="@drawable/bg_speed_chip"
+                        android:tint="@color/white" android:contentDescription="Stickers"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Stickers" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                    <ImageButton android:id="@+id/btn_tool_subtitles" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_caption" android:background="@drawable/bg_speed_chip"
+                        android:tint="@color/white" android:contentDescription="Subtitles"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Subtitles" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                    <ImageButton android:id="@+id/btn_tool_transitions" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_swap" android:background="@drawable/bg_speed_chip"
+                        android:tint="@color/white" android:contentDescription="Transitions"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Transitions" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                    <ImageButton android:id="@+id/btn_tool_voice" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_mic" android:background="@drawable/bg_speed_chip"
+                        android:tint="@color/white" android:contentDescription="Voice FX"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Voice FX" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                    <ImageButton android:id="@+id/btn_tool_audio_mixer" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_music" android:background="@drawable/bg_speed_chip"
+                        android:tint="@color/white" android:contentDescription="Audio Mixer"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Audio Mix" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center">
+                    <ImageButton android:id="@+id/btn_tool_thumbnail" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_gallery" android:background="@drawable/bg_speed_chip"
+                        android:tint="@color/white" android:contentDescription="Thumbnail"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Thumbnail" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+
+            </LinearLayout>
+        </HorizontalScrollView>
+
+    </LinearLayout>
+
+</LinearLayout>

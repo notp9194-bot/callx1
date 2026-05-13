@@ -1,0 +1,169 @@
+<!--
+=============================================================================
+  AndroidManifest.xml — VIDEO COMPRESSION v24 ADDITIONS
+  Add these entries to your existing AndroidManifest.xml
+=============================================================================
+
+1. PERMISSIONS — add inside <manifest> tag:
+-->
+
+<!-- Video compression & upload permissions -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+<!-- Already present — verify these exist: -->
+<uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+    android:maxSdkVersion="32"/>
+<uses-permission android:name="android.permission.CAMERA"/>
+<uses-permission android:name="android.permission.RECORD_AUDIO"/>
+<uses-permission android:name="android.permission.INTERNET"/>
+
+<!--
+2. ACTIVITIES — add inside <application> tag:
+-->
+
+<!-- Video Trim Activity -->
+<activity
+    android:name=".activities.VideoTrimActivity"
+    android:exported="false"
+    android:screenOrientation="portrait"
+    android:theme="@style/Theme.AppCompat.NoActionBar"
+    android:windowSoftInputMode="adjustNothing"/>
+
+<!--
+3. SERVICES — add inside <application> tag:
+-->
+
+<!-- Background video compression + upload foreground service -->
+<service
+    android:name=".services.VideoCompressService"
+    android:exported="false"
+    android:foregroundServiceType="dataSync"/>
+
+<!--
+=============================================================================
+  USAGE GUIDE — How to integrate new features into ChatActivity
+=============================================================================
+
+──────────────────────────────────────────────────────────
+A. QUALITY SELECTOR (bottom sheet before sending)
+──────────────────────────────────────────────────────────
+
+  // In ChatActivity, when user picks a video:
+  void onVideoPicked(Uri videoUri) {
+      VideoQualitySheet.show(getSupportFragmentManager(),
+          chatId,
+          videoPickerHelper.getVideoInfo(videoUri).durationMs,
+          quality -> {
+              // User selected quality — now compress + upload
+              sendVideoWithQuality(videoUri, quality);
+          });
+  }
+
+  void sendVideoWithQuality(Uri uri, VideoQualityPreferences.Quality quality) {
+      // Show progress in message bubble
+      String msgId = pushPendingMessage("video");
+      showVideoProgress(msgId, 0);
+
+      VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
+          public void onProgress(int pct) { showVideoProgress(msgId, pct / 2); }
+          public void onSuccess(VideoCompressor.Result r) {
+              // Show compression savings toast
+              Toast.makeText(ctx, VideoCompressionStats.formatResult(r),
+                  Toast.LENGTH_SHORT).show();
+              // Record stats
+              new VideoCompressionStats(ctx).record(r);
+              // Upload
+              VideoUploader.upload(ctx, r, new VideoUploader.UploadCallback() {
+                  public void onProgress(int pct) { showVideoProgress(msgId, 50 + pct/2); }
+                  public void onSuccess(String thumbUrl, String videoUrl, int durationMs,
+                                        int w, int h, String summary, float savings) {
+                      updateMessageWithMedia(msgId, thumbUrl, videoUrl, durationMs, w, h);
+                  }
+                  public void onError(Exception e) {
+                      markMessageFailed(msgId);
+                      // Queue for offline retry
+                      VideoUploadWorker.enqueue(ctx, localPath, chatId, msgId, false, quality);
+                  }
+              });
+          }
+          public void onError(Exception e) { markMessageFailed(msgId); }
+      });
+  }
+
+──────────────────────────────────────────────────────────
+B. VIDEO TRIM (add trim button to video send flow)
+──────────────────────────────────────────────────────────
+
+  private static final int REQ_TRIM = 7771;
+
+  // After picking video, show trim option:
+  void offerTrim(Uri videoUri) {
+      new AlertDialog.Builder(this)
+          .setTitle("Send video")
+          .setPositiveButton("Trim first", (d,w) -> launchTrim(videoUri))
+          .setNegativeButton("Send as-is", (d,w) -> onVideoPicked(videoUri))
+          .show();
+  }
+
+  void launchTrim(Uri videoUri) {
+      Intent i = new Intent(this, VideoTrimActivity.class);
+      i.setData(videoUri);
+      startActivityForResult(i, REQ_TRIM);
+  }
+
+  @Override
+  protected void onActivityResult(int req, int res, Intent data) {
+      super.onActivityResult(req, res, data);
+      if (req == REQ_TRIM && res == RESULT_OK && data != null) {
+          String trimmedPath = data.getStringExtra(VideoTrimActivity.EXTRA_TRIMMED_PATH);
+          Uri trimmedUri = Uri.fromFile(new File(trimmedPath));
+          onVideoPicked(trimmedUri); // proceed with trimmed video
+      }
+  }
+
+──────────────────────────────────────────────────────────
+C. MULTI-SELECT VIDEO (update gallery button)
+──────────────────────────────────────────────────────────
+
+  // In ChatActivity onCreate:
+  videoPicker = new VideoPickerHelper(this,
+      uri  -> onVideoPicked(uri),          // single pick
+      uris -> onMultipleVideosPicked(uris) // multi pick
+  );
+
+  btnVideoMulti.setOnClickListener(v -> videoPicker.openGalleryMulti());
+
+  void onMultipleVideosPicked(List<Uri> uris) {
+      for (Uri uri : uris) {
+          sendVideoWithQuality(uri, prefs.getChatQuality(chatId));
+      }
+  }
+
+──────────────────────────────────────────────────────────
+D. PER-CHAT QUALITY SETTINGS (in chat settings menu)
+──────────────────────────────────────────────────────────
+
+  // Show quality sheet from settings menu:
+  void showQualitySettings() {
+      VideoQualitySheet.show(getSupportFragmentManager(), chatId, 0,
+          quality -> {
+              prefs.setChatQuality(chatId, quality);
+              Toast.makeText(this, "Quality set to " + quality.label,
+                  Toast.LENGTH_SHORT).show();
+          });
+  }
+
+──────────────────────────────────────────────────────────
+E. COMPRESSION STATS UI (in AccountMenuActivity or Settings)
+──────────────────────────────────────────────────────────
+
+  VideoCompressionStats stats = new VideoCompressionStats(ctx);
+  tvStats.setText(stats.getSummary());
+  // Optional: sync to Firebase for cross-device
+  stats.syncToFirebase(FirebaseAuth.getInstance().getUid());
+
+=============================================================================
+-->

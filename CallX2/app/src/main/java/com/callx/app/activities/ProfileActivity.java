@@ -1,0 +1,250 @@
+package com.callx.app.activities;
+import android.app.Dialog;
+import android.net.Uri;
+import android.os.Bundle;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.TextView;
+import android.widget.Toast;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AppCompatActivity;
+import com.bumptech.glide.Glide;
+import com.callx.app.R;
+import com.callx.app.databinding.ActivityProfileBinding;
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.UserEntity;
+import com.callx.app.utils.CloudinaryUploader;
+import com.callx.app.utils.FirebaseUtils;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.UserProfileChangeRequest;
+import com.google.firebase.database.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Executors;
+
+public class ProfileActivity extends AppCompatActivity {
+    private ActivityProfileBinding binding;
+    private String currentUid;
+    private String viewUid;       // uid being viewed (may differ from currentUid)
+    private boolean isOwnProfile;
+    private String currentPhoto = "";
+    private ActivityResultLauncher<String> imagePicker;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        binding = ActivityProfileBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
+        binding.toolbar.setNavigationOnClickListener(v -> finish());
+
+        currentUid = FirebaseUtils.getCurrentUid();
+        String intentUid = getIntent().getStringExtra("uid");
+        viewUid      = (intentUid != null && !intentUid.isEmpty()) ? intentUid : currentUid;
+        isOwnProfile = viewUid.equals(currentUid);
+
+        if (isOwnProfile) {
+            // Own profile — edit mode
+            imagePicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) uploadAvatar(uri); });
+            binding.btnChangeAvatar.setOnClickListener(v -> imagePicker.launch("image/*"));
+            binding.btnSave.setOnClickListener(v -> save());
+        } else {
+            // Someone else's profile — read-only
+            binding.btnChangeAvatar.setVisibility(View.GONE);
+            binding.btnSave.setVisibility(View.GONE);
+            binding.etName.setEnabled(false);
+            binding.etAbout.setEnabled(false);
+            binding.toolbar.setTitle("Profile");
+        }
+
+        // Long press avatar → zoom full photo
+        binding.ivAvatar.setOnLongClickListener(v -> {
+            showAvatarZoom(currentPhoto);
+            return true;
+        });
+
+        load();
+    }
+
+    private void load() {
+        // Room cache — sirf apne profile ke liye (offline fallback)
+        if (isOwnProfile) {
+            Executors.newSingleThreadExecutor().execute(() -> {
+                AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+                UserEntity cached = db.userDao().getUser(viewUid);
+                if (cached != null) {
+                    runOnUiThread(() -> {
+                        binding.etName.setText(orEmpty(cached.name));
+                        binding.etAbout.setText(orEmpty(cached.about));
+                        binding.tvCallxId.setText(orEmpty(cached.callxId));
+                        binding.tvEmail.setText(orEmpty(cached.email));
+                        currentPhoto = orEmpty(cached.photoUrl);
+                        if (!currentPhoto.isEmpty()) {
+                            Glide.with(ProfileActivity.this).load(currentPhoto)
+                                .into(binding.ivAvatar);
+                        }
+                    });
+                }
+            });
+        }
+
+        // Firebase se fresh data
+        FirebaseUtils.getUserRef(viewUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot s) {
+                    String name    = orEmpty(s.child("name").getValue(String.class));
+                    String about   = orEmpty(s.child("about").getValue(String.class));
+                    String callxId = orEmpty(s.child("callxId").getValue(String.class));
+                    String email   = isOwnProfile ? orEmpty(s.child("email").getValue(String.class)) : "";
+                    String photo   = orEmpty(s.child("photoUrl").getValue(String.class));
+
+                    binding.etName.setText(name);
+                    binding.etAbout.setText(about);
+                    binding.tvCallxId.setText(callxId);
+                    if (isOwnProfile) binding.tvEmail.setText(email);
+                    currentPhoto = photo;
+                    if (!photo.isEmpty()) {
+                        Glide.with(ProfileActivity.this).load(photo)
+                            .into(binding.ivAvatar);
+                    }
+
+                    // Room cache update — sirf apne profile ke liye
+                    if (isOwnProfile) {
+                        Executors.newSingleThreadExecutor().execute(() -> {
+                            AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+                            UserEntity u = db.userDao().getUser(viewUid);
+                            if (u == null) u = new UserEntity();
+                            u.uid     = viewUid;
+                            u.name    = name;
+                            u.about   = about;
+                            u.callxId = callxId;
+                            u.email   = email;
+                            u.photoUrl = photo;
+                            u.cachedAt = System.currentTimeMillis();
+                            db.userDao().insertUser(u);
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+    }
+    private String orEmpty(String s) { return s == null ? "" : s; }
+    private void uploadAvatar(Uri uri) {
+        binding.avatarProgress.setVisibility(View.VISIBLE);
+        CloudinaryUploader.uploadAvatar(this, uri,
+            new CloudinaryUploader.AvatarUploadCallback() {
+
+                // Step 1 done: thumbnail ready → Firebase thumbUrl save + UI
+                @Override public void onThumbReady(String thumbUrl) {
+                    FirebaseUtils.getUserRef(currentUid)
+                        .child("thumbUrl").setValue(thumbUrl);
+                    // Room cache update
+                    Executors.newSingleThreadExecutor().execute(() -> {
+                        AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+                        db.userDao().updateThumb(currentUid, thumbUrl);
+                    });
+                    // Profile screen mein bhi thumb dikhao (snap fast)
+                    Glide.with(ProfileActivity.this).load(thumbUrl)
+                        .into(binding.ivAvatar);
+                }
+
+                // Step 2 done: full photo ready → Firebase photoUrl save
+                @Override public void onFullReady(String photoUrl) {
+                    binding.avatarProgress.setVisibility(View.GONE);
+                    currentPhoto = photoUrl;
+                    FirebaseUtils.getUserRef(currentUid)
+                        .child("photoUrl").setValue(photoUrl);
+                    // Room cache update
+                    Executors.newSingleThreadExecutor().execute(() -> {
+                        AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+                        db.userDao().updatePhoto(currentUid, photoUrl);
+                    });
+                    // Profile screen par full photo reload karo
+                    Glide.with(ProfileActivity.this).load(photoUrl)
+                        .into(binding.ivAvatar);
+                    Toast.makeText(ProfileActivity.this,
+                        "Profile photo update ho gayi", Toast.LENGTH_SHORT).show();
+                }
+
+                @Override public void onError(String err) {
+                    binding.avatarProgress.setVisibility(View.GONE);
+                    Toast.makeText(ProfileActivity.this,
+                        err == null ? "Upload fail" : err,
+                        Toast.LENGTH_LONG).show();
+                }
+            });
+    }
+    private void save() {
+        String name  = binding.etName.getText().toString().trim();
+        String about = binding.etAbout.getText().toString().trim();
+        if (name.isEmpty()) {
+            Toast.makeText(this, "Naam khali nahi ho sakta",
+                Toast.LENGTH_SHORT).show(); return;
+        }
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("name", name);
+        updates.put("about", about);
+        FirebaseUtils.getUserRef(currentUid).updateChildren(updates);
+        FirebaseAuth.getInstance().getCurrentUser()
+            .updateProfile(new UserProfileChangeRequest.Builder()
+                .setDisplayName(name).build());
+        Toast.makeText(this, "Profile saved", Toast.LENGTH_SHORT).show();
+        finish();
+    }
+
+    private void showAvatarZoom(String photoUrl) {
+        android.app.Dialog dialog = new android.app.Dialog(
+            this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        root.setBackgroundColor(0xEE000000);
+
+        com.github.chrisbanes.photoview.PhotoView photoView =
+            new com.github.chrisbanes.photoview.PhotoView(this);
+        android.widget.FrameLayout.LayoutParams ivLp =
+            new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
+        photoView.setLayoutParams(ivLp);
+        photoView.setMinimumScale(1f);
+        photoView.setMediumScale(2f);
+        photoView.setMaximumScale(5f);
+        photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
+
+        android.widget.ImageButton btnClose = new android.widget.ImageButton(this);
+        int closeSizePx = (int)(40 * getResources().getDisplayMetrics().density);
+        android.widget.FrameLayout.LayoutParams closeLp =
+            new android.widget.FrameLayout.LayoutParams(closeSizePx, closeSizePx);
+        closeLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        closeLp.topMargin  = (int)(40 * getResources().getDisplayMetrics().density);
+        closeLp.rightMargin = (int)(16 * getResources().getDisplayMetrics().density);
+        btnClose.setLayoutParams(closeLp);
+        btnClose.setImageResource(R.drawable.ic_close);
+        btnClose.setBackgroundColor(0x00000000);
+        btnClose.setOnClickListener(v -> dialog.dismiss());
+
+        if (photoUrl != null && !photoUrl.isEmpty()) {
+            Glide.with(this).load(photoUrl)
+                .placeholder(R.drawable.ic_person)
+                .error(R.drawable.ic_person)
+                .into(photoView);
+        } else {
+            photoView.setImageResource(R.drawable.ic_person);
+        }
+
+        root.addView(photoView);
+        root.addView(btnClose);
+        dialog.setContentView(root);
+        android.view.Window w = dialog.getWindow();
+        if (w != null) w.setLayout(
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            android.view.WindowManager.LayoutParams.MATCH_PARENT);
+        dialog.show();
+    }
+}

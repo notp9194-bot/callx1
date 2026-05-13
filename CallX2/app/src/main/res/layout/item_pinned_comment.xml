@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingVertical="12dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/tv_pin_badge" android:layout_width="wrap_content"
+            android:layout_height="18dp" android:text="📌 Pinned" android:textColor="#FF3B5C"
+            android:textSize="11sp" android:paddingHorizontal="8dp"
+            android:background="#33FF3B5C" android:gravity="center"
+            android:layout_marginEnd="8dp" android:visibility="gone"/>
+        <TextView android:id="@+id/tv_pin_comment_name" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold"/>
+        <Button android:id="@+id/btn_pin_action" android:layout_width="wrap_content"
+            android:layout_height="32dp" android:text="Pin" android:textColor="#FF3B5C"
+            android:background="@null" android:textSize="13sp"/>
+    </LinearLayout>
+    <TextView android:id="@+id/tv_pin_comment_text" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:textColor="#CCCCCC" android:textSize="14sp"
+        android:layout_marginTop="2dp" android:maxLines="3" android:ellipsize="end"/>
+    <View android:layout_width="match_parent" android:layout_height="0.5dp"
+        android:background="#222222" android:layout_marginTop="12dp"/>
+</LinearLayout>

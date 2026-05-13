@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name="com.callx.app.activities.CallActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+        <activity android:name="com.callx.app.activities.IncomingCallActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+        <activity android:name="com.callx.app.activities.GroupCallActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+        <activity android:name="com.callx.app.activities.IncomingGroupCallActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"/>
+        <activity android:name="com.callx.app.activities.GroupCallSettingsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <service android:name="com.callx.app.services.CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall"/>
+        <service android:name="com.callx.app.services.IncomingRingService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall"
+            android:stopWithTask="false"/>
+        <service android:name="com.callx.app.services.GroupCallRingService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall"
+            android:stopWithTask="false"/>
+        <service android:name="com.callx.app.services.GroupCallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall"/>
+
+        <receiver android:name="com.callx.app.services.NotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.ACCEPT_CALL"/>
+                <action android:name="com.callx.app.DECLINE_CALL"/>
+                <action android:name="com.callx.app.END_CALL"/>
+            </intent-filter>
+        </receiver>
+        <receiver android:name="com.callx.app.services.GroupCallActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_GROUP_DECLINE_CALL"/>
+                <action android:name="com.callx.app.ACTION_GROUP_END_CALL"/>
+                <action android:name="com.callx.app.ACTION_GROUP_JOIN_CALL"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

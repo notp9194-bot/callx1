@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Reel Upload / Player -->
+        <activity android:name="com.callx.app.activities.ReelUploadActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.SingleReelPlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+        <activity android:name="com.callx.app.activities.HashtagReelsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+        <activity android:name="com.callx.app.activities.UserReelsActivity"
+            android:exported="false"/>
+        <activity android:name="com.callx.app.activities.ReelSearchActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelCommentActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.SavedReelsActivity"
+            android:exported="false"/>
+        <activity android:name="com.callx.app.activities.LikedReelsActivity"
+            android:exported="false"/>
+        <activity android:name="com.callx.app.activities.ReelReportActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelEditActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelShareSheetActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Transparent"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Camera / Editor -->
+        <activity android:name="com.callx.app.activities.ReelCameraActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name="com.callx.app.activities.ReelEditorActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.DuetReelActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name="com.callx.app.activities.StitchReelActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name="com.callx.app.activities.MultiClipCameraActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <!-- Media -->
+        <activity android:name="com.callx.app.activities.MusicPickerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.VideoPlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name="com.callx.app.activities.VideoTrimActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.SoundDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.SavedSoundsActivity"
+            android:exported="false"/>
+
+        <!-- Analytics / Creator -->
+        <activity android:name="com.callx.app.activities.ReelAnalyticsActivity"
+            android:exported="false"/>
+        <activity android:name="com.callx.app.activities.ReelDeepAnalyticsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelAudienceInsightsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelCreatorHubActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelPrivacyAndSecurityActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelCreatorDashboardActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelCreatorToolsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelCreatorFundActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelDraftsActivity"
+            android:exported="false"/>
+        <activity android:name="com.callx.app.activities.ReelSchedulerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelPostDetailsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Discovery / Explore -->
+        <activity android:name="com.callx.app.activities.ReelExploreActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelFollowingFeedActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+        <activity android:name="com.callx.app.activities.ReelChallengeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelChallengeCreateActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelTrendingAudioActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Editing tools -->
+        <activity android:name="com.callx.app.activities.ReelFiltersActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelEffectsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.Fullscreen"/>
+        <activity android:name="com.callx.app.activities.ReelAudioMixerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name="com.callx.app.activities.ReelSubtitlesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelStickerPickerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelTextOverlayActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelSpeedControlActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelTransitionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelThumbnailPickerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelVoiceEffectsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelGreenScreenActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|keyboardHidden|screenSize"/>
+        <activity android:name="com.callx.app.activities.ReelSoundRecorderActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Followers / Following -->
+        <activity android:name="com.callx.app.activities.FollowersListActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.FollowingListActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Social -->
+        <activity android:name="com.callx.app.activities.ReelTagPeopleActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelLocationTagActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelMentionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelCollabInboxActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelCollabRequestActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelCloseFriendsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelVideoReplyActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name="com.callx.app.activities.ReelShareToStoryActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Moderation / Privacy / Settings -->
+        <activity android:name="com.callx.app.activities.ReelPrivacySettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelModerationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelFeedSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelRemixSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelWatermarkSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelNotificationsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelNotificationSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelPinnedCommentsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelBookmarkCollectionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelProductTagActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelQRCodeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelGiftingActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelLiveActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name="com.callx.app.activities.ReelLiveReplayActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- Services -->
+        <service android:name="com.callx.app.services.ReelNotificationService"
+            android:exported="false"
+            android:stopWithTask="false"/>
+        <service android:name="com.callx.app.services.VideoCompressService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
+
+        <!-- Notification receivers -->
+        <receiver android:name="com.callx.app.notifications.ReelNotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_LIKE_REEL"/>
+                <action android:name="com.callx.app.ACTION_REEL_COMMENT_REPLY"/>
+                <action android:name="com.callx.app.ACTION_LIKE_COMMENT"/>
+                <action android:name="com.callx.app.ACTION_FOLLOW_BACK"/>
+                <action android:name="com.callx.app.ACTION_COLLAB_ACCEPT"/>
+                <action android:name="com.callx.app.ACTION_COLLAB_DECLINE"/>
+                <action android:name="com.callx.app.ACTION_MARK_MENTIONS_READ"/>
+                <action android:name="com.callx.app.ACTION_DISMISS_REEL_NOTIF"/>
+            </intent-filter>
+        </receiver>
+        <receiver android:name="com.callx.app.notifications.ReelNotificationBootReceiver"
+            android:exported="true">
+            <intent-filter android:priority="999">
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+        <receiver android:name="com.callx.app.activities.ReelSchedulerActivity$ScheduledReelReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_POST_SCHEDULED_REEL"/>
+            </intent-filter>
+        </receiver>
+    
+        <!-- ══ REPOST SYSTEM v4.2.9 — New Activities ═══════════════════════════ -->
+
+        <!-- User's reposted reels grid (profile tab) -->
+        <activity android:name="com.callx.app.activities.UserRepostedReelsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:windowSoftInputMode="stateHidden"/>
+
+        <!-- Quote-repost composition screen -->
+        <activity android:name="com.callx.app.activities.RepostQuoteActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- SingleReelPlayerActivity — deep link support for repost notifications -->
+        <!-- NOTE: exported=true so callx:// deep links from notifications work -->
+        <!-- The activity already exists; this adds an intent-filter to it.       -->
+        <!-- Add the intent-filter block below to the EXISTING                    -->
+        <!-- SingleReelPlayerActivity <activity> entry in your manifest.          -->
+        <!--
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.DEFAULT"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="callx" android:host="reel"/>
+        </intent-filter>
+        -->
+
+        <!-- Block specific users from reposting (creator control) -->
+        <activity android:name="com.callx.app.activities.ReelRepostBlockActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+
+        <!-- Repost list (who reposted a reel) — already registered in v4.2.8 -->
+        <!-- ReelRepostListActivity — already added in v4.2.8                   -->
+
+        <!-- Repost with Caption — already added in v4.2.8                       -->
+        <!-- RepostWithCaptionActivity — already added in v4.2.8                 -->
+
+    </application>
+</manifest>

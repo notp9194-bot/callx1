@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/preview_multi"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
+    <!-- Flash overlay -->
+    <View
+        android:id="@+id/view_flash_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="?attr/colorSurface"
+        android:alpha="0"
+        android:visibility="gone"/>
+
+    <!-- Top controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="44dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <ImageButton
+            android:id="@+id/btn_multi_close"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/white"
+            android:contentDescription="Close"/>
+
+        <TextView
+            android:id="@+id/tv_multi_clip_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="0 clips"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:gravity="center"/>
+
+        <ImageButton
+            android:id="@+id/btn_multi_flash"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_volume_off"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/white"
+            android:contentDescription="Flash"/>
+
+        <ImageButton
+            android:id="@+id/btn_multi_flip"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_camera"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/white"
+            android:contentDescription="Flip"/>
+    </LinearLayout>
+
+    <!-- Duration chips -->
+    <LinearLayout
+        android:id="@+id/layout_multi_duration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:orientation="horizontal"
+        android:paddingTop="108dp">
+
+        <TextView android:id="@+id/chip_multi_15s"
+            android:layout_width="52dp" android:layout_height="32dp"
+            android:text="15s" android:gravity="center" android:textColor="#FFF"
+            android:textSize="13sp" android:background="@drawable/bg_speed_chip"
+            android:layout_marginEnd="8dp"/>
+        <TextView android:id="@+id/chip_multi_30s"
+            android:layout_width="52dp" android:layout_height="32dp"
+            android:text="30s" android:gravity="center" android:textColor="#FFF"
+            android:textSize="13sp" android:fontFamily="sans-serif-medium"
+            android:background="@drawable/bg_speed_chip" android:layout_marginEnd="8dp"/>
+        <TextView android:id="@+id/chip_multi_60s"
+            android:layout_width="52dp" android:layout_height="32dp"
+            android:text="60s" android:gravity="center" android:textColor="#FFF"
+            android:textSize="13sp" android:background="@drawable/bg_speed_chip"/>
+    </LinearLayout>
+
+    <!-- Speed chips -->
+    <LinearLayout
+        android:id="@+id/layout_multi_speed"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:orientation="horizontal"
+        android:paddingTop="152dp">
+
+        <TextView android:id="@+id/chip_speed_03"
+            android:layout_width="48dp" android:layout_height="28dp"
+            android:text="0.3x" android:gravity="center" android:textColor="#FFF"
+            android:textSize="11sp" android:background="@drawable/bg_speed_chip"
+            android:layout_marginEnd="6dp"/>
+        <TextView android:id="@+id/chip_speed_05"
+            android:layout_width="48dp" android:layout_height="28dp"
+            android:text="0.5x" android:gravity="center" android:textColor="#FFF"
+            android:textSize="11sp" android:background="@drawable/bg_speed_chip"
+            android:layout_marginEnd="6dp"/>
+        <TextView android:id="@+id/chip_speed_1"
+            android:layout_width="40dp" android:layout_height="28dp"
+            android:text="1x" android:gravity="center" android:textColor="#FFF"
+            android:textSize="11sp" android:fontFamily="sans-serif-medium"
+            android:background="@drawable/bg_speed_chip" android:layout_marginEnd="6dp"/>
+        <TextView android:id="@+id/chip_speed_2"
+            android:layout_width="40dp" android:layout_height="28dp"
+            android:text="2x" android:gravity="center" android:textColor="#FFF"
+            android:textSize="11sp" android:background="@drawable/bg_speed_chip"
+            android:layout_marginEnd="6dp"/>
+        <TextView android:id="@+id/chip_speed_3"
+            android:layout_width="40dp" android:layout_height="28dp"
+            android:text="3x" android:gravity="center" android:textColor="#FFF"
+            android:textSize="11sp" android:background="@drawable/bg_speed_chip"/>
+    </LinearLayout>
+
+    <!-- Clip strip -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_multi_clips"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="160dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:clipToPadding="false"/>
+
+    <!-- Bottom controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingBottom="32dp"
+        android:paddingTop="8dp"
+        android:background="#44000000">
+
+        <TextView
+            android:id="@+id/tv_multi_speed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1x"
+            android:textColor="#AAFFFFFF"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:id="@+id/tv_multi_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0:00"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="6dp"/>
+
+        <ProgressBar
+            android:id="@+id/progress_multi"
+            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:progressTint="@color/brand_primary"
+            android:progressBackgroundTint="#44FFFFFF"
+            android:layout_marginStart="24dp"
+            android:layout_marginEnd="24dp"
+            android:layout_marginBottom="16dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp">
+
+            <ImageButton
+                android:id="@+id/btn_multi_delete"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:src="@drawable/ic_close"
+                android:background="@drawable/bg_icon_semi"
+                android:tint="@color/white"
+                android:padding="12dp"
+                android:contentDescription="Delete last clip"
+                android:visibility="gone"/>
+
+            <ImageButton
+                android:id="@+id/btn_multi_record"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:src="@drawable/ic_camera"
+                android:background="@drawable/circle_primary"
+                android:tint="@color/white"
+                android:padding="18dp"
+                android:layout_marginStart="24dp"
+                android:layout_marginEnd="24dp"
+                android:contentDescription="Record"/>
+
+            <TextView
+                android:id="@+id/btn_multi_done"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:text="Done"
+                android:gravity="center"
+                android:textColor="@color/white"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:background="@drawable/bg_reel_upload_btn"
+                android:visibility="gone"/>
+        </LinearLayout>
+    </LinearLayout>
+
+</FrameLayout>

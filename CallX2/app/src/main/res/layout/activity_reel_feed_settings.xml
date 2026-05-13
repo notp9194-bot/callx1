@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#121212">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+            <ImageButton android:id="@+id/btn_feed_settings_back" android:layout_width="40dp"
+                android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Feed Preferences" android:textColor="#FFFFFF"
+                android:textSize="18sp" android:textStyle="bold" android:paddingStart="12dp"/>
+            <TextView android:id="@+id/tv_reset_fyp" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Reset FYP" android:textColor="#FF3B5C"
+                android:textSize="14sp" android:padding="8dp"/>
+        </LinearLayout>
+
+        <ProgressBar android:id="@+id/progress_feed_settings" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:layout_gravity="center"
+            android:visibility="gone" android:layout_marginVertical="16dp"/>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="AUTOPLAY" android:textColor="#888888" android:textSize="11sp"
+            android:paddingHorizontal="16dp" android:paddingTop="16dp" android:paddingBottom="4dp"/>
+        <RadioGroup android:id="@+id/rg_autoplay" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="horizontal"
+            android:paddingHorizontal="16dp" android:paddingBottom="8dp">
+            <RadioButton android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Always" android:textColor="#FFFFFF" android:checked="true"/>
+            <RadioButton android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Wi-Fi Only" android:textColor="#FFFFFF"/>
+            <RadioButton android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Off" android:textColor="#FFFFFF"/>
+        </RadioGroup>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1F1F1F" android:layout_marginVertical="8dp"/>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="16dp">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Restrict Sensitive Content"
+                android:textColor="#FFFFFF" android:textSize="15sp"/>
+            <Switch android:id="@+id/sw_restrict_sensitive" android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="16dp">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Auto-generate Subtitles"
+                android:textColor="#FFFFFF" android:textSize="15sp"/>
+            <Switch android:id="@+id/sw_auto_subtitles" android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1F1F1F" android:layout_marginVertical="8dp"/>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="NOT INTERESTED IN" android:textColor="#888888" android:textSize="11sp"
+            android:paddingHorizontal="16dp" android:paddingTop="8dp" android:paddingBottom="4dp"/>
+        <TextView android:id="@+id/tv_not_interested_empty" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="No topics blocked yet"
+            android:textColor="#555555" android:textSize="14sp" android:paddingHorizontal="16dp"
+            android:paddingBottom="8dp" android:visibility="visible"/>
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_not_interested"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:nestedScrollingEnabled="false"/>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1F1F1F" android:layout_marginVertical="8dp"/>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="PREFERRED TOPICS (boosts these in FYP)" android:textColor="#888888"
+            android:textSize="11sp" android:paddingHorizontal="16dp" android:paddingTop="8dp" android:paddingBottom="4dp"/>
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_interests"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:nestedScrollingEnabled="false" android:paddingBottom="24dp"/>
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:fillViewport="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:gravity="center_horizontal">
+
+        <FrameLayout
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_marginTop="48dp"
+            android:background="@drawable/circle_primary">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="C"
+                android:textColor="@color/white"
+                android:textSize="48sp"
+                android:textStyle="bold"/>
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CallX"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="?android:attr/textColorPrimary"
+            android:layout_marginTop="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Connect. Call. Chat."
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="40dp"/>
+
+        <!-- Signup avatar picker -->
+        <FrameLayout
+            android:id="@+id/fl_avatar_picker"
+            android:layout_width="110dp"
+            android:layout_height="110dp"
+            android:layout_marginBottom="14dp"
+            android:visibility="gone">
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_avatar_preview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:src="@drawable/ic_person"
+                android:background="@color/surface_input"/>
+            <FrameLayout
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_gravity="bottom|end"
+                android:background="@drawable/circle_primary">
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_camera"
+                    android:tint="@color/white"/>
+            </FrameLayout>
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/tv_avatar_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Profile photo lagao"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:layout_marginBottom="14dp"
+            android:visibility="gone"/>
+
+        <!-- Name (signup only) -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/til_name"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Naam (signup ke liye)"
+            android:layout_marginBottom="12dp"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPersonName"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Mobile (signup only) -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/til_mobile"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Mobile number (CallX ID banega)"
+            android:layout_marginBottom="12dp"
+            app:prefixText="+"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_mobile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="phone"
+                android:maxLength="15"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Email -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Email"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_email"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textEmailAddress"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Password -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Password"
+            android:layout_marginTop="14dp"
+            app:passwordToggleEnabled="true"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Password Strength Meter (signup only) -->
+        <LinearLayout
+            android:id="@+id/layout_password_strength"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="6dp"
+            android:visibility="gone">
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/progress_password_strength"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progress="0"
+                app:trackCornerRadius="4dp"
+                app:trackThickness="6dp"
+                app:trackColor="@color/divider"/>
+            <TextView
+                android:id="@+id/tv_password_strength_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp"
+                android:text="Password strength"/>
+        </LinearLayout>
+
+        <!-- Remember Me + Forgot Password row -->
+        <LinearLayout
+            android:id="@+id/layout_remember_me"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+            <CheckBox
+                android:id="@+id/cb_remember_me"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Yaad rakho"
+                android:textSize="13sp"
+                android:textColor="@color/text_secondary"
+                android:buttonTint="@color/brand_primary"/>
+            <TextView
+                android:id="@+id/tv_forgot_password"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Password bhool gaye?"
+                android:textColor="@color/brand_primary"
+                android:textSize="13sp"
+                android:paddingTop="8dp"
+                android:paddingBottom="4dp"/>
+        </LinearLayout>
+
+        <!-- Error message -->
+        <TextView
+            android:id="@+id/tv_error"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/action_danger"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"/>
+
+        <!-- Login button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_login"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Login"
+            app:cornerRadius="14dp"
+            android:backgroundTint="@color/brand_primary"
+            android:layout_marginTop="16dp"/>
+
+        <!-- Signup toggle -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_signup"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Naya account banao"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:cornerRadius="14dp"
+            android:layout_marginTop="12dp"/>
+
+        <!-- Divider -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="4dp">
+            <View android:layout_width="0dp" android:layout_height="1dp"
+                android:layout_weight="1" android:background="@color/text_secondary" android:alpha="0.3"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="  ya  " android:textColor="@color/text_secondary" android:textSize="13sp"/>
+            <View android:layout_width="0dp" android:layout_height="1dp"
+                android:layout_weight="1" android:background="@color/text_secondary" android:alpha="0.3"/>
+        </LinearLayout>
+
+        <!-- Google Sign-In -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_google"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="8dp"
+            android:text="Google se login karo"
+            android:textColor="?android:attr/textColorPrimary"
+            app:cornerRadius="14dp"
+            app:icon="@drawable/ic_google"
+            app:iconGravity="textStart"
+            app:iconTint="@null"/>
+
+        <!-- Biometric Login (shown only when enabled) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_biometric_login"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="10dp"
+            android:text="Fingerprint se login karo"
+            android:textColor="?android:attr/textColorPrimary"
+            app:cornerRadius="14dp"
+            app:icon="@drawable/ic_shield"
+            app:iconGravity="textStart"
+            android:visibility="gone"/>
+
+        <!-- Phone OTP Login -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_phone"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="32dp"
+            android:text="Phone OTP se login karo"
+            android:textColor="?android:attr/textColorPrimary"
+            app:cornerRadius="14dp"
+            app:icon="@drawable/ic_phone"
+            app:iconGravity="textStart"/>
+
+    </LinearLayout>
+</ScrollView>

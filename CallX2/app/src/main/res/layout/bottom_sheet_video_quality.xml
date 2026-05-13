@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@android:color/white">
+
+    <!-- Title row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Video Quality"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#212121"/>
+
+        <TextView
+            android:id="@+id/tv_active_codec"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Codec: H.264"
+            android:textSize="11sp"
+            android:textColor="#757575"
+            android:background="#F5F5F5"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp"/>
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#E0E0E0" android:layout_marginBottom="12dp"/>
+
+    <!-- Quality Radio Group -->
+    <RadioGroup
+        android:id="@+id/rg_quality"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- AUTO -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <RadioButton
+                android:id="@+id/rb_auto"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Auto"
+                android:textSize="15sp"/>
+            <TextView
+                android:id="@+id/tv_auto_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:textColor="#757575"/>
+        </LinearLayout>
+
+        <!-- LOW -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <RadioButton
+                android:id="@+id/rb_low"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Low (360p)"
+                android:textSize="15sp"/>
+            <TextView
+                android:id="@+id/tv_low_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:textColor="#757575"/>
+        </LinearLayout>
+
+        <!-- STANDARD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <RadioButton
+                android:id="@+id/rb_standard"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Standard (540p)"
+                android:textSize="15sp"
+                android:checked="true"/>
+            <TextView
+                android:id="@+id/tv_std_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:textColor="#757575"/>
+        </LinearLayout>
+
+        <!-- HD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <RadioButton
+                android:id="@+id/rb_hd"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="HD (720p)"
+                android:textSize="15sp"/>
+            <TextView
+                android:id="@+id/tv_hd_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:textColor="#757575"/>
+        </LinearLayout>
+
+        <!-- FULL HD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <RadioButton
+                android:id="@+id/rb_full_hd"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Full HD (1080p)"
+                android:textSize="15sp"/>
+            <TextView
+                android:id="@+id/tv_full_hd_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:textColor="#757575"/>
+        </LinearLayout>
+
+        <!-- ORIGINAL -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <RadioButton
+                android:id="@+id/rb_original"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Original (no compression)"
+                android:textSize="15sp"/>
+            <TextView
+                android:id="@+id/tv_orig_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:textColor="#F44336"/>
+        </LinearLayout>
+
+    </RadioGroup>
+
+    <!-- Divider -->
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#E0E0E0" android:layout_marginVertical="12dp"/>
+
+    <!-- Toggles -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- WiFi-only HD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="HD on WiFi only"
+                    android:textSize="15sp"
+                    android:textColor="#212121"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Auto-downgrade to Standard on mobile data"
+                    android:textSize="12sp"
+                    android:textColor="#9E9E9E"/>
+            </LinearLayout>
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/sw_wifi_hd"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <!-- Data saver -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Data saver mode"
+                    android:textSize="15sp"
+                    android:textColor="#212121"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Always compress to Low (360p)"
+                    android:textSize="12sp"
+                    android:textColor="#9E9E9E"/>
+            </LinearLayout>
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/sw_data_saver"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <!-- Remember for this chat -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Remember for this chat"
+                android:textSize="15sp"
+                android:textColor="#212121"/>
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/sw_remember_chat"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Stats -->
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#E0E0E0" android:layout_marginVertical="12dp"/>
+
+    <TextView
+        android:id="@+id/tv_compression_stats"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="0 videos compressed, 0 MB total saved"
+        android:textSize="12sp"
+        android:textColor="#9E9E9E"
+        android:textAlignment="center"
+        android:layout_marginBottom="12dp"/>
+
+    <!-- Send button -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_send"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:text="Send Video"
+        android:textSize="16sp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="8dp"
+        app:cornerRadius="8dp"/>
+
+</LinearLayout>

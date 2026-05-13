@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:padding="4dp">
+    <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:background="#88000000"
+        android:paddingHorizontal="10dp" android:paddingVertical="4dp">
+        <TextView android:id="@+id/tv_live_comment_name" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:textColor="#FF3B5C"
+            android:textSize="13sp" android:textStyle="bold" android:paddingEnd="6dp"/>
+        <TextView android:id="@+id/tv_live_comment_text" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="13sp"/>
+    </LinearLayout>
+</LinearLayout>

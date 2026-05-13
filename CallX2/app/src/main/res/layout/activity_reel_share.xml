@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Dim backdrop -->
+    <View
+        android:id="@+id/share_backdrop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#88000000"/>
+
+    <!-- Bottom sheet card -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="@drawable/card_rounded"
+        android:paddingTop="8dp"
+        android:paddingBottom="24dp">
+
+        <!-- Handle -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_skeleton_rect"/>
+
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Share Reel"
+                android:textSize="17sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"/>
+
+            <ImageButton
+                android:id="@+id/btn_share_close"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_close"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Close"/>
+        </LinearLayout>
+
+        <!-- Contacts horizontal list -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Send to"
+            android:textSize="13sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:paddingStart="16dp"
+            android:layout_marginBottom="8dp"/>
+
+        <ProgressBar
+            android:id="@+id/progress_share"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="16dp"
+            android:visibility="visible"/>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_share_contacts"
+            android:layout_width="match_parent"
+            android:layout_height="90dp"
+            android:clipToPadding="false"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:layout_marginBottom="8dp"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider"
+            android:layout_marginVertical="4dp"/>
+
+        <!-- Actions -->
+        <LinearLayout
+            android:id="@+id/btn_copy_link"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="?attr/selectableItemBackground">
+
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_share_reel" android:tint="?attr/colorOnSurface"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="16dp" android:text="Copy Link" android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btn_share_external"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="?attr/selectableItemBackground">
+
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_send" android:tint="?attr/colorOnSurface"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="16dp" android:text="Share via..." android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btn_share_to_status"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="?attr/selectableItemBackground">
+
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_status_notification" android:tint="?attr/colorOnSurface"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="16dp" android:text="Add to Status" android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
+        </LinearLayout>
+
+    </LinearLayout>
+</FrameLayout>

@@ -1,0 +1,87 @@
+{
+  "_comment": "CallX2 Firebase Realtime DB — Comprehensive Repost System Rules v4.2.9",
+  "_note": "Paste into Firebase Console → Realtime Database → Rules tab",
+
+  "rules": {
+    "reelReposts": {
+      "$reelId": {
+        ".read":  "auth != null",
+        "$reposterId": {
+          ".write":    "auth != null && auth.uid === $reposterId",
+          ".validate": "newData.isNumber() || newData.val() === false"
+        }
+      }
+    },
+
+    "userReposts": {
+      "$uid": {
+        ".read":  "auth != null",
+        "$reelId": {
+          ".write":    "auth != null && auth.uid === $uid",
+          ".validate": "newData.isNumber() || newData.val() === false"
+        }
+      }
+    },
+
+    "repostCaptions": {
+      "$reelId": {
+        "$reposterId": {
+          ".read":     "auth != null",
+          ".write":    "auth != null && auth.uid === $reposterId",
+          ".validate": "newData.hasChildren(['caption','repostedAt','reposterId'])",
+          "caption":   { ".validate": "newData.isString() && newData.val().length <= 280" },
+          "repostedAt":{ ".validate": "newData.isNumber()" },
+          "reposterId":{ ".validate": "newData.isString() && newData.val() === auth.uid" },
+          "reposterName":{ ".validate": "newData.isString()" }
+        }
+      }
+    },
+
+    "userRepostQuota": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$date": {
+          ".read":     "auth != null && auth.uid === $uid",
+          ".write":    "auth != null && auth.uid === $uid",
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 200"
+        }
+      }
+    },
+
+    "repostBlocklist": {
+      "$creatorUid": {
+        ".read":  "auth != null && auth.uid === $creatorUid",
+        "$blockedUid": {
+          ".write":    "auth != null && auth.uid === $creatorUid",
+          ".validate": "newData.isBoolean()"
+        }
+      }
+    },
+
+    "reelRepostSettings": {
+      "$reelId": {
+        ".read":  "auth != null",
+        ".write": "auth != null",
+        "allowReposts":           { ".validate": "newData.isBoolean()" },
+        "allowRepostWithCaption": { ".validate": "newData.isBoolean()" },
+        "allowQuoteRepost":       { ".validate": "newData.isBoolean()" }
+      }
+    },
+
+    "reel_notifications": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$notifId": {
+          ".write":    "auth != null",
+          ".validate": "newData.hasChildren(['type','senderUid','reel_id','timestamp'])",
+          "type":      { ".validate": "newData.isString()" },
+          "senderUid": { ".validate": "newData.isString()" },
+          "reel_id":   { ".validate": "newData.isString()" },
+          "timestamp": { ".validate": "newData.isNumber()" },
+          "read":      { ".validate": "newData.isBoolean()" },
+          "caption":   { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 280)" }
+        }
+      }
+    }
+  }
+}

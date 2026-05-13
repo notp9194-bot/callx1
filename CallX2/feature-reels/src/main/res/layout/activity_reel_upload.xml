@@ -1,0 +1,406 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        app:elevation="4dp">
+
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="New Reel"
+            app:titleTextColor="@color/bar_on_background"
+            app:navigationIcon="@drawable/ic_back"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Video preview card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="220dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="16dp">
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#000000">
+
+                    <androidx.media3.ui.PlayerView
+                        android:id="@+id/player_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        app:use_controller="true"
+                        app:resize_mode="fit"/>
+
+                    <ImageView
+                        android:id="@+id/iv_thumb_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:scaleType="centerCrop"
+                        android:contentDescription="Thumbnail preview"/>
+
+                    <!-- Tap to select video -->
+                    <LinearLayout
+                        android:id="@+id/layout_pick_video"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="#1A5B5BF6">
+
+                        <ImageView
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:src="@drawable/ic_gallery"
+                            android:tint="@color/brand_primary"
+                            android:contentDescription="Pick video"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Tap to select video"
+                            android:textColor="@color/brand_primary"
+                            android:textSize="14sp"/>
+                    </LinearLayout>
+
+                    <!-- Compression progress overlay -->
+                    <LinearLayout
+                        android:id="@+id/layout_compression"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="#CC000000"
+                        android:visibility="gone">
+
+                        <ProgressBar
+                            android:id="@+id/progress_compress"
+                            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                            android:layout_width="200dp"
+                            android:layout_height="wrap_content"
+                            android:max="100"
+                            android:progressTint="@color/brand_primary"/>
+
+                        <TextView
+                            android:id="@+id/tv_compress_status"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Compressing…"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"/>
+                    </LinearLayout>
+                </FrameLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Video info row -->
+            <LinearLayout
+                android:id="@+id/layout_video_info"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:id="@+id/tv_video_info"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/tv_compression_savings"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/brand_accent"
+                    android:textSize="12sp"
+                    android:fontFamily="sans-serif-medium"/>
+            </LinearLayout>
+
+            <!-- Quality selector -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Video Quality"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="6dp"/>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chip_quality"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:singleSelection="true"
+                app:selectionRequired="true"
+                android:layout_marginBottom="16dp">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_low"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Low (360p)"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_standard"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Standard (540p)"
+                    android:checked="true"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_hd"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="HD (720p)"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_fullhd"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Full HD (1080p)"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+            </com.google.android.material.chip.ChipGroup>
+
+            <!-- Caption -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Write a caption…"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_marginBottom="12dp">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="4"
+                    android:maxLength="500"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:imeOptions="flagNoEnterAction"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Music/Audio name -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Music / Audio name (optional)"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_marginBottom="12dp">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_music"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:singleLine="true"
+                    android:imeOptions="actionDone"
+                    android:inputType="textCapWords"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Audience selector -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Audience"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="6dp"/>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chip_audience"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:singleSelection="true"
+                app:selectionRequired="true"
+                android:layout_marginBottom="24dp">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_everyone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Everyone"
+                    android:checked="true"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_contacts_only"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Contacts Only"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+            </com.google.android.material.chip.ChipGroup>
+
+
+            <!-- Extra Details Divider -->
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#22000000" android:layout_marginVertical="8dp"/>
+
+            <LinearLayout android:id="@+id/btn_tag_people"
+                android:layout_width="match_parent" android:layout_height="52dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:background="?attr/selectableItemBackground" android:layout_marginBottom="2dp">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:src="@drawable/ic_person" android:tint="@color/brand_primary"
+                    android:contentDescription="Tag" android:layout_marginEnd="12dp"/>
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Tag People"
+                    android:textColor="@color/text_primary" android:textSize="14sp"/>
+                <TextView android:id="@+id/tv_tag_summary" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:textColor="@color/text_secondary"
+                    android:textSize="12sp" android:layout_marginEnd="4dp"/>
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_arrow_forward" android:tint="@color/text_secondary"
+                    android:contentDescription="Arrow"/>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/btn_location_tag"
+                android:layout_width="match_parent" android:layout_height="52dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:background="?attr/selectableItemBackground" android:layout_marginBottom="2dp">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:src="@drawable/ic_location" android:tint="@color/brand_primary"
+                    android:contentDescription="Location" android:layout_marginEnd="12dp"/>
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Add Location"
+                    android:textColor="@color/text_primary" android:textSize="14sp"/>
+                <TextView android:id="@+id/tv_location_name" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:textColor="@color/text_secondary"
+                    android:textSize="12sp" android:layout_marginEnd="4dp"/>
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_arrow_forward" android:tint="@color/text_secondary"
+                    android:contentDescription="Arrow"/>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/btn_product_tag"
+                android:layout_width="match_parent" android:layout_height="52dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:background="?attr/selectableItemBackground" android:layout_marginBottom="2dp">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:src="@drawable/ic_caption" android:tint="@color/brand_primary"
+                    android:contentDescription="Product" android:layout_marginEnd="12dp"/>
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Tag Products"
+                    android:textColor="@color/text_primary" android:textSize="14sp"/>
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_arrow_forward" android:tint="@color/text_secondary"
+                    android:contentDescription="Arrow"/>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/btn_privacy_settings"
+                android:layout_width="match_parent" android:layout_height="52dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:background="?attr/selectableItemBackground" android:layout_marginBottom="2dp">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:src="@drawable/ic_lock" android:tint="@color/brand_primary"
+                    android:contentDescription="Privacy" android:layout_marginEnd="12dp"/>
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Privacy Settings"
+                    android:textColor="@color/text_primary" android:textSize="14sp"/>
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_arrow_forward" android:tint="@color/text_secondary"
+                    android:contentDescription="Arrow"/>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/btn_schedule"
+                android:layout_width="match_parent" android:layout_height="52dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:background="?attr/selectableItemBackground" android:layout_marginBottom="2dp">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:src="@drawable/ic_calendar" android:tint="@color/brand_primary"
+                    android:contentDescription="Schedule" android:layout_marginEnd="12dp"/>
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Schedule Post"
+                    android:textColor="@color/text_primary" android:textSize="14sp"/>
+                <TextView android:id="@+id/tv_schedule_time" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:textColor="@color/text_secondary"
+                    android:textSize="12sp" android:layout_marginEnd="4dp"/>
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_arrow_forward" android:tint="@color/text_secondary"
+                    android:contentDescription="Arrow"/>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/btn_save_draft"
+                android:layout_width="match_parent" android:layout_height="52dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:background="?attr/selectableItemBackground" android:layout_marginBottom="8dp">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:src="@drawable/ic_bookmark" android:tint="@color/brand_primary"
+                    android:contentDescription="Draft" android:layout_marginEnd="12dp"/>
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Save as Draft"
+                    android:textColor="@color/text_primary" android:textSize="14sp"/>
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_arrow_forward" android:tint="@color/text_secondary"
+                    android:contentDescription="Arrow"/>
+            </LinearLayout>
+
+            <!-- Upload button -->
+            <Button
+                android:id="@+id/btn_post_reel"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Post Reel"
+                android:textSize="16sp"
+                android:background="@drawable/bg_reel_upload_btn"
+                android:textColor="#FFFFFF"
+                android:fontFamily="sans-serif-medium"/>
+
+            <!-- Upload progress -->
+            <LinearLayout
+                android:id="@+id/layout_upload_progress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginTop="12dp">
+
+                <ProgressBar
+                    android:id="@+id/progress_upload"
+                    style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="100"
+                    android:progressTint="@color/brand_primary"/>
+
+                <TextView
+                    android:id="@+id/tv_upload_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Uploading…"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="32dp"/>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

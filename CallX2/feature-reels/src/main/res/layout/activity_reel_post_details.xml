@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <!-- Toolbar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="8dp"
+        android:background="?attr/colorSurface"
+        android:elevation="4dp">
+
+        <TextView
+            android:id="@+id/btn_post_details_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Post Details"
+            android:textColor="@color/text_primary"
+            android:textSize="17sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginStart="4dp"/>
+
+        <TextView
+            android:id="@+id/btn_post_details_next"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Next →"
+            android:gravity="center"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="@drawable/bg_reel_upload_btn"/>
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Caption -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Caption"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="6dp"/>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_post_caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Write a caption, add hashtags..."
+                    android:minLines="3"
+                    android:maxLines="6"
+                    android:maxLength="2200"
+                    android:inputType="textCapSentences|textMultiLine"
+                    android:gravity="top"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:id="@+id/tv_post_char_count"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="0/2200"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp"
+                android:gravity="end"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- Hashtag suggestions -->
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/cg_hashtag_suggestions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone"/>
+
+            <!-- Audience -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Audience"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="6dp"/>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/cg_post_audience"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:singleSelection="true"
+                android:layout_marginBottom="16dp"/>
+
+            <!-- Location -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Location"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="6dp"/>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_post_location"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Add location..."
+                    android:inputType="textCapWords"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Collab invite -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Invite Collaborator"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="6dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_collab_search"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Search by name..."
+                        android:inputType="textPersonName"/>
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <ProgressBar
+                    android:id="@+id/progress_collab"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="8dp"
+                    android:indeterminateTint="@color/brand_primary"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_collab_result"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/surface_card"
+                android:padding="12dp"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tv_collab_name"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:drawableStart="@drawable/ic_person_add"
+                    android:drawablePadding="8dp"/>
+
+                <ImageButton
+                    android:id="@+id/btn_clear_collab"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_close"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Remove collaborator"/>
+            </LinearLayout>
+
+            <!-- Permissions section -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Permissions"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="8dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@color/surface_card"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <!-- Allow comments -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Allow Comments"
+                        android:textColor="@color/text_primary" android:textSize="14sp"/>
+                    <Switch android:id="@+id/sw_allow_comments" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                <!-- Allow duet -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Allow Duet"
+                        android:textColor="@color/text_primary" android:textSize="14sp"/>
+                    <Switch android:id="@+id/sw_allow_duet" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                <!-- Allow stitch -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Allow Stitch"
+                        android:textColor="@color/text_primary" android:textSize="14sp"/>
+                    <Switch android:id="@+id/sw_allow_stitch" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                <!-- Allow download -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Allow Download"
+                        android:textColor="@color/text_primary" android:textSize="14sp"/>
+                    <Switch android:id="@+id/sw_allow_download" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                <!-- Allow reactions -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Allow Reactions"
+                        android:textColor="@color/text_primary" android:textSize="14sp"/>
+                    <Switch android:id="@+id/sw_allow_reactions" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="32dp"/>
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

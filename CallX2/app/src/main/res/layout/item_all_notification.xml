@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- item_all_notification.xml — Modern card-style notification row -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/card_an_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="11dp"
+    android:paddingBottom="11dp"
+    android:gravity="top"
+    android:background="?attr/selectableItemBackground">
+
+    <!-- Unread dot -->
+    <View
+        android:id="@+id/dot_an_unread"
+        android:layout_width="7dp"
+        android:layout_height="7dp"
+        android:layout_marginTop="22dp"
+        android:layout_marginEnd="7dp"
+        android:background="@drawable/circle_primary"
+        android:visibility="visible"/>
+
+    <!-- Avatar (clickable, circular) -->
+    <ImageView
+        android:id="@+id/iv_an_avatar"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_marginEnd="13dp"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_person"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackgroundBorderless"/>
+
+    <!-- Right-side content -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- Row 1: Name + category chip + time -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="2dp">
+
+            <TextView
+                android:id="@+id/tv_an_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <!-- Category chip -->
+            <TextView
+                android:id="@+id/tv_an_cat"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="7dp"
+                android:paddingEnd="7dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:textSize="9sp"
+                android:textColor="#FFFFFF"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_unread_badge"/>
+
+            <!-- Time -->
+            <TextView
+                android:id="@+id/tv_an_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="10.5sp"
+                android:textColor="@color/text_muted"
+                android:layout_marginStart="8dp"/>
+        </LinearLayout>
+
+        <!-- Body: last message / comment / status text -->
+        <TextView
+            android:id="@+id/tv_an_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12.5sp"
+            android:textColor="@color/text_secondary"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:lineSpacingExtra="2dp"
+            android:visibility="gone"/>
+
+    </LinearLayout>
+</LinearLayout>

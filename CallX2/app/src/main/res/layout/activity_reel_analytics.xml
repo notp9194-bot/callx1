@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"/>
+
+    <ProgressBar
+        android:id="@+id/progress_analytics"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="64dp"
+        android:visibility="visible"/>
+
+    <ScrollView
+        android:id="@+id/layout_analytics_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Overview cards row -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="OVERVIEW"
+                android:textSize="11sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="12dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <include layout="@layout/card_analytics_stat"
+                    android:id="@+id/card_views"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"/>
+
+                <include layout="@layout/card_analytics_stat"
+                    android:id="@+id/card_likes"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp">
+
+                <include layout="@layout/card_analytics_stat"
+                    android:id="@+id/card_comments"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"/>
+
+                <include layout="@layout/card_analytics_stat"
+                    android:id="@+id/card_shares"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"/>
+            </LinearLayout>
+
+            <!-- Detailed stats -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DETAILED STATS"
+                android:textSize="11sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1"
+                android:layout_marginTop="24dp"
+                android:layout_marginBottom="12dp"/>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <!-- Stats rows -->
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="👁  Total Views" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_views_count" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium" android:textColor="?attr/colorPrimary"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="❤️  Likes" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_likes_count" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="💬  Comments" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_comments_count" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="📤  Shares" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_shares_count" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="🔖  Saves" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_saves_count" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="⏱  Est. Watch Time" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_watch_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="📊  Engagement Rate" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_engagement_rate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium" android:textColor="@color/brand_accent"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="👥  Audience" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_audience_type" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="14sp"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="📅  Posted" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_posted_at" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="🕐  Age" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_reel_age" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="14sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Reactions -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="REACTIONS"
+                android:textSize="11sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp"/>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <TextView
+                    android:id="@+id/tv_reactions_breakdown"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16dp"
+                    android:text="—"
+                    android:textSize="22sp"/>
+            </androidx.cardview.widget.CardView>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

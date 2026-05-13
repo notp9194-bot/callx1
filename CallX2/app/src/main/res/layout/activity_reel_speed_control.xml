@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#121212" android:gravity="center">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+        <ImageButton android:id="@+id/btn_speed_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Recording Speed" android:textColor="#FFFFFF"
+            android:textSize="18sp" android:textStyle="bold" android:paddingStart="12dp"/>
+    </LinearLayout>
+    <TextView android:id="@+id/tv_speed_label" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="1x" android:textColor="#FF3B5C"
+        android:textSize="56sp" android:textStyle="bold" android:gravity="center" android:paddingVertical="16dp"/>
+    <TextView android:id="@+id/tv_speed_desc" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Normal speed" android:textColor="#AAAAAA"
+        android:textSize="14sp" android:gravity="center" android:paddingBottom="32dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:paddingHorizontal="24dp" android:gravity="center">
+        <TextView android:id="@+id/btn_speed_03" android:layout_width="0dp" android:layout_height="56dp"
+            android:layout_weight="1" android:text="0.3x" android:textColor="#FFFFFF" android:textSize="16sp"
+            android:gravity="center" android:background="@drawable/bg_speed_chip" android:layout_marginHorizontal="4dp"/>
+        <TextView android:id="@+id/btn_speed_05" android:layout_width="0dp" android:layout_height="56dp"
+            android:layout_weight="1" android:text="0.5x" android:textColor="#FFFFFF" android:textSize="16sp"
+            android:gravity="center" android:background="@drawable/bg_speed_chip" android:layout_marginHorizontal="4dp"/>
+        <TextView android:id="@+id/btn_speed_1" android:layout_width="0dp" android:layout_height="56dp"
+            android:layout_weight="1" android:text="1x" android:textColor="#FFFFFF" android:textSize="16sp"
+            android:gravity="center" android:background="@drawable/bg_speed_chip" android:layout_marginHorizontal="4dp"/>
+        <TextView android:id="@+id/btn_speed_2" android:layout_width="0dp" android:layout_height="56dp"
+            android:layout_weight="1" android:text="2x" android:textColor="#FFFFFF" android:textSize="16sp"
+            android:gravity="center" android:background="@drawable/bg_speed_chip" android:layout_marginHorizontal="4dp"/>
+        <TextView android:id="@+id/btn_speed_3" android:layout_width="0dp" android:layout_height="56dp"
+            android:layout_weight="1" android:text="3x" android:textColor="#FFFFFF" android:textSize="16sp"
+            android:gravity="center" android:background="@drawable/bg_speed_chip" android:layout_marginHorizontal="4dp"/>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:paddingHorizontal="24dp" android:paddingTop="32dp">
+        <Button android:id="@+id/btn_speed_cancel" android:layout_width="0dp" android:layout_height="48dp"
+            android:layout_weight="1" android:text="Cancel" android:textColor="#AAAAAA"
+            android:background="@null" android:layout_marginEnd="8dp"/>
+        <Button android:id="@+id/btn_speed_apply" android:layout_width="0dp" android:layout_height="48dp"
+            android:layout_weight="2" android:text="Apply Speed" android:textColor="#FFFFFF"
+            android:background="@drawable/bg_btn_primary"/>
+    </LinearLayout>
+</LinearLayout>

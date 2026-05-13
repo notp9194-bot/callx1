@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="72dp" android:layout_height="80dp"
+    android:orientation="vertical" android:gravity="center"
+    android:layout_marginHorizontal="4dp" android:background="#1A1A1A">
+    <TextView android:id="@+id/tv_tagged_name" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="11sp"
+        android:gravity="center" android:maxLines="2" android:ellipsize="end"
+        android:paddingHorizontal="4dp"/>
+    <TextView android:id="@+id/tv_tagged_price" android:layout_width="wrap_content"
+        android:layout_height="wrap_content" android:textColor="#FF3B5C" android:textSize="11sp"
+        android:layout_marginTop="2dp"/>
+    <ImageButton android:id="@+id/btn_remove_tagged" android:layout_width="20dp"
+        android:layout_height="20dp" android:background="?attr/selectableItemBackgroundBorderless"
+        android:src="@drawable/ic_close" android:tint="#FF3B5C" android:layout_marginTop="4dp"/>
+</LinearLayout>

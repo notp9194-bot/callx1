@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#121212">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="16dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <ImageButton android:id="@+id/btn_privacy_back" android:layout_width="40dp"
+                android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Reel Privacy" android:textColor="#FFFFFF"
+                android:textSize="20sp" android:textStyle="bold" android:paddingStart="12dp"/>
+        </LinearLayout>
+        <ProgressBar android:id="@+id/progress_privacy_load" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:layout_gravity="center"
+            android:visibility="gone"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Who can view this reel" android:textColor="#AAAAAA"
+            android:textSize="13sp" android:paddingTop="16dp" android:paddingBottom="8dp"/>
+        <RadioGroup android:id="@+id/rg_view_audience" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical">
+            <RadioButton android:id="@+id/rb_view_everyone" android:layout_width="match_parent"
+                android:layout_height="48dp" android:text="Everyone" android:textColor="#FFFFFF" android:paddingStart="8dp"/>
+            <RadioButton android:id="@+id/rb_view_followers" android:layout_width="match_parent"
+                android:layout_height="48dp" android:text="Followers Only" android:textColor="#FFFFFF" android:paddingStart="8dp"/>
+            <RadioButton android:id="@+id/rb_view_only_me" android:layout_width="match_parent"
+                android:layout_height="48dp" android:text="Only Me" android:textColor="#FFFFFF" android:paddingStart="8dp"/>
+        </RadioGroup>
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#333333" android:layout_marginVertical="12dp"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Who can comment" android:textColor="#AAAAAA" android:textSize="13sp" android:paddingBottom="8dp"/>
+        <RadioGroup android:id="@+id/rg_comment_audience" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical">
+            <RadioButton android:id="@+id/rb_com_everyone" android:layout_width="match_parent"
+                android:layout_height="48dp" android:text="Everyone" android:textColor="#FFFFFF" android:paddingStart="8dp"/>
+            <RadioButton android:id="@+id/rb_com_followers" android:layout_width="match_parent"
+                android:layout_height="48dp" android:text="Followers Only" android:textColor="#FFFFFF" android:paddingStart="8dp"/>
+            <RadioButton android:id="@+id/rb_com_no_one" android:layout_width="match_parent"
+                android:layout_height="48dp" android:text="No One" android:textColor="#FFFFFF" android:paddingStart="8dp"/>
+        </RadioGroup>
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#333333" android:layout_marginVertical="12dp"/>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Allow Duet" android:textColor="#FFFFFF" android:textSize="16sp"/>
+            <Switch android:id="@+id/switch_allow_duet" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Allow Stitch" android:textColor="#FFFFFF" android:textSize="16sp"/>
+            <Switch android:id="@+id/switch_allow_stitch" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Allow Download" android:textColor="#FFFFFF" android:textSize="16sp"/>
+            <Switch android:id="@+id/switch_allow_download" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Allow Share" android:textColor="#FFFFFF" android:textSize="16sp"/>
+            <Switch android:id="@+id/switch_allow_share" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <!-- ADDED: Allow Reposts — creator can disable reposts on this reel -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Allow Reposts" android:textColor="#FFFFFF" android:textSize="16sp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Let others repost this reel to their profile"
+                    android:textColor="#888888" android:textSize="12sp"/>
+            </LinearLayout>
+            <Switch android:id="@+id/switch_allow_repost" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:checked="true"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Hide Like Count" android:textColor="#FFFFFF" android:textSize="16sp"/>
+            <Switch android:id="@+id/switch_hide_likes" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Hide View Count" android:textColor="#FFFFFF" android:textSize="16sp"/>
+            <Switch android:id="@+id/switch_hide_views" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/btn_close_friends"
+            android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:background="?attr/selectableItemBackground" android:layout_marginTop="8dp">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Close Friends List"
+                android:textColor="#FFFFFF" android:textSize="16sp"/>
+            <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                android:src="@drawable/ic_arrow_forward" android:alpha="0.6"/>
+        </LinearLayout>
+        <ProgressBar android:id="@+id/progress_privacy_save" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:layout_gravity="center"
+            android:visibility="gone" android:layout_marginTop="16dp"/>
+        <Button android:id="@+id/btn_privacy_save" android:layout_width="match_parent"
+            android:layout_height="52dp" android:text="Save Settings"
+            android:background="@drawable/bg_btn_primary" android:textColor="#FFFFFF"
+            android:textStyle="bold" android:layout_marginTop="16dp"/>
+    </LinearLayout>
+</ScrollView>

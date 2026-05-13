@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="14dp"
+    android:gravity="center_vertical"
+    android:background="?attr/selectableItemBackground">
+
+    <!-- Avatar frame: status ring + avatar + add-icon overlay -->
+    <FrameLayout
+        android:layout_width="60dp"
+        android:layout_height="60dp">
+
+        <ImageView
+            android:id="@+id/ring"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/circle_status_unseen"
+            android:visibility="gone"/>
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            android:background="@color/surface_input"/>
+
+        <!-- "+" badge for adding status -->
+        <ImageView
+            android:id="@+id/iv_add"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="bottom|end"
+            android:src="@drawable/ic_status_add"
+            android:background="@drawable/circle_primary"
+            android:padding="3dp"
+            android:elevation="2dp"/>
+
+    </FrameLayout>
+
+    <!-- Text column -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="14dp">
+
+        <TextView
+            android:id="@+id/tv_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="My Status"
+            android:textStyle="bold"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/tv_sub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:text="Tap to add status update"/>
+
+    </LinearLayout>
+
+    <!-- Optional media thumb preview -->
+    <ImageView
+        android:id="@+id/iv_thumb"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:scaleType="centerCrop"
+        android:background="@drawable/card_rounded"
+        android:visibility="gone"/>
+
+</LinearLayout>

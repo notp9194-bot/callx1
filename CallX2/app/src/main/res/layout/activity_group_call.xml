@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- Participant Grid -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvGroupCallParticipants"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="180dp"/>
+
+    <!-- Local self-view (small pip in top right) -->
+    <org.webrtc.SurfaceViewRenderer
+        android:id="@+id/localGroupVideo"
+        android:layout_width="96dp"
+        android:layout_height="144dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:elevation="6dp"
+        android:background="@drawable/card_rounded"
+        android:visibility="visible"/>
+
+    <!-- Top gradient + info bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/gradient_brand"
+        android:paddingTop="40dp"
+        android:paddingHorizontal="20dp"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:id="@+id/tvGroupCallName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:text="Group Call"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:id="@+id/tvGroupCallStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#CCFFFFFF"
+                android:textSize="13sp"
+                android:text="Connecting…"/>
+
+            <TextView
+                android:id="@+id/tvGroupCallParticipantCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#CCFFFFFF"
+                android:textSize="13sp"
+                android:text="0 participants"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvGroupCallTimer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="6dp"
+            android:text="0:00"/>
+    </LinearLayout>
+
+    <!-- Bottom control bar -->
+    <LinearLayout
+        android:id="@+id/groupCallControlBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#CC000000"
+        android:paddingVertical="16dp"
+        android:paddingHorizontal="12dp">
+
+        <!-- Top row: mic, camera, speaker, flip, hand -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="16dp">
+
+            <ImageButton
+                android:id="@+id/btnGroupToggleMic"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_margin="6dp"
+                android:src="@drawable/ic_mic"
+                android:background="@drawable/circle_primary"
+                android:contentDescription="Mute mic"
+                android:scaleType="centerInside"
+                android:padding="14dp"/>
+
+            <ImageButton
+                android:id="@+id/btnGroupToggleCamera"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_margin="6dp"
+                android:src="@drawable/ic_camera"
+                android:background="@drawable/circle_primary"
+                android:contentDescription="Toggle camera"
+                android:scaleType="centerInside"
+                android:padding="14dp"/>
+
+            <ImageButton
+                android:id="@+id/btnGroupToggleSpeaker"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_margin="6dp"
+                android:src="@drawable/ic_audio"
+                android:background="@drawable/circle_primary"
+                android:contentDescription="Toggle speaker"
+                android:scaleType="centerInside"
+                android:padding="14dp"/>
+
+            <ImageButton
+                android:id="@+id/btnGroupSwitchCamera"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_margin="6dp"
+                android:src="@drawable/ic_camera"
+                android:background="@drawable/circle_primary"
+                android:contentDescription="Switch camera"
+                android:scaleType="centerInside"
+                android:padding="14dp"/>
+
+            <ImageButton
+                android:id="@+id/btnGroupRaiseHand"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_margin="6dp"
+                android:src="@drawable/ic_person"
+                android:background="@drawable/circle_primary"
+                android:contentDescription="Raise hand"
+                android:scaleType="centerInside"
+                android:alpha="0.5"
+                android:padding="14dp"/>
+
+            <ImageButton
+                android:id="@+id/btnGroupCallSettings"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_margin="6dp"
+                android:src="@drawable/ic_shield"
+                android:background="@drawable/circle_primary"
+                android:contentDescription="Call settings"
+                android:scaleType="centerInside"
+                android:padding="12dp"/>
+        </LinearLayout>
+
+        <!-- End call button -->
+        <ImageButton
+            android:id="@+id/btnGroupEndCall"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_gravity="center_horizontal"
+            android:src="@drawable/ic_phone_off"
+            android:background="@drawable/circle_reject"
+            android:contentDescription="End call"
+            android:scaleType="centerInside"
+            android:padding="16dp"/>
+    </LinearLayout>
+</FrameLayout>

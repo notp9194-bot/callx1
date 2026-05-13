@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- Split view: original reel top, camera preview bottom -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Original reel (top half) -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.media3.ui.PlayerView
+                android:id="@+id/player_view_original"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:use_controller="false"
+                app:resize_mode="zoom"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|start"
+                android:layout_margin="8dp"
+                android:text="Original"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:background="#66000000"/>
+        </FrameLayout>
+
+        <!-- Divider line -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:background="@color/brand_primary"/>
+
+        <!-- Camera preview (bottom half) -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.camera.view.PreviewView
+                android:id="@+id/preview_view_camera"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|start"
+                android:layout_margin="8dp"
+                android:text="You"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:background="#66000000"/>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Top controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:paddingTop="36dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:gravity="center_vertical">
+
+        <ImageButton
+            android:id="@+id/btn_duet_close"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="Close"/>
+
+        <TextView
+            android:id="@+id/tv_duet_label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Duet"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"/>
+
+        <ImageButton
+            android:id="@+id/btn_duet_flip"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_camera"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="Flip camera"/>
+    </LinearLayout>
+
+    <!-- Bottom record controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingBottom="32dp"
+        android:paddingTop="12dp"
+        android:background="#44000000">
+
+        <!-- Timer -->
+        <TextView
+            android:id="@+id/tv_duet_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0:00"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Progress bar -->
+        <ProgressBar
+            android:id="@+id/progress_duet"
+            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="60"
+            android:progress="0"
+            android:progressTint="@color/brand_primary"
+            android:progressBackgroundTint="#44FFFFFF"
+            android:layout_marginStart="24dp"
+            android:layout_marginEnd="24dp"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Record button -->
+        <ImageButton
+            android:id="@+id/btn_duet_record"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:src="@drawable/ic_play"
+            android:background="@drawable/circle_primary"
+            android:tint="@color/white"
+            android:padding="14dp"
+            android:contentDescription="Record duet"/>
+    </LinearLayout>
+
+</FrameLayout>

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#000000">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+        <ImageButton android:id="@+id/btn_overlay_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Text Overlay" android:textColor="#FFFFFF"
+            android:textSize="18sp" android:textStyle="bold" android:paddingStart="12dp"/>
+        <Button android:id="@+id/btn_overlay_done" android:layout_width="wrap_content"
+            android:layout_height="36dp" android:text="Done" android:textColor="#FFFFFF"
+            android:background="@drawable/bg_btn_primary" android:paddingHorizontal="16dp"/>
+    </LinearLayout>
+    <FrameLayout android:layout_width="match_parent" android:layout_height="160dp"
+        android:background="#1A1A1A" android:gravity="center">
+        <TextView android:id="@+id/tv_overlay_preview" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="Preview text..."
+            android:textColor="#FFFFFF" android:textSize="24sp" android:padding="16dp"
+            android:layout_gravity="center"/>
+    </FrameLayout>
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:padding="16dp">
+            <EditText android:id="@+id/et_overlay_text" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="Enter text..."
+                android:textColor="#FFFFFF" android:textColorHint="#666666"
+                android:background="@drawable/bg_search_field" android:padding="12dp"
+                android:maxLines="3" android:inputType="textMultiLine"/>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Color" android:textColor="#AAAAAA" android:textSize="13sp"
+                android:paddingTop="16dp" android:paddingBottom="8dp"/>
+            <HorizontalScrollView android:layout_width="match_parent" android:layout_height="40dp" android:scrollbars="none">
+                <LinearLayout android:id="@+id/layout_overlay_colors" android:layout_width="wrap_content"
+                    android:layout_height="match_parent" android:orientation="horizontal"/>
+            </HorizontalScrollView>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Font" android:textColor="#AAAAAA" android:textSize="13sp"
+                android:paddingTop="16dp" android:paddingBottom="8dp"/>
+            <HorizontalScrollView android:layout_width="match_parent" android:layout_height="40dp" android:scrollbars="none">
+                <LinearLayout android:id="@+id/layout_overlay_fonts" android:layout_width="wrap_content"
+                    android:layout_height="match_parent" android:orientation="horizontal"/>
+            </HorizontalScrollView>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Background" android:textColor="#AAAAAA" android:textSize="13sp"
+                android:paddingTop="16dp" android:paddingBottom="8dp"/>
+            <HorizontalScrollView android:layout_width="match_parent" android:layout_height="40dp" android:scrollbars="none">
+                <LinearLayout android:id="@+id/layout_overlay_bg" android:layout_width="wrap_content"
+                    android:layout_height="match_parent" android:orientation="horizontal"/>
+            </HorizontalScrollView>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Alignment" android:textColor="#AAAAAA" android:textSize="13sp"
+                android:paddingTop="16dp" android:paddingBottom="8dp"/>
+            <LinearLayout android:id="@+id/layout_overlay_align" android:layout_width="match_parent"
+                android:layout_height="40dp" android:orientation="horizontal"/>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Font Size" android:textColor="#AAAAAA" android:textSize="13sp"/>
+                <TextView android:id="@+id/tv_overlay_size_label" android:layout_width="48dp"
+                    android:layout_height="wrap_content" android:text="24sp"
+                    android:textColor="#FFFFFF" android:textSize="13sp" android:gravity="end"/>
+            </LinearLayout>
+            <SeekBar android:id="@+id/seek_overlay_size" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:max="60" android:progress="12"/>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

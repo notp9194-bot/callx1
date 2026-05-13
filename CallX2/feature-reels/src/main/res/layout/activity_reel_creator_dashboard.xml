@@ -1,0 +1,424 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <!-- Header -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="8dp" android:paddingEnd="12dp">
+        <ImageButton android:id="@+id/btn_dashboard_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Creator Dashboard"
+            android:textSize="18sp" android:fontFamily="sans-serif-medium" android:paddingStart="8dp"/>
+        <ImageButton android:id="@+id/btn_dashboard_notifications"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_message_notification"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Notifications"
+            android:layout_marginEnd="4dp"/>
+        <Button android:id="@+id/btn_dashboard_new_reel"
+            android:layout_width="wrap_content" android:layout_height="36dp"
+            android:text="+ New Reel" android:textSize="13sp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+    </LinearLayout>
+
+    <ProgressBar android:id="@+id/progress_dashboard"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="center" android:layout_marginTop="48dp"
+        android:visibility="visible"/>
+
+    <ScrollView android:id="@+id/layout_dashboard_content"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:padding="16dp">
+
+            <!-- Overview stat cards grid -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="OVERVIEW" android:textSize="11sp" android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1" android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="12dp"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:layout_marginBottom="8dp">
+                <androidx.cardview.widget.CardView android:layout_width="0dp"
+                    android:layout_height="wrap_content" android:layout_weight="1"
+                    android:layout_marginEnd="6dp" app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:padding="14dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="👁 Views" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                        <TextView android:id="@+id/tv_dash_total_views" android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" android:text="—"
+                            android:textSize="22sp" android:fontFamily="sans-serif-medium" android:textColor="?attr/colorPrimary"/>
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+                <androidx.cardview.widget.CardView android:layout_width="0dp"
+                    android:layout_height="wrap_content" android:layout_weight="1"
+                    android:layout_marginStart="6dp" app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:padding="14dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="❤️ Likes" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                        <TextView android:id="@+id/tv_dash_total_likes" android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" android:text="—"
+                            android:textSize="22sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:layout_marginBottom="16dp">
+                <androidx.cardview.widget.CardView android:layout_width="0dp"
+                    android:layout_height="wrap_content" android:layout_weight="1"
+                    android:layout_marginEnd="6dp" app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:padding="14dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="💬 Comments" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                        <TextView android:id="@+id/tv_dash_total_comments" android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" android:text="—"
+                            android:textSize="22sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+                <androidx.cardview.widget.CardView android:layout_width="0dp"
+                    android:layout_height="wrap_content" android:layout_weight="1"
+                    android:layout_marginStart="6dp" app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:padding="14dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="📤 Shares" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+                        <TextView android:id="@+id/tv_dash_total_shares" android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" android:text="—"
+                            android:textSize="22sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+
+            <!-- Account metrics -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="ACCOUNT" android:textSize="11sp" android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1" android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="12dp"/>
+
+            <androidx.cardview.widget.CardView android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:padding="16dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp"
+                        android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="📹  Total Reels" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_dash_total_reels" android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp"
+                        android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="👥  Followers" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_dash_followers" android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp"
+                        android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="📊  Avg Engagement" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_dash_avg_engagement" android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" android:text="—" android:textSize="16sp"
+                            android:fontFamily="sans-serif-medium" android:textColor="@color/brand_accent"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp"
+                        android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="⏰  Best Posting Time" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_dash_best_time" android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" android:text="—" android:textSize="13sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- 30-day trend -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="30-DAY TREND" android:textSize="11sp" android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1" android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="8dp"/>
+            <androidx.cardview.widget.CardView android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                <TextView android:id="@+id/tv_dash_trend" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:padding="16dp"
+                    android:text="—" android:textSize="12sp" android:fontFamily="monospace"/>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Top reels -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="TOP REELS" android:textSize="11sp" android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1" android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="8dp"/>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_dashboard_top_reels"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false"
+                android:layout_marginBottom="24dp"/>
+            <!-- Quick Actions -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="QUICK ACTIONS" android:textSize="11sp" android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1" android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginTop="8dp" android:layout_marginBottom="12dp"/>
+
+            <androidx.cardview.widget.CardView android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginBottom="8dp"
+                app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <LinearLayout android:id="@+id/btn_creator_tools"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Creator Tools" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_creator_fund"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Creator Fund" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_audience_insights"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Audience Insights" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_qr_code"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="My QR Code" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_live"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Go Live" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_gifting"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Gifts and Rewards" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Library -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="LIBRARY" android:textSize="11sp" android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1" android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginTop="8dp" android:layout_marginBottom="12dp"/>
+
+            <androidx.cardview.widget.CardView android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginBottom="8dp"
+                app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <LinearLayout android:id="@+id/btn_saved_reels"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Saved Reels" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_liked_reels"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Liked Reels" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_drafts"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Drafts" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_bookmarks"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Bookmark Collections" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Settings -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="SETTINGS" android:textSize="11sp" android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1" android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginTop="8dp" android:layout_marginBottom="12dp"/>
+
+            <androidx.cardview.widget.CardView android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginBottom="32dp"
+                app:cardCornerRadius="12dp" app:cardElevation="2dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <LinearLayout android:id="@+id/btn_notif_settings"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Notification Settings" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_feed_settings"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Feed Settings" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_watermark"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Watermark Settings" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_remix_settings"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Remix Settings" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+                    <LinearLayout android:id="@+id/btn_moderation"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Comment Moderation" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <LinearLayout android:id="@+id/btn_collab_inbox"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Collab Inbox" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <LinearLayout android:id="@+id/btn_mentions"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Mentions" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <LinearLayout android:id="@+id/btn_live_replays"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Live Replays" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                    <LinearLayout android:id="@+id/btn_post_details"
+                        android:layout_width="match_parent" android:layout_height="52dp"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingStart="16dp" android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Post Details" android:textSize="14sp"/>
+                        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                            android:src="@drawable/ic_arrow_forward" android:alpha="0.4"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F2F2F2">
+
+    <!-- Top Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="16dp"
+        android:background="?attr/colorSurface"
+        android:elevation="2dp">
+        <ImageButton
+            android:id="@+id/btn_hub_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="#000000"
+            android:contentDescription="Back"/>
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Creator Hub"
+            android:textColor="#000000"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:paddingStart="8dp"/>
+    </LinearLayout>
+
+    <!-- Search Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:background="#F2F2F2">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#E5E5EA"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_search"
+                android:tint="#8A8A8E"
+                android:contentDescription="Search"/>
+
+            <EditText
+                android:id="@+id/et_hub_search"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@null"
+                android:hint="Search"
+                android:textColorHint="#8A8A8E"
+                android:textColor="#1C1C1E"
+                android:textSize="15sp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:inputType="text"
+                android:imeOptions="actionSearch"
+                android:singleLine="true"/>
+
+            <ImageButton
+                android:id="@+id/btn_hub_search_clear"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:background="@null"
+                android:src="@drawable/ic_close"
+                android:tint="#8A8A8E"
+                android:visibility="gone"
+                android:contentDescription="Clear search"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- No results view -->
+    <TextView
+        android:id="@+id/tv_hub_no_results"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No results found"
+        android:textColor="#8A8A8E"
+        android:textSize="15sp"
+        android:gravity="center"
+        android:paddingVertical="32dp"
+        android:visibility="gone"/>
+
+    <!-- Scrollable content -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:overScrollMode="never">
+
+        <LinearLayout
+            android:id="@+id/container_hub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="32dp"/>
+
+    </ScrollView>
+
+</LinearLayout>

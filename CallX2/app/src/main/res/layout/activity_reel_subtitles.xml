@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <!-- Header -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="8dp" android:paddingEnd="8dp">
+        <ImageButton android:id="@+id/btn_subtitles_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Captions"
+            android:textSize="18sp" android:fontFamily="sans-serif-medium" android:paddingStart="8dp"/>
+        <Switch android:id="@+id/sw_subtitles_enabled" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:layout_marginEnd="4dp"/>
+        <ImageButton android:id="@+id/btn_subtitles_apply" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:src="@drawable/ic_double_tick_blue"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingStart="12dp" android:paddingEnd="8dp"/>
+    </LinearLayout>
+
+    <!-- Video preview with subtitle overlay -->
+    <FrameLayout android:layout_width="match_parent" android:layout_height="200dp"
+        android:background="#000">
+        <androidx.media3.ui.PlayerView android:id="@+id/subtitles_player_view"
+            android:layout_width="match_parent" android:layout_height="match_parent"/>
+        <TextView android:id="@+id/tv_subtitle_overlay"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="bottom" android:padding="12dp"
+            android:text="" android:textSize="16sp" android:textColor="#FFFFFF"
+            android:shadowColor="#000" android:shadowRadius="4" android:shadowDx="0" android:shadowDy="1"
+            android:gravity="center" android:visibility="gone"/>
+    </FrameLayout>
+
+    <!-- Auto-generate bar -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:padding="12dp" android:background="?attr/colorSurfaceVariant">
+        <ImageButton android:id="@+id/btn_auto_generate" android:layout_width="44dp"
+            android:layout_height="44dp" android:src="@drawable/ic_mic"
+            android:background="@drawable/circle_primary" android:padding="10dp"/>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:paddingStart="10dp">
+            <TextView android:id="@+id/tv_auto_status" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Tap to auto-generate captions"
+                android:textSize="13sp"/>
+            <ProgressBar android:id="@+id/progress_subtitle_gen" android:layout_width="wrap_content"
+                android:layout_height="24dp" android:visibility="gone"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Style controls -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="12dp">
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Font Size" android:textSize="12sp"
+            android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginBottom="4dp"/>
+        <RadioGroup android:id="@+id/rg_font_size" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+            <RadioButton android:id="@+id/rb_font_small" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Small"/>
+            <RadioButton android:id="@+id/rb_font_medium" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Medium" android:checked="true"
+                android:layout_marginStart="16dp"/>
+            <RadioButton android:id="@+id/rb_font_large" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Large"
+                android:layout_marginStart="16dp"/>
+        </RadioGroup>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Style" android:textSize="12sp"
+            android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginBottom="4dp"/>
+        <RadioGroup android:id="@+id/rg_caption_style" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:orientation="horizontal">
+            <RadioButton android:id="@+id/rb_style_plain" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Plain" android:checked="true"/>
+            <RadioButton android:id="@+id/rb_style_outline" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Outline"
+                android:layout_marginStart="16dp"/>
+            <RadioButton android:id="@+id/rb_style_bg" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Background"
+                android:layout_marginStart="16dp"/>
+        </RadioGroup>
+    </LinearLayout>
+
+    <!-- Caption lines list -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="8dp" android:paddingTop="4dp">
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Caption Lines"
+            android:textSize="13sp" android:fontFamily="sans-serif-medium"
+            android:textColor="?attr/colorOnSurfaceVariant"/>
+        <Button android:id="@+id/btn_add_subtitle_line"
+            android:layout_width="wrap_content" android:layout_height="36dp"
+            android:text="+ Add" android:textSize="13sp"
+            style="@style/Widget.MaterialComponents.Button.TextButton"/>
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_subtitles"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingBottom="16dp"
+        android:clipToPadding="false"/>
+</LinearLayout>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    app:cardCornerRadius="10dp"
+    app:cardElevation="2dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical">
+
+        <!-- Rank badge -->
+        <TextView
+            android:id="@+id/tv_dash_reel_rank"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:text="#1"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="?attr/colorPrimary"
+            android:gravity="center"
+            android:layout_marginEnd="10dp"/>
+
+        <!-- Thumbnail -->
+        <ImageView
+            android:id="@+id/iv_dash_reel_thumb"
+            android:layout_width="52dp"
+            android:layout_height="68dp"
+            android:scaleType="centerCrop"
+            android:background="#1A1A1A"
+            android:layout_marginEnd="12dp"/>
+
+        <!-- Details -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_dash_reel_caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Caption"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="2"
+                android:ellipsize="end"/>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp">
+
+                <TextView
+                    android:id="@+id/tv_dash_reel_views"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0 views"
+                    android:textSize="12sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:layout_marginEnd="12dp"/>
+
+                <TextView
+                    android:id="@+id/tv_dash_reel_likes"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0 likes"
+                    android:textSize="12sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Arrow -->
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_arrow_back"
+            android:rotation="180"
+            android:alpha="0.4"/>
+    </LinearLayout>
+</androidx.cardview.widget.CardView>

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#000000">
+
+    <androidx.camera.view.PreviewView android:id="@+id/preview_green_screen"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        app:scaleType="fillCenter"/>
+
+    <View android:id="@+id/v_gs_bg_overlay" android:layout_width="match_parent"
+        android:layout_height="match_parent" android:background="#1A1A2E" android:alpha="0.3"/>
+
+    <TextView android:id="@+id/tv_gs_recording_status" android:layout_width="wrap_content"
+        android:layout_height="wrap_content" android:text="● REC" android:textColor="#FF3B5C"
+        android:textSize="14sp" android:textStyle="bold" android:padding="12dp"
+        android:layout_gravity="top|start" android:visibility="gone"/>
+
+    <ProgressBar android:id="@+id/progress_gs_camera" android:layout_width="wrap_content"
+        android:layout_height="wrap_content" android:layout_gravity="center" android:visibility="gone"/>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:layout_gravity="bottom"
+        android:background="#CC000000" android:paddingBottom="16dp">
+
+        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="80dp"
+            android:scrollbars="none">
+            <LinearLayout android:id="@+id/layout_gs_bg_thumbs" android:layout_width="wrap_content"
+                android:layout_height="match_parent" android:orientation="horizontal"
+                android:paddingHorizontal="12dp" android:gravity="center_vertical"/>
+        </HorizontalScrollView>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="16dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Blur BG" android:textColor="#FFFFFF" android:textSize="13sp" android:layout_marginEnd="8dp"/>
+            <Switch android:id="@+id/sw_gs_blur_bg" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="16dp" android:paddingTop="4dp">
+            <TextView android:id="@+id/tv_gs_chroma_label" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:text="Sensitivity: 30%" android:textColor="#FFFFFF" android:textSize="13sp"/>
+            <SeekBar android:id="@+id/sb_gs_chroma_key" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="2"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center" android:paddingTop="12dp">
+            <ImageButton android:id="@+id/btn_gs_back" android:layout_width="48dp"
+                android:layout_height="48dp" android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF" android:layout_marginEnd="24dp"/>
+            <ImageButton android:id="@+id/btn_gs_record" android:layout_width="68dp"
+                android:layout_height="68dp" android:background="@drawable/bg_circle_white"
+                android:src="@drawable/ic_reel_camera" android:tint="#FF3B5C" android:layout_marginEnd="24dp"/>
+            <ImageButton android:id="@+id/btn_gs_flip" android:layout_width="48dp"
+                android:layout_height="48dp" android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_flip_camera" android:tint="#FFFFFF" android:layout_marginEnd="24dp"/>
+            <ImageButton android:id="@+id/btn_gs_pick_bg" android:layout_width="48dp"
+                android:layout_height="48dp" android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_gallery" android:tint="#FFFFFF"/>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- Toolbar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        android:background="#1A1A1A">
+
+        <TextView
+            android:id="@+id/btn_trim_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Cancel"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Trim Video"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textAlignment="center"/>
+
+        <TextView
+            android:id="@+id/btn_trim_send"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Send"
+            android:textColor="#25D366"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"/>
+    </LinearLayout>
+
+    <!-- Video preview -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#000000">
+
+        <VideoView
+            android:id="@+id/video_trim_preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"/>
+
+        <!-- Play/Pause button overlay -->
+        <TextView
+            android:id="@+id/btn_trim_play"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_gravity="center"
+            android:text="▶"
+            android:textSize="32sp"
+            android:textColor="#FFFFFF"
+            android:textAlignment="center"
+            android:gravity="center"
+            android:background="#80000000"
+            android:clickable="true"
+            android:focusable="true"/>
+    </FrameLayout>
+
+    <!-- Trim controls panel -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#1A1A1A"
+        android:padding="16dp">
+
+        <!-- Duration info -->
+        <TextView
+            android:id="@+id/tv_trim_duration"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Selected: 0:00"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textAlignment="center"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Time labels -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="4dp">
+            <TextView
+                android:id="@+id/tv_trim_start_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0:00"
+                android:textColor="#AAAAAA"
+                android:textSize="13sp"/>
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+            <TextView
+                android:id="@+id/tv_trim_end_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0:00"
+                android:textColor="#AAAAAA"
+                android:textSize="13sp"/>
+        </LinearLayout>
+
+        <!-- Start seek bar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="START"
+            android:textColor="#25D366"
+            android:textSize="11sp"
+            android:layout_marginBottom="2dp"/>
+
+        <SeekBar
+            android:id="@+id/sb_trim_start"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:progressTint="#25D366"
+            android:thumbTint="#25D366"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- End seek bar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="END"
+            android:textColor="#FF5252"
+            android:textSize="11sp"
+            android:layout_marginBottom="2dp"/>
+
+        <SeekBar
+            android:id="@+id/sb_trim_end"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:progressTint="#FF5252"
+            android:thumbTint="#FF5252"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Trim progress bar (hidden by default) -->
+        <ProgressBar
+            android:id="@+id/pb_trim_progress"
+            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="0"
+            android:visibility="gone"
+            android:progressTint="#25D366"
+            android:layout_marginBottom="4dp"/>
+
+    </LinearLayout>
+
+</LinearLayout>

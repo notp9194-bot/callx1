@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#121212">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+        <ImageButton android:id="@+id/btn_tag_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Tag People" android:textColor="#FFFFFF"
+            android:textSize="18sp" android:textStyle="bold" android:paddingStart="12dp"/>
+        <Button android:id="@+id/btn_tag_done" android:layout_width="wrap_content"
+            android:layout_height="36dp" android:text="Done" android:textColor="#FFFFFF"
+            android:background="@drawable/bg_btn_primary" android:paddingHorizontal="16dp"/>
+    </LinearLayout>
+    <TextView android:id="@+id/tv_tag_count" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="0/10 tagged"
+        android:textColor="#AAAAAA" android:textSize="12sp" android:paddingHorizontal="16dp" android:paddingBottom="4dp"/>
+    <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:scrollbars="none" android:paddingHorizontal="12dp">
+        <LinearLayout android:id="@+id/layout_tag_selected" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:orientation="horizontal" android:paddingVertical="8dp"/>
+    </HorizontalScrollView>
+    <EditText android:id="@+id/et_tag_search" android:layout_width="match_parent"
+        android:layout_height="44dp" android:hint="Search contacts..." android:textColor="#FFFFFF"
+        android:textColorHint="#666666" android:background="@drawable/bg_search_field"
+        android:paddingHorizontal="16dp" android:layout_marginHorizontal="12dp"
+        android:layout_marginBottom="8dp" android:inputType="textPersonName"/>
+    <ProgressBar android:id="@+id/progress_tag_search" android:layout_width="wrap_content"
+        android:layout_height="wrap_content" android:layout_gravity="center" android:visibility="gone"/>
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_tag_contacts"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"/>
+</LinearLayout>

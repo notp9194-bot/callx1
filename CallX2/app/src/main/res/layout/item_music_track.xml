@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="64dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="8dp"
+    android:background="?attr/selectableItemBackground">
+
+    <!-- Music note icon -->
+    <ImageView
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:src="@drawable/ic_music_note"
+        android:tint="@color/brand_primary"
+        android:background="@drawable/circle_primary"
+        android:padding="10dp"
+        android:contentDescription="Music"/>
+
+    <!-- Name + Artist -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="8dp">
+
+        <TextView
+            android:id="@+id/tv_music_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="?attr/colorOnSurface"
+            android:singleLine="true"
+            android:ellipsize="end"/>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_music_artist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:singleLine="true"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" · "
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+
+            <TextView
+                android:id="@+id/tv_music_genre"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:singleLine="true"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Preview button -->
+    <ImageButton
+        android:id="@+id/btn_music_preview"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:src="@drawable/ic_play"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:tint="?attr/colorOnSurface"
+        android:contentDescription="Preview"/>
+
+    <!-- Select button -->
+    <TextView
+        android:id="@+id/btn_music_select"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:text="Use"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="center"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:background="@drawable/bg_reel_follow_btn"
+        android:layout_marginStart="4dp"/>
+
+</LinearLayout>

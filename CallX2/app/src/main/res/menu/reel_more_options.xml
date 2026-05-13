@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/menu_repost"
+        android:title="Repost"
+        android:icon="@drawable/ic_repost"
+        android:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_save"
+        android:title="Save"
+        android:icon="@drawable/ic_bookmark"
+        android:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_speed"
+        android:title="Playback Speed"
+        android:icon="@drawable/ic_play"
+        android:showAsAction="never">
+        <menu>
+            <item android:id="@+id/menu_speed_05" android:title="0.5×"/>
+            <item android:id="@+id/menu_speed_1"  android:title="1× (Normal)"/>
+            <item android:id="@+id/menu_speed_15" android:title="1.5×"/>
+            <item android:id="@+id/menu_speed_2"  android:title="2×"/>
+        </menu>
+    </item>
+
+    <item
+        android:id="@+id/menu_download"
+        android:title="Download"
+        android:icon="@drawable/ic_download_reel"
+        android:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_not_interested"
+        android:title="Not Interested"
+        android:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_report"
+        android:title="Report"
+        android:icon="@drawable/ic_flag"
+        android:showAsAction="never"/>
+
+</menu>

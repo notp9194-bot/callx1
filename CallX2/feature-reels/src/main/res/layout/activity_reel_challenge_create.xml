@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#121212">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+        <ImageButton android:id="@+id/btn_cc_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Create Challenge" android:textColor="#FFFFFF"
+            android:textSize="18sp" android:textStyle="bold" android:paddingStart="12dp"/>
+    </LinearLayout>
+
+    <ScrollView android:id="@+id/sv_challenge_form" android:layout_width="match_parent"
+        android:layout_height="0dp" android:layout_weight="1">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingBottom="24dp">
+
+            <EditText android:id="@+id/et_challenge_name" android:layout_width="match_parent"
+                android:layout_height="52dp" android:hint="Challenge name…" android:textColor="#FFFFFF"
+                android:textColorHint="#666666" android:background="@drawable/bg_search_field"
+                android:paddingHorizontal="16dp" android:layout_marginTop="8dp"
+                android:inputType="text" android:textSize="16sp"/>
+
+            <TextView android:id="@+id/tv_challenge_hashtag_preview" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="#YourChallenge"
+                android:textColor="#FF3B5C" android:textSize="20sp" android:textStyle="bold"
+                android:paddingVertical="8dp"/>
+
+            <EditText android:id="@+id/et_challenge_desc" android:layout_width="match_parent"
+                android:layout_height="100dp" android:hint="Describe your challenge…"
+                android:textColor="#FFFFFF" android:textColorHint="#666666"
+                android:background="@drawable/bg_search_field" android:paddingHorizontal="16dp"
+                android:paddingTop="12dp" android:gravity="top" android:inputType="textMultiLine"
+                android:layout_marginTop="8dp"/>
+
+            <EditText android:id="@+id/et_challenge_rules" android:layout_width="match_parent"
+                android:layout_height="80dp" android:hint="Rules (optional)…"
+                android:textColor="#FFFFFF" android:textColorHint="#666666"
+                android:background="@drawable/bg_search_field" android:paddingHorizontal="16dp"
+                android:paddingTop="12dp" android:gravity="top" android:inputType="textMultiLine"
+                android:layout_marginTop="8dp"/>
+
+            <EditText android:id="@+id/et_challenge_reward" android:layout_width="match_parent"
+                android:layout_height="44dp" android:hint="Reward / prize (optional)…"
+                android:textColor="#FFFFFF" android:textColorHint="#666666"
+                android:background="@drawable/bg_search_field" android:paddingHorizontal="16dp"
+                android:layout_marginTop="8dp"/>
+
+            <EditText android:id="@+id/et_challenge_cover_url" android:layout_width="match_parent"
+                android:layout_height="44dp" android:hint="Cover video/image URL (optional)…"
+                android:textColor="#FFFFFF" android:textColorHint="#666666"
+                android:background="@drawable/bg_search_field" android:paddingHorizontal="16dp"
+                android:layout_marginTop="8dp"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="DURATION" android:textColor="#888888" android:textSize="11sp"
+                android:paddingTop="16dp" android:paddingBottom="4dp"/>
+            <RadioGroup android:id="@+id/rg_challenge_duration" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:orientation="horizontal">
+                <RadioButton android:layout_width="0dp" android:layout_height="40dp"
+                    android:layout_weight="1" android:text="3d" android:textColor="#FFFFFF"/>
+                <RadioButton android:layout_width="0dp" android:layout_height="40dp"
+                    android:layout_weight="1" android:text="7d" android:textColor="#FFFFFF" android:checked="true"/>
+                <RadioButton android:layout_width="0dp" android:layout_height="40dp"
+                    android:layout_weight="1" android:text="14d" android:textColor="#FFFFFF"/>
+                <RadioButton android:layout_width="0dp" android:layout_height="40dp"
+                    android:layout_weight="1" android:text="30d" android:textColor="#FFFFFF"/>
+            </RadioGroup>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="PRIVACY" android:textColor="#888888" android:textSize="11sp"
+                android:paddingTop="12dp" android:paddingBottom="4dp"/>
+            <RadioGroup android:id="@+id/rg_challenge_privacy" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:orientation="horizontal">
+                <RadioButton android:layout_width="0dp" android:layout_height="40dp"
+                    android:layout_weight="1" android:text="Public" android:textColor="#FFFFFF" android:checked="true"/>
+                <RadioButton android:layout_width="0dp" android:layout_height="40dp"
+                    android:layout_weight="1" android:text="Followers Only" android:textColor="#FFFFFF"/>
+            </RadioGroup>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="AUDIO TRACK" android:textColor="#888888" android:textSize="11sp"
+                android:paddingTop="12dp" android:paddingBottom="4dp"/>
+            <TextView android:id="@+id/btn_challenge_select_audio" android:layout_width="match_parent"
+                android:layout_height="44dp" android:text="+ Select audio track"
+                android:textColor="#FF3B5C" android:textSize="14sp" android:gravity="center_vertical"
+                android:background="@drawable/bg_search_field" android:paddingHorizontal="16dp"/>
+            <TextView android:id="@+id/tv_challenge_audio_selected" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:textColor="#34C759" android:textSize="13sp"
+                android:paddingTop="4dp" android:visibility="gone"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:paddingTop="20dp">
+                <Button android:id="@+id/btn_challenge_preview" android:layout_width="0dp"
+                    android:layout_height="48dp" android:layout_weight="1" android:text="Preview"
+                    android:backgroundTint="#333333" android:textColor="#FFFFFF" android:layout_marginEnd="8dp"/>
+                <Button android:id="@+id/btn_challenge_submit" android:layout_width="0dp"
+                    android:layout_height="48dp" android:layout_weight="2" android:text="🚀 Launch Challenge"
+                    android:backgroundTint="#FF3B5C" android:textColor="#FFFFFF"/>
+            </LinearLayout>
+
+            <ProgressBar android:id="@+id/progress_challenge_create" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:layout_gravity="center"
+                android:visibility="gone" android:layout_marginTop="8dp"/>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

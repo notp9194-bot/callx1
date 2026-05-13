@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Feature 6: Pinned / Featured Reel card — spans all 3 columns at top of Reels tab -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="220dp"
+    android:background="#000000"
+    android:foreground="?attr/selectableItemBackground">
+
+    <!-- Background thumbnail (16:9-ish hero image) -->
+    <ImageView
+        android:id="@+id/iv_pinned_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="Pinned reel"/>
+
+    <!-- Bottom gradient scrim -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/gradient_reel_bottom"/>
+
+    <!-- TOP-LEFT: Pinned badge -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="12dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_reel_count"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <ImageView
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:src="@drawable/ic_bookmark_filled"
+            android:tint="#FFFFFF"
+            android:contentDescription="Pinned"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:text="Pinned"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"/>
+    </LinearLayout>
+
+    <!-- TOP-RIGHT: Duration badge -->
+    <TextView
+        android:id="@+id/tv_pinned_duration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:text="0:00"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        android:background="@drawable/bg_reel_count"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"/>
+
+    <!-- BOTTOM: Caption + stats row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <!-- Caption (up to 2 lines) -->
+        <TextView
+            android:id="@+id/tv_pinned_caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:visibility="gone"/>
+
+        <!-- Stats row: likes · comments · views -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical">
+
+            <ImageView android:layout_width="14dp" android:layout_height="14dp"
+                android:src="@drawable/ic_heart_filled" android:tint="#FF6B6B"
+                android:contentDescription="Likes"/>
+            <TextView android:id="@+id/tv_pinned_likes"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="4dp" android:text="0"
+                android:textColor="#FFFFFF" android:textSize="12sp"/>
+
+            <ImageView android:layout_width="14dp" android:layout_height="14dp"
+                android:layout_marginStart="14dp"
+                android:src="@drawable/ic_comment_reel" android:tint="#FFFFFF"
+                android:contentDescription="Comments"/>
+            <TextView android:id="@+id/tv_pinned_comments"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="4dp" android:text="0"
+                android:textColor="#FFFFFF" android:textSize="12sp"/>
+
+            <ImageView android:layout_width="14dp" android:layout_height="14dp"
+                android:layout_marginStart="14dp"
+                android:src="@drawable/ic_eye_off" android:tint="#CCCCCC"
+                android:contentDescription="Views"/>
+            <TextView android:id="@+id/tv_pinned_views"
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp" android:text="0"
+                android:textColor="#CCCCCC" android:textSize="12sp"/>
+
+            <!-- Play button (right side) -->
+            <ImageView
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_play"
+                android:background="@drawable/bg_circle_white"
+                android:tint="@color/brand_primary"
+                android:padding="8dp"
+                android:contentDescription="Play"/>
+        </LinearLayout>
+    </LinearLayout>
+
+</FrameLayout>
