@@ -133,7 +133,7 @@
         android:paddingTop="4dp"
         android:paddingBottom="4dp"/>
 
-    <!-- ★ Add to Story (Instagram-style gradient story in Reels home) -->
+    <!-- ★ Add to Reels (appears in full-screen Reels feed) -->
     <LinearLayout
         android:id="@+id/btn_add_to_story"
         android:layout_width="match_parent"
@@ -144,7 +144,7 @@
         android:paddingEnd="16dp"
         android:background="?attr/selectableItemBackground">
 
-        <!-- Gradient ring icon background -->
+        <!-- Reels icon background -->
         <FrameLayout
             android:layout_width="40dp"
             android:layout_height="40dp">
@@ -154,10 +154,10 @@
                 android:src="@drawable/gradient_story_ring"
                 android:layout_gravity="center"/>
             <ImageView
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:layout_gravity="center"
-                android:src="@drawable/ic_sparkle"
+                android:src="@drawable/ic_reels"
                 android:tint="#FFFFFF"/>
         </FrameLayout>
 
@@ -170,29 +170,23 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Add to Story"
+                android:text="Add to Reels"
                 android:textSize="15sp"
                 android:textColor="?attr/colorOnSurface"
                 android:fontFamily="sans-serif-medium"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Appears with gradient ring in Reels home"
+                android:text="Appears in Reels feed for all followers"
                 android:textSize="12sp"
                 android:textColor="?attr/colorOnSurfaceVariant"/>
         </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="24h"
-            android:textSize="10sp"
-            android:textColor="#FFFFFF"
-            android:background="@drawable/bg_pin_badge"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"/>
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_reels"
+            android:tint="?attr/colorOnSurfaceVariant"/>
     </LinearLayout>
 
     <!-- ★ Add to Status (WhatsApp-style — visible in Status tab) -->

@@ -54,7 +54,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
 
     private RecyclerView  rvContacts;
     private ProgressBar   progressBar;
-    private View          btnCopyLink, btnShareExternal, btnShareToStatus, btnRepostWithCaption;
+    private View          btnCopyLink, btnShareExternal, btnAddToReels, btnShareToStatus, btnRepostWithCaption;
 
     private ReelContactShareAdapter  adapter;
     private final List<User>         contacts = new ArrayList<>();
@@ -117,6 +117,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
         progressBar      = findViewById(R.id.progress_share);
         btnCopyLink          = findViewById(R.id.btn_copy_link);
         btnShareExternal     = findViewById(R.id.btn_share_external);
+        btnAddToReels        = findViewById(R.id.btn_add_to_reels);
         btnShareToStatus     = findViewById(R.id.btn_share_to_status);
         btnRepostWithCaption = findViewById(R.id.btn_repost_with_caption);
 
@@ -127,6 +128,8 @@ public class ReelShareSheetActivity extends AppCompatActivity
 
         btnCopyLink.setOnClickListener(v -> copyLink());
         btnShareExternal.setOnClickListener(v -> shareExternal());
+        if (btnAddToReels != null)
+            btnAddToReels.setOnClickListener(v -> addToReels());
         btnShareToStatus.setOnClickListener(v -> shareToStatus());
         if (btnRepostWithCaption != null)
             btnRepostWithCaption.setOnClickListener(v -> openRepostWithCaption());
@@ -203,6 +206,61 @@ public class ReelShareSheetActivity extends AppCompatActivity
         startActivity(Intent.createChooser(intent, "Share Reel via…"));
         incrementShareCount();
         finish();
+    }
+
+    /**
+     * Add to Reels — pushes a new entry directly to the reels/ Firebase node.
+     * The reel will appear in the full-screen Reels feed (ReelsFragment /
+     * SingleReelPlayerActivity) for all followers, sorted by trendingScore.
+     */
+    private void addToReels() {
+        if (!allowRepost) {
+            Toast.makeText(this, "This creator has disabled sharing of this reel.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String myName = "";
+        try {
+            myName = FirebaseUtils.getCurrentName();
+            if (myName == null) myName = "";
+        } catch (Exception ignored) {}
+
+        long now = System.currentTimeMillis();
+        DatabaseReference newReelRef = FirebaseUtils.getReelsRef().push();
+        String newReelId = newReelRef.getKey();
+        if (newReelId == null) {
+            Toast.makeText(this, "Failed to add to Reels. Try again.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String thumbUrl = getIntent().getStringExtra(EXTRA_THUMB_URL);
+        java.util.Map<String, Object> reel = new java.util.HashMap<>();
+        reel.put("reelId",              newReelId);
+        reel.put("uid",                 myUid);
+        reel.put("ownerName",           myName);
+        reel.put("ownerPhoto",          "");
+        reel.put("videoUrl",            videoUrl   != null ? videoUrl  : "");
+        reel.put("thumbUrl",            thumbUrl   != null ? thumbUrl  : "");
+        reel.put("thumbnailUrl",        thumbUrl   != null ? thumbUrl  : "");
+        reel.put("caption",             caption    != null ? caption   : "");
+        reel.put("timestamp",           now);
+        reel.put("likesCount",          0);
+        reel.put("commentsCount",       0);
+        reel.put("sharesCount",         0);
+        reel.put("viewsCount",          0);
+        reel.put("repostCount",         0);
+        reel.put("allowReposts",        true);
+        reel.put("audienceType",        "everyone");
+        reel.put("repostedFromReelId",  reelId   != null ? reelId   : "");
+        reel.put("repostedFromUid",     ownerUid != null ? ownerUid : "");
+        reel.put("repostedFromName",    "");
+        newReelRef.setValue(reel).addOnCompleteListener(task -> {
+            if (task.isSuccessful()) {
+                incrementShareCount();
+                Toast.makeText(this, "Added to Reels! Visible in the Reels feed", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Failed to add to Reels. Try again.", Toast.LENGTH_SHORT).show();
+            }
+            finish();
+        });
     }
 
     private void shareToStatus() {
