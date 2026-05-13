@@ -195,8 +195,16 @@ public class StatusViewerActivity extends AppCompatActivity {
             showImageStatus(s);
         } else if ("video".equals(s.type) && s.mediaUrl != null) {
             showVideoStatus(s);
+        } else if (("reel_story".equals(s.type) || "reel_clip".equals(s.type))
+                   && s.mediaUrl != null) {
+            // ★ Reel shared as Story/Status — play as video
+            showVideoStatus(s);
+        } else if (("reel_story".equals(s.type) || "reel_clip".equals(s.type))
+                   && s.thumbnailUrl != null) {
+            // ★ Reel with thumbnail but no direct mediaUrl — show thumbnail as image
+            showImageStatus(s);
         } else {
-            // Fallback: skip
+            // Fallback: skip unrecognised types
             next();
         }
     }
