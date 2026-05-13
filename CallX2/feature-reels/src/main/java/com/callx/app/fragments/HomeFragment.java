@@ -86,8 +86,10 @@ public class HomeFragment extends Fragment {
     private static class StoryEntry {
         String uid, name, photo;
         boolean hasUnseen;
-        StoryEntry(String u, String n, String p, boolean unseen) {
-            uid = u; name = n; photo = p; hasUnseen = unseen;
+        /** True when contact has at least one reel_story type — shows gradient ring */
+        boolean hasReelStory;
+        StoryEntry(String u, String n, String p, boolean unseen, boolean reelStory) {
+            uid = u; name = n; photo = p; hasUnseen = unseen; hasReelStory = reelStory;
         }
     }
 
@@ -315,6 +317,7 @@ public class HomeFragment extends Fragment {
                         boolean allSeen   = true;
                         Set<String> mySeenForOwner = seenMap.containsKey(uid) ? seenMap.get(uid) : new HashSet<>();
 
+                        boolean hasReelStory = false;
                         for (DataSnapshot s : statusSnap.getChildren()) {
                             Long ts = s.child("timestamp").getValue(Long.class);
                             if (ts == null || ts <= cutoff) continue;
@@ -322,10 +325,13 @@ public class HomeFragment extends Fragment {
                             if (mySeenForOwner == null || !mySeenForOwner.contains(s.getKey())) {
                                 allSeen = false; // at least one unseen
                             }
+                            // ★ Check for reel_story type — triggers gradient ring
+                            String type = s.child("type").getValue(String.class);
+                            if ("reel_story".equals(type)) hasReelStory = true;
                         }
 
                         if (hasActive) {
-                            collected.add(new StoryEntry(uid, name, photo, !allSeen));
+                            collected.add(new StoryEntry(uid, name, photo, !allSeen, hasReelStory));
                         }
                         collectStoryEntries(uids, index + 1, seenMap, collected);
                     }
@@ -353,13 +359,23 @@ public class HomeFragment extends Fragment {
 
             tvName.setText(entry.name != null ? entry.name : "User");
 
-            // Ring: colored (brand_primary gradient) = unseen, gray = all seen
-            if (entry.hasUnseen) {
-                // Brand color border already set in item_home_story.xml via civ_border_color
+            // ★ Gradient ring for reel_story type (Instagram-style)
+            ImageView ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
+
+            if (entry.hasReelStory) {
+                // Show gradient sweep ring — hides the plain border
+                if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
+                avatar.setBorderWidth(0);
+                if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
+            } else if (entry.hasUnseen) {
+                // Brand color ring for unseen WhatsApp-style status
+                if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
                 avatar.setBorderColor(getResources().getColor(R.color.brand_primary, null));
                 avatar.setBorderWidth(dpToPx(3));
                 if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
             } else {
+                // Gray ring for all-seen status
+                if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
                 avatar.setBorderColor(0xFF666666);
                 avatar.setBorderWidth(dpToPx(2));
                 if (ivSeenRing != null) {

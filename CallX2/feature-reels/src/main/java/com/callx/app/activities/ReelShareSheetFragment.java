@@ -38,18 +38,24 @@ import java.util.Map;
 /**
  * ReelShareSheetFragment — BottomSheetDialogFragment
  *
- * Activity se convert kiya gaya — ab koi nayi Activity create nahi hoti,
- * ExoPlayer pause nahi hota, back stack affect nahi hota.
- * Rubber feel + backdrop Material ka built-in hai — manually kuch set nahi karna.
+ * Share options:
+ *  • Send to contacts (DM)
+ *  • Copy Link
+ *  • Share via... (external)
+ *  • ★ Add to Story  — directly posts reel_story to status/{uid}; shows gradient ring
+ *                       in Reels HomeFragment stories bar (Instagram-style, 24h expiry)
+ *  • ★ Add to Status — directly posts reel_clip to status/{uid}; visible in Status tab
+ *                       (WhatsApp-style, 24h expiry)
+ *  • Repost with Caption
  *
- * Launch karo:
+ * Launch:
  *   ReelShareSheetFragment.newInstance(reelId, videoUrl, thumbUrl, caption, ownerUid, allowRepost)
  *       .show(getChildFragmentManager(), "share");
  */
 public class ReelShareSheetFragment extends BottomSheetDialogFragment
         implements ReelContactShareAdapter.OnContactShareListener {
 
-    // ── Argument keys (same as purani Activity ke EXTRA_ constants) ─────────
+    // ── Argument keys ──────────────────────────────────────────────────────
     public static final String ARG_REEL_ID      = "share_reel_id";
     public static final String ARG_VIDEO_URL    = "share_video_url";
     public static final String ARG_THUMB_URL    = "share_thumb_url";
@@ -59,12 +65,13 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
 
     private static final String DEEP_LINK_PREFIX = Constants.DEEP_LINK_BASE_URL + "/reel/";
 
-    // ── Views ────────────────────────────────────────────────────────────────
+    // ── Views ──────────────────────────────────────────────────────────────
     private RecyclerView rvContacts;
     private ProgressBar  progressBar;
-    private View         btnCopyLink, btnShareExternal, btnShareToStatus, btnRepostWithCaption;
+    private View         btnCopyLink, btnShareExternal;
+    private View         btnAddToStory, btnShareToStatus, btnRepostWithCaption;
 
-    // ── Data ─────────────────────────────────────────────────────────────────
+    // ── Data ───────────────────────────────────────────────────────────────
     private ReelContactShareAdapter adapter;
     private final List<User>        contacts = new ArrayList<>();
 
@@ -76,7 +83,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     private String  ownerUid;
     private boolean allowRepost;
 
-    // ── Factory ──────────────────────────────────────────────────────────────
+    // ── Factory ────────────────────────────────────────────────────────────
     public static ReelShareSheetFragment newInstance(
             String reelId, String videoUrl, String thumbUrl,
             String caption, String ownerUid, boolean allowRepost) {
@@ -94,11 +101,10 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         return f;
     }
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    // ── Lifecycle ──────────────────────────────────────────────────────────
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // DayNight — dark mode mein auto dark sheet milegi
         setStyle(STYLE_NORMAL, com.google.android.material.R.style.Theme_Material3_DayNight_BottomSheetDialog);
 
         if (getArguments() != null) {
@@ -124,7 +130,6 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
-        // Same layout reuse — sirf CoordinatorLayout wrapper aur backdrop hata diya
         return inflater.inflate(R.layout.fragment_reel_share_sheet, container, false);
     }
 
@@ -136,6 +141,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         progressBar          = view.findViewById(R.id.progress_share);
         btnCopyLink          = view.findViewById(R.id.btn_copy_link);
         btnShareExternal     = view.findViewById(R.id.btn_share_external);
+        btnAddToStory        = view.findViewById(R.id.btn_add_to_story);
         btnShareToStatus     = view.findViewById(R.id.btn_share_to_status);
         btnRepostWithCaption = view.findViewById(R.id.btn_repost_with_caption);
 
@@ -152,14 +158,22 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         // Buttons
         btnCopyLink.setOnClickListener(v -> copyLink());
         btnShareExternal.setOnClickListener(v -> shareExternal());
-        btnShareToStatus.setOnClickListener(v -> shareToStatus());
+
+        // ★ Add to Story — Instagram-style gradient story in Reels home
+        if (btnAddToStory != null)
+            btnAddToStory.setOnClickListener(v -> addToStory());
+
+        // ★ Add to Status — WhatsApp-style status tab
+        if (btnShareToStatus != null)
+            btnShareToStatus.setOnClickListener(v -> addToStatus());
+
         if (btnRepostWithCaption != null)
             btnRepostWithCaption.setOnClickListener(v -> openRepostWithCaption());
 
         loadContacts();
     }
 
-    // ── Contacts ──────────────────────────────────────────────────────────────
+    // ── Contacts ───────────────────────────────────────────────────────────
     private void loadContacts() {
         if (myUid == null) return;
         progressBar.setVisibility(View.VISIBLE);
@@ -183,7 +197,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
             });
     }
 
-    // ── Share actions ─────────────────────────────────────────────────────────
+    // ── Share actions ──────────────────────────────────────────────────────
     @Override
     public void onShareToContact(User contact) {
         if (contact.uid == null) return;
@@ -232,24 +246,115 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         dismiss();
     }
 
-    private void shareToStatus() {
+    /**
+     * ★ Add to Story (Instagram-style)
+     *
+     * Directly pushes a "reel_story" entry to status/{myUid}.
+     * HomeFragment's collectStoryEntries() checks for type=="reel_story"
+     * and renders it with a gradient ring in the stories bar at the top
+     * of the Reels home feed — visible to all followers for 24 hours.
+     */
+    private void addToStory() {
         if (!allowRepost) {
             toast("This creator has disabled sharing of this reel.");
             return;
         }
-        String ownerName = "";
+
+        String myName = "";
         try {
-            ownerName = FirebaseUtils.getCurrentName();
-            if (ownerName == null) ownerName = "";
+            myName = FirebaseUtils.getCurrentName();
+            if (myName == null) myName = "";
         } catch (Exception ignored) {}
 
-        Intent i = new Intent(requireContext(), ReelShareToStoryActivity.class);
-        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_ID,        reelId);
-        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_URL,        videoUrl);
-        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_OWNER_NAME, ownerName);
-        incrementShareCount();
-        startActivity(i);
-        dismiss();
+        long now      = System.currentTimeMillis();
+        long expiresAt = now + 86_400_000L; // 24 hours
+
+        DatabaseReference storyRef =
+            FirebaseUtils.db().getReference("status").child(myUid).push();
+        String storyId = storyRef.getKey();
+        if (storyId == null) {
+            toast("Failed to add story. Try again.");
+            return;
+        }
+
+        Map<String, Object> story = new HashMap<>();
+        story.put("id",           storyId);
+        story.put("type",         "reel_story");           // ★ gradient ring trigger
+        story.put("reelId",       reelId != null ? reelId : "");
+        story.put("videoUrl",     videoUrl != null ? videoUrl : "");
+        story.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
+        story.put("mediaUrl",     videoUrl != null ? videoUrl : "");
+        story.put("caption",      caption != null ? caption : "");
+        story.put("ownerUid",     myUid);
+        story.put("ownerName",    myName);
+        story.put("privacy",      "everyone");
+        story.put("timestamp",    now);
+        story.put("expiresAt",    expiresAt);
+        story.put("deleted",      false);
+        story.put("isReelStory",  true);                   // explicit flag for adapters
+
+        storyRef.setValue(story).addOnCompleteListener(task -> {
+            if (!isAdded()) return;
+            if (task.isSuccessful()) {
+                incrementShareCount();
+                toast("Added to your Story! ✨ Visible to followers for 24h");
+                dismiss();
+            } else {
+                toast("Failed to add story. Try again.");
+            }
+        });
+    }
+
+    /**
+     * ★ Add to Status (WhatsApp-style)
+     *
+     * Directly pushes a "reel_clip" entry to status/{myUid}.
+     * Appears in the Status tab for all contacts — same as a WhatsApp status.
+     * 24-hour auto-expiry applies.
+     */
+    private void addToStatus() {
+        String myName = "";
+        try {
+            myName = FirebaseUtils.getCurrentName();
+            if (myName == null) myName = "";
+        } catch (Exception ignored) {}
+
+        long now       = System.currentTimeMillis();
+        long expiresAt = now + 86_400_000L; // 24 hours
+
+        DatabaseReference statusRef =
+            FirebaseUtils.db().getReference("status").child(myUid).push();
+        String statusId = statusRef.getKey();
+        if (statusId == null) {
+            toast("Failed to add status. Try again.");
+            return;
+        }
+
+        Map<String, Object> status = new HashMap<>();
+        status.put("id",           statusId);
+        status.put("type",         "reel_clip");            // WhatsApp-style status type
+        status.put("reelId",       reelId != null ? reelId : "");
+        status.put("videoUrl",     videoUrl != null ? videoUrl : "");
+        status.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
+        status.put("mediaUrl",     videoUrl != null ? videoUrl : "");
+        status.put("caption",      caption != null ? caption : "");
+        status.put("ownerUid",     myUid);
+        status.put("ownerName",    myName);
+        status.put("privacy",      "contacts");
+        status.put("timestamp",    now);
+        status.put("expiresAt",    expiresAt);
+        status.put("deleted",      false);
+
+        statusRef.setValue(status).addOnCompleteListener(task -> {
+            if (!isAdded()) return;
+            if (task.isSuccessful()) {
+                incrementShareCount();
+                toast("Added to your Status! ✓ Visible to contacts for 24h");
+                dismiss();
+            } else {
+                toast("Failed to add status. Try again.");
+            }
+        });
     }
 
     private void openRepostWithCaption() {
@@ -268,7 +373,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         dismiss();
     }
 
-    // ── Firebase ──────────────────────────────────────────────────────────────
+    // ── Firebase ───────────────────────────────────────────────────────────
     private void incrementShareCount() {
         if (reelId == null) return;
         DatabaseReference countRef =
@@ -285,7 +390,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         });
     }
 
-    // ── Util ──────────────────────────────────────────────────────────────────
+    // ── Util ───────────────────────────────────────────────────────────────
     private void toast(String msg) {
         if (getContext() != null)
             Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();

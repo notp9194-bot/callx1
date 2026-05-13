@@ -8,9 +8,20 @@
     android:padding="4dp">
 
     <FrameLayout
-        android:layout_width="60dp"
-        android:layout_height="60dp">
+        android:layout_width="64dp"
+        android:layout_height="64dp">
 
+        <!-- Gradient ring — shown ONLY for reel_story type (Instagram-style) -->
+        <ImageView
+            android:id="@+id/iv_reel_story_gradient_ring"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_gravity="center"
+            android:src="@drawable/gradient_story_ring"
+            android:visibility="gone"
+            android:contentDescription="Reel story gradient ring"/>
+
+        <!-- Brand-color ring (unseen) / gray ring (seen) — default WhatsApp-style status -->
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_story_avatar"
             android:layout_width="56dp"

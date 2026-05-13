@@ -11,7 +11,7 @@
     android:orientation="vertical"
     android:paddingBottom="24dp">
 
-    <!-- Drag Handle — theme-aware color, dark mode mein visible rahega -->
+    <!-- Drag Handle -->
     <View
         android:layout_width="40dp"
         android:layout_height="4dp"
@@ -114,21 +114,140 @@
             android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
     </LinearLayout>
 
-    <!-- Add to Status -->
-    <LinearLayout
-        android:id="@+id/btn_share_to_status"
+    <View
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="1dp"
+        android:background="@color/divider"
+        android:layout_marginVertical="4dp"/>
+
+    <!-- ───────────── SYSTEM OPTIONS SECTION ───────────── -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="ADD TO"
+        android:textSize="11sp"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.08"
+        android:paddingStart="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"/>
+
+    <!-- ★ Add to Story (Instagram-style gradient story in Reels home) -->
+    <LinearLayout
+        android:id="@+id/btn_add_to_story"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:background="?attr/selectableItemBackground">
-        <ImageView android:layout_width="24dp" android:layout_height="24dp"
-            android:src="@drawable/ic_status_notification" android:tint="?attr/colorOnSurface"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginStart="16dp" android:text="Add to Status"
-            android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
+
+        <!-- Gradient ring icon background -->
+        <FrameLayout
+            android:layout_width="40dp"
+            android:layout_height="40dp">
+            <ImageView
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/gradient_story_ring"
+                android:layout_gravity="center"/>
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_sparkle"
+                android:tint="#FFFFFF"/>
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="14dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Add to Story"
+                android:textSize="15sp"
+                android:textColor="?attr/colorOnSurface"
+                android:fontFamily="sans-serif-medium"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Appears with gradient ring in Reels home"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="24h"
+            android:textSize="10sp"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/bg_pin_badge"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"/>
+    </LinearLayout>
+
+    <!-- ★ Add to Status (WhatsApp-style — visible in Status tab) -->
+    <LinearLayout
+        android:id="@+id/btn_share_to_status"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="?attr/selectableItemBackground">
+
+        <FrameLayout
+            android:layout_width="40dp"
+            android:layout_height="40dp">
+            <ImageView
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_status_notification"
+                android:tint="?attr/colorOnSurface"/>
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="14dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Add to Status"
+                android:textSize="15sp"
+                android:textColor="?attr/colorOnSurface"
+                android:fontFamily="sans-serif-medium"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Appears in your Status tab for contacts"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="24h"
+            android:textSize="10sp"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/bg_pin_badge"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"/>
     </LinearLayout>
 
     <View
