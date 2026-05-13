@@ -20,6 +20,7 @@ import com.callx.app.cache.CacheAnalytics;
 import com.callx.app.cache.ReelCacheManager;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.cache.NetworkCacheHelper;
+import com.callx.app.cache.StatusCacheManager;
 import com.callx.app.services.StatusBackgroundService;
 import com.callx.app.sync.SyncWorker;
 import com.callx.app.utils.AppLockManager;
@@ -114,6 +115,12 @@ public class CallxApp extends Application {
             CacheManager cacheManager = CacheManager.getInstance(this);
             cacheManager.preloadTopChats();
             SyncWorker.schedule(this);
+
+            // Start global status cache — ek baar Firebase read, pure app mein reuse
+            if (FirebaseAuth.getInstance().getCurrentUser() != null) {
+                String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                StatusCacheManager.getInstance(this).startListening(uid);
+            }
 
             if (FirebaseAuth.getInstance().getCurrentUser() != null) {
                 Intent svc = new Intent(this, StatusBackgroundService.class);

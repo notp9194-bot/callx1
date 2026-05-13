@@ -20,6 +20,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.firebase.database.*;
 import java.util.*;
+import com.callx.app.cache.StatusCacheManager;
 import java.util.concurrent.Executors;
 
 /**
@@ -125,14 +126,58 @@ public class StatusFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
-        loadFromRoom();   // v17: offline-first
-        loadStatuses();
+        // v18: StatusCacheManager se fresh karo — zero duplicate Firebase reads
+        // Agar data pehle se cache mein hai to instantly show karo
+        seedFromStatusCache();
+        loadFromRoom();   // v17: offline-first (Room fallback)
+        loadStatuses();   // Live Firebase listener (delta updates)
+        // App-wide status cache update hone par bhi refresh
+        StatusCacheManager.getInstance(requireContext()).addObserver(statusCacheObserver);
     }
 
     @Override
     public void onStop() {
         removeListeners();
+        if (getContext() != null)
+            StatusCacheManager.getInstance(getContext()).removeObserver(statusCacheObserver);
         super.onStop();
+    }
+
+    // ── StatusCacheManager observer — app-wide refresh ke liye ──────────────
+    private final StatusCacheManager.StatusDataObserver statusCacheObserver = () -> {
+        if (getActivity() != null) {
+            getActivity().runOnUiThread(this::seedFromStatusCache);
+        }
+    };
+
+    /**
+     * StatusCacheManager ke cache se data seedkaro — agar Firebase ne abhi
+     * fresh data nahi diya tab bhi instantly show ho jaata hai.
+     * Duplicate data avoid karta hai — sirf tab update karta hai jab cache non-empty hai.
+     */
+    private void seedFromStatusCache() {
+        if (myUid == null || getContext() == null) return;
+        StatusCacheManager scm = StatusCacheManager.getInstance(getContext());
+        java.util.Map<String, java.util.List<StatusItem>> cached = scm.getAllStatuses();
+        if (cached.isEmpty()) return;
+
+        // Cache se statusMap refresh karo (without clearing Firebase-loaded data)
+        for (java.util.Map.Entry<String, java.util.List<StatusItem>> e : cached.entrySet()) {
+            String uid = e.getKey();
+            java.util.List<StatusItem> items = e.getValue();
+            if (myUid.equals(uid)) {
+                // My own statuses
+                if (myStatuses.isEmpty()) {
+                    myStatuses.addAll(items);
+                }
+            } else {
+                // Contact statuses — sirf tab add karo agar already nahi hai
+                if (!statusMap.containsKey(uid)) {
+                    statusMap.put(uid, items);
+                }
+            }
+        }
+        rebuildAdapter();
     }
 
     // ── v17: Room se offline-first load ───────────────────────────────────

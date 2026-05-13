@@ -14,6 +14,7 @@ import com.callx.app.chat.R;
 import com.callx.app.activities.ChatActivity;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.cache.StatusCacheManager;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -70,6 +71,20 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 .into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
+        }
+
+        // Story ring — unseen/seen status indicator around chat avatar
+        if (h.ivStoryRing != null && u.uid != null) {
+            StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+            if (scm.hasUnseen(u.uid)) {
+                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
+                h.ivStoryRing.setVisibility(View.VISIBLE);
+            } else if (scm.hasStatus(u.uid)) {
+                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
+                h.ivStoryRing.setVisibility(View.VISIBLE);
+            } else {
+                h.ivStoryRing.setVisibility(View.GONE);
+            }
         }
 
         if (u.lastMessage != null && !u.lastMessage.isEmpty())
@@ -267,6 +282,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName, tvLastMessage, tvTime, tvUnread;
         CircleImageView ivAvatar;
+        android.widget.ImageView ivStoryRing;
         ImageButton btnCall, btnVideoCall;
         VH(View v) {
             super(v);
@@ -275,6 +291,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             tvTime        = v.findViewById(R.id.tv_time);
             tvUnread      = v.findViewById(R.id.tv_unread_badge);
             ivAvatar      = v.findViewById(R.id.iv_avatar);
+            ivStoryRing   = v.findViewById(R.id.iv_story_ring);
             btnCall       = v.findViewById(R.id.btn_call);
             btnVideoCall  = v.findViewById(R.id.btn_video_call);
         }

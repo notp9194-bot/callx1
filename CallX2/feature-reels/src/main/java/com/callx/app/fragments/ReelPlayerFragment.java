@@ -57,6 +57,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.workers.ReelRepostWorker;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.cache.StatusCacheManager;
 import com.google.firebase.database.Transaction;
 
 import java.util.Arrays;
@@ -93,6 +94,7 @@ public class ReelPlayerFragment extends Fragment {
     /** Play/Pause visual indicator — fades in/out on tap */
     private ImageView       ivPlayPauseIndicator;
     private CircleImageView ivOwnerAvatar;
+    private ImageView       ivOwnerStoryRing;
     private TextView        tvOwnerName, tvCaption, tvMusicName, tvViews;
     private TextView        tvLikesCount, tvCommentsCount, tvSharesCount;
     private TextView        tvFollowBtn;
@@ -278,6 +280,7 @@ public class ReelPlayerFragment extends Fragment {
             });
         }
         ivOwnerAvatar     = v.findViewById(R.id.iv_owner_avatar);
+        ivOwnerStoryRing  = v.findViewById(R.id.iv_owner_story_ring);
         tvOwnerName       = v.findViewById(R.id.tv_owner_name);
         tvCaption         = v.findViewById(R.id.tv_caption);
         tvMusicName       = v.findViewById(R.id.tv_music_name);
@@ -345,6 +348,20 @@ public class ReelPlayerFragment extends Fragment {
         }
         if (ivOwnerAvatar != null && reel.uid != null) {
             ivOwnerAvatar.setOnClickListener(v -> openUserReels());
+        }
+
+        // Story ring — show unseen/seen status around owner avatar
+        if (ivOwnerStoryRing != null && reel.uid != null && isAdded() && getContext() != null) {
+            StatusCacheManager scm = StatusCacheManager.getInstance(requireContext());
+            if (scm.hasUnseen(reel.uid)) {
+                ivOwnerStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
+                ivOwnerStoryRing.setVisibility(View.VISIBLE);
+            } else if (scm.hasStatus(reel.uid)) {
+                ivOwnerStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
+                ivOwnerStoryRing.setVisibility(View.VISIBLE);
+            } else {
+                ivOwnerStoryRing.setVisibility(View.GONE);
+            }
         }
         if (tvOwnerName != null && reel.uid != null) {
             tvOwnerName.setOnClickListener(v -> openUserReels());

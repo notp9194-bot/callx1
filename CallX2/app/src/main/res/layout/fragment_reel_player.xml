@@ -82,6 +82,15 @@
             android:layout_height="56dp"
             android:layout_marginBottom="16dp">
 
+            <!-- Story ring around owner avatar -->
+            <ImageView
+                android:id="@+id/iv_owner_story_ring"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_gravity="top|center_horizontal"
+                android:background="@drawable/circle_status_unseen"
+                android:visibility="gone"/>
+
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_owner_avatar"
                 android:layout_width="44dp"

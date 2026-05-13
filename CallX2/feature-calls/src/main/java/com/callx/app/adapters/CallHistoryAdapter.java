@@ -19,6 +19,7 @@ import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.cache.StatusCacheManager;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -108,6 +109,20 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                     }
                     @Override public void onCancelled(DatabaseError e) {}
                 });
+        }
+
+        // Story ring — unseen status indicator
+        if (h.ivStoryRing != null && l.partnerUid != null) {
+            StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+            if (scm.hasUnseen(l.partnerUid)) {
+                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
+                h.ivStoryRing.setVisibility(View.VISIBLE);
+            } else if (scm.hasStatus(l.partnerUid)) {
+                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
+                h.ivStoryRing.setVisibility(View.VISIBLE);
+            } else {
+                h.ivStoryRing.setVisibility(View.GONE);
+            }
         }
 
         boolean selected = l.id != null && selectedIds.contains(l.id);
@@ -200,7 +215,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName, tvMeta;
         ImageButton btnCallBack, btnVideoCall;
-        ImageView ivDirection;
+        ImageView ivDirection, ivStoryRing;
         CircleImageView ivAvatar;
         VH(View v) {
             super(v);
@@ -210,6 +225,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
             btnVideoCall = v.findViewById(R.id.btn_video_call);
             ivDirection  = v.findViewById(R.id.iv_direction);
             ivAvatar     = v.findViewById(R.id.iv_avatar);
+            ivStoryRing  = v.findViewById(R.id.iv_story_ring);
         }
     }
 }

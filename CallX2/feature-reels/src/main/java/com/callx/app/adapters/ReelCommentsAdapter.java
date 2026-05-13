@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.cache.StatusCacheManager;
 
 /**
  * ReelCommentsAdapter — full-featured comment list adapter.
@@ -152,6 +153,20 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         // ── Avatar ──────────────────────────────────────────────────────
         bindAvatar(ctx, h.ivAvatar, c.uid, c.ownerPhoto);
+
+        // ── Story ring (unseen status indicator) ─────────────────────
+        if (h.ivStoryRing != null && c.uid != null) {
+            StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+            if (scm.hasUnseen(c.uid)) {
+                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
+                h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
+            } else if (scm.hasStatus(c.uid)) {
+                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
+                h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
+            } else {
+                h.ivStoryRing.setVisibility(android.view.View.GONE);
+            }
+        }
 
         // ── Name ────────────────────────────────────────────────────────
         h.tvName.setText(c.ownerName != null && !c.ownerName.isEmpty()
@@ -401,6 +416,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
     static class VH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;
+        android.widget.ImageView ivStoryRing;
         TextView tvName, tvText, tvTime, tvLikes, btnReply, tvViewReplies;
         TextView tvEdited;
         ImageButton btnLike;
@@ -412,6 +428,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             super(v);
             rowPin          = v.findViewById(R.id.row_pin);
             ivAvatar        = v.findViewById(R.id.iv_avatar);
+            ivStoryRing     = v.findViewById(R.id.iv_story_ring);
             tvName          = v.findViewById(R.id.tv_name);
             tvText          = v.findViewById(R.id.tv_comment_text);
             tvTime          = v.findViewById(R.id.tv_time);
