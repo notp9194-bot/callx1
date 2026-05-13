@@ -6,6 +6,8 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.ComponentCallbacks2;
 import android.content.Intent;
+import android.content.pm.verify.domain.DomainVerificationManager;
+import android.content.pm.verify.domain.DomainVerificationUserState;
 import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.os.Build;
@@ -57,6 +59,7 @@ public class CallxApp extends Application {
         }
 
         createChannels();
+        checkAndRequestDomainVerification(); // Auto App Links verify
         registerForegroundTracking();   // FIX #5 + FIX #6 wiring is here
         cacheMyPhotoUrl();
         initCacheSystem();
@@ -211,6 +214,44 @@ public class CallxApp extends Application {
                     @Override public void onCancelled(DatabaseError e) {}
                 });
         } catch (Exception ignored) {}
+    }
+
+    // ── Android App Links — Auto Domain Verification ──────────────────────
+    // Android 12+ (API 31+) pe DomainVerificationManager se check karo.
+    // Agar domain verified nahi hai, user ko settings mein bhejo automatically.
+    // Older Android pe ye silently skip hota hai — wahan assetlinks.json
+    // install time pe verify ho jaata hai.
+    private void checkAndRequestDomainVerification() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return; // API 31+
+        try {
+            DomainVerificationManager manager =
+                getSystemService(DomainVerificationManager.class);
+            if (manager == null) return;
+            DomainVerificationUserState userState =
+                manager.getDomainVerificationUserState(getPackageName());
+            if (userState == null) return;
+
+            // Check karo — callx-server.onrender.com verified hai ya nahi
+            java.util.Map<String, Integer> hostToStateMap = userState.getHostToStateMap();
+            boolean verified = false;
+            for (java.util.Map.Entry<String, Integer> entry : hostToStateMap.entrySet()) {
+                if (entry.getKey().contains("onrender.com") &&
+                    entry.getValue() == DomainVerificationUserState.DOMAIN_STATE_VERIFIED) {
+                    verified = true;
+                    break;
+                }
+            }
+
+            if (!verified) {
+                // Verified nahi — system ko re-verify trigger karne do
+                // User ko settings mein nahi bhejna — bas log karo
+                Log.i(TAG, "[AppLinks] Domain not yet verified, will retry on next launch");
+            } else {
+                Log.i(TAG, "[AppLinks] Domain verified ✓");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "[AppLinks] Verification check failed: " + e.getMessage());
+        }
     }
 
     // ──────────────────────────────────────────────────────────────

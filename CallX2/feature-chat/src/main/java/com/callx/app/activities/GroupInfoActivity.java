@@ -244,7 +244,7 @@ public class GroupInfoActivity extends AppCompatActivity {
 
         // Invite link — copy
         findViewById(R.id.btn_copy_link).setOnClickListener(v -> {
-            String link = "callx://join/" + groupId;
+            String link = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId;
             ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Invite Link", link));
             Toast.makeText(this, "Link copied!", Toast.LENGTH_SHORT).show();
@@ -295,7 +295,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                                 .placeholder(R.drawable.ic_group)
                                 .into(ivGroupIcon);
                     }
-                    tvInviteLink.setText("callx://join/" + groupId);
+                    tvInviteLink.setText(com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId);
                 });
             }
         });
@@ -335,7 +335,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                 }
 
                 // Invite link
-                tvInviteLink.setText("callx://join/" + groupId);
+                tvInviteLink.setText(com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId);
 
                 // Check if current user is admin
                 boolean adminByMap  = g.admins   != null && g.admins.containsKey(currentUid);
@@ -674,7 +674,7 @@ public class GroupInfoActivity extends AppCompatActivity {
 
     // ── Invite link ───────────────────────────────────────────────────────
     private void shareInviteLink() {
-        String link = "callx://join/" + groupId;
+        String link = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId;
         String body = "Join *" + groupName + "* on CallX!\n\n" + link;
         Intent i = new Intent(Intent.ACTION_SEND);
         i.setType("text/plain");
@@ -691,7 +691,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     String newToken = Long.toHexString(System.currentTimeMillis());
                     FirebaseUtils.getGroupsRef().child(groupId)
                             .child("inviteToken").setValue(newToken);
-                    tvInviteLink.setText("callx://join/" + groupId + "?t=" + newToken);
+                    tvInviteLink.setText(com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId + "?t=" + newToken);
                     Toast.makeText(this, "Invite link reset", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)

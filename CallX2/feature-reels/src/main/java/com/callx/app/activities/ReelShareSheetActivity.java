@@ -15,6 +15,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+
 import com.callx.app.reels.R;
 import com.callx.app.activities.RepostWithCaptionActivity;
 import com.callx.app.adapters.ReelContactShareAdapter;
@@ -48,7 +50,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
     /** FIX: Pass creator's allowReposts flag (default true if not passed). */
     public static final String EXTRA_ALLOW_REPOST = "share_allow_repost";
 
-    private static final String DEEP_LINK_PREFIX = "https://callx.app/reel/";
+    private static final String DEEP_LINK_PREFIX = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/";
 
     private RecyclerView  rvContacts;
     private ProgressBar   progressBar;
@@ -90,6 +92,26 @@ public class ReelShareSheetActivity extends AppCompatActivity
 
         View backdrop = findViewById(R.id.share_backdrop);
         if (backdrop != null) backdrop.setOnClickListener(v -> finish());
+
+        // ── Rubber Bottom Sheet setup ─────────────────────────────────────
+        View bottomSheet = findViewById(R.id.share_bottom_sheet);
+        if (bottomSheet != null) {
+            BottomSheetBehavior<View> bsb = BottomSheetBehavior.from(bottomSheet);
+            bsb.setState(BottomSheetBehavior.STATE_EXPANDED);
+            bsb.setDraggable(true);
+            bsb.setHideable(true);
+            bsb.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+                @Override public void onStateChanged(@NonNull View v, int newState) {
+                    // Neeche drag karke band karo
+                    if (newState == BottomSheetBehavior.STATE_HIDDEN) finish();
+                }
+                @Override public void onSlide(@NonNull View v, float slideOffset) {
+                    // Backdrop dim/undim as sheet slides
+                    if (backdrop != null)
+                        backdrop.setAlpha(Math.max(0f, slideOffset));
+                }
+            });
+        }
 
         rvContacts       = findViewById(R.id.rv_share_contacts);
         progressBar      = findViewById(R.id.progress_share);
@@ -189,10 +211,17 @@ public class ReelShareSheetActivity extends AppCompatActivity
             Toast.makeText(this, "This creator has disabled sharing of this reel.", Toast.LENGTH_SHORT).show();
             return;
         }
+        // FIX: ownerName ko Firebase se fetch karo agar available nahi hai
+        String ownerName = "";
+        try {
+            ownerName = FirebaseUtils.getCurrentName();
+            if (ownerName == null) ownerName = "";
+        } catch (Exception ignored) {}
+
         Intent i = new Intent(this, ReelShareToStoryActivity.class);
         i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_ID,        reelId);
         i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_URL,        videoUrl);
-        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_OWNER_NAME, "");
+        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_OWNER_NAME, ownerName);
         incrementShareCount();
         startActivity(i);
         finish();

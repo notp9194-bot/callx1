@@ -425,7 +425,7 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Feature 8: Share Profile ──────────────────────────────────────────
 
     private void shareProfile() {
-        String deepLink = "callx://profile/" + targetUid;
+        String deepLink = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid;
         String name     = targetName != null ? targetName : "a creator";
         String msg      = "Check out " + name + "'s Reels on CallX!\n" + deepLink;
         Intent share = new Intent(Intent.ACTION_SEND);
@@ -1131,7 +1131,7 @@ public class UserReelsActivity extends AppCompatActivity
                     case 2:
                         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                         if (cm != null) {
-                            cm.setPrimaryClip(ClipData.newPlainText("Link", "callx://profile/" + targetUid));
+                            cm.setPrimaryClip(ClipData.newPlainText("Link", com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid));
                             Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show();
                         }
                         break;

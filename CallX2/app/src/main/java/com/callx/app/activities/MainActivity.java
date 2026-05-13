@@ -84,6 +84,7 @@ public class MainActivity extends AppCompatActivity {
 
         // ── Handle tap from system reel notification (Doze / killed state) ─────
         handleReelNotifIntent(getIntent());
+        handleDeepLinkIntent(getIntent());  // Tab deep link
         // ──────────────────────────────────────────────────────────────────────
 
         setSupportActionBar(binding.toolbar);
@@ -156,11 +157,26 @@ public class MainActivity extends AppCompatActivity {
         startBadgeListeners();
     }
 
-    // Called when app is ALREADY running and user taps a reel notification
+    // Called when app is ALREADY running and user taps a reel notification or deep link
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         handleReelNotifIntent(intent);
+        handleDeepLinkIntent(intent);  // Deep link handling
+    }
+
+    /** Handle incoming deep links from DeepLinkRouterActivity or direct App Links */
+    private void handleDeepLinkIntent(Intent intent) {
+        if (intent == null) return;
+        String tab = intent.getStringExtra("open_tab");
+        if (tab == null) return;
+        switch (tab) {
+            case "chats":        binding.viewPager.setCurrentItem(0, false); break;
+            case "status":       binding.viewPager.setCurrentItem(1, false); break;
+            case "groups":       binding.viewPager.setCurrentItem(2, false); break;
+            case "reels":        binding.viewPager.setCurrentItem(3, false); break;
+            case "calls":        binding.viewPager.setCurrentItem(4, false); break;
+        }
     }
 
     /** Navigate to ReelNotificationsActivity when user taps the system

@@ -5,6 +5,11 @@ public class Constants {
         "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
     public static final String SERVER_URL =
         "https://callx-server.onrender.com";
+
+    // ── Deep Link base URL ────────────────────────────────────────────────
+    // HTTPS use karo — WhatsApp/SMS mein clickable hota hai
+    // Server pe ye link callx:// pe redirect karta hai → seedha app mein khulta hai
+    public static final String DEEP_LINK_BASE_URL = "https://callx-server.onrender.com";
     public static final String CLOUDINARY_CLOUD_NAME = "dvqqgqdls";
 
     // ── Notification channels ────────────────────────────────────────────

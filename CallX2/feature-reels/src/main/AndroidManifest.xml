@@ -29,10 +29,7 @@
         <activity android:name="com.callx.app.activities.ReelEditActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name="com.callx.app.activities.ReelShareSheetActivity"
-            android:exported="false"
-            android:theme="@style/Theme.CallX.Transparent"
-            android:windowSoftInputMode="adjustResize"/>
+        <!-- ReelShareSheetActivity removed — replaced by ReelShareSheetFragment (BottomSheetDialogFragment) -->
 
         <!-- Camera / Editor -->
         <activity android:name="com.callx.app.activities.ReelCameraActivity"

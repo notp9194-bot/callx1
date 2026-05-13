@@ -61,6 +61,19 @@
                 <action android:name="OPEN_REEL_NOTIFICATION"/>
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
+
+            <!-- ── Android App Links (Verified Links like WhatsApp) ──
+                 Server pe assetlinks.json live hai:
+                 https://callx-server.onrender.com/.well-known/assetlinks.json
+                 SHA-256: 92:31:CD:9F:90:15:45:54:3B:92:D8:21:FC:6E:1F:DC:
+                          D5:40:8B:F0:69:04:96:85:BD:30:99:50:1A:EB:5D:03  -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="callx-server.onrender.com"/>
+            </intent-filter>
         </activity>
         <activity android:name=".activities.ChatActivity"     android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
@@ -106,6 +119,15 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="callx" android:host="join"/>
+            </intent-filter>
+            <!-- HTTPS App Link for group invite: callx-server.onrender.com/join?... -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="callx-server.onrender.com"
+                      android:pathPrefix="/join"/>
             </intent-filter>
         </activity>
         <activity android:name=".activities.CallActivity" android:exported="false"
@@ -682,6 +704,69 @@
                   <action android:name="com.callx.app.STATUS_EXPIRY_REMINDER"/>
               </intent-filter>
           </receiver>
+
+
+        <!-- DeepLinkRouterActivity — ALL CallX deep links yahan handle honge -->
+        <activity
+            android:name=".activities.DeepLinkRouterActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.NoDisplay">
+
+            <!-- HTTPS App Links (Verified — WhatsApp jaisi) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="callx-server.onrender.com"/>
+            </intent-filter>
+
+            <!-- Custom scheme callx:// links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="u"/>
+            </intent-filter>
+            <!-- callx://profile/{uid} — ProfileActivity -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="profile"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="chat"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="reel"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="reels"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="status"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="g"/>
+            </intent-filter>
+        </activity>
 
       </application>
 </manifest>

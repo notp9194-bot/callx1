@@ -22,7 +22,7 @@ public class ReelQRCodeActivity extends AppCompatActivity {
         super.onCreate(s); setContentView(R.layout.activity_reel_qr_code);
         reelId=getIntent().getStringExtra(EXTRA_REEL_ID); caption=getIntent().getStringExtra(EXTRA_REEL_CAPTION);
         if(reelId==null||reelId.isEmpty()){finish();return;}
-        deepLink="https://callx.app/reel/"+reelId;
+        deepLink = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId;
         bindViews(); generate();
     }
 

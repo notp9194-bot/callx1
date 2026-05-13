@@ -38,7 +38,7 @@ import com.callx.app.activities.HashtagReelsActivity;
 import com.callx.app.activities.ReelAnalyticsActivity;
 import com.callx.app.activities.ReelEditActivity;
 import com.callx.app.activities.ReelReportActivity;
-import com.callx.app.activities.ReelShareSheetActivity;
+import com.callx.app.activities.ReelShareSheetFragment;
 import com.callx.app.activities.RepostWithCaptionActivity;
 import com.callx.app.activities.ReelRepostListActivity;
 import com.callx.app.activities.DuetReelActivity;
@@ -928,11 +928,14 @@ public class ReelPlayerFragment extends Fragment {
 
     private void shareReel() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        Intent i = new Intent(getActivity(), ReelShareSheetActivity.class);
-        i.putExtra(ReelShareSheetActivity.EXTRA_REEL_ID,   reel.reelId);
-        i.putExtra(ReelShareSheetActivity.EXTRA_VIDEO_URL, reel.videoUrl);
-        i.putExtra(ReelShareSheetActivity.EXTRA_CAPTION,   reel.caption);
-        startActivity(i);
+        ReelShareSheetFragment.newInstance(
+                reel.reelId,
+                reel.videoUrl,
+                reel.thumbUrl,
+                reel.caption,
+                reel.uid,          // ownerUid = uid in ReelModel
+                reel.allowReposts
+        ).show(getChildFragmentManager(), "share_sheet");
     }
 
     // ── Download ──────────────────────────────────────────────────────────
@@ -1116,7 +1119,7 @@ public class ReelPlayerFragment extends Fragment {
         ClipboardManager cm = (ClipboardManager) requireContext()
             .getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) {
-            cm.setPrimaryClip(ClipData.newPlainText("Reel Link", "callx://reel/" + reel.reelId));
+            cm.setPrimaryClip(ClipData.newPlainText("Reel Link", com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reel.reelId));
             Toast.makeText(requireContext(), "Link copied!", Toast.LENGTH_SHORT).show();
         }
     }
@@ -1156,7 +1159,7 @@ public class ReelPlayerFragment extends Fragment {
         if (!isAdded() || getActivity() == null || reel == null) return;
         Intent i = new Intent(getActivity(), ReelQRCodeActivity.class);
         i.putExtra("reel_id",  reel.reelId);
-        i.putExtra("reel_url", "callx://reel/" + reel.reelId);
+        i.putExtra("reel_url", com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reel.reelId);
         startActivity(i);
     }
 
