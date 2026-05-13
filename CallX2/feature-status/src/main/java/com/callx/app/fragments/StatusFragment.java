@@ -153,6 +153,10 @@ public class StatusFragment extends Fragment {
             List<StatusItem> roomMine = new ArrayList<>();
 
             for (StatusEntity e : cached) {
+                // "reel_story" type sirf Reels home ki stories bar ke liye hai,
+                // Status tab ke offline cache mein bhi nahi dikhna chahiye
+                if ("reel_story".equals(e.type)) continue;
+
                 StatusItem item = new StatusItem();
                 item.id           = e.id;
                 item.ownerUid     = e.ownerUid;
@@ -237,6 +241,9 @@ public class StatusFragment extends Fragment {
                         StatusItem item = stSnap.getValue(StatusItem.class);
                         if (item == null || item.deleted) continue;
                         if (item.expiresAt != null && item.expiresAt < now) continue;
+                        // "reel_story" type sirf Reels home ki stories bar ke liye hai,
+                        // Status tab mein nahi dikhna chahiye
+                        if ("reel_story".equals(item.type)) continue;
                         items.add(item);
                     }
                     // Sort chronologically within each user
