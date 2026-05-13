@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Story ring (circle outline) -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.5"
+        android:pathData="M12,2.5 A9.5,9.5 0 1 1 11.999,2.5"/>
+    <!-- Home icon -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,6.5L7,11h2v4h2.5v-2.5h1V15H15v-4h2L12,6.5z"/>
+</vector>
