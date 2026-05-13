@@ -159,9 +159,9 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         btnCopyLink.setOnClickListener(v -> copyLink());
         btnShareExternal.setOnClickListener(v -> shareExternal());
 
-        // ★ Add to Reels — pushes to full-screen Reels feed
+        // ★ Add to Story — Instagram-style gradient story in Reels home
         if (btnAddToStory != null)
-            btnAddToStory.setOnClickListener(v -> addToReels());
+            btnAddToStory.setOnClickListener(v -> addToStory());
 
         // ★ Add to Status — WhatsApp-style status tab
         if (btnShareToStatus != null)
@@ -247,65 +247,60 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     }
 
     /**
-     * ★ Add to Reels
+     * ★ Add to Story (Instagram-style)
      *
-     * Directly pushes a new ReelModel entry to reels/{newReelId}.
-     * This reel will appear in the full-screen vertical Reels feed
-     * (ReelsFragment / SingleReelPlayerActivity) for all followers
-     * — sorted by trendingScore just like any other reel.
+     * Directly pushes a "reel_story" entry to status/{myUid}.
+     * HomeFragment's collectStoryEntries() checks for type=="reel_story"
+     * and renders it with a gradient ring in the stories bar at the top
+     * of the Reels home feed — visible to all followers for 24 hours.
      */
-    private void addToReels() {
+    private void addToStory() {
         if (!allowRepost) {
             toast("This creator has disabled sharing of this reel.");
             return;
         }
 
-        String myName  = "";
-        String myPhoto = "";
+        String myName = "";
         try {
             myName = FirebaseUtils.getCurrentName();
             if (myName == null) myName = "";
         } catch (Exception ignored) {}
 
-        long now = System.currentTimeMillis();
+        long now      = System.currentTimeMillis();
+        long expiresAt = now + 86_400_000L; // 24 hours
 
-        DatabaseReference newReelRef = FirebaseUtils.getReelsRef().push();
-        String newReelId = newReelRef.getKey();
-        if (newReelId == null) {
-            toast("Failed to add to Reels. Try again.");
+        DatabaseReference storyRef =
+            FirebaseUtils.db().getReference("status").child(myUid).push();
+        String storyId = storyRef.getKey();
+        if (storyId == null) {
+            toast("Failed to add story. Try again.");
             return;
         }
 
-        Map<String, Object> reel = new HashMap<>();
-        reel.put("reelId",              newReelId);
-        reel.put("uid",                 myUid);
-        reel.put("ownerName",           myName);
-        reel.put("ownerPhoto",          myPhoto);
-        reel.put("videoUrl",            videoUrl != null ? videoUrl : "");
-        reel.put("thumbUrl",            thumbUrl != null ? thumbUrl : "");
-        reel.put("thumbnailUrl",        thumbUrl != null ? thumbUrl : "");
-        reel.put("caption",             caption  != null ? caption  : "");
-        reel.put("timestamp",           now);
-        reel.put("likesCount",          0);
-        reel.put("commentsCount",       0);
-        reel.put("sharesCount",         0);
-        reel.put("viewsCount",          0);
-        reel.put("repostCount",         0);
-        reel.put("allowReposts",        true);
-        reel.put("audienceType",        "everyone");
-        // Attribution: mark original reel source
-        reel.put("repostedFromReelId",  reelId     != null ? reelId    : "");
-        reel.put("repostedFromUid",     ownerUid   != null ? ownerUid  : "");
-        reel.put("repostedFromName",    "");
+        Map<String, Object> story = new HashMap<>();
+        story.put("id",           storyId);
+        story.put("type",         "reel_story");           // ★ gradient ring trigger
+        story.put("reelId",       reelId != null ? reelId : "");
+        story.put("videoUrl",     videoUrl != null ? videoUrl : "");
+        story.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
+        story.put("mediaUrl",     videoUrl != null ? videoUrl : "");
+        story.put("caption",      caption != null ? caption : "");
+        story.put("ownerUid",     myUid);
+        story.put("ownerName",    myName);
+        story.put("privacy",      "everyone");
+        story.put("timestamp",    now);
+        story.put("expiresAt",    expiresAt);
+        story.put("deleted",      false);
+        story.put("isReelStory",  true);                   // explicit flag for adapters
 
-        newReelRef.setValue(reel).addOnCompleteListener(task -> {
+        storyRef.setValue(story).addOnCompleteListener(task -> {
             if (!isAdded()) return;
             if (task.isSuccessful()) {
                 incrementShareCount();
-                toast("Added to Reels! Visible in the Reels feed");
+                toast("Added to your Story! ✨ Visible to followers for 24h");
                 dismiss();
             } else {
-                toast("Failed to add to Reels. Try again.");
+                toast("Failed to add story. Try again.");
             }
         });
     }
