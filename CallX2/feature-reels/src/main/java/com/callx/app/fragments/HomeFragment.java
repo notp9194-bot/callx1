@@ -325,17 +325,17 @@ public class HomeFragment extends Fragment {
                         for (DataSnapshot s : statusSnap.getChildren()) {
                             Long ts = s.child("timestamp").getValue(Long.class);
                             if (ts == null || ts <= cutoff) continue;
+                            // ★ Sirf "reel_story" type Reels Home story bar ke liye hai.
+                            // "reel_clip" (Add to Status) yahan nahi dikhna chahiye.
+                            String type = s.child("type").getValue(String.class);
+                            if (!"reel_story".equals(type)) continue;
                             hasActive = true;
                             if (mySeenForOwner == null || !mySeenForOwner.contains(s.getKey())) {
-                                allSeen = false; // at least one unseen
+                                allSeen = false;
                             }
-                            // ★ Check for reel_story type — triggers gradient ring
-                            String type = s.child("type").getValue(String.class);
-                            if ("reel_story".equals(type)) {
-                                hasReelStory = true;
-                                if (firstReelId == null) {
-                                    firstReelId = s.child("reelId").getValue(String.class);
-                                }
+                            hasReelStory = true;
+                            if (firstReelId == null) {
+                                firstReelId = s.child("reelId").getValue(String.class);
                             }
                         }
 
