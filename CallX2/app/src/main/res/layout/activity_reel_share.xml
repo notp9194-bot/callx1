@@ -12,7 +12,6 @@
 
     <!-- Bottom sheet card -->
     <LinearLayout
-        android:id="@+id/share_bottom_sheet"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -118,45 +117,8 @@
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="16dp" android:text="Share via..." android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
         </LinearLayout>
 
-        <!-- Add to Status: saves reel_clip to status/{uid} -> Status tab -> StatusViewerActivity -->
         <LinearLayout
             android:id="@+id/btn_share_to_status"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:background="?attr/selectableItemBackground">
-
-            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_status_notification" android:tint="?attr/colorOnSurface"/>
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="16dp">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Add to Status" android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Visible in Status tab" android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant"/>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- Add to Story: saves reel_story to status/{uid} -> Reels Home tab -> ReelPlayer -->
-        <LinearLayout
-            android:id="@+id/btn_add_to_story"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:background="?attr/selectableItemBackground">
-
-            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_home_story" android:tint="@color/brand_primary"/>
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="16dp">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Add to Story" android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Visible in Home tab (Reels)" android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant"/>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- Repost with Caption -->
-        <LinearLayout
-            android:id="@+id/btn_repost_with_caption"
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:orientation="horizontal"
@@ -165,8 +127,8 @@
             android:paddingEnd="16dp"
             android:background="?attr/selectableItemBackground">
 
-            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_repost" android:tint="?attr/colorOnSurface"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="16dp" android:text="Repost with Caption" android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
+            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_status_notification" android:tint="?attr/colorOnSurface"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="16dp" android:text="Add to Status" android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
         </LinearLayout>
 
     </LinearLayout>

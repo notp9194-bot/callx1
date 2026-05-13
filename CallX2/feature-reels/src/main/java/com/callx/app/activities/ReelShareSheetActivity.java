@@ -21,55 +21,50 @@ import com.callx.app.reels.R;
 import com.callx.app.activities.RepostWithCaptionActivity;
 import com.callx.app.adapters.ReelContactShareAdapter;
 import com.callx.app.models.User;
+import com.callx.app.activities.ReelShareToStoryActivity;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * ReelShareSheetActivity — Share a reel with rich options.
  *
- * Share options:
- *  ✅ Send to individual chat contact (DM deeplink)
- *  ✅ Copy Link
- *  ✅ Share via... (native Android share intent)
- *  ★ Add to Status — saves reel_clip to status/{uid}
- *      → Visible in Status tab → opens StatusViewerActivity (WhatsApp-style 24h)
- *  ★ Add to Story  — saves reel_story to status/{uid}
- *      → Visible in Reels Home tab stories bar (gradient ring) → opens SingleReelPlayerActivity
- *  ✅ Repost with Caption
+ * Features:
+ *  ✅ Share to individual chat contact (sends deeplink message)
+ *  ✅ Copy reel link to clipboard
+ *  ✅ Native Android share intent
+ *  ✅ Increments sharesCount in Firebase on any share action
+ *  ✅ Bottom-sheet style UI (Theme.CallX.Transparent parent + animation)
  */
 public class ReelShareSheetActivity extends AppCompatActivity
         implements ReelContactShareAdapter.OnContactShareListener {
 
-    public static final String EXTRA_REEL_ID      = "share_reel_id";
-    public static final String EXTRA_VIDEO_URL     = "share_video_url";
-    public static final String EXTRA_THUMB_URL     = "share_thumb_url";
-    public static final String EXTRA_CAPTION       = "share_caption";
-    public static final String EXTRA_OWNER_UID     = "share_owner_uid";
-    public static final String EXTRA_ALLOW_REPOST  = "share_allow_repost";
+    public static final String EXTRA_REEL_ID    = "share_reel_id";
+    public static final String EXTRA_VIDEO_URL  = "share_video_url";
+    public static final String EXTRA_THUMB_URL  = "share_thumb_url";
+    public static final String EXTRA_CAPTION    = "share_caption";
+    /** FIX: Pass owner UID so we can check their repost/share privacy setting. */
+    public static final String EXTRA_OWNER_UID  = "share_owner_uid";
+    /** FIX: Pass creator's allowReposts flag (default true if not passed). */
+    public static final String EXTRA_ALLOW_REPOST = "share_allow_repost";
 
-    private static final String DEEP_LINK_PREFIX =
-        com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/";
+    private static final String DEEP_LINK_PREFIX = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/";
 
-    private RecyclerView rvContacts;
-    private ProgressBar  progressBar;
-    private View         btnCopyLink, btnShareExternal;
-    private View         btnShareToStatus, btnAddToStory, btnRepostWithCaption;
+    private RecyclerView  rvContacts;
+    private ProgressBar   progressBar;
+    private View          btnCopyLink, btnShareExternal, btnShareToStatus, btnRepostWithCaption;
 
-    private ReelContactShareAdapter adapter;
-    private final List<User>        contacts = new ArrayList<>();
+    private ReelContactShareAdapter  adapter;
+    private final List<User>         contacts = new ArrayList<>();
 
-    private String  reelId;
-    private String  videoUrl;
-    private String  thumbUrl;
-    private String  caption;
-    private String  myUid;
-    private String  ownerUid;
-    private boolean allowRepost;
+    private String reelId;
+    private String videoUrl;
+    private String caption;
+    private String myUid;
+    private String ownerUid;       // FIX: needed to check privacy settings
+    private boolean allowRepost;   // FIX: creator can disallow reposts
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,9 +73,9 @@ public class ReelShareSheetActivity extends AppCompatActivity
 
         reelId      = getIntent().getStringExtra(EXTRA_REEL_ID);
         videoUrl    = getIntent().getStringExtra(EXTRA_VIDEO_URL);
-        thumbUrl    = getIntent().getStringExtra(EXTRA_THUMB_URL);
         caption     = getIntent().getStringExtra(EXTRA_CAPTION);
         ownerUid    = getIntent().getStringExtra(EXTRA_OWNER_UID);
+        // FIX: Default to true — only block if creator explicitly set allowReposts=false
         allowRepost = getIntent().getBooleanExtra(EXTRA_ALLOW_REPOST, true);
 
         if (reelId == null) { finish(); return; }
@@ -98,6 +93,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
         View backdrop = findViewById(R.id.share_backdrop);
         if (backdrop != null) backdrop.setOnClickListener(v -> finish());
 
+        // ── Rubber Bottom Sheet setup ─────────────────────────────────────
         View bottomSheet = findViewById(R.id.share_bottom_sheet);
         if (bottomSheet != null) {
             BottomSheetBehavior<View> bsb = BottomSheetBehavior.from(bottomSheet);
@@ -106,20 +102,22 @@ public class ReelShareSheetActivity extends AppCompatActivity
             bsb.setHideable(true);
             bsb.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
                 @Override public void onStateChanged(@NonNull View v, int newState) {
+                    // Neeche drag karke band karo
                     if (newState == BottomSheetBehavior.STATE_HIDDEN) finish();
                 }
                 @Override public void onSlide(@NonNull View v, float slideOffset) {
-                    if (backdrop != null) backdrop.setAlpha(Math.max(0f, slideOffset));
+                    // Backdrop dim/undim as sheet slides
+                    if (backdrop != null)
+                        backdrop.setAlpha(Math.max(0f, slideOffset));
                 }
             });
         }
 
-        rvContacts           = findViewById(R.id.rv_share_contacts);
-        progressBar          = findViewById(R.id.progress_share);
+        rvContacts       = findViewById(R.id.rv_share_contacts);
+        progressBar      = findViewById(R.id.progress_share);
         btnCopyLink          = findViewById(R.id.btn_copy_link);
         btnShareExternal     = findViewById(R.id.btn_share_external);
         btnShareToStatus     = findViewById(R.id.btn_share_to_status);
-        btnAddToStory        = findViewById(R.id.btn_add_to_story);
         btnRepostWithCaption = findViewById(R.id.btn_repost_with_caption);
 
         adapter = new ReelContactShareAdapter(contacts, this);
@@ -129,15 +127,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
 
         btnCopyLink.setOnClickListener(v -> copyLink());
         btnShareExternal.setOnClickListener(v -> shareExternal());
-
-        // ★ Add to Status — WhatsApp-style: saves reel_clip, shows in Status tab
-        if (btnShareToStatus != null)
-            btnShareToStatus.setOnClickListener(v -> addToStatus());
-
-        // ★ Add to Story — Instagram-style: saves reel_story, shows in Reels Home tab
-        if (btnAddToStory != null)
-            btnAddToStory.setOnClickListener(v -> addToStory());
-
+        btnShareToStatus.setOnClickListener(v -> shareToStatus());
         if (btnRepostWithCaption != null)
             btnRepostWithCaption.setOnClickListener(v -> openRepostWithCaption());
 
@@ -169,8 +159,9 @@ public class ReelShareSheetActivity extends AppCompatActivity
     @Override
     public void onShareToContact(User contact) {
         if (contact.uid == null) return;
+        // FIX: Respect creator privacy — block share-to-chat if allowReposts is false
         if (!allowRepost) {
-            toast("This creator has disabled sharing of this reel.");
+            Toast.makeText(this, "This creator has disabled sharing of this reel.", Toast.LENGTH_SHORT).show();
             return;
         }
         String chatId = FirebaseUtils.getChatId(myUid, contact.uid);
@@ -180,7 +171,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
             : "🎬 Check out this reel!\n" + link;
 
         DatabaseReference msgRef = FirebaseUtils.getMessagesRef(chatId).push();
-        Map<String, Object> msg  = new HashMap<>();
+        java.util.Map<String, Object> msg = new java.util.HashMap<>();
         msg.put("senderId",  myUid);
         msg.put("text",      text);
         msg.put("type",      "reel_share");
@@ -189,7 +180,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
         msgRef.setValue(msg);
 
         incrementShareCount();
-        toast("Shared with " + contact.name);
+        Toast.makeText(this, "Shared with " + contact.name, Toast.LENGTH_SHORT).show();
         finish();
     }
 
@@ -198,13 +189,14 @@ public class ReelShareSheetActivity extends AppCompatActivity
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Reel Link", link));
         incrementShareCount();
-        toast("Link copied!");
+        Toast.makeText(this, "Link copied!", Toast.LENGTH_SHORT).show();
         finish();
     }
 
     private void shareExternal() {
         String link = DEEP_LINK_PREFIX + reelId;
-        String text = (caption != null && !caption.isEmpty()) ? caption + "\n" + link : link;
+        String text = (caption != null && !caption.isEmpty())
+            ? caption + "\n" + link : link;
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");
         intent.putExtra(Intent.EXTRA_TEXT, text);
@@ -213,115 +205,41 @@ public class ReelShareSheetActivity extends AppCompatActivity
         finish();
     }
 
-    /**
-     * ★ Add to Status (WhatsApp-style)
-     *
-     * Saves reel_clip entry to status/{myUid}.
-     * Visible in the Status tab for all contacts.
-     * When clicked in Status tab → opens StatusViewerActivity.
-     * 24-hour auto-expiry applies.
-     */
-    private void addToStatus() {
-        String myName = safeMyName();
-        long now       = System.currentTimeMillis();
-        long expiresAt = now + 86_400_000L;
-
-        DatabaseReference statusRef =
-            FirebaseUtils.db().getReference("status").child(myUid).push();
-        String statusId = statusRef.getKey();
-        if (statusId == null) { toast("Failed. Try again."); return; }
-
-        Map<String, Object> status = new HashMap<>();
-        status.put("id",           statusId);
-        status.put("type",         "reel_clip");   // WhatsApp-style: visible in Status tab
-        status.put("reelId",       reelId != null ? reelId : "");
-        status.put("videoUrl",     videoUrl != null ? videoUrl : "");
-        status.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
-        status.put("mediaUrl",     videoUrl != null ? videoUrl : "");
-        status.put("caption",      caption != null ? caption : "");
-        status.put("ownerUid",     myUid);
-        status.put("ownerName",    myName);
-        status.put("privacy",      "contacts");
-        status.put("timestamp",    now);
-        status.put("expiresAt",    expiresAt);
-        status.put("deleted",      false);
-
-        progressBar.setVisibility(View.VISIBLE);
-        statusRef.setValue(status).addOnCompleteListener(task -> {
-            progressBar.setVisibility(View.GONE);
-            if (task.isSuccessful()) {
-                incrementShareCount();
-                toast("Added to your Status! ✓ Visible in Status tab for 24h");
-                finish();
-            } else {
-                toast("Failed to add status. Try again.");
-            }
-        });
-    }
-
-    /**
-     * ★ Add to Story (Instagram-style)
-     *
-     * Saves reel_story entry to status/{myUid}.
-     * Appears in Reels Home tab stories bar with gradient ring.
-     * When clicked in Home tab → opens SingleReelPlayerActivity (reel player).
-     * 24-hour auto-expiry applies.
-     */
-    private void addToStory() {
+    private void shareToStatus() {
+        // FIX: Respect creator privacy
         if (!allowRepost) {
-            toast("This creator has disabled sharing of this reel.");
+            Toast.makeText(this, "This creator has disabled sharing of this reel.", Toast.LENGTH_SHORT).show();
             return;
         }
-        String myName  = safeMyName();
-        long now       = System.currentTimeMillis();
-        long expiresAt = now + 86_400_000L;
+        // FIX: ownerName ko Firebase se fetch karo agar available nahi hai
+        String ownerName = "";
+        try {
+            ownerName = FirebaseUtils.getCurrentName();
+            if (ownerName == null) ownerName = "";
+        } catch (Exception ignored) {}
 
-        DatabaseReference storyRef =
-            FirebaseUtils.db().getReference("status").child(myUid).push();
-        String storyId = storyRef.getKey();
-        if (storyId == null) { toast("Failed. Try again."); return; }
-
-        Map<String, Object> story = new HashMap<>();
-        story.put("id",           storyId);
-        story.put("type",         "reel_story");   // gradient ring in Home tab
-        story.put("reelId",       reelId != null ? reelId : "");
-        story.put("videoUrl",     videoUrl != null ? videoUrl : "");
-        story.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
-        story.put("mediaUrl",     videoUrl != null ? videoUrl : "");
-        story.put("caption",      caption != null ? caption : "");
-        story.put("ownerUid",     myUid);
-        story.put("ownerName",    myName);
-        story.put("privacy",      "everyone");
-        story.put("timestamp",    now);
-        story.put("expiresAt",    expiresAt);
-        story.put("deleted",      false);
-        story.put("isReelStory",  true);
-
-        progressBar.setVisibility(View.VISIBLE);
-        storyRef.setValue(story).addOnCompleteListener(task -> {
-            progressBar.setVisibility(View.GONE);
-            if (task.isSuccessful()) {
-                incrementShareCount();
-                toast("Added to your Story! ✨ Visible in Home tab for 24h");
-                finish();
-            } else {
-                toast("Failed to add story. Try again.");
-            }
-        });
+        Intent i = new Intent(this, ReelShareToStoryActivity.class);
+        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_ID,        reelId);
+        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_URL,        videoUrl);
+        i.putExtra(ReelShareToStoryActivity.EXTRA_REEL_OWNER_NAME, ownerName);
+        incrementShareCount();
+        startActivity(i);
+        finish();
     }
 
     private void openRepostWithCaption() {
+        // Respect creator privacy
         if (!allowRepost) {
-            toast("This creator has disabled sharing of this reel.");
+            Toast.makeText(this, "This creator has disabled sharing of this reel.", Toast.LENGTH_SHORT).show();
             return;
         }
         Intent i = new Intent(this, RepostWithCaptionActivity.class);
         i.putExtra(RepostWithCaptionActivity.EXTRA_REEL_ID,    reelId);
         i.putExtra(RepostWithCaptionActivity.EXTRA_OWNER_UID,  ownerUid != null ? ownerUid : "");
         i.putExtra(RepostWithCaptionActivity.EXTRA_OWNER_NAME, "");
-        i.putExtra(RepostWithCaptionActivity.EXTRA_THUMB_URL,  thumbUrl != null ? thumbUrl : "");
+        i.putExtra(RepostWithCaptionActivity.EXTRA_THUMB_URL,  getIntent().getStringExtra(EXTRA_THUMB_URL) != null ? getIntent().getStringExtra(EXTRA_THUMB_URL) : "");
         i.putExtra(RepostWithCaptionActivity.EXTRA_VIDEO_URL,  videoUrl != null ? videoUrl : "");
-        i.putExtra(RepostWithCaptionActivity.EXTRA_CAPTION,    caption  != null ? caption  : "");
+        i.putExtra(RepostWithCaptionActivity.EXTRA_CAPTION,    caption != null ? caption : "");
         startActivity(i);
         finish();
     }
@@ -337,16 +255,5 @@ public class ReelShareSheetActivity extends AppCompatActivity
             }
             @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
         });
-    }
-
-    private String safeMyName() {
-        try {
-            String n = FirebaseUtils.getCurrentName();
-            return n != null ? n : "";
-        } catch (Exception e) { return ""; }
-    }
-
-    private void toast(String msg) {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
 }

@@ -85,14 +85,11 @@ public class HomeFragment extends Fragment {
     // Story data model for proper sorting
     private static class StoryEntry {
         String uid, name, photo;
-        /** reelId of the first reel_story — used to open SingleReelPlayerActivity */
-        String reelId;
         boolean hasUnseen;
         /** True when contact has at least one reel_story type — shows gradient ring */
         boolean hasReelStory;
-        StoryEntry(String u, String n, String p, boolean unseen, boolean reelStory, String reelId) {
+        StoryEntry(String u, String n, String p, boolean unseen, boolean reelStory) {
             uid = u; name = n; photo = p; hasUnseen = unseen; hasReelStory = reelStory;
-            this.reelId = reelId;
         }
     }
 
@@ -321,26 +318,20 @@ public class HomeFragment extends Fragment {
                         Set<String> mySeenForOwner = seenMap.containsKey(uid) ? seenMap.get(uid) : new HashSet<>();
 
                         boolean hasReelStory = false;
-                        String firstReelId = null;   // reelId of first reel_story
                         for (DataSnapshot s : statusSnap.getChildren()) {
                             Long ts = s.child("timestamp").getValue(Long.class);
                             if (ts == null || ts <= cutoff) continue;
-                            // ★ Sirf "reel_story" type Reels Home story bar ke liye hai.
-                            // "reel_clip" (Add to Status) yahan nahi dikhna chahiye.
-                            String type = s.child("type").getValue(String.class);
-                            if (!"reel_story".equals(type)) continue;
                             hasActive = true;
                             if (mySeenForOwner == null || !mySeenForOwner.contains(s.getKey())) {
-                                allSeen = false;
+                                allSeen = false; // at least one unseen
                             }
-                            hasReelStory = true;
-                            if (firstReelId == null) {
-                                firstReelId = s.child("reelId").getValue(String.class);
-                            }
+                            // ★ Check for reel_story type — triggers gradient ring
+                            String type = s.child("type").getValue(String.class);
+                            if ("reel_story".equals(type)) hasReelStory = true;
                         }
 
                         if (hasActive) {
-                            collected.add(new StoryEntry(uid, name, photo, !allSeen, hasReelStory, firstReelId));
+                            collected.add(new StoryEntry(uid, name, photo, !allSeen, hasReelStory));
                         }
                         collectStoryEntries(uids, index + 1, seenMap, collected);
                     }
@@ -400,15 +391,8 @@ public class HomeFragment extends Fragment {
                     .into(avatar);
             }
 
-            // ✅ reel_story: open in reel player (Home tab viewer)
-            //    Other status: open in StatusViewerActivity (Status tab viewer)
-            storyView.setOnClickListener(v -> {
-                if (entry.hasReelStory && entry.reelId != null && !entry.reelId.isEmpty()) {
-                    openReelStoryPlayer(entry.reelId, entry.name);
-                } else {
-                    openStatusViewer(entry.uid, entry.name);
-                }
-            });
+            // ✅ Open StatusViewerActivity (cross-module via Class.forName)
+            storyView.setOnClickListener(v -> openStatusViewer(entry.uid, entry.name));
 
             containerStories.addView(storyView);
         });
@@ -434,23 +418,6 @@ public class HomeFragment extends Fragment {
             i.putExtra(UserReelsActivity.EXTRA_NAME, ownerName);
             startActivity(i);
         }
-    }
-
-    /**
-     * Opens the reel story in SingleReelPlayerActivity.
-     * Called when user taps a story in Home tab that was shared via "Add to Story".
-     * This is the Reels Home tab story viewer (separate from StatusViewerActivity).
-     */
-    private void openReelStoryPlayer(String reelId, String ownerName) {
-        if (!isAdded() || getContext() == null) return;
-        java.util.ArrayList<String> ids = new java.util.ArrayList<>();
-        ids.add(reelId);
-        Intent i = new Intent(getContext(), SingleReelPlayerActivity.class);
-        i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
-        i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, 0);
-        i.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
-            ownerName != null ? ownerName + "'s Story" : "Story");
-        startActivity(i);
     }
 
     // ── Feed ──────────────────────────────────────────────────────────────
