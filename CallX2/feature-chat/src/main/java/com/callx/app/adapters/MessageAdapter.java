@@ -45,7 +45,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     private final boolean isGroup;
     private ActionListener actionListener;
 
-    private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2;
+    private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2, TYPE_STATUS_SEEN = 3;
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
 
@@ -62,14 +62,17 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     public void setActionListener(ActionListener l) { this.actionListener = l; }
 
     @Override public int getItemViewType(int pos) {
-        return currentUid.equals(messages.get(pos).senderId) ? TYPE_SENT : TYPE_RECEIVED;
+        Message m = messages.get(pos);
+        if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
+        return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
     }
 
     @NonNull @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        int layout = viewType == TYPE_SENT
-                ? R.layout.item_message_sent
-                : R.layout.item_message_received;
+        int layout;
+        if (viewType == TYPE_SENT)          layout = R.layout.item_message_sent;
+        else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
+        else                                layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         return new VH(v);
     }
@@ -77,7 +80,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     @Override public void onBindViewHolder(@NonNull VH h, int pos) {
         Message m   = messages.get(pos);
         Context ctx = h.itemView.getContext();
-        boolean sent = getItemViewType(pos) == TYPE_SENT;
+        int viewType = getItemViewType(pos);
+
+        // ── STATUS SEEN BUBBLE — special system event row ─────────────────────
+        if (viewType == TYPE_STATUS_SEEN) {
+            bindStatusSeenBubble(h, m, ctx);
+            return;
+        }
+
+        boolean sent = viewType == TYPE_SENT;
 
         h.tvMessage.setVisibility(View.GONE);
         h.ivImage.setVisibility(View.GONE);
@@ -405,6 +416,54 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
         bindFooter(h, m, sent);
         setupLongPress(h, m, sent, ctx);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  bindStatusSeenBubble — renders the "👁 Seen your status" row.
+    //
+    //  Layout: item_status_seen_bubble.xml (received side only — always A's event)
+    //   • Circular avatar  → iv_status_seen_avatar  (Glide + circleCrop)
+    //   • "👁 Seen your status" → tv_status_seen_label  (in XML)
+    //   • Sender name (optional, group-only) → tv_status_seen_name
+    //   • Time → tv_status_seen_time
+    //
+    //  No long-press menu, no reactions, no reply — it's a system event.
+    // ══════════════════════════════════════════════════════════════════════════
+    private void bindStatusSeenBubble(@NonNull VH h, Message m, Context ctx) {
+        // Avatar
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+            h.itemView.findViewById(com.callx.app.chat.R.id.iv_status_seen_avatar);
+        if (ivAvatar != null) {
+            String photo = m.senderPhoto != null ? m.senderPhoto : "";
+            if (!photo.isEmpty()) {
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(photo)
+                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                    .placeholder(com.callx.app.chat.R.drawable.ic_person)
+                    .into(ivAvatar);
+            } else {
+                ivAvatar.setImageResource(com.callx.app.chat.R.drawable.ic_person);
+            }
+        }
+
+        // Sender name (shown in group chat)
+        android.widget.TextView tvName =
+            h.itemView.findViewById(com.callx.app.chat.R.id.tv_status_seen_name);
+        if (tvName != null) {
+            if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
+                tvName.setText(m.senderName);
+                tvName.setVisibility(View.VISIBLE);
+            } else {
+                tvName.setVisibility(View.GONE);
+            }
+        }
+
+        // Time
+        android.widget.TextView tvTime =
+            h.itemView.findViewById(com.callx.app.chat.R.id.tv_status_seen_time);
+        if (tvTime != null && m.timestamp != null) {
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+        }
     }
 
     private final java.util.Map<String, String> photoCache = new java.util.HashMap<>();

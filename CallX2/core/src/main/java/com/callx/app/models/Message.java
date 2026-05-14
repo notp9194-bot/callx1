@@ -16,6 +16,7 @@ public class Message {
     public String messageId;
     public String senderId;
     public String senderName;
+    public String senderPhoto;   // used by status_seen bubble for circular avatar
     public String text;
     /** text | image | video | audio | file */
     public String type;
