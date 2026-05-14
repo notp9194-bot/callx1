@@ -552,7 +552,19 @@ public class MessagePagingAdapter
                 h.tvMessage.setVisibility(View.VISIBLE);
                 String txt = m.text != null ? m.text : "";
                 if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
-                h.tvMessage.setText(txt);
+                // ── Clickable links: URLs, phone numbers, emails ────────────
+                android.text.SpannableString spanned = new android.text.SpannableString(txt);
+                android.text.util.Linkify.addLinks(spanned,
+                    android.text.util.Linkify.WEB_URLS |
+                    android.text.util.Linkify.PHONE_NUMBERS |
+                    android.text.util.Linkify.EMAIL_ADDRESSES);
+                h.tvMessage.setText(spanned);
+                // Link color matching bubble theme (sent=white tint, received=blue)
+                boolean isSentMsg = currentUid.equals(m.senderId);
+                int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
+                h.tvMessage.setLinkTextColor(linkColor);
+                h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                h.tvMessage.setHighlightColor(0x33FFFFFF);
                 h.tvMessage.setAlpha(1f);
                 break;
         }

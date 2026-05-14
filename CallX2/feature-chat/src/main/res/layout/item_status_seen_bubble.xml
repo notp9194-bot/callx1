@@ -39,7 +39,10 @@
             android:paddingEnd="14dp"
             android:paddingTop="8dp"
             android:paddingBottom="6dp"
-            android:minWidth="160dp">
+            android:minWidth="160dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
 
             <!-- Status thumbnail (tappable → opens status viewer) -->
             <FrameLayout
@@ -47,7 +50,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="6dp"
-                android:visibility="gone">
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackgroundBorderless">
 
                 <ImageView
                     android:id="@+id/iv_status_seen_thumb"

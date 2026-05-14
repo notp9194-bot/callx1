@@ -390,12 +390,24 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
             default: {
                 h.tvMessage.setVisibility(View.VISIBLE);
-                h.tvMessage.setText(m.text != null ? m.text : "");
                 h.tvMessage.setTextColor(sent ? 0xFFFFFFFF : 0xFF212121);
                 h.tvMessage.setTextSize(15f);
                 h.tvMessage.setTypeface(null, android.graphics.Typeface.NORMAL);
                 if (h.tvEdited != null && Boolean.TRUE.equals(m.edited))
                     h.tvEdited.setVisibility(View.VISIBLE);
+                // ── Clickable links: URLs, phone numbers, emails ────────────
+                String rawText = m.text != null ? m.text : "";
+                android.text.SpannableString spanned = new android.text.SpannableString(rawText);
+                android.text.util.Linkify.addLinks(spanned,
+                    android.text.util.Linkify.WEB_URLS |
+                    android.text.util.Linkify.PHONE_NUMBERS |
+                    android.text.util.Linkify.EMAIL_ADDRESSES);
+                h.tvMessage.setText(spanned);
+                // Link color matching bubble theme
+                int linkColor = sent ? 0xFFB3E5FC : 0xFF1565C0;
+                h.tvMessage.setLinkTextColor(linkColor);
+                h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                h.tvMessage.setHighlightColor(0x33FFFFFF);
                 break;
             }
         }

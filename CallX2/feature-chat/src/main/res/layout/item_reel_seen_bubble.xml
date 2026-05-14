@@ -39,14 +39,20 @@
             android:paddingEnd="14dp"
             android:paddingTop="8dp"
             android:paddingBottom="6dp"
-            android:minWidth="160dp">
+            android:minWidth="160dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
 
             <!-- Reel thumbnail (tappable → opens reel) -->
             <FrameLayout
                 android:id="@+id/fl_reel_seen_thumb"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="6dp">
+                android:layout_marginBottom="6dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackgroundBorderless">
 
                 <ImageView
                     android:id="@+id/iv_reel_seen_thumb"
