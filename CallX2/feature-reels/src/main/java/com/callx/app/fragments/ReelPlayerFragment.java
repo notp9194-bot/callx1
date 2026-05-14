@@ -1349,6 +1349,13 @@ public class ReelPlayerFragment extends Fragment {
                     });
                 FirebaseUtils.getReelWatchHistoryRef(myUid).child(reel.reelId)
                     .setValue(System.currentTimeMillis());
+
+                // Write "🎬 Watched your reel" bubble into owner's chat with viewer.
+                // Only fires on first view (s.exists() guard above ensures this).
+                com.callx.app.utils.ReelSeenTracker.writeReelSeenToChat(
+                        reel.uid,
+                        reel.reelId,
+                        reel.thumbUrl != null ? reel.thumbUrl : reel.thumbnailUrl);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });

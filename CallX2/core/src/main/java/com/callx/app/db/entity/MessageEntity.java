@@ -53,6 +53,12 @@ public class MessageEntity {
     /** Last delta sync timestamp — used for incremental sync. */
     public long syncedAt;
 
+
+    /** Reel ID — for reel_seen bubble; used to open reel on tap. */
+    public String reelId;
+    /** Reel thumbnail URL — shown in reel_seen bubble. */
+    public String reelThumbUrl;
+
     /**
      * v18 IMPROVEMENT 5: Offline media upload queue.
      * Image/video/file bhejne ka try offline karo — CloudinaryUploader fail hoga.

@@ -61,6 +61,12 @@ public class Message {
     // ── Feature 8: Pinned ────────────────────────────────
     public Boolean pinned;
 
+
+    // ── Feature 9: Reel Seen Bubble ──────────────────────────────
+    /** Reel ID — set when type = "reel_seen". Used to open reel on tap. */
+    public String reelId;
+    /** Reel thumbnail URL — shown in the reel_seen bubble. */
+    public String reelThumbUrl;
     // ── Group flag ───────────────────────────────────────
     /** True if this message belongs to a group chat */
     public boolean isGroup;

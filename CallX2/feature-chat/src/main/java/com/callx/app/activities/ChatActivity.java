@@ -645,6 +645,8 @@ public class ChatActivity extends AppCompatActivity {
         m.forwardedFrom         = e.forwardedFrom;
         m.starred               = e.starred;
         m.pinned                = e.pinned;
+        m.reelId                = e.reelId;       // FIX: reel_seen bubble
+        m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
         return m;
     }
 
@@ -674,6 +676,8 @@ public class ChatActivity extends AppCompatActivity {
         e.forwardedFrom           = m.forwardedFrom;
         e.starred                 = Boolean.TRUE.equals(m.starred);
         e.pinned                  = Boolean.TRUE.equals(m.pinned);
+        e.reelId                  = m.reelId;           // FIX: reel_seen bubble
+        e.reelThumbUrl            = m.reelThumbUrl;      // FIX: reel_seen bubble thumbnail
         e.syncedAt                = System.currentTimeMillis();
         return e;
     }

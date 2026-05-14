@@ -45,7 +45,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     private final boolean isGroup;
     private ActionListener actionListener;
 
-    private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2, TYPE_STATUS_SEEN = 3;
+    private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2, TYPE_STATUS_SEEN = 3, TYPE_REEL_SEEN = 4;
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
 
@@ -64,6 +64,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     @Override public int getItemViewType(int pos) {
         Message m = messages.get(pos);
         if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
+        if ("reel_seen".equals(m.type))   return TYPE_REEL_SEEN;
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
     }
 
@@ -72,6 +73,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         int layout;
         if (viewType == TYPE_SENT)          layout = R.layout.item_message_sent;
         else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
+        else if (viewType == TYPE_REEL_SEEN)   layout = R.layout.item_reel_seen_bubble;
         else                                layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         return new VH(v);
@@ -85,6 +87,12 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         // ── STATUS SEEN BUBBLE — special system event row ─────────────────────
         if (viewType == TYPE_STATUS_SEEN) {
             bindStatusSeenBubble(h, m, ctx);
+            return;
+        }
+
+        // ── REEL SEEN BUBBLE — special system event row ───────────────────────
+        if (viewType == TYPE_REEL_SEEN) {
+            bindReelSeenBubble(h, m, ctx);
             return;
         }
 
@@ -461,6 +469,85 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         // Time
         android.widget.TextView tvTime =
             h.itemView.findViewById(com.callx.app.chat.R.id.tv_status_seen_time);
+        if (tvTime != null && m.timestamp != null) {
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  bindReelSeenBubble — renders the "🎬 Watched your reel" row.
+    //
+    //  Layout: item_reel_seen_bubble.xml
+    //   • iv_reel_seen_avatar  → Glide + circleCrop
+    //   • iv_reel_seen_thumb   → reel thumbnail (tappable → SingleReelPlayerActivity)
+    //   • iv_reel_seen_play    → play icon overlay on thumbnail
+    //   • tv_reel_seen_name    → sender name (group only)
+    //   • tv_reel_seen_time    → formatted timestamp
+    // ══════════════════════════════════════════════════════════════════════════
+    private void bindReelSeenBubble(@NonNull VH h, Message m, Context ctx) {
+        // Avatar
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+            h.itemView.findViewById(com.callx.app.chat.R.id.iv_reel_seen_avatar);
+        if (ivAvatar != null) {
+            String photo = m.senderPhoto != null ? m.senderPhoto : "";
+            if (!photo.isEmpty()) {
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(photo)
+                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                    .placeholder(com.callx.app.chat.R.drawable.ic_person)
+                    .into(ivAvatar);
+            } else {
+                ivAvatar.setImageResource(com.callx.app.chat.R.drawable.ic_person);
+            }
+        }
+
+        // Reel thumbnail + play icon (tap → open reel)
+        android.widget.ImageView ivThumb =
+            h.itemView.findViewById(com.callx.app.chat.R.id.iv_reel_seen_thumb);
+        android.widget.ImageView ivPlay =
+            h.itemView.findViewById(com.callx.app.chat.R.id.iv_reel_seen_play);
+        if (ivThumb != null) {
+            String thumb = m.reelThumbUrl != null ? m.reelThumbUrl : "";
+            if (!thumb.isEmpty()) {
+                ivThumb.setVisibility(View.VISIBLE);
+                if (ivPlay != null) ivPlay.setVisibility(View.VISIBLE);
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(thumb)
+                    .centerCrop()
+                    .placeholder(com.callx.app.chat.R.drawable.bg_skeleton_rect)
+                    .into(ivThumb);
+            } else {
+                ivThumb.setVisibility(View.GONE);
+                if (ivPlay != null) ivPlay.setVisibility(View.GONE);
+            }
+
+            final String reelId = m.reelId;
+            android.view.View.OnClickListener openReel = v -> {
+                if (reelId == null || reelId.isEmpty()) return;
+                android.content.Intent intent = new android.content.Intent(ctx,
+                        com.callx.app.activities.SingleReelPlayerActivity.class);
+                intent.putExtra("reelId", reelId);
+                ctx.startActivity(intent);
+            };
+            ivThumb.setOnClickListener(openReel);
+            if (ivPlay != null) ivPlay.setOnClickListener(openReel);
+        }
+
+        // Sender name (group only)
+        android.widget.TextView tvName =
+            h.itemView.findViewById(com.callx.app.chat.R.id.tv_reel_seen_name);
+        if (tvName != null) {
+            if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
+                tvName.setText(m.senderName);
+                tvName.setVisibility(View.VISIBLE);
+            } else {
+                tvName.setVisibility(View.GONE);
+            }
+        }
+
+        // Time
+        android.widget.TextView tvTime =
+            h.itemView.findViewById(com.callx.app.chat.R.id.tv_reel_seen_time);
         if (tvTime != null && m.timestamp != null) {
             tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }

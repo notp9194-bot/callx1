@@ -66,6 +66,7 @@ public class MessagePagingAdapter
     private static final int TYPE_SENT        = 1;
     private static final int TYPE_RECEIVED    = 2;
     private static final int TYPE_STATUS_SEEN = 3;
+    private static final int TYPE_REEL_SEEN   = 4;
 
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
@@ -103,6 +104,7 @@ public class MessagePagingAdapter
         Message m = getItem(position);
         if (m == null) return TYPE_RECEIVED;
         if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
+        if ("reel_seen".equals(m.type))   return TYPE_REEL_SEEN;
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
     }
 
@@ -110,9 +112,10 @@ public class MessagePagingAdapter
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         int layout;
-        if (viewType == TYPE_SENT)           layout = R.layout.item_message_sent;
+        if (viewType == TYPE_SENT)             layout = R.layout.item_message_sent;
         else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
-        else                                 layout = R.layout.item_message_received;
+        else if (viewType == TYPE_REEL_SEEN)   layout = R.layout.item_reel_seen_bubble;
+        else                                   layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         return new VH(v);
     }
@@ -128,6 +131,11 @@ public class MessagePagingAdapter
         // ── STATUS SEEN BUBBLE — special system event row ─────────────────
         if ("status_seen".equals(m.type)) {
             bindStatusSeenBubble(h, m);
+            return;
+        }
+        // ── REEL SEEN BUBBLE — special system event row ───────────────────
+        if ("reel_seen".equals(m.type)) {
+            bindReelSeenBubble(h, m);
             return;
         }
         bindMessage(h, m, position);
@@ -176,6 +184,89 @@ public class MessagePagingAdapter
         // Time
         android.widget.TextView tvTime =
             h.itemView.findViewById(R.id.tv_status_seen_time);
+        if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // REEL SEEN BUBBLE — "🎬 Watched your reel" system event row.
+    // Layout: item_reel_seen_bubble.xml
+    //   • iv_reel_seen_avatar   → circular avatar (Glide)
+    //   • iv_reel_seen_thumb    → reel thumbnail (tappable → UserReelsActivity)
+    //   • iv_reel_seen_play     → play icon overlay on thumbnail
+    //   • tv_reel_seen_label    → "Watched your reel" (set in XML)
+    //   • tv_reel_seen_name     → sender name (group only)
+    //   • tv_reel_seen_time     → formatted timestamp
+    // No long-press / reactions / reply — system event.
+    // ──────────────────────────────────────────────────────────────
+    private void bindReelSeenBubble(@NonNull VH h, @NonNull Message m) {
+        Context ctx = h.itemView.getContext();
+
+        // Avatar
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+            h.itemView.findViewById(R.id.iv_reel_seen_avatar);
+        if (ivAvatar != null) {
+            String photo = m.senderPhoto != null ? m.senderPhoto : "";
+            if (!photo.isEmpty()) {
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(photo)
+                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_person)
+                    .into(ivAvatar);
+            } else {
+                ivAvatar.setImageResource(R.drawable.ic_person);
+            }
+        }
+
+        // Reel thumbnail + play icon (tap → open reel)
+        android.widget.ImageView ivThumb =
+            h.itemView.findViewById(R.id.iv_reel_seen_thumb);
+        android.widget.ImageView ivPlay  =
+            h.itemView.findViewById(R.id.iv_reel_seen_play);
+        if (ivThumb != null) {
+            String thumb = m.reelThumbUrl != null ? m.reelThumbUrl : "";
+            if (!thumb.isEmpty()) {
+                ivThumb.setVisibility(android.view.View.VISIBLE);
+                if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(thumb)
+                    .centerCrop()
+                    .placeholder(R.drawable.bg_skeleton_rect)
+                    .into(ivThumb);
+            } else {
+                ivThumb.setVisibility(android.view.View.GONE);
+                if (ivPlay != null) ivPlay.setVisibility(android.view.View.GONE);
+            }
+
+            // Tap on thumbnail → open SingleReelPlayerActivity for this reel
+            final String reelId = m.reelId;
+            android.view.View.OnClickListener openReel = v -> {
+                if (reelId == null || reelId.isEmpty()) return;
+                android.content.Intent intent = new android.content.Intent(ctx,
+                        com.callx.app.activities.SingleReelPlayerActivity.class);
+                intent.putExtra("reelId", reelId);
+                ctx.startActivity(intent);
+            };
+            ivThumb.setOnClickListener(openReel);
+            if (ivPlay != null) ivPlay.setOnClickListener(openReel);
+        }
+
+        // Sender name (group only)
+        android.widget.TextView tvName =
+            h.itemView.findViewById(R.id.tv_reel_seen_name);
+        if (tvName != null) {
+            if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
+                tvName.setText(m.senderName);
+                tvName.setVisibility(android.view.View.VISIBLE);
+            } else {
+                tvName.setVisibility(android.view.View.GONE);
+            }
+        }
+
+        // Time
+        android.widget.TextView tvTime =
+            h.itemView.findViewById(R.id.tv_reel_seen_time);
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
             tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
