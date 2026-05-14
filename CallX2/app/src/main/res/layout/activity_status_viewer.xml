@@ -154,7 +154,11 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:background="@drawable/bg_status_reply_overlay"
+        android:paddingTop="32dp"
+        android:paddingBottom="12dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
 
         <!-- Caption -->
         <TextView

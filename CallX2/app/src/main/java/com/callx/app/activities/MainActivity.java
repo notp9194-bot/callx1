@@ -43,10 +43,12 @@ public class MainActivity extends AppCompatActivity {
     private ValueEventListener notifGroupBadgeListener;
     private ValueEventListener notifReelBadgeListener;
     private ValueEventListener notifCallBadgeListener;
-    private int notifChatUnread  = 0;
-    private int notifGroupUnread = 0;
-    private int notifReelUnread  = 0;
-    private int notifCallUnread  = 0;
+    private int notifChatUnread   = 0;
+    private int notifGroupUnread  = 0;
+    private int notifReelUnread   = 0;
+    private int notifCallUnread   = 0;
+    // Status unseen count — included in the header notification ball
+    private int notifStatusUnread = 0;
 
     // Firebase listeners — kept to detach in onDestroy
     private ValueEventListener unreadChatsListener;
@@ -124,6 +126,9 @@ public class MainActivity extends AppCompatActivity {
             else if (id == R.id.nav_status) {
                 binding.viewPager.setCurrentItem(TAB_STATUS);
                 clearBadge(R.id.nav_status);
+                // Also clear status contribution from header notification ball
+                notifStatusUnread = 0;
+                updateNotifBadge();
             }
             else if (id == R.id.nav_groups) {
                 binding.viewPager.setCurrentItem(TAB_GROUPS);
@@ -378,6 +383,9 @@ public class MainActivity extends AppCompatActivity {
                                 }
                             }
                             setBadge(R.id.nav_status, count);
+                            // Also update the header notification ball
+                            notifStatusUnread = count;
+                            updateNotifBadge();
                         }
                         @Override public void onCancelled(DatabaseError e) {}
                     });
@@ -497,7 +505,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateNotifBadge() {
-        totalNotifUnread = notifChatUnread + notifGroupUnread + notifReelUnread + notifCallUnread;
+        totalNotifUnread = notifChatUnread + notifGroupUnread + notifReelUnread + notifCallUnread + notifStatusUnread;
         android.widget.TextView badge = binding.getRoot().findViewById(R.id.tv_notif_badge);
         if (badge == null) return;
         if (totalNotifUnread > 0) {
