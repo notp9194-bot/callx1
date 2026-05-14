@@ -490,14 +490,13 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
         }
 
-        // Click handler on the whole bubble → open status
+        // Click handler on bubble → open status
         final String ownerUid  = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
                                  ? m.statusOwnerUid : m.senderId;
         final String ownerName = m.statusOwnerName != null ? m.statusOwnerName
                                  : (m.senderName != null ? m.senderName : "");
         android.view.View.OnClickListener openStatus = v -> {
             if (ownerUid == null || ownerUid.isEmpty()) return;
-            // Implicit intent — no compile-time dep on feature-status
             android.content.Intent intent = new android.content.Intent(
                     com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
             intent.putExtra("ownerUid",  ownerUid);
@@ -509,7 +508,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                         android.widget.Toast.LENGTH_SHORT).show();
             }
         };
-        h.itemView.setOnClickListener(openStatus);
+        // ll_status_seen_bubble is clickable=true in XML — set listener directly on it
+        android.view.View llBubble = h.itemView.findViewById(com.callx.app.chat.R.id.ll_status_seen_bubble);
+        if (llBubble != null) llBubble.setOnClickListener(openStatus);
+        else h.itemView.setOnClickListener(openStatus); // fallback
         if (flThumb != null) flThumb.setOnClickListener(openStatus);
 
         // Sender name (shown in group chat)
