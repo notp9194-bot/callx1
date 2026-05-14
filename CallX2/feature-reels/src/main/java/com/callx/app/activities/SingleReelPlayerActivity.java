@@ -48,6 +48,7 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
 
     public static final String EXTRA_UID            = "uid";
     public static final String EXTRA_REEL_IDS       = "reel_ids";
+    public static final String EXTRA_REEL_ID        = "reelId";   // single reelId (chat bubble se)
     public static final String EXTRA_START_POSITION = "start_position";
     public static final String EXTRA_TITLE          = "title";
 
@@ -71,6 +72,7 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
         startPosition = getIntent().getIntExtra(EXTRA_START_POSITION, 0);
         String uid      = getIntent().getStringExtra(EXTRA_UID);
         ArrayList<String> reelIds = getIntent().getStringArrayListExtra(EXTRA_REEL_IDS);
+        String singleReelId = getIntent().getStringExtra(EXTRA_REEL_ID);
 
         adapter = new ReelsAdapter(this);
         vpReels.setAdapter(adapter);
@@ -84,8 +86,13 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
         });
 
         if (reelIds != null && !reelIds.isEmpty()) {
-            // Load specific reel IDs
+            // Load specific reel IDs list
             loadByReelIds(reelIds);
+        } else if (singleReelId != null && !singleReelId.isEmpty()) {
+            // Single reelId — chat bubble se aaya (ACTION_OPEN_REEL)
+            ArrayList<String> single = new ArrayList<>();
+            single.add(singleReelId);
+            loadByReelIds(single);
         } else if (uid != null && !uid.isEmpty()) {
             // Load all reels by this user
             loadByUid(uid);

@@ -264,8 +264,13 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.SingleReelPlayerActivity"
-            android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+            android:exported="true"
+            android:theme="@style/Theme.AppCompat.NoActionBar">
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_OPEN_REEL"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
         <activity android:name=".activities.ReelUploadActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
