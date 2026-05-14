@@ -13,6 +13,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.calls.R;
 import com.callx.app.activities.CallActivity;
+import com.callx.app.activities.StatusViewerActivity;
 
 import com.callx.app.models.CallLog;
 import com.callx.app.utils.FileUtils;
@@ -127,6 +128,22 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
 
         boolean selected = l.id != null && selectedIds.contains(l.id);
         h.itemView.setBackgroundColor(selected ? 0x335B5BF6 : 0x00000000);
+
+        // Story ring click → StatusViewerActivity
+        if (h.ivStoryRing != null) {
+            h.ivStoryRing.setOnClickListener(v -> {
+                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                StatusCacheManager scm2 = StatusCacheManager.getInstance(ctx);
+                if (l.partnerUid != null && (scm2.hasUnseen(l.partnerUid) || scm2.hasStatus(l.partnerUid))) {
+                    Intent si = new Intent(ctx, StatusViewerActivity.class);
+                    si.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  l.partnerUid);
+                    si.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, l.partnerName != null ? l.partnerName : "");
+                    ctx.startActivity(si);
+                } else {
+                    openChat(ctx, l);
+                }
+            });
+        }
 
         h.itemView.setOnClickListener(v -> {
             if (isSelecting) toggleSelection(h.getAdapterPosition());

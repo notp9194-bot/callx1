@@ -350,7 +350,7 @@ public class ReelPlayerFragment extends Fragment {
             ivOwnerAvatar.setOnClickListener(v -> openUserReels());
         }
 
-        // Story ring — show unseen/seen status around owner avatar
+        // Story ring click → StatusViewerActivity (cross-module via Class.forName)
         if (ivOwnerStoryRing != null && reel.uid != null && isAdded() && getContext() != null) {
             StatusCacheManager scm = StatusCacheManager.getInstance(requireContext());
             if (scm.hasUnseen(reel.uid)) {
@@ -362,6 +362,21 @@ public class ReelPlayerFragment extends Fragment {
             } else {
                 ivOwnerStoryRing.setVisibility(View.GONE);
             }
+            ivOwnerStoryRing.setOnClickListener(v -> {
+                if (!isAdded() || getActivity() == null) return;
+                StatusCacheManager scm2 = StatusCacheManager.getInstance(requireContext());
+                if (scm2.hasUnseen(reel.uid) || scm2.hasStatus(reel.uid)) {
+                    try {
+                        Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
+                        Intent si = new Intent(getActivity(), cls);
+                        si.putExtra("ownerUid",  reel.uid);
+                        si.putExtra("ownerName", reel.ownerName != null ? reel.ownerName : "");
+                        startActivity(si);
+                    } catch (ClassNotFoundException e) { /* ignore */ }
+                } else {
+                    openUserReels();
+                }
+            });
         }
         if (tvOwnerName != null && reel.uid != null) {
             tvOwnerName.setOnClickListener(v -> openUserReels());

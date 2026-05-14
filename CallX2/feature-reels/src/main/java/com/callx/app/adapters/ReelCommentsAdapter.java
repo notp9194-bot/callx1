@@ -13,6 +13,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
 import com.callx.app.models.ReelComment;
 import com.callx.app.utils.FirebaseUtils;
+import android.content.Intent;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
@@ -212,6 +213,24 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
 
         // ── Click listeners ─────────────────────────────────────────────
+        // Story ring click → StatusViewerActivity
+        if (h.ivStoryRing != null) {
+            h.ivStoryRing.setOnClickListener(v -> {
+                StatusCacheManager scm2 = StatusCacheManager.getInstance(ctx);
+                if (c.uid != null && (scm2.hasUnseen(c.uid) || scm2.hasStatus(c.uid))) {
+                    try {
+                        Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
+                        Intent si = new Intent(ctx, cls);
+                        si.putExtra("ownerUid",  c.uid);
+                        si.putExtra("ownerName", c.ownerName != null ? c.ownerName : "");
+                        ctx.startActivity(si);
+                    } catch (ClassNotFoundException e) { /* ignore */ }
+                } else {
+                    if (listener != null) listener.onAvatarClick(c);
+                }
+            });
+        }
+
         h.ivAvatar.setOnClickListener(v -> {
             if (listener != null) listener.onAvatarClick(c);
         });

@@ -12,6 +12,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
 import com.callx.app.activities.ChatActivity;
+import com.callx.app.activities.StatusViewerActivity;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
@@ -113,6 +114,26 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         boolean selected = u.uid != null && selectedUids.contains(u.uid);
         h.itemView.setBackgroundColor(selected ? 0x335B5BF6 : (isSpecial ? 0x33FFC107 : 0x00000000));
+
+        // Story ring click → open StatusViewerActivity (only when ring is visible)
+        if (h.ivStoryRing != null) {
+            h.ivStoryRing.setOnClickListener(v -> {
+                if (isSelecting) {
+                    toggleSelection(h.getAdapterPosition());
+                    return;
+                }
+                StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+                if (u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid))) {
+                    Intent si = new Intent().setClassName(ctx.getPackageName(),
+                            "com.callx.app.activities.StatusViewerActivity");
+                    si.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  u.uid);
+                    si.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, u.name != null ? u.name : "");
+                    ctx.startActivity(si);
+                } else {
+                    openChat(ctx, u);
+                }
+            });
+        }
 
         h.ivAvatar.setOnClickListener(v -> {
             if (isSelecting) toggleSelection(h.getAdapterPosition());

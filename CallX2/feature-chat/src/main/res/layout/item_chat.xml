@@ -25,6 +25,8 @@
                 android:layout_height="58dp"
                 android:layout_gravity="center"
                 android:background="@drawable/circle_status_unseen"
+                android:clickable="true"
+                android:focusable="true"
                 android:visibility="gone"/>
 
             <de.hdodenhof.circleimageview.CircleImageView
