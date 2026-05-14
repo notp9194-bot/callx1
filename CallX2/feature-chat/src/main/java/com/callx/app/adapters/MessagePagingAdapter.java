@@ -193,7 +193,8 @@ public class MessagePagingAdapter
         }
 
         // Click on whole bubble or thumbnail → open StatusViewerActivity
-        final String ownerUid  = m.statusOwnerUid;
+        final String ownerUid  = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
+                                 ? m.statusOwnerUid : m.senderId;
         final String ownerName = m.statusOwnerName != null ? m.statusOwnerName
                                  : (m.senderName != null ? m.senderName : "");
         android.view.View.OnClickListener openStatus = v -> {
@@ -203,7 +204,11 @@ public class MessagePagingAdapter
             intent.putExtra("ownerUid",  ownerUid);
             intent.putExtra("ownerName", ownerName);
             intent.setPackage(ctx.getPackageName());
-            ctx.startActivity(intent);
+            try { ctx.startActivity(intent); }
+            catch (android.content.ActivityNotFoundException e) {
+                android.widget.Toast.makeText(ctx, "Status viewer not available",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
         };
         h.itemView.setOnClickListener(openStatus);
         if (flThumb != null) flThumb.setOnClickListener(openStatus);

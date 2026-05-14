@@ -106,8 +106,14 @@
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
         <activity android:name=".activities.StatusViewerActivity"
-            android:exported="false"
-            android:theme="@style/Theme.CallX.Fullscreen"/>
+            android:exported="true"
+            android:theme="@style/Theme.CallX.Fullscreen"
+            tools:replace="android:exported">
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_OPEN_STATUS"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
         <activity android:name=".activities.NewStatusActivity"
             android:exported="false"/>
         <activity android:name=".activities.StarredMessagesActivity"
