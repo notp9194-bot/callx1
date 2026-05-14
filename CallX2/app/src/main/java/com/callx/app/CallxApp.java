@@ -18,6 +18,7 @@ import com.callx.app.activities.AuthActivity;
 import com.callx.app.activities.LockScreenActivity;
 import com.callx.app.cache.CacheAnalytics;
 import com.callx.app.cache.ReelCacheManager;
+import com.callx.app.cache.StatusVideoCacheManager;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.cache.NetworkCacheHelper;
 import com.callx.app.cache.StatusCacheManager;
@@ -70,6 +71,9 @@ public class CallxApp extends Application {
 
         // Reels: 500MB dedicated cache for Instagram-like instant playback
         ReelCacheManager.init(this);
+
+        // Status: 200MB dedicated cache — same pattern as Reels
+        StatusVideoCacheManager.init(this);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -336,6 +340,7 @@ public class CallxApp extends Application {
     @Override
     public void onTerminate() {
         ReelCacheManager.release();
+        StatusVideoCacheManager.release();
         super.onTerminate();
     }
 

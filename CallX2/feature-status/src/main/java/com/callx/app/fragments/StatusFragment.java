@@ -21,6 +21,7 @@ import com.google.android.material.floatingactionbutton.ExtendedFloatingActionBu
 import com.google.firebase.database.*;
 import java.util.*;
 import com.callx.app.cache.StatusCacheManager;
+import com.callx.app.cache.StatusMediaPreloader;
 import java.util.concurrent.Executors;
 
 /**
@@ -63,6 +64,9 @@ public class StatusFragment extends Fragment {
     private ValueEventListener statusListener;
     private ValueEventListener seenListener;
     private String myUid;
+
+    // ── Media preloader (Reels jaisa pattern — Status ke liye) ────────────
+    private StatusMediaPreloader mediaPreloader;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -126,6 +130,10 @@ public class StatusFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
+        // Init media preloader — StatusMediaPreloader handles video + image caching
+        if (mediaPreloader == null && getContext() != null) {
+            mediaPreloader = new StatusMediaPreloader(requireContext());
+        }
         // v18: StatusCacheManager se fresh karo — zero duplicate Firebase reads
         // Agar data pehle se cache mein hai to instantly show karo
         seedFromStatusCache();
@@ -140,6 +148,11 @@ public class StatusFragment extends Fragment {
         removeListeners();
         if (getContext() != null)
             StatusCacheManager.getInstance(getContext()).removeObserver(statusCacheObserver);
+        // Preloader shutdown — running downloads cancel
+        if (mediaPreloader != null) {
+            mediaPreloader.shutdown();
+            mediaPreloader = null;
+        }
         super.onStop();
     }
 
@@ -433,5 +446,21 @@ public class StatusFragment extends Fragment {
         seen.sort(byTime);
 
         adapter.update(unseen, seen);
+
+        // ── Status Media Preload (Reels jaisa) ───────────────────────────
+        // Jab bhi status list refresh ho, unseen contacts ke media preload karo.
+        // Priority: unseen statuses pehle (user inhe dekhne wala hai)
+        if (mediaPreloader != null && !statusMap.isEmpty()) {
+            // Unseen contacts ke statuses pehle preload karo
+            for (StatusListAdapter.Entry entry : unseen) {
+                List<StatusItem> items = statusMap.get(entry.ownerUid);
+                if (items != null) mediaPreloader.preloadContactStatuses(items);
+            }
+            // Phir seen contacts ke statuses (lower priority — background mein chalte rahenge)
+            for (StatusListAdapter.Entry entry : seen) {
+                List<StatusItem> items = statusMap.get(entry.ownerUid);
+                if (items != null) mediaPreloader.preloadContactStatuses(items);
+            }
+        }
     }
 }

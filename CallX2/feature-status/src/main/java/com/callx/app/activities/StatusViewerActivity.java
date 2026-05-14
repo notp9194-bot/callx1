@@ -7,10 +7,15 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.*;
 import android.widget.*;
+import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import com.bumptech.glide.Glide;
+import com.callx.app.cache.StatusVideoCacheManager;
 import com.callx.app.status.R;
 import com.callx.app.status.databinding.ActivityStatusViewerBinding;
 import com.callx.app.models.StatusItem;
@@ -257,12 +262,34 @@ public class StatusViewerActivity extends AppCompatActivity {
         startProgress(5_000L);
     }
 
+    @OptIn(markerClass = UnstableApi.class)
     private void showVideoStatus(StatusItem s) {
         binding.playerView.setVisibility(View.VISIBLE);
         releasePlayer();
-        player = new ExoPlayer.Builder(this).build();
-        binding.playerView.setPlayer(player);
-        player.setMediaItem(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
+
+        // ── Cache-first ExoPlayer (Reels jaisa pattern) ─────────────────
+        // StatusVideoCacheManager.getCacheDataSourceFactory() returns a
+        // CacheDataSource.Factory that:
+        //   1. Pehle local disk cache check karta hai → instant play
+        //   2. Cache miss → internet se fetch + automatically cache mein save
+        // Next time same video open ho → zero network bytes used.
+        ExoPlayer.Builder builder = new ExoPlayer.Builder(this);
+
+        if (StatusVideoCacheManager.isInitialized()) {
+            CacheDataSource.Factory cacheFactory =
+                StatusVideoCacheManager.getCacheDataSourceFactory();
+            ProgressiveMediaSource mediaSource = new ProgressiveMediaSource.Factory(cacheFactory)
+                .createMediaSource(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
+            player = builder.build();
+            binding.playerView.setPlayer(player);
+            player.setMediaSource(mediaSource);
+        } else {
+            // Fallback: cache unavailable — direct URL (should not happen normally)
+            player = builder.build();
+            binding.playerView.setPlayer(player);
+            player.setMediaItem(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
+        }
+
         player.prepare();
         player.setPlayWhenReady(true);
 
