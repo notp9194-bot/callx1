@@ -346,37 +346,32 @@ public class ReelPlayerFragment extends Fragment {
                 .placeholder(R.drawable.ic_person)
                 .into(ivOwnerAvatar);
         }
-        if (ivOwnerAvatar != null && reel.uid != null) {
-            ivOwnerAvatar.setOnClickListener(v -> openUserReels());
-        }
-
-        // Story ring click → StatusViewerActivity (cross-module via Class.forName)
-        if (ivOwnerStoryRing != null && reel.uid != null && isAdded() && getContext() != null) {
+        // Story ring + avatar click — unified logic
+        if (isAdded() && getContext() != null && reel.uid != null) {
             StatusCacheManager scm = StatusCacheManager.getInstance(requireContext());
-            if (scm.hasUnseen(reel.uid)) {
-                ivOwnerStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
-                ivOwnerStoryRing.setVisibility(View.VISIBLE);
-            } else if (scm.hasStatus(reel.uid)) {
-                ivOwnerStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
-                ivOwnerStoryRing.setVisibility(View.VISIBLE);
-            } else {
-                ivOwnerStoryRing.setVisibility(View.GONE);
-            }
-            ivOwnerStoryRing.setOnClickListener(v -> {
-                if (!isAdded() || getActivity() == null) return;
-                StatusCacheManager scm2 = StatusCacheManager.getInstance(requireContext());
-                if (scm2.hasUnseen(reel.uid) || scm2.hasStatus(reel.uid)) {
-                    try {
-                        Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
-                        Intent si = new Intent(getActivity(), cls);
-                        si.putExtra("ownerUid",  reel.uid);
-                        si.putExtra("ownerName", reel.ownerName != null ? reel.ownerName : "");
-                        startActivity(si);
-                    } catch (ClassNotFoundException e) { /* ignore */ }
+            boolean hasStory = scm.hasUnseen(reel.uid) || scm.hasStatus(reel.uid);
+
+            if (ivOwnerStoryRing != null) {
+                if (scm.hasUnseen(reel.uid)) {
+                    ivOwnerStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
+                    ivOwnerStoryRing.setVisibility(View.VISIBLE);
+                } else if (scm.hasStatus(reel.uid)) {
+                    ivOwnerStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
+                    ivOwnerStoryRing.setVisibility(View.VISIBLE);
                 } else {
-                    openUserReels();
+                    ivOwnerStoryRing.setVisibility(View.GONE);
                 }
-            });
+                ivOwnerStoryRing.setOnClickListener(v -> openOwnerStatus());
+            }
+
+            if (ivOwnerAvatar != null) {
+                ivOwnerAvatar.setOnClickListener(v -> {
+                    if (hasStory) openOwnerStatus();
+                    else openUserReels();
+                });
+            }
+        } else if (ivOwnerAvatar != null) {
+            ivOwnerAvatar.setOnClickListener(v -> openUserReels());
         }
         if (tvOwnerName != null && reel.uid != null) {
             tvOwnerName.setOnClickListener(v -> openUserReels());
@@ -1112,6 +1107,19 @@ public class ReelPlayerFragment extends Fragment {
         i.putExtra(UserReelsActivity.EXTRA_NAME,  reel.ownerName);
         i.putExtra(UserReelsActivity.EXTRA_PHOTO, reel.ownerPhoto);
         startActivity(i);
+    }
+
+    private void openOwnerStatus() {
+        if (!isAdded() || getActivity() == null || reel == null || reel.uid == null) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
+            Intent si = new Intent(getActivity(), cls);
+            si.putExtra("ownerUid",  reel.uid);
+            si.putExtra("ownerName", reel.ownerName != null ? reel.ownerName : "");
+            startActivity(si);
+        } catch (ClassNotFoundException e) {
+            openUserReels(); // fallback
+        }
     }
 
     private void openDuet() {

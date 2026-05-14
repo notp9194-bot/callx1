@@ -50,6 +50,13 @@
             android:layout_marginEnd="10dp"
             android:layout_marginTop="2dp">
 
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_avatar"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_person"/>
+
             <ImageView
                 android:id="@+id/iv_story_ring"
                 android:layout_width="42dp"
@@ -59,13 +66,6 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:visibility="gone"/>
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_avatar"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_person"/>
 
         </FrameLayout>
 

@@ -73,9 +73,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
 
-        // Story ring — unseen/seen status indicator around chat avatar
+        // Story ring + avatar click logic
+        StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+        boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
+
         if (h.ivStoryRing != null && u.uid != null) {
-            StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
             if (scm.hasUnseen(u.uid)) {
                 h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
                 h.ivStoryRing.setVisibility(View.VISIBLE);
@@ -85,6 +87,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             } else {
                 h.ivStoryRing.setVisibility(View.GONE);
             }
+            h.ivStoryRing.setOnClickListener(v -> {
+                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                openStatusOrChat(ctx, u);
+            });
         }
 
         if (u.lastMessage != null && !u.lastMessage.isEmpty())
@@ -115,27 +121,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         h.itemView.setBackgroundColor(selected ? 0x335B5BF6 : (isSpecial ? 0x33FFC107 : 0x00000000));
 
         // Story ring click → open StatusViewerActivity (only when ring is visible)
-        if (h.ivStoryRing != null) {
-            h.ivStoryRing.setOnClickListener(v -> {
-                if (isSelecting) {
-                    toggleSelection(h.getAdapterPosition());
-                    return;
-                }
-                StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
-                if (u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid))) {
-                    Intent si = new Intent().setClassName(ctx.getPackageName(),
-                            "com.callx.app.activities.StatusViewerActivity");
-                    si.putExtra("ownerUid",  u.uid);
-                    si.putExtra("ownerName", u.name != null ? u.name : "");
-                    ctx.startActivity(si);
-                } else {
-                    openChat(ctx, u);
-                }
-            });
-        }
+        // (already set above in ivStoryRing block)
 
         h.ivAvatar.setOnClickListener(v -> {
-            if (isSelecting) toggleSelection(h.getAdapterPosition());
+            if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+            if (hasStory) openStatusOrChat(ctx, u);
             else openChat(ctx, u);
         });
 
@@ -191,6 +181,20 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         i.putExtra("partnerPhoto", u.photoUrl != null ? u.photoUrl : "");
         i.putExtra("partnerThumb", u.thumbUrl != null ? u.thumbUrl : "");
         ctx.startActivity(i);
+    }
+
+    private void openStatusOrChat(Context ctx, User u) {
+        if (u.uid == null) { openChat(ctx, u); return; }
+        StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+        if (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid)) {
+            Intent si = new Intent().setClassName(ctx.getPackageName(),
+                    "com.callx.app.activities.StatusViewerActivity");
+            si.putExtra("ownerUid",  u.uid);
+            si.putExtra("ownerName", u.name != null ? u.name : "");
+            ctx.startActivity(si);
+        } else {
+            openChat(ctx, u);
+        }
     }
 
     private void toggleSelection(int pos) {

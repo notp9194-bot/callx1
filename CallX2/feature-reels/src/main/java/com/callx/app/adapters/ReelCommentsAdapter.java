@@ -156,8 +156,10 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         bindAvatar(ctx, h.ivAvatar, c.uid, c.ownerPhoto);
 
         // ── Story ring (unseen status indicator) ─────────────────────
+        StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+        boolean hasStory = c.uid != null && (scm.hasUnseen(c.uid) || scm.hasStatus(c.uid));
+
         if (h.ivStoryRing != null && c.uid != null) {
-            StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
             if (scm.hasUnseen(c.uid)) {
                 h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
                 h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
@@ -167,6 +169,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             } else {
                 h.ivStoryRing.setVisibility(android.view.View.GONE);
             }
+            h.ivStoryRing.setOnClickListener(v -> openCommentStatus(ctx, c));
         }
 
         // ── Name ────────────────────────────────────────────────────────
@@ -213,26 +216,11 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
 
         // ── Click listeners ─────────────────────────────────────────────
-        // Story ring click → StatusViewerActivity
-        if (h.ivStoryRing != null) {
-            h.ivStoryRing.setOnClickListener(v -> {
-                StatusCacheManager scm2 = StatusCacheManager.getInstance(ctx);
-                if (c.uid != null && (scm2.hasUnseen(c.uid) || scm2.hasStatus(c.uid))) {
-                    try {
-                        Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
-                        Intent si = new Intent(ctx, cls);
-                        si.putExtra("ownerUid",  c.uid);
-                        si.putExtra("ownerName", c.ownerName != null ? c.ownerName : "");
-                        ctx.startActivity(si);
-                    } catch (ClassNotFoundException e) { /* ignore */ }
-                } else {
-                    if (listener != null) listener.onAvatarClick(c);
-                }
-            });
-        }
+        // (ring click already set above)
 
         h.ivAvatar.setOnClickListener(v -> {
-            if (listener != null) listener.onAvatarClick(c);
+            if (hasStory) openCommentStatus(ctx, c);
+            else if (listener != null) listener.onAvatarClick(c);
         });
 
         h.btnLike.setOnClickListener(v -> {
@@ -258,6 +246,19 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     public int getItemCount() { return items.size(); }
 
     // ── Avatar with Firebase fallback ──────────────────────────────────────
+
+    private void openCommentStatus(Context ctx, ReelComment c) {
+        if (c.uid == null) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
+            Intent si = new Intent(ctx, cls);
+            si.putExtra("ownerUid",  c.uid);
+            si.putExtra("ownerName", c.ownerName != null ? c.ownerName : "");
+            ctx.startActivity(si);
+        } catch (ClassNotFoundException e) {
+            if (listener != null) listener.onAvatarClick(c);
+        }
+    }
 
     private void bindAvatar(Context ctx, CircleImageView iv, String uid, String photoUrl) {
         if (photoUrl != null && !photoUrl.isEmpty()) {

@@ -21,17 +21,6 @@
             android:layout_width="52dp"
             android:layout_height="52dp">
 
-            <!-- Story ring (unseen=colored, seen=gray, gone=no status) -->
-            <ImageView
-                android:id="@+id/iv_story_ring"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:layout_gravity="center"
-                android:background="@drawable/circle_status_unseen"
-                android:clickable="true"
-                android:focusable="true"
-                android:visibility="gone"/>
-
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_avatar"
                 android:layout_width="44dp"
@@ -42,6 +31,17 @@
                 android:focusable="true"
                 app:civ_border_width="1.5dp"
                 app:civ_border_color="@color/divider"/>
+
+            <!-- Story ring (unseen=colored, seen=gray, gone=no status) -->
+            <ImageView
+                android:id="@+id/iv_story_ring"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_gravity="center"
+                android:background="@drawable/circle_status_unseen"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone"/>
 
         </FrameLayout>
 

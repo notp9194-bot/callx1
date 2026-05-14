@@ -112,8 +112,10 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         }
 
         // Story ring — unseen status indicator
+        StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+        boolean hasStory = l.partnerUid != null && (scm.hasUnseen(l.partnerUid) || scm.hasStatus(l.partnerUid));
+
         if (h.ivStoryRing != null && l.partnerUid != null) {
-            StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
             if (scm.hasUnseen(l.partnerUid)) {
                 h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
                 h.ivStoryRing.setVisibility(View.VISIBLE);
@@ -123,27 +125,23 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
             } else {
                 h.ivStoryRing.setVisibility(View.GONE);
             }
+            h.ivStoryRing.setOnClickListener(v -> {
+                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                openStatusOrChat(ctx, l);
+            });
+        }
+
+        // Avatar click — also goes to status if story exists
+        if (h.ivAvatar != null) {
+            h.ivAvatar.setOnClickListener(v -> {
+                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                if (hasStory) openStatusOrChat(ctx, l);
+                else openChat(ctx, l);
+            });
         }
 
         boolean selected = l.id != null && selectedIds.contains(l.id);
         h.itemView.setBackgroundColor(selected ? 0x335B5BF6 : 0x00000000);
-
-        // Story ring click → StatusViewerActivity (cross-module via setClassName)
-        if (h.ivStoryRing != null) {
-            h.ivStoryRing.setOnClickListener(v -> {
-                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-                StatusCacheManager scm2 = StatusCacheManager.getInstance(ctx);
-                if (l.partnerUid != null && (scm2.hasUnseen(l.partnerUid) || scm2.hasStatus(l.partnerUid))) {
-                    Intent si = new Intent().setClassName(ctx.getPackageName(),
-                            "com.callx.app.activities.StatusViewerActivity");
-                    si.putExtra("ownerUid",  l.partnerUid);
-                    si.putExtra("ownerName", l.partnerName != null ? l.partnerName : "");
-                    ctx.startActivity(si);
-                } else {
-                    openChat(ctx, l);
-                }
-            });
-        }
 
         h.itemView.setOnClickListener(v -> {
             if (isSelecting) toggleSelection(h.getAdapterPosition());
@@ -225,6 +223,20 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         i.putExtra("partnerUid",  l.partnerUid);
         i.putExtra("partnerName", l.partnerName != null ? l.partnerName : "");
         ctx.startActivity(i);
+    }
+
+    private void openStatusOrChat(Context ctx, CallLog l) {
+        if (l.partnerUid == null) { openChat(ctx, l); return; }
+        StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+        if (scm.hasUnseen(l.partnerUid) || scm.hasStatus(l.partnerUid)) {
+            Intent si = new Intent().setClassName(ctx.getPackageName(),
+                    "com.callx.app.activities.StatusViewerActivity");
+            si.putExtra("ownerUid",  l.partnerUid);
+            si.putExtra("ownerName", l.partnerName != null ? l.partnerName : "");
+            ctx.startActivity(si);
+        } else {
+            openChat(ctx, l);
+        }
     }
 
     @Override public int getItemCount() { return logs.size(); }
