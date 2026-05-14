@@ -12,7 +12,6 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
 import com.callx.app.activities.ChatActivity;
-import com.callx.app.activities.StatusViewerActivity;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
@@ -126,8 +125,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 if (u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid))) {
                     Intent si = new Intent().setClassName(ctx.getPackageName(),
                             "com.callx.app.activities.StatusViewerActivity");
-                    si.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  u.uid);
-                    si.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, u.name != null ? u.name : "");
+                    si.putExtra("ownerUid",  u.uid);
+                    si.putExtra("ownerName", u.name != null ? u.name : "");
                     ctx.startActivity(si);
                 } else {
                     openChat(ctx, u);
