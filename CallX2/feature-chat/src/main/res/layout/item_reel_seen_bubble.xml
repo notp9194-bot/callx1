@@ -43,6 +43,7 @@
 
             <!-- Reel thumbnail (tappable → opens reel) -->
             <FrameLayout
+                android:id="@+id/fl_reel_seen_thumb"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="6dp">

@@ -232,7 +232,8 @@ public class MessagePagingAdapter
     // REEL SEEN BUBBLE — "🎬 Watched your reel" system event row.
     // Layout: item_reel_seen_bubble.xml
     //   • iv_reel_seen_avatar   → circular avatar (Glide)
-    //   • iv_reel_seen_thumb    → reel thumbnail (tappable → UserReelsActivity)
+    //   • fl_reel_seen_thumb    → FrameLayout container (tappable → opens reel)
+    //   • iv_reel_seen_thumb    → reel thumbnail
     //   • iv_reel_seen_play     → play icon overlay on thumbnail
     //   • tv_reel_seen_label    → "Watched your reel" (set in XML)
     //   • tv_reel_seen_name     → sender name (group only)
@@ -258,11 +259,21 @@ public class MessagePagingAdapter
             }
         }
 
-        // Reel thumbnail + play icon (tap → open reel)
-        android.widget.ImageView ivThumb =
-            h.itemView.findViewById(R.id.iv_reel_seen_thumb);
-        android.widget.ImageView ivPlay  =
-            h.itemView.findViewById(R.id.iv_reel_seen_play);
+        // Click handler — reelId se reel kholo (thumb ho ya na ho, always kaam kare)
+        final String reelId = m.reelId;
+        android.view.View.OnClickListener openReel = v -> {
+            if (reelId == null || reelId.isEmpty()) return;
+            android.content.Intent intent = new android.content.Intent(
+                    com.callx.app.utils.Constants.ACTION_OPEN_REEL);
+            intent.putExtra("reelId", reelId);
+            intent.setPackage(ctx.getPackageName());
+            ctx.startActivity(intent);
+        };
+
+        // Reel thumbnail + play icon
+        android.view.View flThumb = h.itemView.findViewById(R.id.fl_reel_seen_thumb);
+        android.widget.ImageView ivThumb = h.itemView.findViewById(R.id.iv_reel_seen_thumb);
+        android.widget.ImageView ivPlay  = h.itemView.findViewById(R.id.iv_reel_seen_play);
         if (ivThumb != null) {
             String thumb = m.reelThumbUrl != null ? m.reelThumbUrl : "";
             if (!thumb.isEmpty()) {
@@ -277,22 +288,11 @@ public class MessagePagingAdapter
                 ivThumb.setVisibility(android.view.View.GONE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.GONE);
             }
-
-            // Tap on thumbnail → open SingleReelPlayerActivity for this reel
-            final String reelId = m.reelId;
-            android.view.View.OnClickListener openReel = v -> {
-                if (reelId == null || reelId.isEmpty()) return;
-                // Use implicit intent so feature-chat doesn't need a compile-time
-                // dependency on feature-reels (SingleReelPlayerActivity lives there).
-                android.content.Intent intent = new android.content.Intent(
-                        com.callx.app.utils.Constants.ACTION_OPEN_REEL);
-                intent.putExtra("reelId", reelId);
-                intent.setPackage(ctx.getPackageName());
-                ctx.startActivity(intent);
-            };
-            ivThumb.setOnClickListener(openReel);
-            if (ivPlay != null) ivPlay.setOnClickListener(openReel);
         }
+        // Click on FrameLayout container, play icon, AND whole item
+        if (flThumb != null) flThumb.setOnClickListener(openReel);
+        if (ivPlay  != null) ivPlay.setOnClickListener(openReel);
+        h.itemView.setOnClickListener(openReel);
 
         // Sender name (group only)
         android.widget.TextView tvName =

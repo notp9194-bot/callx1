@@ -520,7 +520,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     //
     //  Layout: item_reel_seen_bubble.xml
     //   • iv_reel_seen_avatar  → Glide + circleCrop
-    //   • iv_reel_seen_thumb   → reel thumbnail (tappable → SingleReelPlayerActivity)
+    //   • fl_reel_seen_thumb   → FrameLayout container (tappable → opens reel)
+    //   • iv_reel_seen_thumb   → reel thumbnail
     //   • iv_reel_seen_play    → play icon overlay on thumbnail
     //   • tv_reel_seen_name    → sender name (group only)
     //   • tv_reel_seen_time    → formatted timestamp
@@ -542,7 +543,20 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
         }
 
-        // Reel thumbnail + play icon (tap → open reel)
+        // Click handler — reelId se reel kholo (thumb ho ya na ho, click always kaam kare)
+        final String reelId = m.reelId;
+        android.view.View.OnClickListener openReel = v -> {
+            if (reelId == null || reelId.isEmpty()) return;
+            android.content.Intent intent = new android.content.Intent(
+                    com.callx.app.utils.Constants.ACTION_OPEN_REEL);
+            intent.putExtra("reelId", reelId);
+            intent.setPackage(ctx.getPackageName());
+            ctx.startActivity(intent);
+        };
+
+        // Reel thumbnail + play icon
+        android.view.View flThumb =
+            h.itemView.findViewById(com.callx.app.chat.R.id.fl_reel_seen_thumb);
         android.widget.ImageView ivThumb =
             h.itemView.findViewById(com.callx.app.chat.R.id.iv_reel_seen_thumb);
         android.widget.ImageView ivPlay =
@@ -561,21 +575,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 ivThumb.setVisibility(View.GONE);
                 if (ivPlay != null) ivPlay.setVisibility(View.GONE);
             }
-
-            final String reelId = m.reelId;
-            android.view.View.OnClickListener openReel = v -> {
-                if (reelId == null || reelId.isEmpty()) return;
-                // Use implicit intent so feature-chat doesn't need a compile-time
-                // dependency on feature-reels (SingleReelPlayerActivity lives there).
-                android.content.Intent intent = new android.content.Intent(
-                        com.callx.app.utils.Constants.ACTION_OPEN_REEL);
-                intent.putExtra("reelId", reelId);
-                intent.setPackage(ctx.getPackageName());
-                ctx.startActivity(intent);
-            };
-            ivThumb.setOnClickListener(openReel);
-            if (ivPlay != null) ivPlay.setOnClickListener(openReel);
         }
+        // Click on thumbnail container, play icon, AND whole item view
+        if (flThumb != null) flThumb.setOnClickListener(openReel);
+        if (ivPlay  != null) ivPlay.setOnClickListener(openReel);
+        h.itemView.setOnClickListener(openReel);
 
         // Sender name (group only)
         android.widget.TextView tvName =

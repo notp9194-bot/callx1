@@ -9,25 +9,28 @@ import java.util.Map;
  * Writes viewer records to Firebase even when the app is in background.
  * Thread-safe; all Firebase writes are fire-and-forget.
  *
- * FEATURE: markSeenBatch() now also writes a "status_seen" message into the
- * 1-on-1 chat between viewer and status-owner. This makes B's ChatActivity
- * with A show a special "👁 Seen your status" bubble on A's side, with A's
- * circular avatar and the time — exactly like WhatsApp story-seen receipts.
+ * FEATURE: markSeenBatch() also writes a "status_seen" message into the
+ * 1-on-1 chat between viewer and status-owner. The bubble shows:
+ *   - viewer's circular avatar
+ *   - status thumbnail (if image/video status)
+ *   - "👁 Seen your status" label
+ *   - time
  *
  * Chat message schema (type = "status_seen"):
- *   id          — push key
- *   senderId    — viewer UID (A — who saw)
- *   senderPhoto — viewer's photoUrl (for avatar in bubble)
- *   text        — "seen your status"  (unused in UI, for search/export)
- *   type        — "status_seen"
- *   timestamp   — ServerValue.TIMESTAMP
- *   seen        — false (never shows unread badge — it's a system event)
- *   statusOwnerUid — owner's UID (B) — so both sides can filter if needed
+ *   id             — push key
+ *   senderId       — viewer UID (A — who saw)
+ *   senderName     — viewer's display name
+ *   senderPhoto    — viewer's photoUrl (for avatar in bubble)
+ *   text           — "seen your status"  (for search/export)
+ *   type           — "status_seen"
+ *   timestamp      — ServerValue.TIMESTAMP
+ *   seen           — false (no unread badge — system event)
+ *   statusOwnerUid — owner's UID (B)
+ *   statusOwnerName — owner's display name (passed to StatusViewerActivity on click)
+ *   statusThumbUrl — thumbnail of the status (shown in bubble for image/video)
  *
  * Dedup: before writing, we check if a status_seen message from this viewer
  * already exists in the last 24 h (limitToLast(1) ordered by timestamp).
- * If the last message is already a status_seen from the same sender within
- * 24 h, we skip the write to avoid flooding the chat.
  */
 public final class StatusSeenTracker {
 
@@ -53,13 +56,19 @@ public final class StatusSeenTracker {
     /**
      * Batch-mark multiple statuses as seen (called from StatusViewerActivity.onDestroy).
      * Also writes a "status_seen" bubble into the 1-on-1 chat with the status owner.
+     *
+     * @param ownerUid       UID of the status owner
+     * @param statusIds      IDs of statuses seen in this session
+     * @param ownerName      Display name of the owner (passed to StatusViewerActivity on tap)
+     * @param statusThumbUrl Thumbnail of the first/current status — shown in the chat bubble
      */
-    public static void markSeenBatch(String ownerUid, Iterable<String> statusIds) {
+    public static void markSeenBatch(String ownerUid, Iterable<String> statusIds,
+                                     String ownerName, String statusThumbUrl) {
         if (ownerUid == null || statusIds == null) return;
         String myUid = safeUid();
         if (myUid == null || myUid.equals(ownerUid)) return;
 
-        // 1. Write seenBy records to status nodes (existing behaviour)
+        // 1. Write seenBy records to status nodes
         Map<String, Object> updates = new HashMap<>();
         for (String id : statusIds) {
             if (id != null) {
@@ -71,25 +80,30 @@ public final class StatusSeenTracker {
             FirebaseUtils.getStatusRef().updateChildren(updates);
         }
 
-        // 2. Write "status_seen" bubble into the 1-on-1 chat between viewer (myUid) and owner
-        writeStatusSeenToChat(myUid, ownerUid);
+        // 2. Write "status_seen" bubble into the 1-on-1 chat
+        String safeOwnerName = ownerName != null ? ownerName : "";
+        String safeThumb     = statusThumbUrl != null ? statusThumbUrl : "";
+        writeStatusSeenToChat(myUid, ownerUid, safeOwnerName, safeThumb);
+    }
+
+    /**
+     * Overload for backward compatibility — callers without thumbnail/ownerName.
+     */
+    public static void markSeenBatch(String ownerUid, Iterable<String> statusIds) {
+        markSeenBatch(ownerUid, statusIds, "", "");
     }
 
     /**
      * Writes a single "status_seen" system message into the 1-on-1 chat.
      * Dedup: skipped if a status_seen from same sender exists within last 24 h.
-     *
-     * @param viewerUid  UID of person who saw the status (A)
-     * @param ownerUid   UID of the status owner (B)
      */
-    private static void writeStatusSeenToChat(String viewerUid, String ownerUid) {
-        // Deterministic chatId — same algo as ChatActivity / StatusViewerActivity
+    private static void writeStatusSeenToChat(String viewerUid, String ownerUid,
+                                               String ownerName, String statusThumbUrl) {
+        // Deterministic chatId
         String chatId = viewerUid.compareTo(ownerUid) < 0
                 ? viewerUid + "_" + ownerUid
                 : ownerUid + "_" + viewerUid;
 
-        // Path MUST match ChatActivity's messagesRef: "messages/{chatId}"
-        // (NOT "chats/{chatId}/messages" — that is a different node)
         com.google.firebase.database.DatabaseReference messagesRef =
                 FirebaseUtils.db()
                     .getReference("messages")
@@ -101,13 +115,10 @@ public final class StatusSeenTracker {
                 @Override
                 public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
                     long now = System.currentTimeMillis();
-
-                    // If last message is already a status_seen from viewerUid within 24h — skip
                     for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
                         String lastType   = child.child("type").getValue(String.class);
                         String lastSender = child.child("senderId").getValue(String.class);
                         Long   lastTs     = child.child("timestamp").getValue(Long.class);
-
                         if ("status_seen".equals(lastType)
                                 && viewerUid.equals(lastSender)
                                 && lastTs != null
@@ -133,21 +144,21 @@ public final class StatusSeenTracker {
                                     doWrite(messagesRef, viewerUid,
                                             viewerName  != null ? viewerName  : "Someone",
                                             viewerPhoto != null ? viewerPhoto : "",
-                                            ownerUid);
+                                            ownerUid, ownerName, statusThumbUrl);
                                 }
                                 @Override
                                 public void onCancelled(
                                         com.google.firebase.database.DatabaseError e) {
-                                    // Still write, just without photo
-                                    doWrite(messagesRef, viewerUid, "Someone", "", ownerUid);
+                                    doWrite(messagesRef, viewerUid, "Someone", "",
+                                            ownerUid, ownerName, statusThumbUrl);
                                 }
                             });
                 }
 
                 @Override
                 public void onCancelled(com.google.firebase.database.DatabaseError e) {
-                    // Dedup check failed — write anyway (safe)
-                    doWrite(messagesRef, viewerUid, "Someone", "", ownerUid);
+                    doWrite(messagesRef, viewerUid, "Someone", "",
+                            ownerUid, ownerName, statusThumbUrl);
                 }
             });
     }
@@ -155,31 +166,28 @@ public final class StatusSeenTracker {
     /** Actually push the status_seen message node. */
     private static void doWrite(
             com.google.firebase.database.DatabaseReference messagesRef,
-            String viewerUid, String viewerName, String viewerPhoto, String ownerUid) {
+            String viewerUid, String viewerName, String viewerPhoto,
+            String ownerUid, String ownerName, String statusThumbUrl) {
         String msgId = messagesRef.push().getKey();
         if (msgId == null) return;
 
         Map<String, Object> msg = new HashMap<>();
-        msg.put("id",             msgId);
-        msg.put("senderId",       viewerUid);
-        msg.put("senderName",     viewerName);
-        msg.put("senderPhoto",    viewerPhoto);   // used by adapter for circular avatar
-        msg.put("text",           "seen your status");
-        msg.put("type",           "status_seen");
-        msg.put("timestamp",      ServerValue.TIMESTAMP);
-        msg.put("seen",           false);         // no unread badge for system events
-        msg.put("statusOwnerUid", ownerUid);
+        msg.put("id",              msgId);
+        msg.put("senderId",        viewerUid);
+        msg.put("senderName",      viewerName);
+        msg.put("senderPhoto",     viewerPhoto);    // viewer's avatar in bubble
+        msg.put("text",            "seen your status");
+        msg.put("type",            "status_seen");
+        msg.put("timestamp",       ServerValue.TIMESTAMP);
+        msg.put("seen",            false);
+        msg.put("statusOwnerUid",  ownerUid);       // to open StatusViewerActivity on tap
+        msg.put("statusOwnerName", ownerName);      // owner name passed to StatusViewerActivity
+        msg.put("statusThumbUrl",  statusThumbUrl); // thumbnail shown in bubble
 
         messagesRef.child(msgId).setValue(msg);
     }
 
-    /**
-     * React to a status item with an emoji.
-     *
-     * @param ownerUid  UID of the status owner
-     * @param statusId  ID of the specific status item
-     * @param emoji     emoji string (e.g. "❤️", "😂")
-     */
+    /** React to a status item with an emoji. */
     public static void reactTo(String ownerUid, String statusId, String emoji) {
         if (ownerUid == null || statusId == null || emoji == null) return;
         String myUid = safeUid();
@@ -192,9 +200,7 @@ public final class StatusSeenTracker {
             .setValue(emoji);
     }
 
-    /**
-     * Remove the current user's reaction from a status item.
-     */
+    /** Remove the current user's reaction from a status item. */
     public static void removeReaction(String ownerUid, String statusId) {
         if (ownerUid == null || statusId == null) return;
         String myUid = safeUid();
@@ -207,10 +213,7 @@ public final class StatusSeenTracker {
             .removeValue();
     }
 
-    /**
-     * Soft-delete a status item (sets deleted = true).
-     * Only the owner should call this.
-     */
+    /** Soft-delete a status item (sets deleted = true). Only owner should call. */
     public static void deleteStatus(String ownerUid, String statusId) {
         if (ownerUid == null || statusId == null) return;
         String myUid = safeUid();

@@ -149,9 +149,22 @@ public class StatusViewerActivity extends AppCompatActivity {
         stopProgress();
         handler.removeCallbacksAndMessages(null);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        // Batch-mark all items seen when leaving
+        // Batch-mark all items seen when leaving.
+        // Pass ownerName + first-seen status thumbnail so the chat bubble can show them.
         if (!seenInSession.isEmpty() && ownerUid != null) {
-            StatusSeenTracker.markSeenBatch(ownerUid, seenInSession);
+            // Grab the thumbnail of the first status item that was seen
+            String thumbForBubble = "";
+            if (!items.isEmpty()) {
+                StatusItem first = items.get(0);
+                if (first.thumbnailUrl != null && !first.thumbnailUrl.isEmpty()) {
+                    thumbForBubble = first.thumbnailUrl;
+                } else if (first.mediaUrl != null && !first.mediaUrl.isEmpty()
+                        && "image".equals(first.type)) {
+                    thumbForBubble = first.mediaUrl;
+                }
+            }
+            StatusSeenTracker.markSeenBatch(ownerUid, seenInSession,
+                    ownerName != null ? ownerName : "", thumbForBubble);
         }
         super.onDestroy();
     }
