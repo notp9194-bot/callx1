@@ -168,6 +168,10 @@ public final class StatusSeenTracker {
             com.google.firebase.database.DatabaseReference messagesRef,
             String viewerUid, String viewerName, String viewerPhoto,
             String ownerUid, String ownerName, String statusThumbUrl) {
+        // Guard: ownerUid must be non-empty — it is the click destination in the chat bubble.
+        // An empty ownerUid would cause the adapter to fall back to senderId (viewer), opening
+        // the wrong person's status.
+        if (ownerUid == null || ownerUid.isEmpty()) return;
         String msgId = messagesRef.push().getKey();
         if (msgId == null) return;
 

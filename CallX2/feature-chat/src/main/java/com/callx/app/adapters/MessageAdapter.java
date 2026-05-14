@@ -490,10 +490,13 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
         }
 
-        // Click handler on bubble → open status
+        // Click handler on bubble → open status owner's status (NOT the viewer's).
+        // statusOwnerUid is always the person whose status was seen (B).
+        // senderId is the viewer (A) — do NOT fall back to it.
         final String ownerUid  = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
-                                 ? m.statusOwnerUid : m.senderId;
-        final String ownerName = m.statusOwnerName != null ? m.statusOwnerName
+                                 ? m.statusOwnerUid : null;
+        final String ownerName = m.statusOwnerName != null && !m.statusOwnerName.isEmpty()
+                                 ? m.statusOwnerName
                                  : (m.senderName != null ? m.senderName : "");
         android.view.View.OnClickListener openStatus = v -> {
             if (ownerUid == null || ownerUid.isEmpty()) return;
