@@ -10,6 +10,41 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"/>
 
+    <!-- Search and sort row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp">
+
+        <EditText
+            android:id="@+id/et_saved_sounds_search"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:hint="Search saved sounds..."
+            android:textSize="14sp"
+            android:inputType="text"
+            android:background="@drawable/bg_comment_input"
+            android:paddingHorizontal="12dp"
+            android:singleLine="true"/>
+
+        <TextView
+            android:id="@+id/tv_saved_sounds_sort"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="Recent"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackground"
+            android:drawableEnd="@drawable/ic_arrow_forward"/>
+    </LinearLayout>
+
     <ProgressBar
         android:id="@+id/progress_saved_sounds"
         android:layout_width="wrap_content"
