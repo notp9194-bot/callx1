@@ -88,11 +88,12 @@ public final class StatusSeenTracker {
                 ? viewerUid + "_" + ownerUid
                 : ownerUid + "_" + viewerUid;
 
+        // Path MUST match ChatActivity's messagesRef: "messages/{chatId}"
+        // (NOT "chats/{chatId}/messages" — that is a different node)
         com.google.firebase.database.DatabaseReference messagesRef =
                 FirebaseUtils.db()
-                    .getReference("chats")
-                    .child(chatId)
-                    .child("messages");
+                    .getReference("messages")
+                    .child(chatId);
 
         // Dedup check: look at last 1 message
         messagesRef.orderByChild("timestamp").limitToLast(1)
