@@ -36,6 +36,7 @@ import com.callx.app.status.R;
 import com.callx.app.status.databinding.ActivityStatusViewerBinding;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.StatusSeenTracker;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
@@ -565,12 +566,14 @@ public class StatusViewerActivity extends AppCompatActivity {
     }
 
     /**
-     * Sends a "reply to status" message into the existing chat with the owner.
-     * Uses the same chat path as the rest of the app: chats/{chatId}/messages.
+     * Sends a "reply to status" message into the existing chat with the owner,
+     * then fires a background-killed-safe FCM push to the owner via PushNotify.
+     * Message includes replyToText + replyToSenderName so the chat screen renders
+     * a proper quoted-status bubble (same as swipe-to-reply on any other message).
      */
     private void sendReplyToChat(String toUid, String message) {
         if (myUid == null) return;
-        // Chat ID is deterministic: sorted UIDs joined by "_"
+        // Deterministic chatId: sorted UIDs joined by "_"
         String chatId = myUid.compareTo(toUid) < 0
                 ? myUid + "_" + toUid
                 : toUid + "_" + myUid;
@@ -578,20 +581,85 @@ public class StatusViewerActivity extends AppCompatActivity {
         String msgId = FirebaseUtils.db().getReference().push().getKey();
         if (msgId == null) return;
 
+        // Build the quoted-status context — shown as a preview bubble in chat
+        StatusItem currentStatus = (idx >= 0 && idx < items.size()) ? items.get(idx) : null;
+        String quoteText;
+        String quoteType;
+        String quoteMediaUrl = null;
+        if (currentStatus != null) {
+            if ("image".equals(currentStatus.type)) {
+                quoteText    = "📷 Photo status";
+                quoteType    = "image";
+                quoteMediaUrl = currentStatus.mediaUrl;
+            } else if ("video".equals(currentStatus.type)
+                    || "reel_story".equals(currentStatus.type)
+                    || "reel_clip".equals(currentStatus.type)) {
+                quoteText    = "🎥 Video status";
+                quoteType    = "video";
+                quoteMediaUrl = currentStatus.thumbnailUrl != null
+                        ? currentStatus.thumbnailUrl : currentStatus.mediaUrl;
+            } else {
+                // text status
+                quoteText = (currentStatus.text != null && !currentStatus.text.isEmpty())
+                        ? currentStatus.text
+                        : (currentStatus.caption != null ? currentStatus.caption : "Status");
+                quoteType = "text";
+            }
+        } else {
+            quoteText = "Status";
+            quoteType = "text";
+        }
+
         Map<String, Object> msgMap = new HashMap<>();
-        msgMap.put("id",        msgId);
-        msgMap.put("senderId",  myUid);
-        msgMap.put("text",      "↩ Status reply: " + message);
-        msgMap.put("type",      "text");
-        msgMap.put("timestamp", com.google.firebase.database.ServerValue.TIMESTAMP);
-        msgMap.put("seen",      false);
+        msgMap.put("id",                msgId);
+        msgMap.put("senderId",          myUid);
+        msgMap.put("text",              message);          // plain reply text (no prefix clutter)
+        msgMap.put("type",              "text");
+        msgMap.put("timestamp",         com.google.firebase.database.ServerValue.TIMESTAMP);
+        msgMap.put("seen",              false);
+        // Quote fields — chat adapter reads these to render the preview bubble
+        msgMap.put("replyToId",         "status_" + (currentStatus != null && currentStatus.id != null
+                                                      ? currentStatus.id : "unknown"));
+        msgMap.put("replyToText",       quoteText);
+        msgMap.put("replyToSenderName", ownerName != null ? ownerName : "Status");
+        msgMap.put("replyToType",       quoteType);
+        if (quoteMediaUrl != null) msgMap.put("replyToMediaUrl", quoteMediaUrl);
+
+        final String finalChatId = chatId;
+        final String finalMsg    = message;
 
         FirebaseUtils.db()
             .getReference("chats")
             .child(chatId)
             .child("messages")
             .child(msgId)
-            .setValue(msgMap);
+            .setValue(msgMap)
+            .addOnSuccessListener(unused -> {
+                // After message is written, send push to status owner.
+                // Fetch my own name + photo (needed for notification title/avatar).
+                FirebaseUtils.db()
+                    .getReference("users")
+                    .child(myUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override
+                        public void onDataChange(@NonNull DataSnapshot snap) {
+                            String myName  = snap.child("name").getValue(String.class);
+                            String myPhoto = snap.child("photoUrl").getValue(String.class);
+                            PushNotify.notifyStatusReply(
+                                toUid,
+                                myUid,
+                                myName  != null ? myName  : "Someone",
+                                myPhoto != null ? myPhoto : "",
+                                finalMsg,
+                                finalChatId
+                            );
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {
+                            PushNotify.notifyStatusReply(
+                                toUid, myUid, "Someone", "", finalMsg, finalChatId);
+                        }
+                    });
+            });
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.callx.app.activities;
 
 import android.content.Intent;
+import com.callx.app.activities.StatusViewerActivity;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.*;
@@ -711,7 +712,21 @@ public class AllNotificationsActivity extends AppCompatActivity {
                 break;
 
             case "status":
-                startActivity(new Intent(this, StatusViewerActivity.class));
+                // Pass sender UID + name so StatusViewerActivity can load the correct status.
+                // Without these extras StatusViewerActivity immediately calls finish().
+                if (it.fromUid != null) {
+                    Intent sv = new Intent(this, StatusViewerActivity.class);
+                    sv.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  it.fromUid);
+                    sv.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME,
+                                it.fromName != null ? it.fromName : "Status");
+                    startActivity(sv);
+                } else {
+                    // Fallback: open MainActivity on the Status tab
+                    Intent fallback = new Intent(this, MainActivity.class);
+                    fallback.putExtra("open_tab", "status");
+                    fallback.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivity(fallback);
+                }
                 break;
 
             case "call":

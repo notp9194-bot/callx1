@@ -277,7 +277,41 @@ public class PushNotify {
           }
       }
 
-      // ── Contact Join notify ────────────────────────────────────────────────
+      // ── Status Reply notify ────────────────────────────────────────────────
+      /**
+       * Sends a background-killed-safe FCM push to the status owner when someone
+       * replies to their status via StatusViewerActivity.
+       *
+       * Server endpoint: POST /notify  (same as chat messages — uses toUid routing)
+       * FCM payload type: "status_reply"
+       * On receive: CallxMessagingService.showStatusReply() builds rich notification
+       *             and tapping it opens ChatActivity with the replier.
+       *
+       * @param toUid      status owner UID (who receives the notification)
+       * @param fromUid    replier UID
+       * @param fromName   replier display name
+       * @param fromPhoto  replier avatar URL
+       * @param replyText  the reply message text
+       * @param chatId     deterministic chatId (sorted UIDs joined by "_")
+       */
+      public static void notifyStatusReply(String toUid, String fromUid, String fromName,
+                                           String fromPhoto, String replyText, String chatId) {
+          try {
+              JSONObject body = new JSONObject()
+                  .put("toUid",    toUid     != null ? toUid     : "")
+                  .put("fromUid",  fromUid   != null ? fromUid   : "")
+                  .put("fromName", fromName  != null ? fromName  : "")
+                  .put("fromPhoto",fromPhoto != null ? fromPhoto : "")
+                  .put("text",     replyText != null ? replyText : "")
+                  .put("chatId",   chatId    != null ? chatId    : "")
+                  .put("type",     "status_reply");
+              postAsync(Constants.SERVER_URL + "/notify", body);
+          } catch (Exception e) {
+              Log.w("PushNotify", "notifyStatusReply err: " + e.getMessage());
+          }
+      }
+
+
       public static void notifyContactsOfNewUser(String newUid, String newName, String newPhoto) {
           try {
               JSONObject body = new JSONObject()

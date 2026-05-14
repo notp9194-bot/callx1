@@ -84,6 +84,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
         } else if ("group_call_missed".equals(type)) {
             // Missed group call notification
             showMissedGroupCallNotification(data);
+        } else if ("status_reply".equals(type)) {
+            showStatusReply(data);
         } else if ("status_reaction".equals(type)) {
             handleStatusReaction(data);
         } else if ("contact_join".equals(type)) {
@@ -1548,8 +1550,15 @@ public class CallxMessagingService extends FirebaseMessagingService {
             ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
 
         // ── Show system notification ───────────────────────────────────────
-        Intent i = new Intent(this, MainActivity.class);
-        PendingIntent pi = PendingIntent.getActivity(this, 0, i,
+        // Deep-link directly to StatusViewerActivity so the status opens on tap,
+        // even when app is killed. EXTRA_OWNER_UID + NAME are required by StatusViewerActivity.
+        Intent i = new Intent(this, com.callx.app.activities.StatusViewerActivity.class);
+        i.putExtra(com.callx.app.activities.StatusViewerActivity.EXTRA_OWNER_UID,  fromUid);
+        i.putExtra(com.callx.app.activities.StatusViewerActivity.EXTRA_OWNER_NAME, name);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pi = PendingIntent.getActivity(this,
+            fromUid.hashCode(),
+            i,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         String bodyText;
@@ -1801,7 +1810,102 @@ public class CallxMessagingService extends FirebaseMessagingService {
                                : com.callx.app.utils.NotificationFirebaseStore.DELIVERY_BACKGROUND);
       }
 
-      // ─── Contact Join ───────────────────────────────────────────────────────
+      // ─── Status Reply Notification (background/killed safe) ────────────────
+      /**
+       * Called when a contact replies to the current user's status.
+       * Payload fields (sent by PushNotify.notifyStatusReply):
+       *   fromUid   — replier's UID
+       *   fromName  — replier's display name
+       *   fromPhoto — replier's avatar URL
+       *   text      — the reply text
+       *   chatId    — deterministic chatId so tap opens the right conversation
+       */
+      private void showStatusReply(java.util.Map<String, String> data) {
+          String fromUid   = safeGet(data, "fromUid");
+          String fromName  = safeGet(data, "fromName");
+          String fromPhoto = safeGet(data, "fromPhoto");
+          String replyText = safeGet(data, "text");
+          String chatId    = safeGet(data, "chatId");
+
+          if (fromName == null) return;
+
+          // Tap → open ChatActivity so the owner can see and reply back
+          android.content.Intent openIntent = new android.content.Intent(
+                  getApplicationContext(), ChatActivity.class);
+          openIntent.putExtra(Constants.EXTRA_PARTNER_UID,  fromUid  != null ? fromUid  : "");
+          openIntent.putExtra(Constants.EXTRA_PARTNER_NAME, fromName);
+          if (chatId != null) openIntent.putExtra("chatId", chatId);
+          openIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                  | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+          int notifId = ("status_reply_" + (fromUid != null ? fromUid : fromName)).hashCode()
+                  & 0x7FFFFFFF;
+
+          android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                  getApplicationContext(), notifId, openIntent,
+                  android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                  | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+          String body = replyText != null && !replyText.isEmpty()
+                  ? replyText
+                  : "Replied to your status";
+
+          // Build rich notification (download avatar on background thread)
+          final String finalFromPhoto = fromPhoto;
+          final String finalBody      = body;
+          final String finalFromName  = fromName;
+          new Thread(() -> {
+              android.graphics.Bitmap avatar = null;
+              if (finalFromPhoto != null && !finalFromPhoto.isEmpty()) {
+                  try {
+                      avatar = com.callx.app.utils.StatusNotificationHelper
+                              .downloadBitmap(getApplicationContext(), finalFromPhoto);
+                      if (avatar != null)
+                          avatar = com.callx.app.utils.StatusNotificationHelper.circle(avatar);
+                  } catch (Exception ignored) {}
+              }
+
+              androidx.core.app.NotificationCompat.Builder nb =
+                  new androidx.core.app.NotificationCompat.Builder(
+                          getApplicationContext(), Constants.CHANNEL_STATUS)
+                      .setSmallIcon(R.drawable.ic_status_notification)
+                      .setContentTitle(finalFromName + " replied to your status")
+                      .setContentText(finalBody)
+                      .setStyle(new androidx.core.app.NotificationCompat.BigTextStyle()
+                              .bigText(finalBody))
+                      .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                      .setAutoCancel(true)
+                      .setContentIntent(pi);
+
+              if (avatar != null) nb.setLargeIcon(avatar);
+
+              androidx.core.app.NotificationManagerCompat
+                      .from(getApplicationContext())
+                      .notify(notifId, nb.build());
+          }).start();
+
+          // Save to Firebase for AllNotifications screen
+          String myUid = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null
+                  ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid()
+                  : null;
+          if (myUid != null && fromUid != null) {
+              final java.util.Map<String, Object> entry = new java.util.HashMap<>();
+              entry.put("fromUid",   fromUid);
+              entry.put("fromName",  fromName);
+              entry.put("fromPhoto", fromPhoto != null ? fromPhoto : "");
+              entry.put("type",      "status_reply");
+              entry.put("body",      body);
+              entry.put("timestamp", System.currentTimeMillis());
+              entry.put("read",      false);
+              com.google.firebase.database.FirebaseDatabase.getInstance()
+                  .getReference("statusNotifications")
+                  .child(myUid)
+                  .push()
+                  .setValue(entry);
+          }
+      }
+
+
       private void handleContactJoin(java.util.Map<String, String> data) {
           String newUid   = safeGet(data, "newUid");
           String newName  = safeGet(data, "newName");
