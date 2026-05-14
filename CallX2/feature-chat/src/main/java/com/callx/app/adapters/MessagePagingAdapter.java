@@ -192,7 +192,7 @@ public class MessagePagingAdapter
             }
         }
 
-        // Click on bubble or thumbnail → open StatusViewerActivity
+        // Click on whole bubble or thumbnail → open StatusViewerActivity
         final String ownerUid  = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
                                  ? m.statusOwnerUid : m.senderId;
         final String ownerName = m.statusOwnerName != null ? m.statusOwnerName
@@ -210,10 +210,7 @@ public class MessagePagingAdapter
                         android.widget.Toast.LENGTH_SHORT).show();
             }
         };
-        // ll_status_seen_bubble is clickable=true in XML — set listener directly on it
-        android.view.View llBubble = h.itemView.findViewById(R.id.ll_status_seen_bubble);
-        if (llBubble != null) llBubble.setOnClickListener(openStatus);
-        else h.itemView.setOnClickListener(openStatus); // fallback
+        h.itemView.setOnClickListener(openStatus);
         if (flThumb != null) flThumb.setOnClickListener(openStatus);
 
         // Sender name (shown in group chat only)

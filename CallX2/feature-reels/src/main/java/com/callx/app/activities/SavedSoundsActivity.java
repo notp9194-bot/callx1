@@ -3,6 +3,8 @@ package com.callx.app.activities;
 import android.content.Intent;
 import android.media.MediaPlayer;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
@@ -37,12 +39,16 @@ public class SavedSoundsActivity extends AppCompatActivity {
     private ProgressBar   progressBar;
     private View          layoutEmpty;
     private SavedSoundsAdapter adapter;
+    private EditText      etSearch;
+    private TextView      tvSortBy;
 
     private String myUid;
-    private final List<SoundItem> sounds = new ArrayList<>();
+    private final List<SoundItem> allSounds     = new ArrayList<>();
+    private final List<SoundItem> sounds        = new ArrayList<>();
     private ValueEventListener soundsListener;
     private MediaPlayer currentPlayer;
     private String      currentPlayingId;
+    private String      sortMode = "recent";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +69,8 @@ public class SavedSoundsActivity extends AppCompatActivity {
         rvSounds    = findViewById(R.id.rv_saved_sounds);
         progressBar = findViewById(R.id.progress_saved_sounds);
         layoutEmpty = findViewById(R.id.layout_saved_sounds_empty);
+        etSearch    = findViewById(R.id.et_saved_sounds_search);
+        tvSortBy    = findViewById(R.id.tv_saved_sounds_sort);
 
         adapter = new SavedSoundsAdapter(sounds, new SavedSoundsAdapter.SoundActions() {
             @Override public void onPlayPause(SoundItem item) { togglePlayback(item); }
@@ -73,6 +81,34 @@ public class SavedSoundsActivity extends AppCompatActivity {
         });
         rvSounds.setLayoutManager(new LinearLayoutManager(this));
         rvSounds.setAdapter(adapter);
+
+        if (etSearch != null) {
+            etSearch.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void afterTextChanged(Editable s) {}
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                    filterAndSort(s.toString().trim());
+                }
+            });
+        }
+
+        if (tvSortBy != null) {
+            tvSortBy.setOnClickListener(v -> {
+                PopupMenu menu = new PopupMenu(this, v);
+                menu.getMenu().add(0, 1, 0, "Recently Saved");
+                menu.getMenu().add(0, 2, 1, "Most Used");
+                menu.getMenu().add(0, 3, 2, "A-Z");
+                menu.setOnMenuItemClickListener(item -> {
+                    if      (item.getItemId() == 1) { sortMode = "recent"; tvSortBy.setText("Recent"); }
+                    else if (item.getItemId() == 2) { sortMode = "usage";  tvSortBy.setText("Most Used"); }
+                    else if (item.getItemId() == 3) { sortMode = "az";     tvSortBy.setText("A-Z"); }
+                    filterAndSort(etSearch != null && etSearch.getText() != null
+                        ? etSearch.getText().toString().trim() : "");
+                    return true;
+                });
+                menu.show();
+            });
+        }
 
         loadSavedSounds();
     }
@@ -113,6 +149,7 @@ public class SavedSoundsActivity extends AppCompatActivity {
                                     coverUrl != null ? coverUrl : "",
                                     dur      != null ? dur      : 0L
                                 ));
+                                allSounds.add(sounds.get(sounds.size() - 1));
                                 loaded[0]++;
                                 if (loaded[0] >= childCount) finishLoading();
                             }
@@ -137,10 +174,34 @@ public class SavedSoundsActivity extends AppCompatActivity {
         if (isFinishing() || isDestroyed()) return;
         runOnUiThread(() -> {
             progressBar.setVisibility(View.GONE);
-            layoutEmpty.setVisibility(sounds.isEmpty() ? View.VISIBLE : View.GONE);
-            rvSounds.setVisibility(sounds.isEmpty() ? View.GONE : View.VISIBLE);
-            adapter.notifyDataSetChanged();
+            filterAndSort(etSearch != null && etSearch.getText() != null
+                ? etSearch.getText().toString().trim() : "");
         });
+    }
+
+    private void filterAndSort(String query) {
+        sounds.clear();
+        String q = query.toLowerCase().trim();
+        for (SoundItem item : allSounds) {
+            boolean matchesQ = q.isEmpty()
+                || item.title.toLowerCase().contains(q)
+                || item.artist.toLowerCase().contains(q);
+            if (matchesQ) sounds.add(item);
+        }
+        switch (sortMode) {
+            case "usage":
+                sounds.sort((a, b) -> Long.compare(b.usageCount, a.usageCount));
+                break;
+            case "az":
+                sounds.sort((a, b) -> a.title.compareToIgnoreCase(b.title));
+                break;
+            default:
+                sounds.sort((a, b) -> Long.compare(b.savedAt, a.savedAt));
+                break;
+        }
+        layoutEmpty.setVisibility(sounds.isEmpty() ? View.VISIBLE : View.GONE);
+        rvSounds.setVisibility(sounds.isEmpty() ? View.GONE : View.VISIBLE);
+        adapter.notifyDataSetChanged();
     }
 
     private void togglePlayback(SoundItem item) {
@@ -247,9 +308,12 @@ public class SavedSoundsActivity extends AppCompatActivity {
     public static class SoundItem {
         public String soundId, title, artist, audioUrl, coverUrl;
         public long   durationMs;
+        public long   usageCount;
+        public long   savedAt;
         public boolean isPlaying = false;
         SoundItem(String id, String t, String ar, String au, String cu, long d) {
             soundId = id; title = t; artist = ar; audioUrl = au; coverUrl = cu; durationMs = d;
+            savedAt = System.currentTimeMillis();
         }
     }
 

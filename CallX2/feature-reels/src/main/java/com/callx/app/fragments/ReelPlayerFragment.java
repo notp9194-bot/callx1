@@ -154,8 +154,11 @@ public class ReelPlayerFragment extends Fragment {
         args.putString("video_url",  reel.videoUrl);
         args.putString("thumb_url",  reel.thumbUrl);
         args.putString("caption",    reel.caption);
-        args.putString("music_name", reel.musicName);
-        args.putLong("timestamp",    reel.timestamp);
+        args.putString("music_name",      reel.musicName);
+        args.putString("music_cover_url", reel.musicCoverUrl != null ? reel.musicCoverUrl : "");
+        args.putString("music_artist",    reel.musicArtist   != null ? reel.musicArtist   : "");
+        args.putInt("music_start_sec",    reel.musicStartSec);
+        args.putLong("timestamp",         reel.timestamp);
         args.putInt("duration",      reel.duration);
         args.putInt("width",         reel.width);
         args.putInt("height",        reel.height);
@@ -183,6 +186,9 @@ public class ReelPlayerFragment extends Fragment {
             reel.thumbUrl      = getArguments().getString("thumb_url");
             reel.caption       = getArguments().getString("caption");
             reel.musicName     = getArguments().getString("music_name");
+            reel.musicCoverUrl = getArguments().getString("music_cover_url", "");
+            reel.musicArtist   = getArguments().getString("music_artist",    "");
+            reel.musicStartSec = getArguments().getInt("music_start_sec",    0);
             reel.timestamp     = getArguments().getLong("timestamp");
             reel.duration      = getArguments().getInt("duration");
             reel.width         = getArguments().getInt("width");
@@ -317,10 +323,36 @@ public class ReelPlayerFragment extends Fragment {
 
         tvOwnerName.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
         tvCaption.setText(reel.caption != null ? reel.caption : "");
-        tvMusicName.setText(reel.musicName != null && !reel.musicName.isEmpty()
-            ? reel.musicName : "Original Audio");
-        // Feature 11: start rotating disc
+        // Bottom music ticker: title with artist suffix
+        String musicDisplay = reel.musicName != null && !reel.musicName.isEmpty()
+            ? reel.musicName : "Original Audio";
+        if (reel.musicArtist != null && !reel.musicArtist.isEmpty()
+                && !musicDisplay.contains(reel.musicArtist)) {
+            musicDisplay = musicDisplay + " · " + reel.musicArtist;
+        }
+        tvMusicName.setText(musicDisplay);
+        // Enable marquee scrolling so long titles scroll automatically
+        tvMusicName.setSingleLine(true);
+        tvMusicName.setEllipsize(android.text.TextUtils.TruncateAt.MARQUEE);
+        tvMusicName.setMarqueeRepeatLimit(-1);
+        tvMusicName.setSelected(true);
+        tvMusicName.setHorizontallyScrolling(true);
+        // Feature 11: start rotating disc + load cover art
         startDiscAnimation();
+        // Load cover art onto the rotating music disc (like TikTok/Reels)
+        if (ivMusicDisc != null && isAdded() && getContext() != null) {
+            String coverUrl = reel.musicCoverUrl;
+            if (coverUrl != null && !coverUrl.isEmpty()) {
+                Glide.with(requireContext())
+                    .load(coverUrl)
+                    .apply(new RequestOptions()
+                        .circleCrop()
+                        .placeholder(R.drawable.ic_music_note))
+                    .into(ivMusicDisc);
+            } else {
+                ivMusicDisc.setImageResource(R.drawable.ic_music_note);
+            }
+        }
         tvLikesCount.setText(formatCount(reel.likesCount));
         tvCommentsCount.setText(formatCount(reel.commentsCount));
         tvSharesCount.setText(formatCount(reel.sharesCount));
@@ -1172,10 +1204,12 @@ public class ReelPlayerFragment extends Fragment {
     private void openSoundDetail() {
         if (!isAdded() || getActivity() == null || reel == null) return;
         Intent i = new Intent(getActivity(), SoundDetailActivity.class);
-        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    reel.musicId != null ? reel.musicId : "");
-        i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, reel.musicName != null ? reel.musicName : "Original Audio");
-        i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   reel.musicUrl != null ? reel.musicUrl : "");
-        i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      reel.ownerName != null ? reel.ownerName : "");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    reel.musicId    != null ? reel.musicId    : "");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, reel.musicName  != null ? reel.musicName  : "Original Audio");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   reel.musicUrl   != null ? reel.musicUrl   : "");
+        i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   reel.musicCoverUrl != null ? reel.musicCoverUrl : "");
+        i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      reel.musicArtist != null && !reel.musicArtist.isEmpty()
+            ? reel.musicArtist : (reel.ownerName != null ? reel.ownerName : ""));
         startActivity(i);
     }
 

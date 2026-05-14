@@ -20,6 +20,9 @@ public class ReelModel {
     public String  musicName;
     public String  musicId;
     public String  musicUrl;
+    public String  musicCoverUrl;
+    public String  musicArtist;
+    public int     musicStartSec;
     public String  thumbnailUrl;
     public long    timestamp;
     public int     duration;
@@ -29,7 +32,6 @@ public class ReelModel {
     public int     commentsCount;
     public int     sharesCount;
     public int     viewsCount;
-    /** FIX #5: Number of times this reel has been reposted by other users. */
     public int     repostCount;
     public String  compressionSummary;
     public float   savingsPercent;
@@ -37,15 +39,10 @@ public class ReelModel {
     public List<String>         hashtags;
     public Map<String, Integer> reactions;
     public boolean isVerified;
-    /** Privacy: creator can set false to block reposts. Default true. */
     public boolean allowReposts  = true;
-    /** Set when reel was originally reposted by current user (UI state cache). */
     public String  repostCaption;
-    /** If this feed entry is a repost, the original reel's ID. */
     public String  repostedFromReelId;
-    /** If this feed entry is a repost, the original creator's UID. */
     public String  repostedFromUid;
-    /** Display name of original creator — used for attribution banner. */
     public String  repostedFromName;
 
     public ReelModel() {}
