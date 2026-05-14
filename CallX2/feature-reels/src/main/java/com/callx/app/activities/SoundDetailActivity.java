@@ -69,8 +69,10 @@ public class SoundDetailActivity extends AppCompatActivity {
     private android.media.MediaPlayer mediaPlayer;
     private final Handler waveHandler = new Handler(Looper.getMainLooper());
 
-    private final List<String>     reelIds      = new ArrayList<>();
-    private final List<RelatedItem> relatedItems = new ArrayList<>();
+    private final List<String>        reelIds      = new ArrayList<>();
+    private final List<RelatedItem>  relatedItems = new ArrayList<>();
+    private final List<ReelThumbItem> reelItems   = new ArrayList<>();
+    private ReelThumbAdapter          reelThumbAdapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,6 +91,7 @@ public class SoundDetailActivity extends AppCompatActivity {
         bindViews();
         populateSoundInfo();
         loadSoundData();
+        loadReelsForSound();
         loadRelatedSounds();
         setupClickListeners();
         checkIfSaved();
@@ -315,6 +318,68 @@ public class SoundDetailActivity extends AppCompatActivity {
             });
     }
 
+    private void loadReelsForSound() {
+        if (soundId == null || soundId.isEmpty() || rvReels == null) return;
+
+        reelThumbAdapter = new ReelThumbAdapter(reelItems, item -> {
+            Intent i = new Intent(this, SingleReelPlayerActivity.class);
+            i.putExtra("reel_id", item.reelId);
+            startActivity(i);
+        });
+        rvReels.setAdapter(reelThumbAdapter);
+
+        FirebaseUtils.db().getReference("sounds").child(soundId).child("reels")
+            .limitToFirst(12)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    reelItems.clear();
+                    for (DataSnapshot s : snap.getChildren()) {
+                        String rid   = s.getKey();
+                        String thumb = s.child("thumbnailUrl").getValue(String.class);
+                        if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
+                        String vid   = s.child("videoUrl").getValue(String.class);
+                        if (rid != null)
+                            reelItems.add(new ReelThumbItem(rid,
+                                thumb != null ? thumb : "",
+                                vid   != null ? vid   : ""));
+                    }
+                    if (!reelItems.isEmpty()) {
+                        reelThumbAdapter.notifyDataSetChanged();
+                    } else {
+                        loadReelsFromReelsNode();
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    loadReelsFromReelsNode();
+                }
+            });
+    }
+
+    private void loadReelsFromReelsNode() {
+        if (soundId == null || isFinishing() || isDestroyed()) return;
+        FirebaseUtils.db().getReference("reels")
+            .orderByChild("soundId").equalTo(soundId)
+            .limitToFirst(12)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    for (DataSnapshot s : snap.getChildren()) {
+                        String rid   = s.getKey();
+                        String thumb = s.child("thumbnailUrl").getValue(String.class);
+                        if (thumb == null) thumb = s.child("thumbnail").getValue(String.class);
+                        String vid   = s.child("videoUrl").getValue(String.class);
+                        if (rid != null)
+                            reelItems.add(new ReelThumbItem(rid,
+                                thumb != null ? thumb : "",
+                                vid   != null ? vid   : ""));
+                    }
+                    if (reelThumbAdapter != null) reelThumbAdapter.notifyDataSetChanged();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
     private void checkIfSaved() {
         String uid = null;
         try { uid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) {}
@@ -476,6 +541,52 @@ public class SoundDetailActivity extends AppCompatActivity {
             mediaPlayer = null;
         }
         super.onDestroy();
+    }
+
+    static class ReelThumbItem {
+        String reelId, thumbnailUrl, videoUrl;
+        ReelThumbItem(String r, String t, String v) { reelId = r; thumbnailUrl = t; videoUrl = v; }
+    }
+
+    static class ReelThumbAdapter extends RecyclerView.Adapter<ReelThumbAdapter.VH> {
+        interface OnClick { void click(ReelThumbItem item); }
+        private final List<ReelThumbItem> items;
+        private final OnClick onClick;
+        ReelThumbAdapter(List<ReelThumbItem> items, OnClick onClick) {
+            this.items = items; this.onClick = onClick;
+        }
+
+        @NonNull @Override
+        public VH onCreateViewHolder(@NonNull android.view.ViewGroup parent, int vt) {
+            View v = android.view.LayoutInflater.from(parent.getContext())
+                .inflate(R.layout.item_media_thumb, parent, false);
+            android.view.ViewGroup.LayoutParams lp = v.getLayoutParams();
+            lp.height = (int)(110 * v.getResources().getDisplayMetrics().density);
+            v.setLayoutParams(lp);
+            return new VH(v);
+        }
+
+        @Override public void onBindViewHolder(@NonNull VH h, int pos) {
+            ReelThumbItem item = items.get(pos);
+            if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
+                com.bumptech.glide.Glide.with(h.ivThumb)
+                    .load(item.thumbnailUrl)
+                    .placeholder(R.drawable.ic_music_note)
+                    .centerCrop()
+                    .into(h.ivThumb);
+            } else {
+                h.ivThumb.setImageResource(R.drawable.ic_play);
+                h.ivThumb.setColorFilter(android.graphics.Color.argb(100, 255, 255, 255));
+            }
+            h.itemView.setOnClickListener(v -> onClick.click(item));
+        }
+
+        @Override public int getItemCount() { return items.size(); }
+
+        static class VH extends RecyclerView.ViewHolder {
+            android.widget.ImageView ivThumb;
+            VH(View v) { super(v); ivThumb = v.findViewById(R.id.iv_media_thumb); }
+        }
     }
 
     static class RelatedItem {

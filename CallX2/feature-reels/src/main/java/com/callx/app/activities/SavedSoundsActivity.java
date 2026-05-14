@@ -118,6 +118,7 @@ public class SavedSoundsActivity extends AppCompatActivity {
         soundsListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 sounds.clear();
+                allSounds.clear();
                 // sounds saved as: users/{uid}/saved_sounds/{soundId} = soundTitle (String)
                 // Fetch full metadata from musicLibrary/{soundId}
                 long childCount = snap.getChildrenCount();
@@ -141,15 +142,18 @@ public class SavedSoundsActivity extends AppCompatActivity {
                                 Long   dur      = mSnap.child("durationMs").getValue(Long.class);
                                 // Fallback: title stored in saved_sounds node
                                 if (title == null) title = s.getValue(String.class);
-                                sounds.add(new SoundItem(
+                                Long usageCount = mSnap.child("usageCount").getValue(Long.class);
+                                SoundItem si = new SoundItem(
                                     soundId,
                                     title    != null ? title    : "Unknown Sound",
                                     artist   != null ? artist   : "Unknown Artist",
                                     audioUrl != null ? audioUrl : "",
                                     coverUrl != null ? coverUrl : "",
                                     dur      != null ? dur      : 0L
-                                ));
-                                allSounds.add(sounds.get(sounds.size() - 1));
+                                );
+                                si.usageCount = usageCount != null ? usageCount : 0L;
+                                sounds.add(si);
+                                allSounds.add(si);
                                 loaded[0]++;
                                 if (loaded[0] >= childCount) finishLoading();
                             }
