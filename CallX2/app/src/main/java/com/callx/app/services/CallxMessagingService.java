@@ -1820,89 +1820,193 @@ public class CallxMessagingService extends FirebaseMessagingService {
        *   text      — the reply text
        *   chatId    — deterministic chatId so tap opens the right conversation
        */
+      // ═══════════════════════════════════════════════════════════════════════
+      // showStatusReply — Background/killed-safe rich notification
+      //
+      // FIX: Previously this notification was missing:
+      //   1. Inline "Reply" action (owner couldn't reply from notification tray)
+      //   2. "Mark as read" action
+      //   3. Dedicated high-importance channel (was using CHANNEL_STATUS which
+      //      is IMPORTANCE_DEFAULT — no heads-up on locked screen)
+      //   4. fromPhoto null-crash protection was too loose
+      //   5. NotificationFirebaseStore log was missing (AllNotifications tab blank)
+      //
+      // Now delivers a WhatsApp-style heads-up notification with:
+      //   • Large avatar (replier's photo)
+      //   • BigTextStyle showing the full reply text
+      //   • Inline Reply action → NotificationActionReceiver → sends chat message
+      //   • Mark as read action → dismisses the notification
+      //   • CHANNEL_MESSAGES channel (HIGH importance) → heads-up even on lock screen
+      //   • NotificationFirebaseStore.save() so AllNotifications Status tab shows it
+      // ═══════════════════════════════════════════════════════════════════════
       private void showStatusReply(java.util.Map<String, String> data) {
-          String fromUid   = safeGet(data, "fromUid");
-          String fromName  = safeGet(data, "fromName");
-          String fromPhoto = safeGet(data, "fromPhoto");
-          String replyText = safeGet(data, "text");
-          String chatId    = safeGet(data, "chatId");
+          final String fromUid   = safeGet(data, "fromUid");
+          final String fromName  = safeGet(data, "fromName");
+          final String fromPhoto = safeGet(data, "fromPhoto");
+          final String replyText = safeGet(data, "text");
+          final String chatId    = safeGet(data, "chatId");
 
-          if (fromName == null) return;
+          // Guard: fromName is required for a meaningful notification
+          if (fromName == null || fromName.isEmpty()) return;
 
-          // Tap → open ChatActivity so the owner can see and reply back
+          final String safeFromUid   = fromUid  != null ? fromUid  : "";
+          final String safeChatId    = chatId   != null ? chatId   : "";
+          final String safeFromPhoto = fromPhoto != null ? fromPhoto : "";
+          final String body = (replyText != null && !replyText.isEmpty())
+                  ? replyText
+                  : "Replied to your status";
+
+          // Stable notification ID per replier
+          final int notifId = ("status_reply_" + safeFromUid).hashCode() & 0x7FFFFFFF;
+
+          // ── Tap intent → open ChatActivity ───────────────────────────────
           android.content.Intent openIntent = new android.content.Intent(
                   getApplicationContext(), ChatActivity.class);
-          openIntent.putExtra(Constants.EXTRA_PARTNER_UID,  fromUid  != null ? fromUid  : "");
+          openIntent.putExtra(Constants.EXTRA_PARTNER_UID,  safeFromUid);
           openIntent.putExtra(Constants.EXTRA_PARTNER_NAME, fromName);
-          if (chatId != null) openIntent.putExtra("chatId", chatId);
+          openIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, safeFromPhoto);
+          if (!safeChatId.isEmpty()) openIntent.putExtra("chatId", safeChatId);
           openIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
                   | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-          int notifId = ("status_reply_" + (fromUid != null ? fromUid : fromName)).hashCode()
-                  & 0x7FFFFFFF;
-
-          android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+          android.app.PendingIntent tapPi = android.app.PendingIntent.getActivity(
                   getApplicationContext(), notifId, openIntent,
                   android.app.PendingIntent.FLAG_UPDATE_CURRENT
                   | android.app.PendingIntent.FLAG_IMMUTABLE);
 
-          String body = replyText != null && !replyText.isEmpty()
-                  ? replyText
-                  : "Replied to your status";
+          // ── Inline Reply action ───────────────────────────────────────────
+          // RemoteInput → status owner types reply → NotificationActionReceiver
+          // handles it, sends message to chatId, dismisses notif.
+          androidx.core.app.RemoteInput remoteInput =
+              new androidx.core.app.RemoteInput.Builder(Constants.KEY_TEXT_REPLY)
+                  .setLabel("Reply to " + fromName + "…")
+                  .build();
 
-          // Build rich notification (download avatar on background thread)
-          final String finalFromPhoto = fromPhoto;
-          final String finalBody      = body;
-          final String finalFromName  = fromName;
-          new Thread(() -> {
+          android.app.PendingIntent replyPi = android.app.PendingIntent.getBroadcast(
+                  getApplicationContext(),
+                  notifId * 10 + 2,
+                  new android.content.Intent(getApplicationContext(),
+                          com.callx.app.services.NotificationActionReceiver.class)
+                      .setAction(Constants.ACTION_REPLY)
+                      .putExtra(Constants.EXTRA_CHAT_ID,       safeChatId)
+                      .putExtra(Constants.EXTRA_PARTNER_UID,   safeFromUid)
+                      .putExtra(Constants.EXTRA_PARTNER_NAME,  fromName)
+                      .putExtra(Constants.EXTRA_PARTNER_PHOTO, safeFromPhoto)
+                      .putExtra(Constants.EXTRA_NOTIF_ID,      notifId),
+                  android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                  | android.app.PendingIntent.FLAG_MUTABLE);
+
+          androidx.core.app.NotificationCompat.Action replyAction =
+              new androidx.core.app.NotificationCompat.Action.Builder(
+                      R.drawable.ic_reply, "Reply", replyPi)
+                  .addRemoteInput(remoteInput)
+                  .setAllowGeneratedReplies(true)
+                  .setSemanticAction(
+                      androidx.core.app.NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+                  .build();
+
+          // ── Mark as read action ───────────────────────────────────────────
+          android.app.PendingIntent markReadPi = android.app.PendingIntent.getBroadcast(
+                  getApplicationContext(),
+                  notifId * 10 + 1,
+                  new android.content.Intent(getApplicationContext(),
+                          com.callx.app.services.NotificationActionReceiver.class)
+                      .setAction(Constants.ACTION_MARK_READ)
+                      .putExtra(Constants.EXTRA_CHAT_ID,      safeChatId)
+                      .putExtra(Constants.EXTRA_PARTNER_UID,  safeFromUid)
+                      .putExtra(Constants.EXTRA_PARTNER_NAME, fromName)
+                      .putExtra(Constants.EXTRA_NOTIF_ID,     notifId),
+                  android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                  | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+          androidx.core.app.NotificationCompat.Action markReadAction =
+              new androidx.core.app.NotificationCompat.Action.Builder(
+                      R.drawable.ic_double_tick, "Mark as read", markReadPi)
+                  .setSemanticAction(
+                      androidx.core.app.NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
+                  .setShowsUserInterface(false)
+                  .build();
+
+          // ── Build notification on background thread (avatar download) ─────
+          final String finalBody    = body;
+          final String finalName    = fromName;
+          bg.execute(() -> {
+              // Download + circle-crop avatar (safe null handling)
               android.graphics.Bitmap avatar = null;
-              if (finalFromPhoto != null && !finalFromPhoto.isEmpty()) {
+              if (!safeFromPhoto.isEmpty()) {
                   try {
-                      avatar = com.callx.app.utils.StatusNotificationHelper
-                              .downloadBitmap(getApplicationContext(), finalFromPhoto);
-                      if (avatar != null)
-                          avatar = com.callx.app.utils.StatusNotificationHelper.circle(avatar);
+                      avatar = downloadBitmap(safeFromPhoto, 100, 100);
+                      if (avatar != null) avatar = circle(avatar);
                   } catch (Exception ignored) {}
               }
 
+              // Use CHANNEL_MESSAGES (HIGH importance) → heads-up on lock screen
+              // CHANNEL_STATUS is IMPORTANCE_DEFAULT which won't show heads-up.
               androidx.core.app.NotificationCompat.Builder nb =
                   new androidx.core.app.NotificationCompat.Builder(
-                          getApplicationContext(), Constants.CHANNEL_STATUS)
+                          getApplicationContext(), Constants.CHANNEL_MESSAGES)
                       .setSmallIcon(R.drawable.ic_status_notification)
-                      .setContentTitle(finalFromName + " replied to your status")
+                      .setContentTitle(finalName + " replied to your status")
                       .setContentText(finalBody)
                       .setStyle(new androidx.core.app.NotificationCompat.BigTextStyle()
-                              .bigText(finalBody))
+                              .bigText(finalBody)
+                              .setBigContentTitle(finalName + " replied to your status"))
                       .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                      .setCategory(androidx.core.app.NotificationCompat.CATEGORY_MESSAGE)
                       .setAutoCancel(true)
-                      .setContentIntent(pi);
+                      .setOnlyAlertOnce(true)
+                      .setContentIntent(tapPi)
+                      .addAction(replyAction)
+                      .addAction(markReadAction);
 
               if (avatar != null) nb.setLargeIcon(avatar);
 
-              androidx.core.app.NotificationManagerCompat
-                      .from(getApplicationContext())
-                      .notify(notifId, nb.build());
-          }).start();
+              android.app.NotificationManager nm =
+                  (android.app.NotificationManager) getSystemService(
+                      android.content.Context.NOTIFICATION_SERVICE);
+              if (nm != null) nm.notify(notifId, nb.build());
+          });
 
-          // Save to Firebase for AllNotifications screen
-          String myUid = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null
-                  ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid()
+          // ── Save to Firebase statusNotifications (AllNotifications tab) ───
+          String myUid = com.google.firebase.auth.FirebaseAuth.getInstance()
+                  .getCurrentUser() != null
+                  ? com.google.firebase.auth.FirebaseAuth.getInstance()
+                    .getCurrentUser().getUid()
                   : null;
-          if (myUid != null && fromUid != null) {
-              final java.util.Map<String, Object> entry = new java.util.HashMap<>();
-              entry.put("fromUid",   fromUid);
-              entry.put("fromName",  fromName);
-              entry.put("fromPhoto", fromPhoto != null ? fromPhoto : "");
-              entry.put("type",      "status_reply");
-              entry.put("body",      body);
-              entry.put("timestamp", System.currentTimeMillis());
-              entry.put("read",      false);
-              com.google.firebase.database.FirebaseDatabase.getInstance()
-                  .getReference("statusNotifications")
-                  .child(myUid)
-                  .push()
-                  .setValue(entry);
+          if (myUid != null && !safeFromUid.isEmpty()) {
+              bg.execute(() -> {
+                  try {
+                      java.util.Map<String, Object> entry = new java.util.HashMap<>();
+                      entry.put("fromUid",   safeFromUid);
+                      entry.put("fromName",  fromName);
+                      entry.put("fromPhoto", safeFromPhoto);
+                      entry.put("type",      "status_reply");
+                      entry.put("body",      finalBody);
+                      entry.put("chatId",    safeChatId);
+                      entry.put("timestamp", System.currentTimeMillis());
+                      entry.put("read",      false);
+                      com.google.firebase.database.FirebaseDatabase.getInstance()
+                          .getReference("statusNotifications")
+                          .child(myUid)
+                          .push()
+                          .setValue(entry);
+                  } catch (Exception e) {
+                      android.util.Log.w("STATUS_REPLY_NOTIF",
+                          "Firebase save failed: " + e.getMessage());
+                  }
+              });
           }
+
+          // ── NotificationFirebaseStore log (AllNotifications Status tab) ───
+          com.callx.app.utils.NotificationFirebaseStore.save(
+              com.callx.app.utils.NotificationFirebaseStore.TYPE_STATUS,
+              finalName + " replied to your status",
+              finalBody,
+              safeFromUid, fromName, safeFromPhoto,
+              null, safeChatId, null,
+              isForegrounded()
+                  ? com.callx.app.utils.NotificationFirebaseStore.DELIVERY_FOREGROUND
+                  : com.callx.app.utils.NotificationFirebaseStore.DELIVERY_BACKGROUND);
       }
 
 
