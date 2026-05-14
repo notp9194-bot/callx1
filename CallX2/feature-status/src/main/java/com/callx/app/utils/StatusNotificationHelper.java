@@ -264,7 +264,7 @@ public final class StatusNotificationHelper {
       // ─────────────────────────────────────────────────────────────────────
       // Bitmap helpers (package-private reuse)
       // ─────────────────────────────────────────────────────────────────────
-      static android.graphics.Bitmap downloadBitmap(Context ctx, String url) {
+      public static android.graphics.Bitmap downloadBitmap(Context ctx, String url) {
           if (url == null || url.isEmpty()) return null;
           try {
               java.net.HttpURLConnection c =
@@ -274,7 +274,7 @@ public final class StatusNotificationHelper {
           } catch (Exception e) { return null; }
       }
 
-      static android.graphics.Bitmap circle(android.graphics.Bitmap src) {
+      public static android.graphics.Bitmap circle(android.graphics.Bitmap src) {
           if (src == null) return null;
           int size = Math.min(src.getWidth(), src.getHeight());
           android.graphics.Bitmap output = android.graphics.Bitmap.createBitmap(size, size,
