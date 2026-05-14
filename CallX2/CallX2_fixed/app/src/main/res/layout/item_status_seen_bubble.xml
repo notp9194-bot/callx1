@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_status_seen_bubble.xml
+    "A seen your status" — received side bubble in B's chat with A.
+    Shows: circular avatar | status thumbnail (tappable) | "👁 Seen your status" | time
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="start"
+    android:paddingStart="8dp"
+    android:paddingEnd="64dp"
+    android:paddingTop="3dp"
+    android:paddingBottom="3dp">
+
+    <!-- Row: avatar + bubble -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Circular avatar (status viewer's photo) -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_status_seen_avatar"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_person"
+            android:layout_marginEnd="8dp"/>
+
+        <!-- Bubble -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bubble_received"
+            android:paddingStart="12dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="6dp"
+            android:minWidth="160dp">
+
+            <!-- Status thumbnail (tappable → opens status viewer) -->
+            <FrameLayout
+                android:id="@+id/fl_status_seen_thumb"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/iv_status_seen_thumb"
+                    android:layout_width="120dp"
+                    android:layout_height="80dp"
+                    android:scaleType="centerCrop"
+                    android:background="@drawable/bg_skeleton_rect"/>
+
+                <!-- Eye icon overlay on thumbnail for image/video statuses -->
+                <ImageView
+                    android:id="@+id/iv_status_seen_eye"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:src="@drawable/ic_eye_off"
+                    android:layout_gravity="center"
+                    android:visibility="gone"/>
+
+            </FrameLayout>
+
+            <!-- Eye icon + "Seen your status" -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="👁"
+                    android:textSize="14sp"
+                    android:layout_marginEnd="5dp"/>
+
+                <TextView
+                    android:id="@+id/tv_status_seen_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Seen your status"
+                    android:textSize="14sp"
+                    android:textColor="@color/bubble_received_text"
+                    android:textStyle="italic"/>
+            </LinearLayout>
+
+            <!-- Sender name (optional, shown in groups) -->
+            <TextView
+                android:id="@+id/tv_status_seen_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="11sp"
+                android:textColor="@color/brand_primary"
+                android:textStyle="bold"
+                android:layout_marginTop="1dp"
+                android:visibility="gone"/>
+
+            <!-- Time -->
+            <TextView
+                android:id="@+id/tv_status_seen_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="10sp"
+                android:textColor="@color/text_muted"
+                android:layout_marginTop="3dp"/>
+
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

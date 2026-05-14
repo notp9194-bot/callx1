@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name="com.callx.app.activities.StatusViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen">
+            <!-- ACTION_OPEN_STATUS: allows feature-chat to open this activity
+                 via implicit Intent without a compile-time class reference -->
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_OPEN_STATUS"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+        <activity android:name="com.callx.app.activities.NewStatusActivity"
+            android:exported="false"/>
+
+        <service android:name="com.callx.app.services.StatusBackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false"/>
+        <receiver android:name="com.callx.app.services.StatusExpiryReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.STATUS_EXPIRY_REMINDER"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
