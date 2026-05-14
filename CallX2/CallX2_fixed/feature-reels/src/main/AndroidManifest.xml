@@ -7,7 +7,14 @@
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.activities.SingleReelPlayerActivity"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+            android:theme="@style/Theme.AppCompat.NoActionBar">
+            <!-- ACTION_OPEN_REEL: allows feature-chat to open this activity
+                 via implicit Intent without a compile-time class reference -->
+            <intent-filter>
+                <action android:name="com.callx.app.ACTION_OPEN_REEL"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
         <activity android:name="com.callx.app.activities.HashtagReelsActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar"/>

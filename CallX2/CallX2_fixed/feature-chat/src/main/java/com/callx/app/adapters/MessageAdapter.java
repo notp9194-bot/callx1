@@ -524,9 +524,12 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             final String reelId = m.reelId;
             android.view.View.OnClickListener openReel = v -> {
                 if (reelId == null || reelId.isEmpty()) return;
-                android.content.Intent intent = new android.content.Intent(ctx,
-                        com.callx.app.activities.SingleReelPlayerActivity.class);
+                // Use implicit intent so feature-chat doesn't need a compile-time
+                // dependency on feature-reels (SingleReelPlayerActivity lives there).
+                android.content.Intent intent = new android.content.Intent(
+                        com.callx.app.utils.Constants.ACTION_OPEN_REEL);
                 intent.putExtra("reelId", reelId);
+                intent.setPackage(ctx.getPackageName());
                 ctx.startActivity(intent);
             };
             ivThumb.setOnClickListener(openReel);

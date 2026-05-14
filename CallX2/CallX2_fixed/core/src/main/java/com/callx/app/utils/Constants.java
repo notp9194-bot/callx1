@@ -115,6 +115,10 @@ public class Constants {
     // ── 1:1 Call channels ────────────────────────────────────────────────
     public static final String CHANNEL_CALLS_INCOMING = "callx_calls_incoming";
 
+    // ── Reel deep-link action (used by feature-chat to open SingleReelPlayerActivity
+    //    without a compile-time class reference to feature-reels) ──────────
+    public static final String ACTION_OPEN_REEL    = "com.callx.app.ACTION_OPEN_REEL";
+
     // ── 1:1 Call actions (broadcast) ─────────────────────────────────────
     public static final String ACTION_ACCEPT_CALL  = "com.callx.app.ACCEPT_CALL";
     public static final String ACTION_DECLINE_CALL = "com.callx.app.DECLINE_CALL";
