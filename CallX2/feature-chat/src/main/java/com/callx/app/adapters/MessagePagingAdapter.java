@@ -63,8 +63,9 @@ public class MessagePagingAdapter
         };
 
     // ── View types ────────────────────────────────────────────────
-    private static final int TYPE_SENT     = 1;
-    private static final int TYPE_RECEIVED = 2;
+    private static final int TYPE_SENT        = 1;
+    private static final int TYPE_RECEIVED    = 2;
+    private static final int TYPE_STATUS_SEEN = 3;
 
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
@@ -101,15 +102,17 @@ public class MessagePagingAdapter
     public int getItemViewType(int position) {
         Message m = getItem(position);
         if (m == null) return TYPE_RECEIVED;
+        if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
     }
 
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        int layout = viewType == TYPE_SENT
-                ? R.layout.item_message_sent
-                : R.layout.item_message_received;
+        int layout;
+        if (viewType == TYPE_SENT)           layout = R.layout.item_message_sent;
+        else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
+        else                                 layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         return new VH(v);
     }
@@ -119,10 +122,63 @@ public class MessagePagingAdapter
         Message m = getItem(position);
         if (m == null) {
             // Placeholder — show shimmer or empty
-            h.tvMessage.setVisibility(View.GONE);
+            if (h.tvMessage != null) h.tvMessage.setVisibility(View.GONE);
+            return;
+        }
+        // ── STATUS SEEN BUBBLE — special system event row ─────────────────
+        if ("status_seen".equals(m.type)) {
+            bindStatusSeenBubble(h, m);
             return;
         }
         bindMessage(h, m, position);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // STATUS SEEN BUBBLE — "👁 Seen your status" system event row.
+    // Layout: item_status_seen_bubble.xml
+    //   • iv_status_seen_avatar  → circular avatar (Glide)
+    //   • tv_status_seen_label   → "Seen your status" (set in XML)
+    //   • tv_status_seen_name    → sender name (group only)
+    //   • tv_status_seen_time    → formatted timestamp
+    // No long-press / reactions / reply — it's a system event.
+    // ──────────────────────────────────────────────────────────────
+    private void bindStatusSeenBubble(@NonNull VH h, @NonNull Message m) {
+        Context ctx = h.itemView.getContext();
+
+        // Avatar
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+            h.itemView.findViewById(R.id.iv_status_seen_avatar);
+        if (ivAvatar != null) {
+            String photo = m.senderPhoto != null ? m.senderPhoto : "";
+            if (!photo.isEmpty()) {
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(photo)
+                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_person)
+                    .into(ivAvatar);
+            } else {
+                ivAvatar.setImageResource(R.drawable.ic_person);
+            }
+        }
+
+        // Sender name (shown in group chat only)
+        android.widget.TextView tvName =
+            h.itemView.findViewById(R.id.tv_status_seen_name);
+        if (tvName != null) {
+            if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
+                tvName.setText(m.senderName);
+                tvName.setVisibility(View.VISIBLE);
+            } else {
+                tvName.setVisibility(View.GONE);
+            }
+        }
+
+        // Time
+        android.widget.TextView tvTime =
+            h.itemView.findViewById(R.id.tv_status_seen_time);
+        if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+        }
     }
 
     // ──────────────────────────────────────────────────────────────

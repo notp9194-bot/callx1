@@ -66,7 +66,7 @@ import net.sqlcipher.database.SupportFactory;
         GroupEntity.class,
         StatusEntity.class     // v17: status cache
     },
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -85,6 +85,14 @@ public abstract class AppDatabase extends RoomDatabase {
     // ──────────────────────────────────────────────────────────────
     // MIGRATIONS
     // ──────────────────────────────────────────────────────────────
+
+    /** v6 → v7: senderPhoto — avatar URL for status_seen bubble in chat. */
+    static final Migration MIGRATION_6_7 = new Migration(6, 7) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN senderPhoto TEXT DEFAULT NULL");
+        }
+    };
 
     /** v5 → v6: thumbUrl — 100×100 WebP avatar thumbnail for fast chat list loading. */
     static final Migration MIGRATION_5_6 = new Migration(5, 6) {
@@ -246,7 +254,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)  // v16 + v17 + v18 + v19 + v20(thumbUrl)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)  // v16 + v17 + v18 + v19 + v20(thumbUrl) + v21(senderPhoto)
                 .fallbackToDestructiveMigration()
                 .build();
 

@@ -623,6 +623,7 @@ public class ChatActivity extends AppCompatActivity {
         m.messageId             = e.id;
         m.senderId              = e.senderId;
         m.senderName            = e.senderName;
+        m.senderPhoto           = e.senderPhoto;  // FIX: status_seen bubble avatar
         m.text                  = e.text;
         m.type                  = e.type;
         m.mediaUrl              = e.mediaUrl;
@@ -653,6 +654,7 @@ public class ChatActivity extends AppCompatActivity {
         e.chatId                  = chatId;
         e.senderId                = m.senderId;
         e.senderName              = m.senderName;
+        e.senderPhoto             = m.senderPhoto;   // FIX: status_seen bubble avatar
         e.text                    = m.text;
         e.type                    = m.type != null ? m.type : "text";
         e.mediaUrl                = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;

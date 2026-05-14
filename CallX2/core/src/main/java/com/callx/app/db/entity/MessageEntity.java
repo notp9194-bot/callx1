@@ -27,8 +27,9 @@ public class MessageEntity {
     public String chatId;
     public String senderId;
     public String senderName;
+    public String senderPhoto;    // avatar URL — used by status_seen bubble
     public String text;
-    public String type;           // text | image | video | audio | file
+    public String type;           // text | image | video | audio | file | status_seen
     public String mediaUrl;
     public String thumbnailUrl;
     public String fileName;
