@@ -48,12 +48,14 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String EXTRA_IS_FILE_PATH = "mixer_is_file";
     public static final String EXTRA_MUSIC_TITLE  = "mixer_music_title";
     public static final String EXTRA_MUSIC_ARTIST = "mixer_music_artist";
-    public static final String EXTRA_MUSIC_URL    = "mixer_music_url";
+    public static final String EXTRA_MUSIC_URL      = "mixer_music_url";
+    public static final String EXTRA_MUSIC_START_MS = "mixer_music_start_ms"; // FIX 9: music start offset
 
     public static final String RESULT_ORIG_VOL      = "result_orig_vol";
     public static final String RESULT_MUSIC_VOL     = "result_music_vol";
     public static final String RESULT_VOICEOVER_PATH= "result_vo_path";
-    public static final String RESULT_VOICEOVER_VOL = "result_vo_vol";
+    public static final String RESULT_VOICEOVER_VOL  = "result_vo_vol";
+    public static final String RESULT_MUSIC_START_MS  = "result_music_start_ms";
 
     private static final int REQ_MIC = 501;
 
@@ -75,6 +77,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private String videoUri;
     private boolean isFilePath;
     private String musicUrl;
+    private long   musicStartMs   = 0L;  // FIX 9
     private String voiceoverPath;
     private boolean isRecordingVoiceover = false;
 
@@ -91,7 +94,8 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
         videoUri   = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
-        musicUrl   = getIntent().getStringExtra(EXTRA_MUSIC_URL);
+        musicUrl      = getIntent().getStringExtra(EXTRA_MUSIC_URL);
+        musicStartMs  = getIntent().getLongExtra(EXTRA_MUSIC_START_MS, 0L);
         String musicTitle  = getIntent().getStringExtra(EXTRA_MUSIC_TITLE);
         String musicArtist = getIntent().getStringExtra(EXTRA_MUSIC_ARTIST);
 
@@ -301,7 +305,8 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         result.putExtra(RESULT_ORIG_VOL,       origVol);
         result.putExtra(RESULT_MUSIC_VOL,      musicVol);
         result.putExtra(RESULT_VOICEOVER_PATH, voiceoverPath != null ? voiceoverPath : "");
-        result.putExtra(RESULT_VOICEOVER_VOL,  voiceoverVol);
+        result.putExtra(RESULT_VOICEOVER_VOL,   voiceoverVol);
+        result.putExtra(RESULT_MUSIC_START_MS,  musicStartMs);
         setResult(RESULT_OK, result);
         finish();
     }

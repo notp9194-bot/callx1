@@ -108,6 +108,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private float  mixMusicVol      = 0.8f;
     private String mixVoiceoverPath = "";
     private float  mixVoiceoverVol  = 1.0f;
+    private long   mixMusicStartMs  = 0L;    // FIX 9
     private String mixedVideoPath   = null; // set after AudioMixHelper finishes
 
     @Override
@@ -199,6 +200,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         mixMusicVol      = i.getFloatExtra("mix_music_vol",       0.8f);
         mixVoiceoverPath = i.getStringExtra("mix_voiceover_path");
         mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
+        mixMusicStartMs  = i.getLongExtra("mix_music_start_ms",   0L);
         if (mixVoiceoverPath == null) mixVoiceoverPath = "";
 
         // ── If no video URI, stop here (gallery flow: user picks video later) ──
@@ -426,6 +428,7 @@ public class ReelUploadActivity extends AppCompatActivity {
             this,
             rawVideoPath,
             preSelectedSoundUrl,
+            mixMusicStartMs,       // FIX 9: pass music start offset
             mixVoiceoverPath,
             mixOrigVol,
             mixMusicVol,
