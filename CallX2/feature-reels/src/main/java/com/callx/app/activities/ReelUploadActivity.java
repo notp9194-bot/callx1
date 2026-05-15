@@ -181,6 +181,27 @@ public class ReelUploadActivity extends AppCompatActivity {
     private void handleEditorExtras() {
         Intent i = getIntent();
         if (i == null) return;
+
+        // ── Read sound extras FIRST (before any early return) ─────────────
+        // These are set by SoundDetailActivity (gallery flow) OR ReelEditorActivity (camera flow)
+        String soundId    = i.getStringExtra(EXTRA_SOUND_ID);
+        String soundTitle = i.getStringExtra(EXTRA_SOUND_TITLE);
+        String soundUrl   = i.getStringExtra(EXTRA_SOUND_URL);
+        if (soundId    != null && !soundId.isEmpty())    preSelectedSoundId  = soundId;
+        if (soundUrl   != null && !soundUrl.isEmpty())   preSelectedSoundUrl = soundUrl;
+        if (soundTitle != null && !soundTitle.isEmpty() && etMusic != null
+                && (etMusic.getText() == null || etMusic.getText().toString().isEmpty())) {
+            etMusic.setText(soundTitle);
+        }
+
+        // Audio mix settings from ReelEditorActivity (camera flow only)
+        mixOrigVol       = i.getFloatExtra("mix_orig_vol",        1.0f);
+        mixMusicVol      = i.getFloatExtra("mix_music_vol",       0.8f);
+        mixVoiceoverPath = i.getStringExtra("mix_voiceover_path");
+        mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
+        if (mixVoiceoverPath == null) mixVoiceoverPath = "";
+
+        // ── If no video URI, stop here (gallery flow: user picks video later) ──
         String videoUriStr = i.getStringExtra(EXTRA_VIDEO_URI);
         if (videoUriStr == null || videoUriStr.isEmpty()) return;
 
@@ -205,25 +226,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (musicName != null && !musicName.isEmpty() && etMusic != null) {
             etMusic.setText(musicName);
         }
-
-        // Pre-selected sound from SoundDetailActivity
-        String soundId    = i.getStringExtra(EXTRA_SOUND_ID);
-        String soundTitle = i.getStringExtra(EXTRA_SOUND_TITLE);
-        String soundUrl   = i.getStringExtra(EXTRA_SOUND_URL);
-        if (soundId    != null && !soundId.isEmpty())    preSelectedSoundId  = soundId;
-        if (soundUrl   != null && !soundUrl.isEmpty())   preSelectedSoundUrl = soundUrl;
-        // Fill music field with the sound title so user can see which sound is attached
-        if (soundTitle != null && !soundTitle.isEmpty() && etMusic != null
-                && (etMusic.getText() == null || etMusic.getText().toString().isEmpty())) {
-            etMusic.setText(soundTitle);
-        }
-
-        // Audio mix settings from ReelEditorActivity
-        mixOrigVol       = i.getFloatExtra("mix_orig_vol",        1.0f);
-        mixMusicVol      = i.getFloatExtra("mix_music_vol",       0.8f);
-        mixVoiceoverPath = i.getStringExtra("mix_voiceover_path");
-        mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
-        if (mixVoiceoverPath == null) mixVoiceoverPath = "";
     }
 
     // ── Permission ────────────────────────────────────────────────────────

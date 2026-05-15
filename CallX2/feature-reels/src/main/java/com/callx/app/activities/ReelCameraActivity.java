@@ -39,6 +39,7 @@ import com.callx.app.activities.MusicPickerActivity;
 import com.callx.app.activities.MultiClipCameraActivity;
 import com.callx.app.activities.ReelDraftsActivity;
 
+import android.media.MediaPlayer;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.File;
@@ -87,6 +88,9 @@ public class ReelCameraActivity extends AppCompatActivity {
     private String preSelectedSoundId    = "";
     private String preSelectedSoundTitle = "";
     private String preSelectedSoundUrl   = "";
+
+    // Background sound player — plays selected sound while recording (earphone feedback)
+    private MediaPlayer soundPreviewPlayer;
 
     private static final String[] REQUIRED_PERMISSIONS = {
         Manifest.permission.CAMERA,
@@ -267,6 +271,7 @@ public class ReelCameraActivity extends AppCompatActivity {
             recordTimer.cancel();
             recordTimer = null;
         }
+        stopSoundPreview();
         progressRecord.setProgress(0);
         tvTimer.setText("00:00");
     }
@@ -274,6 +279,9 @@ public class ReelCameraActivity extends AppCompatActivity {
     private void onRecordingStarted() {
         btnRecord.setImageResource(R.drawable.ic_pause);
         setTimerChipsEnabled(false);
+
+        // Play selected sound in background while recording (earphone feedback)
+        startSoundPreview();
 
         final int[] elapsed = {0};
         recordTimer = new CountDownTimer(selectedDurationSec * 1000L, 1000) {
@@ -339,6 +347,65 @@ public class ReelCameraActivity extends AppCompatActivity {
         chip60s.setEnabled(enabled);
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @androidx.annotation.Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 304 && resultCode == RESULT_OK && data != null) {
+            // MusicPickerActivity returned a selected track
+            String id    = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_ID);
+            String title = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_NAME);
+            String url   = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_URL);
+            if (id    != null && !id.isEmpty())    preSelectedSoundId    = id;
+            if (title != null && !title.isEmpty()) preSelectedSoundTitle = title;
+            if (url   != null && !url.isEmpty())   preSelectedSoundUrl   = url;
+
+            // Update music button label to show selected sound
+            if (btnCameraMusic != null) {
+                btnCameraMusic.setContentDescription(
+                    preSelectedSoundTitle.isEmpty() ? "Add music" : preSelectedSoundTitle);
+            }
+            Toast.makeText(this,
+                "Sound selected: " + preSelectedSoundTitle, Toast.LENGTH_SHORT).show();
+
+            // Start background preview so user can hear the beat
+            startSoundPreview();
+        }
+    }
+
+    /**
+     * Play selected sound in background so creator can hear it while recording.
+     * Instagram does the same — earphone feedback during recording.
+     * Actual mixing happens AFTER recording in AudioMixHelper.
+     */
+    private void startSoundPreview() {
+        stopSoundPreview();
+        if (preSelectedSoundUrl == null || preSelectedSoundUrl.isEmpty()) return;
+        try {
+            soundPreviewPlayer = new MediaPlayer();
+            soundPreviewPlayer.setDataSource(preSelectedSoundUrl);
+            soundPreviewPlayer.setLooping(true);
+            soundPreviewPlayer.setVolume(0.8f, 0.8f);
+            soundPreviewPlayer.prepareAsync();
+            soundPreviewPlayer.setOnPreparedListener(mp -> {
+                if (!isFinishing() && !isDestroyed()) mp.start();
+            });
+            soundPreviewPlayer.setOnErrorListener((mp, what, extra) -> {
+                Log.e(TAG, "Sound preview error: " + what);
+                return true;
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "startSoundPreview failed", e);
+        }
+    }
+
+    private void stopSoundPreview() {
+        if (soundPreviewPlayer != null) {
+            try { soundPreviewPlayer.stop(); } catch (Exception ignored) {}
+            soundPreviewPlayer.release();
+            soundPreviewPlayer = null;
+        }
+    }
+
     private boolean allPermissionsGranted() {
         for (String p : REQUIRED_PERMISSIONS) {
             if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED)
@@ -367,6 +434,7 @@ public class ReelCameraActivity extends AppCompatActivity {
         super.onDestroy();
         if (recordTimer != null) recordTimer.cancel();
         if (activeRecording != null) activeRecording.stop();
+        stopSoundPreview();
         cameraExecutor.shutdown();
     }
 }
