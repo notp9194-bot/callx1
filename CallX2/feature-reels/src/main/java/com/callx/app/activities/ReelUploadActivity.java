@@ -108,8 +108,6 @@ public class ReelUploadActivity extends AppCompatActivity {
     private float  mixMusicVol      = 0.8f;
     private String mixVoiceoverPath = "";
     private float  mixVoiceoverVol  = 1.0f;
-    private long   mixMusicStartMs  = 0L;    // FIX 9
-    private int    mixAudioMode     = 0;     // 0=mic+sound, 1=sound only, 2=mic only
     private String mixedVideoPath   = null; // set after AudioMixHelper finishes
 
     @Override
@@ -201,8 +199,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         mixMusicVol      = i.getFloatExtra("mix_music_vol",       0.8f);
         mixVoiceoverPath = i.getStringExtra("mix_voiceover_path");
         mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
-        mixMusicStartMs  = i.getLongExtra("mix_music_start_ms",   0L);
-        mixAudioMode     = i.getIntExtra("mix_audio_mode",        0);
         if (mixVoiceoverPath == null) mixVoiceoverPath = "";
 
         // ── If no video URI, stop here (gallery flow: user picks video later) ──
@@ -424,22 +420,12 @@ public class ReelUploadActivity extends AppCompatActivity {
         tvUploadStatus.setText("Mixing audio…");
 
         String rawVideoPath = compressedResult.videoFile.getAbsolutePath();
-
-        // Apply audio mode selection
-        // mode 1 = Sound Only  → mic completely silent
-        // mode 2 = Mic Only    → music vol forced to 0 (no music downloaded/mixed)
-        if (mixAudioMode == 1) {
-            mixOrigVol  = 0f;   // mic 100% off
-        } else if (mixAudioMode == 2) {
-            mixMusicVol = 0f;   // music 100% off
-        }
         WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
 
         AudioMixHelper.mixAndExport(
             this,
             rawVideoPath,
             preSelectedSoundUrl,
-            mixMusicStartMs,       // FIX 9: pass music start offset
             mixVoiceoverPath,
             mixOrigVol,
             mixMusicVol,

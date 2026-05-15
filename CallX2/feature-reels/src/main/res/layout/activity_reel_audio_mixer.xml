@@ -3,8 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="?attr/colorSurface"
-    android:weightSum="1">
+    android:background="?attr/colorSurface">
 
     <!-- Header -->
     <LinearLayout
@@ -31,21 +30,16 @@
             android:fontFamily="sans-serif-medium"
             android:paddingStart="8dp"/>
 
-        <TextView
+        <ImageButton
             android:id="@+id/btn_mixer_apply"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Apply"
             android:textSize="15sp"
-            android:textColor="@color/colorPrimary"
-            android:fontFamily="sans-serif-medium"
+            android:src="@drawable/ic_double_tick_blue"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:paddingStart="12dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:clickable="true"
-            android:focusable="true"/>
+            android:paddingEnd="8dp"/>
     </LinearLayout>
 
     <!-- Video Preview -->
@@ -118,61 +112,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="16dp">
-
-            <!-- Audio Mode Selector -->
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="AUDIO MODE" android:textSize="11sp"
-                android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
-                android:textColor="#64748B" android:layout_marginBottom="8dp"/>
-
-            <!-- Audio Mode RadioGroup — wrapped in card for visibility -->
-            <RadioGroup
-                android:id="@+id/rg_audio_mode"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:orientation="horizontal"
-                android:layout_marginBottom="20dp"
-                android:background="#1A1A2E"
-                android:padding="4dp"
-                android:weightSum="3">
-
-                <RadioButton
-                    android:id="@+id/rb_mic_and_sound"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:text="Mic + Sound"
-                    android:textSize="12sp"
-                    android:textColor="@color/white"
-                    android:gravity="center"
-                    android:button="@null"
-                    android:checked="true"
-                    android:background="@drawable/bg_audio_mode_tab"/>
-
-                <RadioButton
-                    android:id="@+id/rb_sound_only"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:text="Sound Only"
-                    android:textSize="12sp"
-                    android:textColor="@color/white"
-                    android:gravity="center"
-                    android:button="@null"
-                    android:background="@drawable/bg_audio_mode_tab"/>
-
-                <RadioButton
-                    android:id="@+id/rb_mic_only"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:text="Mic Only"
-                    android:textSize="12sp"
-                    android:textColor="@color/white"
-                    android:gravity="center"
-                    android:button="@null"
-                    android:background="@drawable/bg_audio_mode_tab"/>
-            </RadioGroup>
 
             <!-- Original Audio -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"

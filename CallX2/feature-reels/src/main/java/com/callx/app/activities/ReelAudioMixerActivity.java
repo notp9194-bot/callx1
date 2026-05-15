@@ -48,21 +48,17 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String EXTRA_IS_FILE_PATH = "mixer_is_file";
     public static final String EXTRA_MUSIC_TITLE  = "mixer_music_title";
     public static final String EXTRA_MUSIC_ARTIST = "mixer_music_artist";
-    public static final String EXTRA_MUSIC_URL      = "mixer_music_url";
-    public static final String EXTRA_MUSIC_START_MS = "mixer_music_start_ms"; // FIX 9: music start offset
+    public static final String EXTRA_MUSIC_URL    = "mixer_music_url";
 
     public static final String RESULT_ORIG_VOL      = "result_orig_vol";
     public static final String RESULT_MUSIC_VOL     = "result_music_vol";
     public static final String RESULT_VOICEOVER_PATH= "result_vo_path";
-    public static final String RESULT_VOICEOVER_VOL  = "result_vo_vol";
-    public static final String RESULT_MUSIC_START_MS  = "result_music_start_ms";
-    public static final String RESULT_AUDIO_MODE      = "result_audio_mode"; // 0=mic+sound, 1=sound only, 2=mic only
+    public static final String RESULT_VOICEOVER_VOL = "result_vo_vol";
 
     private static final int REQ_MIC = 501;
 
     private PlayerView    playerView;
-    private ImageButton   btnBack;
-    private android.widget.TextView      btnApply;
+    private ImageButton   btnBack, btnApply;
     private TextView      tvMusicTitle, tvMusicArtist;
     private SeekBar       sbOrigVol, sbMusicVol, sbVoiceoverVol;
     private TextView      tvOrigVolPct, tvMusicVolPct, tvVoiceoverVolPct;
@@ -71,7 +67,6 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private TextView      tvVoiceoverStatus;
     private ProgressBar   progressBuf;
     private View          layoutVoiceoverRow;
-    private RadioGroup    rgAudioMode;
 
     private ExoPlayer  exoPlayer;
     private MediaPlayer musicPlayer;
@@ -80,8 +75,6 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private String videoUri;
     private boolean isFilePath;
     private String musicUrl;
-    private long   musicStartMs   = 0L;  // FIX 9
-    private int    audioMode      = 0;   // 0=Mic+Sound, 1=Sound Only, 2=Mic Only
     private String voiceoverPath;
     private boolean isRecordingVoiceover = false;
 
@@ -98,8 +91,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
         videoUri   = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
-        musicUrl      = getIntent().getStringExtra(EXTRA_MUSIC_URL);
-        musicStartMs  = getIntent().getLongExtra(EXTRA_MUSIC_START_MS, 0L);
+        musicUrl   = getIntent().getStringExtra(EXTRA_MUSIC_URL);
         String musicTitle  = getIntent().getStringExtra(EXTRA_MUSIC_TITLE);
         String musicArtist = getIntent().getStringExtra(EXTRA_MUSIC_ARTIST);
 
@@ -108,7 +100,6 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         setupPlayer();
         setupSliders();
         setupMuteToggles();
-        setupAudioMode();
         setupVoiceover();
 
         btnBack.setOnClickListener(v -> finish());
@@ -122,7 +113,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private void bindViews() {
         playerView        = findViewById(R.id.mixer_player_view);
         btnBack           = findViewById(R.id.btn_mixer_back);
-        btnApply          = (android.widget.TextView) findViewById(R.id.btn_mixer_apply);
+        btnApply          = findViewById(R.id.btn_mixer_apply);
         tvMusicTitle      = findViewById(R.id.tv_mixer_music_title);
         tvMusicArtist     = findViewById(R.id.tv_mixer_music_artist);
         sbOrigVol         = findViewById(R.id.sb_orig_vol);
@@ -138,7 +129,6 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         tvVoiceoverStatus = findViewById(R.id.tv_voiceover_status);
         progressBuf       = findViewById(R.id.mixer_progress_buf);
         layoutVoiceoverRow= findViewById(R.id.layout_voiceover_row);
-        rgAudioMode       = findViewById(R.id.rg_audio_mode);
     }
 
     private void populateMusicInfo(String title, String artist) {
@@ -306,58 +296,12 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         tvVoiceoverStatus.setText("Voiceover recorded");
     }
 
-    private void setupAudioMode() {
-        if (rgAudioMode == null) return;
-        rgAudioMode.check(R.id.rb_mic_and_sound); // default
-
-        rgAudioMode.setOnCheckedChangeListener((group, checkedId) -> {
-            if (checkedId == R.id.rb_sound_only) {
-                // Sound Only — mic 100% off
-                audioMode = 1;
-                origVol   = 0f;
-                sbOrigVol.setProgress(0);
-                tvOrigVolPct.setText("0%");
-                sbOrigVol.setEnabled(false);
-                if (exoPlayer != null) exoPlayer.setVolume(0f);
-            } else if (checkedId == R.id.rb_mic_only) {
-                // Mic Only
-                audioMode = 2;
-                origVol   = 1f;
-                sbOrigVol.setProgress(100);
-                tvOrigVolPct.setText("100%");
-                sbOrigVol.setEnabled(true);
-                if (exoPlayer != null) exoPlayer.setVolume(1f);
-                // Also mute music preview
-                musicVol  = 0f;
-                sbMusicVol.setProgress(0);
-                tvMusicVolPct.setText("0%");
-                sbMusicVol.setEnabled(false);
-                if (musicPlayer != null) musicPlayer.setVolume(0f, 0f);
-            } else {
-                // Mic + Sound
-                audioMode = 0;
-                origVol   = 1f;
-                sbOrigVol.setProgress(100);
-                tvOrigVolPct.setText("100%");
-                sbOrigVol.setEnabled(true);
-                if (exoPlayer != null) exoPlayer.setVolume(1f);
-                musicVol  = 0.8f;
-                sbMusicVol.setProgress(80);
-                tvMusicVolPct.setText("80%");
-                sbMusicVol.setEnabled(true);
-                if (musicPlayer != null) musicPlayer.setVolume(0.8f, 0.8f);
-            }
-        });
-    }
-
     private void applyAndReturn() {
         Intent result = new Intent();
         result.putExtra(RESULT_ORIG_VOL,       origVol);
         result.putExtra(RESULT_MUSIC_VOL,      musicVol);
         result.putExtra(RESULT_VOICEOVER_PATH, voiceoverPath != null ? voiceoverPath : "");
-        result.putExtra(RESULT_VOICEOVER_VOL,   voiceoverVol);
-        result.putExtra(RESULT_MUSIC_START_MS,  musicStartMs);
-        result.putExtra(RESULT_AUDIO_MODE,      audioMode);
+        result.putExtra(RESULT_VOICEOVER_VOL,  voiceoverVol);
         setResult(RESULT_OK, result);
         finish();
     }
