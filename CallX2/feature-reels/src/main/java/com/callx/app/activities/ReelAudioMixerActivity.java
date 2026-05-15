@@ -61,7 +61,8 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private static final int REQ_MIC = 501;
 
     private PlayerView    playerView;
-    private ImageButton   btnBack, btnApply;
+    private ImageButton   btnBack;
+    private android.widget.TextView      btnApply;
     private TextView      tvMusicTitle, tvMusicArtist;
     private SeekBar       sbOrigVol, sbMusicVol, sbVoiceoverVol;
     private TextView      tvOrigVolPct, tvMusicVolPct, tvVoiceoverVolPct;
@@ -121,7 +122,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private void bindViews() {
         playerView        = findViewById(R.id.mixer_player_view);
         btnBack           = findViewById(R.id.btn_mixer_back);
-        btnApply          = findViewById(R.id.btn_mixer_apply);
+        btnApply          = (android.widget.TextView) findViewById(R.id.btn_mixer_apply);
         tvMusicTitle      = findViewById(R.id.tv_mixer_music_title);
         tvMusicArtist     = findViewById(R.id.tv_mixer_music_artist);
         sbOrigVol         = findViewById(R.id.sb_orig_vol);

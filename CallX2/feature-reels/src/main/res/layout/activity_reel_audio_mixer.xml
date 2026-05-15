@@ -3,7 +3,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="?attr/colorSurface">
+    android:background="?attr/colorSurface"
+    android:weightSum="1">
 
     <!-- Header -->
     <LinearLayout
@@ -30,16 +31,21 @@
             android:fontFamily="sans-serif-medium"
             android:paddingStart="8dp"/>
 
-        <ImageButton
+        <TextView
             android:id="@+id/btn_mixer_apply"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Apply"
             android:textSize="15sp"
-            android:src="@drawable/ic_double_tick_blue"
+            android:textColor="@color/colorPrimary"
+            android:fontFamily="sans-serif-medium"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:paddingStart="12dp"
-            android:paddingEnd="8dp"/>
+            android:paddingEnd="8dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:clickable="true"
+            android:focusable="true"/>
     </LinearLayout>
 
     <!-- Video Preview -->
