@@ -1210,6 +1210,8 @@ public class ReelPlayerFragment extends Fragment {
         i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   reel.musicCoverUrl != null ? reel.musicCoverUrl : "");
         i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      reel.musicArtist != null && !reel.musicArtist.isEmpty()
             ? reel.musicArtist : (reel.ownerName != null ? reel.ownerName : ""));
+        // Fallback: pass reel's own videoUrl so SoundDetailActivity can play original audio
+        i.putExtra("reel_video_url", reel.videoUrl != null ? reel.videoUrl : "");
         startActivity(i);
     }
 

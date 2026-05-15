@@ -87,6 +87,13 @@ public class SoundDetailActivity extends AppCompatActivity {
         coverUrl   = getIntent().getStringExtra(EXTRA_COVER_URL);
         bpm        = getIntent().getIntExtra(EXTRA_BPM, 0);
         genre      = getIntent().getStringExtra(EXTRA_GENRE);
+        // Fallback: if no music URL, use the reel's own video URL (original audio = reel audio)
+        if (soundUrl == null || soundUrl.isEmpty()) {
+            String reelVideoUrl = getIntent().getStringExtra("reel_video_url");
+            if (reelVideoUrl != null && !reelVideoUrl.isEmpty()) {
+                soundUrl = reelVideoUrl;
+            }
+        }
 
         bindViews();
         populateSoundInfo();
