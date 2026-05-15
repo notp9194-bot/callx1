@@ -273,7 +273,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     // ──────────────────────────────────────────────────────────────────────────
 
     private void showEditorSettingsSheet() {
-        BottomSheetDialog sheet = new BottomSheetDialog(this, R.style.BottomSheetDarkTheme);
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
         View sheetView = LayoutInflater.from(this)
             .inflate(R.layout.bottom_sheet_editor_settings, null);
         sheet.setContentView(sheetView);
