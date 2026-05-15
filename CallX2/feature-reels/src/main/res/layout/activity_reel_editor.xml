@@ -101,11 +101,16 @@
     </FrameLayout>
 
     <!-- Editor controls -->
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1A1A1A"
+        android:fillViewport="true">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#1A1A1A"
         android:padding="16dp">
 
         <!-- Trim section -->
@@ -306,5 +311,7 @@
         </HorizontalScrollView>
 
     </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
 
 </LinearLayout>
