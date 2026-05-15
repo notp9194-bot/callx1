@@ -34,12 +34,11 @@
             android:id="@+id/btn_mixer_apply"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Apply"
-            android:textSize="15sp"
             android:src="@drawable/ic_double_tick_blue"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:paddingStart="12dp"
-            android:paddingEnd="8dp"/>
+            android:paddingEnd="8dp"
+            android:contentDescription="Apply"/>
     </LinearLayout>
 
     <!-- Video Preview -->
@@ -114,84 +113,119 @@
             android:padding="16dp">
 
             <!-- Original Audio -->
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="ORIGINAL AUDIO" android:textSize="11sp"
-                android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginBottom="8dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ORIGINAL AUDIO"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="4dp"/>
 
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:layout_marginBottom="16dp">
-                <ImageButton android:id="@+id/btn_mute_orig" android:layout_width="36dp"
-                    android:layout_height="36dp" android:src="@drawable/ic_volume_on"
-                    android:background="?attr/selectableItemBackgroundBorderless"/>
-                <SeekBar android:id="@+id/sb_orig_vol" android:layout_width="0dp"
-                    android:layout_height="wrap_content" android:layout_weight="1"
-                    android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
-                <TextView android:id="@+id/tv_orig_vol_pct" android:layout_width="40dp"
-                    android:layout_height="wrap_content" android:text="100%"
-                    android:textSize="13sp" android:gravity="end"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Video recording ki original awaaz"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="8dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="24dp">
+
+                <ImageButton
+                    android:id="@+id/btn_mute_orig"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_volume_on"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Mute original"/>
+
+                <SeekBar
+                    android:id="@+id/sb_orig_vol"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="8dp"
+                    android:max="100"
+                    android:progress="100"/>
+
+                <TextView
+                    android:id="@+id/tv_orig_vol_pct"
+                    android:layout_width="44dp"
+                    android:layout_height="wrap_content"
+                    android:text="100%"
+                    android:textSize="13sp"
+                    android:gravity="end"/>
             </LinearLayout>
+
+            <!-- Divider -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?attr/colorOutlineVariant"
+                android:layout_marginBottom="24dp"/>
 
             <!-- Background Music -->
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="BACKGROUND MUSIC" android:textSize="11sp"
-                android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginBottom="8dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BACKGROUND MUSIC"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="4dp"/>
 
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:layout_marginBottom="16dp">
-                <ImageButton android:id="@+id/btn_mute_music" android:layout_width="36dp"
-                    android:layout_height="36dp" android:src="@drawable/ic_volume_on"
-                    android:background="?attr/selectableItemBackgroundBorderless"/>
-                <SeekBar android:id="@+id/sb_music_vol" android:layout_width="0dp"
-                    android:layout_height="wrap_content" android:layout_weight="1"
-                    android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
-                <TextView android:id="@+id/tv_music_vol_pct" android:layout_width="40dp"
-                    android:layout_height="wrap_content" android:text="80%"
-                    android:textSize="13sp" android:gravity="end"/>
-            </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Selected sound / music track"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="8dp"/>
 
-            <!-- Voiceover -->
-            <LinearLayout android:id="@+id/layout_voiceover_row"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="24dp">
 
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="VOICEOVER" android:textSize="11sp"
-                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
-                    android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginBottom="8dp"/>
+                <ImageButton
+                    android:id="@+id/btn_mute_music"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_volume_on"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Mute music"/>
 
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
-                    <ImageButton android:id="@+id/btn_voiceover_record" android:layout_width="44dp"
-                        android:layout_height="44dp" android:src="@drawable/ic_mic"
-                        android:background="@drawable/circle_primary"
-                        android:padding="10dp"/>
-                    <TextView android:id="@+id/tv_voiceover_status" android:layout_width="0dp"
-                        android:layout_height="wrap_content" android:layout_weight="1"
-                        android:text="Tap mic to record voiceover"
-                        android:textSize="13sp" android:paddingStart="12dp"
-                        android:textColor="?attr/colorOnSurfaceVariant"/>
-                </LinearLayout>
+                <SeekBar
+                    android:id="@+id/sb_music_vol"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="8dp"
+                    android:max="100"
+                    android:progress="80"/>
 
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical"
-                    android:layout_marginBottom="16dp">
-                    <ImageButton android:id="@+id/btn_mute_voiceover" android:layout_width="36dp"
-                        android:layout_height="36dp" android:src="@drawable/ic_volume_on"
-                        android:background="?attr/selectableItemBackgroundBorderless"/>
-                    <SeekBar android:id="@+id/sb_voiceover_vol" android:layout_width="0dp"
-                        android:layout_height="wrap_content" android:layout_weight="1"
-                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
-                    <TextView android:id="@+id/tv_voiceover_vol_pct" android:layout_width="40dp"
-                        android:layout_height="wrap_content" android:text="100%"
-                        android:textSize="13sp" android:gravity="end"/>
-                </LinearLayout>
+                <TextView
+                    android:id="@+id/tv_music_vol_pct"
+                    android:layout_width="44dp"
+                    android:layout_height="wrap_content"
+                    android:text="80%"
+                    android:textSize="13sp"
+                    android:gravity="end"/>
             </LinearLayout>
 
         </LinearLayout>
     </ScrollView>
+
 </LinearLayout>

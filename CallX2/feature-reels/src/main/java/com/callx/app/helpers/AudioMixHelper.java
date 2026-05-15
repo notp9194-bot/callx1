@@ -26,11 +26,15 @@ import java.util.concurrent.Executors;
  * Flow:
  *  1. Download music URL → local cache file
  *  2. Extract raw PCM from video's mic audio track
- *  3. Extract raw PCM from music audio file
- *  4. Mix PCM samples with volume weights (micVol, musicVol)
- *  5. Optionally mix voiceover PCM track (voiceoverVol)
- *  6. Re-encode mixed PCM → AAC via MediaCodec
- *  7. Mux final AAC + original video track → output MP4
+ *  3. Extract raw PCM from music/sound audio file
+ *  4. Mix PCM samples with volume weights (micVol, soundVol)
+ *  5. Re-encode mixed PCM → AAC via MediaCodec
+ *  6. Mux final AAC + original video track → output MP4
+ *
+ * Sound screen flow (camera use):
+ *   micVol   = 0.0f  → camera mic audio completely removed
+ *   soundVol = 1.0f  → selected sound plays at 100%
+ *   Result: only the selected sound is heard in the final upload
  *
  * Uses only Android built-in APIs (MediaExtractor, MediaMuxer, MediaCodec).
  * No FFmpeg binary required — LiTr dependency already in build.gradle is used

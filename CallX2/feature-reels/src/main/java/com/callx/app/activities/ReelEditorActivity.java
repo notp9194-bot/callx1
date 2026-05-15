@@ -74,8 +74,8 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String preSelectedSoundTitle = "";
     private String preSelectedSoundUrl   = "";
 
-    private float  mixOrigVol       = 1.0f;
-    private float  mixMusicVol      = 0.8f;
+    private float  mixOrigVol       = 0.0f;  // 0% when sound selected — mic muted
+    private float  mixMusicVol      = 0.0f;  // overridden to 1.0f when sound is present
     private String mixVoiceoverPath = "";
     private float  mixVoiceoverVol  = 1.0f;
 
@@ -93,6 +93,14 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (si != null && !si.isEmpty()) preSelectedSoundId    = si;
         if (st != null && !st.isEmpty()) preSelectedSoundTitle = st;
         if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
+
+        // Sound screen se sound select hua hai →
+        //   mic audio  = 0%  (camera ki awaaz remove)
+        //   sound track = 100% (selected sound)
+        if (!preSelectedSoundId.isEmpty() && !preSelectedSoundUrl.isEmpty()) {
+            mixOrigVol  = 0.0f;
+            mixMusicVol = 1.0f;
+        }
 
         if (videoUriStr == null || videoUriStr.isEmpty()) {
             Toast.makeText(this, "No video to edit", Toast.LENGTH_SHORT).show();
