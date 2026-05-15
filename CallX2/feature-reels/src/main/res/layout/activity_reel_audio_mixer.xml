@@ -117,24 +117,27 @@
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="AUDIO MODE" android:textSize="11sp"
                 android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginBottom="8dp"/>
+                android:textColor="#64748B" android:layout_marginBottom="8dp"/>
 
+            <!-- Audio Mode RadioGroup — wrapped in card for visibility -->
             <RadioGroup
                 android:id="@+id/rg_audio_mode"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:orientation="horizontal"
                 android:layout_marginBottom="20dp"
-                android:background="?attr/colorSurfaceVariant"
-                android:padding="4dp">
+                android:background="#1A1A2E"
+                android:padding="4dp"
+                android:weightSum="3">
 
                 <RadioButton
                     android:id="@+id/rb_mic_and_sound"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="match_parent"
                     android:layout_weight="1"
                     android:text="Mic + Sound"
-                    android:textSize="13sp"
+                    android:textSize="12sp"
+                    android:textColor="@color/white"
                     android:gravity="center"
                     android:button="@null"
                     android:checked="true"
@@ -143,10 +146,11 @@
                 <RadioButton
                     android:id="@+id/rb_sound_only"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="match_parent"
                     android:layout_weight="1"
                     android:text="Sound Only"
-                    android:textSize="13sp"
+                    android:textSize="12sp"
+                    android:textColor="@color/white"
                     android:gravity="center"
                     android:button="@null"
                     android:background="@drawable/bg_audio_mode_tab"/>
@@ -154,10 +158,11 @@
                 <RadioButton
                     android:id="@+id/rb_mic_only"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="match_parent"
                     android:layout_weight="1"
                     android:text="Mic Only"
-                    android:textSize="13sp"
+                    android:textSize="12sp"
+                    android:textColor="@color/white"
                     android:gravity="center"
                     android:button="@null"
                     android:background="@drawable/bg_audio_mode_tab"/>
