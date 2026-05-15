@@ -217,7 +217,14 @@ public class SoundDetailActivity extends AppCompatActivity {
     }
 
     private void loadSoundData() {
-        if (soundId == null) return;
+        // soundId may be null or empty for pure "Original Audio" reels
+        if (soundId == null || soundId.isEmpty()) {
+            if (progressBar != null) progressBar.setVisibility(View.GONE);
+            if (layoutSoundInfo != null) layoutSoundInfo.setVisibility(View.VISIBLE);
+            // soundUrl may still be valid (reel's own audio URL passed via intent)
+            updatePlayButtonState();
+            return;
+        }
         if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
 
         FirebaseUtils.db().getReference("sounds").child(soundId)
@@ -226,11 +233,40 @@ public class SoundDetailActivity extends AppCompatActivity {
                 public void onDataChange(@NonNull DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
 
-                    Long count  = snap.child("reel_count").getValue(Long.class);
-                    Long rank   = snap.child("trending_rank").getValue(Long.class);
-                    Long saves  = snap.child("total_saves").getValue(Long.class);
+                    Long count   = snap.child("reel_count").getValue(Long.class);
+                    Long rank    = snap.child("trending_rank").getValue(Long.class);
+                    Long saves   = snap.child("total_saves").getValue(Long.class);
                     Boolean orig = snap.child("is_original").getValue(Boolean.class);
                     Boolean ver  = snap.child("is_verified").getValue(Boolean.class);
+
+                    // ✅ FIX: fetch audioUrl from Firebase and update soundUrl if it was missing
+                    if (soundUrl == null || soundUrl.isEmpty()) {
+                        String fetchedUrl = snap.child("audioUrl").getValue(String.class);
+                        if (fetchedUrl == null || fetchedUrl.isEmpty())
+                            fetchedUrl = snap.child("audio_url").getValue(String.class);
+                        if (fetchedUrl == null || fetchedUrl.isEmpty())
+                            fetchedUrl = snap.child("url").getValue(String.class);
+                        if (fetchedUrl != null && !fetchedUrl.isEmpty()) {
+                            soundUrl = fetchedUrl;
+                        }
+                    }
+
+                    // Also update coverUrl if missing
+                    if (coverUrl == null || coverUrl.isEmpty()) {
+                        String fetchedCover = snap.child("coverUrl").getValue(String.class);
+                        if (fetchedCover == null || fetchedCover.isEmpty())
+                            fetchedCover = snap.child("cover_url").getValue(String.class);
+                        if (fetchedCover != null && !fetchedCover.isEmpty()) {
+                            coverUrl = fetchedCover;
+                            if (ivSoundCover != null) {
+                                com.bumptech.glide.Glide.with(SoundDetailActivity.this)
+                                    .load(coverUrl)
+                                    .placeholder(R.drawable.ic_music_note)
+                                    .centerCrop()
+                                    .into(ivSoundCover);
+                            }
+                        }
+                    }
 
                     if (count == null) count = 0L;
                     if (rank  == null) rank  = 0L;
@@ -263,13 +299,44 @@ public class SoundDetailActivity extends AppCompatActivity {
 
                     if (progressBar != null) progressBar.setVisibility(View.GONE);
                     if (layoutSoundInfo != null) layoutSoundInfo.setVisibility(View.VISIBLE);
+
+                    // ✅ Update play button & trim button visibility after URL is resolved
+                    updatePlayButtonState();
+                    updateTrimButtonVisibility();
                 }
 
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     if (!isFinishing() && progressBar != null)
                         progressBar.setVisibility(View.GONE);
+                    updatePlayButtonState();
                 }
             });
+    }
+
+    /** Shows/hides play button hint based on whether a playable URL is available. */
+    private void updatePlayButtonState() {
+        if (btnPlayPause == null) return;
+        boolean hasUrl = soundUrl != null && !soundUrl.isEmpty();
+        btnPlayPause.setAlpha(hasUrl ? 1f : 0.45f);
+        btnPlayPause.setEnabled(hasUrl);
+    }
+
+    /** Re-evaluates trim button visibility after soundUrl may have been fetched. */
+    private void updateTrimButtonVisibility() {
+        if (btnTrimStart == null) return;
+        boolean hasUrl = soundUrl != null && !soundUrl.isEmpty();
+        btnTrimStart.setVisibility(hasUrl ? View.VISIBLE : View.GONE);
+        if (hasUrl) {
+            btnTrimStart.setOnClickListener(v -> {
+                android.content.Intent i = new android.content.Intent(
+                    this, ReelMusicTrimActivity.class);
+                i.putExtra(ReelMusicTrimActivity.EXTRA_SOUND_ID,    soundId);
+                i.putExtra(ReelMusicTrimActivity.EXTRA_SOUND_TITLE, soundTitle);
+                i.putExtra(ReelMusicTrimActivity.EXTRA_SOUND_URL,   soundUrl);
+                i.putExtra(ReelMusicTrimActivity.EXTRA_DURATION_MS, durationMs);
+                startActivity(i);
+            });
+        }
     }
 
     private void loadRelatedSounds() {
@@ -432,42 +499,45 @@ public class SoundDetailActivity extends AppCompatActivity {
             startActivity(i);
         });
 
-        if (btnTrimStart != null) {
-            if (soundUrl != null && !soundUrl.isEmpty()) {
-                btnTrimStart.setVisibility(View.VISIBLE);
-                btnTrimStart.setOnClickListener(v -> {
-                    Intent i = new Intent(this, ReelMusicTrimActivity.class);
-                    i.putExtra(ReelMusicTrimActivity.EXTRA_SOUND_ID,    soundId);
-                    i.putExtra(ReelMusicTrimActivity.EXTRA_SOUND_TITLE, soundTitle);
-                    i.putExtra(ReelMusicTrimActivity.EXTRA_SOUND_URL,   soundUrl);
-                    i.putExtra(ReelMusicTrimActivity.EXTRA_DURATION_MS, durationMs);
-                    startActivity(i);
-                });
-            } else {
-                btnTrimStart.setVisibility(View.GONE);
-            }
-        }
+        // btnTrimStart visibility managed by updateTrimButtonVisibility() after soundUrl resolves
+        if (btnTrimStart != null) btnTrimStart.setVisibility(View.GONE);
     }
 
     private void togglePlayPause() {
         if (soundUrl == null || soundUrl.isEmpty()) {
-            Toast.makeText(this, "Preview not available", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Loading audio, please wait\u2026", Toast.LENGTH_SHORT).show();
             return;
         }
         if (mediaPlayer == null) {
+            if (btnPlayPause != null) btnPlayPause.setEnabled(false);
             mediaPlayer = new android.media.MediaPlayer();
             try {
                 mediaPlayer.setDataSource(soundUrl);
                 mediaPlayer.setLooping(true);
+                mediaPlayer.setOnErrorListener((mp, what, extra) -> {
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, "Cannot play this audio", Toast.LENGTH_SHORT).show();
+                        releaseMediaPlayer();
+                        if (btnPlayPause != null) {
+                            btnPlayPause.setEnabled(true);
+                            btnPlayPause.setImageResource(R.drawable.ic_play);
+                        }
+                        stopWaveAnimation();
+                    });
+                    return true;
+                });
                 mediaPlayer.prepareAsync();
                 mediaPlayer.setOnPreparedListener(mp -> {
+                    if (btnPlayPause != null) btnPlayPause.setEnabled(true);
                     mp.start();
                     isPlaying = true;
                     if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
                     startWaveAnimation();
                 });
             } catch (Exception e) {
-                Toast.makeText(this, "Cannot play preview", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Cannot play this audio", Toast.LENGTH_SHORT).show();
+                releaseMediaPlayer();
+                if (btnPlayPause != null) btnPlayPause.setEnabled(true);
             }
         } else if (isPlaying) {
             mediaPlayer.pause();
@@ -532,14 +602,19 @@ public class SoundDetailActivity extends AppCompatActivity {
         return String.valueOf(count);
     }
 
+    private void releaseMediaPlayer() {
+        if (mediaPlayer != null) {
+            try { mediaPlayer.stop(); } catch (Exception ignored) {}
+            try { mediaPlayer.release(); } catch (Exception ignored) {}
+            mediaPlayer = null;
+        }
+        isPlaying = false;
+    }
+
     @Override
     protected void onDestroy() {
         waveHandler.removeCallbacksAndMessages(null);
-        if (mediaPlayer != null) {
-            try { mediaPlayer.stop(); } catch (Exception ignored) {}
-            mediaPlayer.release();
-            mediaPlayer = null;
-        }
+        releaseMediaPlayer();
         super.onDestroy();
     }
 
