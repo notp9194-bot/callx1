@@ -69,6 +69,59 @@ public class VideoUploader {
         return uploader;
     }
 
+    /**
+     * Overload: upload with a custom videoFile (e.g. the audio-mixed output).
+     * All other metadata (dimensions, duration, thumb) comes from {@code compressed}.
+     */
+    public static VideoUploader upload(Context ctx, VideoCompressor.Result compressed,
+                                       File videoOverride, UploadCallback callback) {
+        if (videoOverride == null || !videoOverride.exists()) {
+            // Fallback to normal upload if override is invalid
+            return upload(ctx, compressed, callback);
+        }
+        VideoUploader uploader = new VideoUploader();
+        activeUploader = uploader;
+        new Thread(() -> uploader.doUploadWithOverride(ctx, compressed, videoOverride, callback, 1)).start();
+        return uploader;
+    }
+
+    /** Same as doUpload but uses videoOverride as the video file to upload. */
+    private void doUploadWithOverride(Context ctx, VideoCompressor.Result r,
+                                      File videoOverride,
+                                      UploadCallback cb, int attempt) {
+        paused = false;
+        try {
+            MAIN.post(() -> cb.onProgress(5));
+
+            String thumbUrl = r.thumbFile != null && r.thumbFile.exists()
+                ? uploadDirect(r.thumbFile, "image", "callx/videos/thumb",
+                    ctx, (p) -> MAIN.post(() -> cb.onProgress(5 + p / 5)))
+                : "";
+
+            MAIN.post(() -> cb.onProgress(25));
+
+            String videoUrl = uploadVideoChunked(videoOverride, "callx/videos/file",
+                ctx, (p) -> MAIN.post(() -> cb.onProgress(25 + (p * 70 / 100))));
+
+            MAIN.post(() -> cb.onProgress(98));
+
+            VideoCompressor.safeDelete(r.thumbFile);
+            // Do NOT delete videoOverride here; AudioMixHelper cache is managed separately.
+
+            final String fThumb = thumbUrl, fVideo = videoUrl;
+            MAIN.post(() -> cb.onSuccess(fThumb, fVideo, r.durationMs, r.width, r.height));
+
+        } catch (Exception e) {
+            if (cancelled) return;
+            if (attempt < MAX_RETRY) {
+                Log.w(TAG, "Upload attempt " + attempt + " failed, retrying…", e);
+                doUploadWithOverride(ctx, r, videoOverride, cb, attempt + 1);
+            } else {
+                MAIN.post(() -> cb.onError(e));
+            }
+        }
+    }
+
     public void pause()  { paused    = true;  }
     public void resume() { paused    = false; }
     public void cancel() { cancelled = true;  }

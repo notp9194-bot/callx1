@@ -66,6 +66,17 @@ public class ReelEditorActivity extends AppCompatActivity {
     private long      trimEndMs       = 0;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    // Sound pre-selected from SoundDetailActivity or MusicPickerActivity
+    private String preSelectedSoundId    = "";
+    private String preSelectedSoundTitle = "";
+    private String preSelectedSoundUrl   = "";
+
+    // Audio mix values returned from ReelAudioMixerActivity
+    private float  mixOrigVol      = 1.0f;
+    private float  mixMusicVol     = 0.8f;
+    private String mixVoiceoverPath = "";
+    private float  mixVoiceoverVol  = 1.0f;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -73,6 +84,14 @@ public class ReelEditorActivity extends AppCompatActivity {
 
         videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath  = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
+
+        // Read pre-selected sound passed from ReelCameraActivity / SoundDetailActivity
+        String si = getIntent().getStringExtra("selected_sound_id");
+        String st = getIntent().getStringExtra("selected_sound_title");
+        String su = getIntent().getStringExtra("selected_sound_url");
+        if (si != null && !si.isEmpty()) preSelectedSoundId    = si;
+        if (st != null && !st.isEmpty()) preSelectedSoundTitle = st;
+        if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
 
         if (videoUriStr == null || videoUriStr.isEmpty()) {
             Toast.makeText(this, "No video to edit", Toast.LENGTH_SHORT).show();
@@ -221,9 +240,31 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (btnToolSubtitles  != null) btnToolSubtitles.setOnClickListener(v  -> startActivityForResult(new Intent(this, ReelSubtitlesActivity.class), 403));
         if (btnToolTransitions!= null) btnToolTransitions.setOnClickListener(v-> startActivityForResult(new Intent(this, ReelTransitionsActivity.class), 404));
         if (btnToolVoice      != null) btnToolVoice.setOnClickListener(v      -> startActivityForResult(new Intent(this, ReelVoiceEffectsActivity.class), 405));
-        if (btnToolAudioMixer != null) btnToolAudioMixer.setOnClickListener(v -> startActivityForResult(new Intent(this, ReelAudioMixerActivity.class), 406));
+        if (btnToolAudioMixer != null) btnToolAudioMixer.setOnClickListener(v -> {
+            Intent mixIntent = new Intent(this, ReelAudioMixerActivity.class);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_VIDEO_URI,    videoUriStr);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_IS_FILE_PATH, isFilePath);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  preSelectedSoundTitle);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, "");
+            startActivityForResult(mixIntent, 406);
+        });
         if (btnToolThumbnail  != null) btnToolThumbnail.setOnClickListener(v  -> startActivityForResult(new Intent(this, ReelThumbnailPickerActivity.class), 407));
         btnNext.setOnClickListener(v -> proceedToUpload());
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @android.annotation.Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 406 && resultCode == RESULT_OK && data != null) {
+            // Audio mixer returned — store the mix settings for upload
+            mixOrigVol       = data.getFloatExtra(ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
+            mixMusicVol      = data.getFloatExtra(ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
+            mixVoiceoverPath = data.getStringExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
+            mixVoiceoverVol  = data.getFloatExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
+            if (mixVoiceoverPath == null) mixVoiceoverPath = "";
+            Toast.makeText(this, "Audio mix saved ✓", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void proceedToUpload() {
@@ -236,6 +277,18 @@ public class ReelEditorActivity extends AppCompatActivity {
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_START,   trimStartMs);
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_END,     trimEndMs);
         intent.putExtra(ReelUploadActivity.EXTRA_TEXT_OVERLAY, textOverlay);
+
+        // Pass pre-selected sound
+        if (!preSelectedSoundId.isEmpty())    intent.putExtra(ReelUploadActivity.EXTRA_SOUND_ID,    preSelectedSoundId);
+        if (!preSelectedSoundTitle.isEmpty()) intent.putExtra(ReelUploadActivity.EXTRA_SOUND_TITLE, preSelectedSoundTitle);
+        if (!preSelectedSoundUrl.isEmpty())   intent.putExtra(ReelUploadActivity.EXTRA_SOUND_URL,   preSelectedSoundUrl);
+
+        // Pass audio mix settings (for AudioMixHelper in ReelUploadActivity)
+        intent.putExtra("mix_orig_vol",        mixOrigVol);
+        intent.putExtra("mix_music_vol",       mixMusicVol);
+        intent.putExtra("mix_voiceover_path",  mixVoiceoverPath);
+        intent.putExtra("mix_voiceover_vol",   mixVoiceoverVol);
+
         startActivity(intent);
     }
 

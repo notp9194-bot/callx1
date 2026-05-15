@@ -28,6 +28,7 @@ import com.callx.app.activities.ReelSchedulerActivity;
 import com.callx.app.activities.ReelDraftsActivity;
 import com.callx.app.activities.ReelProductTagActivity;
 
+import com.callx.app.helpers.AudioMixHelper;
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.VideoCompressor;
@@ -101,6 +102,13 @@ public class ReelUploadActivity extends AppCompatActivity {
     private ExoPlayer              previewPlayer;
     private VideoCompressor.Result compressedResult;
     private boolean                compressionInProgress = false;
+
+    // Audio mix settings received from ReelEditorActivity (via ReelAudioMixerActivity)
+    private float  mixOrigVol       = 1.0f;
+    private float  mixMusicVol      = 0.8f;
+    private String mixVoiceoverPath = "";
+    private float  mixVoiceoverVol  = 1.0f;
+    private String mixedVideoPath   = null; // set after AudioMixHelper finishes
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -209,6 +217,13 @@ public class ReelUploadActivity extends AppCompatActivity {
                 && (etMusic.getText() == null || etMusic.getText().toString().isEmpty())) {
             etMusic.setText(soundTitle);
         }
+
+        // Audio mix settings from ReelEditorActivity
+        mixOrigVol       = i.getFloatExtra("mix_orig_vol",        1.0f);
+        mixMusicVol      = i.getFloatExtra("mix_music_vol",       0.8f);
+        mixVoiceoverPath = i.getStringExtra("mix_voiceover_path");
+        mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
+        if (mixVoiceoverPath == null) mixVoiceoverPath = "";
     }
 
     // ── Permission ────────────────────────────────────────────────────────
@@ -379,18 +394,84 @@ public class ReelUploadActivity extends AppCompatActivity {
 
         String caption   = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
         String musicName = etMusic.getText()   != null ? etMusic.getText().toString().trim()   : "";
-        uploadReel(caption, musicName);
+
+        // ── Instagram golden rule: "Record first, mix later" ──────────────
+        // If user has selected background music, run AudioMixHelper before upload.
+        boolean hasMusicTrack = preSelectedSoundUrl != null && !preSelectedSoundUrl.isEmpty();
+        boolean hasVoiceover  = mixVoiceoverPath != null && !mixVoiceoverPath.isEmpty();
+
+        if (hasMusicTrack || hasVoiceover) {
+            runAudioMixThenUpload(caption, musicName);
+        } else {
+            // No extra audio — upload compressed video directly
+            uploadReel(caption, musicName, compressedResult.videoFile.getAbsolutePath());
+        }
     }
 
-    private void uploadReel(String caption, String musicName) {
+    /**
+     * Step: mix audio tracks with AudioMixHelper, then proceed to upload.
+     */
+    private void runAudioMixThenUpload(String caption, String musicName) {
         btnPostReel.setEnabled(false);
         layoutUploadProgress.setVisibility(View.VISIBLE);
         progressUpload.setProgress(0);
+        tvUploadStatus.setText("Mixing audio…");
+
+        String rawVideoPath = compressedResult.videoFile.getAbsolutePath();
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+
+        AudioMixHelper.mixAndExport(
+            this,
+            rawVideoPath,
+            preSelectedSoundUrl,
+            mixVoiceoverPath,
+            mixOrigVol,
+            mixMusicVol,
+            mixVoiceoverVol,
+            new AudioMixHelper.MixCallback() {
+                @Override public void onProgress(int percent) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.progressUpload.setProgress(percent / 2); // mix = 0–50%, upload = 50–100%
+                    a.tvUploadStatus.setText("Mixing audio… " + percent + "%");
+                }
+                @Override public void onSuccess(String mixedPath) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.mixedVideoPath = mixedPath;
+                    a.tvUploadStatus.setText("Uploading reel…");
+                    a.uploadReel(caption, musicName, mixedPath);
+                }
+                @Override public void onError(Exception e) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.btnPostReel.setEnabled(true);
+                    a.layoutUploadProgress.setVisibility(View.GONE);
+                    // Fallback: upload without mixing
+                    Toast.makeText(a,
+                        "Audio mix failed, uploading original video. (" + e.getMessage() + ")",
+                        Toast.LENGTH_LONG).show();
+                    a.uploadReel(caption, musicName, rawVideoPath);
+                }
+            }
+        );
+    }
+
+    private void uploadReel(String caption, String musicName, String videoPath) {
+        btnPostReel.setEnabled(false);
+        layoutUploadProgress.setVisibility(View.VISIBLE);
+        progressUpload.setProgress(50);
         tvUploadStatus.setText("Uploading reel…");
 
         WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
 
-        VideoUploader.upload(this, compressedResult, new VideoUploader.UploadCallback() {
+        // If audio was mixed, we need to upload the mixed file.
+        // VideoUploader accepts a Result — re-use compressedResult but override
+        // the file by creating a thin wrapper that replaces only videoFile.
+        final VideoCompressor.Result uploadResult = compressedResult;
+        final java.io.File uploadFile = new java.io.File(videoPath);
+
+        VideoUploader.upload(this, uploadResult, uploadFile, new VideoUploader.UploadCallback() {
             @Override
             public void onProgress(int percent) {
                 ReelUploadActivity a = ref.get();
@@ -405,7 +486,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                 ReelUploadActivity a = ref.get();
                 if (a == null || a.isFinishing() || a.isDestroyed()) return;
                 a.saveReelToFirebase(thumbUrl, videoUrl, durationMs, width, height,
-                    caption, musicName);
+                    caption, musicName, uploadResult);
             }
 
             @Override
@@ -424,7 +505,8 @@ public class ReelUploadActivity extends AppCompatActivity {
 
     private void saveReelToFirebase(String thumbUrl, String videoUrl,
                                     int durationMs, int width, int height,
-                                    String caption, String musicName) {
+                                    String caption, String musicName,
+                                    VideoCompressor.Result result) {
         if (isFinishing() || isDestroyed()) return;
 
         String myUid, myName;
@@ -443,7 +525,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         final String finalReelId = reelId;
 
         String audienceType = getAudienceType();
-        VideoCompressor.Result result = compressedResult;
 
         WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
 
