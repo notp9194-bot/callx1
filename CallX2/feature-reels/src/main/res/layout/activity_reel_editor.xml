@@ -100,10 +100,11 @@
             android:visibility="gone"/>
     </FrameLayout>
 
-    <!-- Editor controls -->
+    <!-- Editor controls: scrollable area (Trim + Text Overlay) -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:background="#1A1A1A"
         android:fillViewport="true">
 
@@ -111,7 +112,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="0dp">
 
         <!-- Trim section -->
         <TextView
@@ -232,9 +236,21 @@
                 android:layout_marginStart="8dp"/>
         </LinearLayout>
 
-        <!-- Editor tools row -->
+    </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <!-- Editor tools row: OUTSIDE NestedScrollView so HorizontalScrollView works -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#1A1A1A"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp">
+
         <View android:layout_width="match_parent" android:layout_height="1dp"
-            android:background="#33FFFFFF" android:layout_marginTop="12dp" android:layout_marginBottom="8dp"/>
+            android:background="#33FFFFFF" android:layout_marginTop="4dp" android:layout_marginBottom="8dp"/>
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="EDITING TOOLS" android:textColor="#AAFFFFFF" android:textSize="11sp"
             android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
@@ -311,7 +327,5 @@
         </HorizontalScrollView>
 
     </LinearLayout>
-
-    </androidx.core.widget.NestedScrollView>
 
 </LinearLayout>
