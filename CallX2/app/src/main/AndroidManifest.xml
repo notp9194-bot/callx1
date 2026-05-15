@@ -445,6 +445,10 @@
             android:windowSoftInputMode="adjustResize"/>
 
         <!-- Saved Sounds — view & manage bookmarked audio tracks -->
+        <activity android:name=".activities.ReelMusicTrimActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
         <activity android:name=".activities.SavedSoundsActivity"
             android:exported="false"
             android:parentActivityName=".activities.MainActivity"/>

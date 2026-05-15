@@ -83,6 +83,11 @@ public class ReelCameraActivity extends AppCompatActivity {
     private int     selectedDurationSec = 30;
     private CountDownTimer recordTimer;
 
+    // Pre-selected sound from SoundDetailActivity
+    private String preSelectedSoundId    = "";
+    private String preSelectedSoundTitle = "";
+    private String preSelectedSoundUrl   = "";
+
     private static final String[] REQUIRED_PERMISSIONS = {
         Manifest.permission.CAMERA,
         Manifest.permission.RECORD_AUDIO
@@ -96,6 +101,7 @@ public class ReelCameraActivity extends AppCompatActivity {
         bindViews();
         setupTimerChips();
         setupClickListeners();
+        readSoundExtras();
         if (allPermissionsGranted()) {
             startCamera();
         } else {
@@ -151,6 +157,24 @@ public class ReelCameraActivity extends AppCompatActivity {
         chip15s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(15); });
         chip30s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(30); });
         chip60s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(60); });
+    }
+
+    private void readSoundExtras() {
+        Intent i = getIntent();
+        if (i == null) return;
+        String id    = i.getStringExtra("selected_sound_id");
+        String title = i.getStringExtra("selected_sound_title");
+        String url   = i.getStringExtra("selected_sound_url");
+        if (id    != null && !id.isEmpty())    preSelectedSoundId    = id;
+        if (title != null && !title.isEmpty()) preSelectedSoundTitle = title;
+        if (url   != null && !url.isEmpty())   preSelectedSoundUrl   = url;
+
+        // Show pre-selected music label on the music button if a sound was passed
+        if (!preSelectedSoundTitle.isEmpty() && btnCameraMusic != null) {
+            btnCameraMusic.setContentDescription(preSelectedSoundTitle);
+            Toast.makeText(this,
+                "Sound ready: " + preSelectedSoundTitle, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void startCamera() {
@@ -273,6 +297,10 @@ public class ReelCameraActivity extends AppCompatActivity {
 
         Intent intent = new Intent(this, ReelEditorActivity.class);
         intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI, filePath);
+        // Pass pre-selected sound through to editor → upload
+        if (!preSelectedSoundId.isEmpty())    intent.putExtra("selected_sound_id",    preSelectedSoundId);
+        if (!preSelectedSoundTitle.isEmpty()) intent.putExtra("selected_sound_title", preSelectedSoundTitle);
+        if (!preSelectedSoundUrl.isEmpty())   intent.putExtra("selected_sound_url",   preSelectedSoundUrl);
         startActivity(intent);
     }
 

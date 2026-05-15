@@ -80,6 +80,10 @@
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen"
             android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelMusicTrimActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
         <activity android:name="com.callx.app.activities.SavedSoundsActivity"
             android:exported="false"/>
 

@@ -73,6 +73,10 @@ public class ReelUploadActivity extends AppCompatActivity {
     public static final String EXTRA_TRIM_END     = "upload_trim_end";
     public static final String EXTRA_TEXT_OVERLAY = "upload_text_overlay";
     public static final String EXTRA_MUSIC_NAME   = "upload_music_name";
+    // Sound pre-selected from SoundDetailActivity
+    public static final String EXTRA_SOUND_ID    = "selected_sound_id";
+    public static final String EXTRA_SOUND_TITLE = "selected_sound_title";
+    public static final String EXTRA_SOUND_URL   = "selected_sound_url";
 
     private static final int REQ_PICK_VIDEO  = 901;
     private static final int REQ_PERMISSION  = 902;
@@ -92,6 +96,8 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String            taggedUids = "", locationName = "", scheduleTime = "";
 
     private Uri                    selectedUri;
+    private String                 preSelectedSoundId    = "";
+    private String                 preSelectedSoundUrl   = "";
     private ExoPlayer              previewPlayer;
     private VideoCompressor.Result compressedResult;
     private boolean                compressionInProgress = false;
@@ -190,6 +196,18 @@ public class ReelUploadActivity extends AppCompatActivity {
         String musicName = i.getStringExtra(EXTRA_MUSIC_NAME);
         if (musicName != null && !musicName.isEmpty() && etMusic != null) {
             etMusic.setText(musicName);
+        }
+
+        // Pre-selected sound from SoundDetailActivity
+        String soundId    = i.getStringExtra(EXTRA_SOUND_ID);
+        String soundTitle = i.getStringExtra(EXTRA_SOUND_TITLE);
+        String soundUrl   = i.getStringExtra(EXTRA_SOUND_URL);
+        if (soundId    != null && !soundId.isEmpty())    preSelectedSoundId  = soundId;
+        if (soundUrl   != null && !soundUrl.isEmpty())   preSelectedSoundUrl = soundUrl;
+        // Fill music field with the sound title so user can see which sound is attached
+        if (soundTitle != null && !soundTitle.isEmpty() && etMusic != null
+                && (etMusic.getText() == null || etMusic.getText().toString().isEmpty())) {
+            etMusic.setText(soundTitle);
         }
     }
 
@@ -444,6 +462,9 @@ public class ReelUploadActivity extends AppCompatActivity {
                     System.currentTimeMillis(), durationMs, width, height);
 
                 reel.audienceType = audienceType;
+                // Attach pre-selected sound if provided
+                if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
+                if (!a.preSelectedSoundUrl.isEmpty()) reel.musicUrl = a.preSelectedSoundUrl;
                 if (result != null) {
                     reel.compressionSummary = result.compressionSummary();
                     reel.savingsPercent     = result.savingsPercent();
