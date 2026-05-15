@@ -33,6 +33,7 @@ import com.callx.app.activities.ReelAudioMixerActivity;
 import com.callx.app.activities.ReelThumbnailPickerActivity;
 
 import java.io.File;
+import com.callx.app.utils.FirebaseUtils;
 
 /**
  * ReelEditorActivity — Edit a reel before posting.
@@ -93,6 +94,33 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (si != null && !si.isEmpty()) preSelectedSoundId    = si;
         if (st != null && !st.isEmpty()) preSelectedSoundTitle = st;
         if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
+
+        // Agar soundId hai but URL empty hai → Firebase se fetch karo (fallback)
+        if (!preSelectedSoundId.isEmpty() && preSelectedSoundUrl.isEmpty()) {
+            FirebaseUtils.db()
+                .getReference("sounds")
+                .child(preSelectedSoundId)
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override
+                    public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                        if (isFinishing() || isDestroyed()) return;
+                        String url = snap.child("audioUrl").getValue(String.class);
+                        if (url == null || url.isEmpty()) url = snap.child("audio_url").getValue(String.class);
+                        if (url == null || url.isEmpty()) url = snap.child("url").getValue(String.class);
+                        if (url != null && !url.isEmpty()) {
+                            preSelectedSoundUrl = url;
+                            mixOrigVol  = 0.0f;
+                            mixMusicVol = 1.0f;
+                        }
+                        String title = snap.child("title").getValue(String.class);
+                        if ((title != null && !title.isEmpty()) && preSelectedSoundTitle.isEmpty()) {
+                            preSelectedSoundTitle = title;
+                        }
+                    }
+                    @Override
+                    public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                });
+        }
 
         // Sound screen se sound select hua hai →
         //   mic audio  = 0%  (camera ki awaaz remove)
