@@ -254,7 +254,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, @android.annotation.Nullable Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, @androidx.annotation.Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 406 && resultCode == RESULT_OK && data != null) {
             // Audio mixer returned — store the mix settings for upload
