@@ -95,18 +95,18 @@ public class VideoUploader {
 
             String thumbUrl = r.thumbFile != null && r.thumbFile.exists()
                 ? uploadDirect(r.thumbFile, "image", "callx/videos/thumb",
-                    ctx, (p) -> MAIN.post(() -> cb.onProgress(5 + p / 5)))
+                    pct -> MAIN.post(() -> cb.onProgress(5 + pct / 5)))
                 : "";
 
             MAIN.post(() -> cb.onProgress(25));
 
             String videoUrl = uploadVideoChunked(videoOverride, "callx/videos/file",
-                ctx, (p) -> MAIN.post(() -> cb.onProgress(25 + (p * 70 / 100))));
+                pct -> MAIN.post(() -> cb.onProgress(25 + (pct * 70 / 100))));
 
             MAIN.post(() -> cb.onProgress(98));
 
             VideoCompressor.safeDelete(r.thumbFile);
-            // Do NOT delete videoOverride here; AudioMixHelper cache is managed separately.
+            // Do NOT delete videoOverride — AudioMixHelper cache cleanup handled separately.
 
             final String fThumb = thumbUrl, fVideo = videoUrl;
             MAIN.post(() -> cb.onSuccess(fThumb, fVideo, r.durationMs, r.width, r.height));
