@@ -113,6 +113,56 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <!-- Audio Mode Selector -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="AUDIO MODE" android:textSize="11sp"
+                android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
+                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginBottom="8dp"/>
+
+            <RadioGroup
+                android:id="@+id/rg_audio_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="20dp"
+                android:background="?attr/colorSurfaceVariant"
+                android:padding="4dp">
+
+                <RadioButton
+                    android:id="@+id/rb_mic_and_sound"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="Mic + Sound"
+                    android:textSize="13sp"
+                    android:gravity="center"
+                    android:button="@null"
+                    android:checked="true"
+                    android:background="@drawable/bg_audio_mode_tab"/>
+
+                <RadioButton
+                    android:id="@+id/rb_sound_only"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="Sound Only"
+                    android:textSize="13sp"
+                    android:gravity="center"
+                    android:button="@null"
+                    android:background="@drawable/bg_audio_mode_tab"/>
+
+                <RadioButton
+                    android:id="@+id/rb_mic_only"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="Mic Only"
+                    android:textSize="13sp"
+                    android:gravity="center"
+                    android:button="@null"
+                    android:background="@drawable/bg_audio_mode_tab"/>
+            </RadioGroup>
+
             <!-- Original Audio -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="ORIGINAL AUDIO" android:textSize="11sp"

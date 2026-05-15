@@ -73,6 +73,7 @@ public class ReelEditorActivity extends AppCompatActivity {
 
     // Audio mix values returned from ReelAudioMixerActivity
     private long   mixMusicStartMs = 0L; // FIX 9
+    private int    mixAudioMode    = 0;   // 0=mic+sound, 1=sound only, 2=mic only
     private float  mixOrigVol      = 1.0f;
     private float  mixMusicVol     = 0.8f;
     private String mixVoiceoverPath = "";
@@ -264,6 +265,7 @@ public class ReelEditorActivity extends AppCompatActivity {
             mixVoiceoverPath = data.getStringExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
             mixVoiceoverVol  = data.getFloatExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
             mixMusicStartMs  = data.getLongExtra(ReelAudioMixerActivity.RESULT_MUSIC_START_MS,   0L);
+            mixAudioMode     = data.getIntExtra(ReelAudioMixerActivity.RESULT_AUDIO_MODE,        0);
             if (mixVoiceoverPath == null) mixVoiceoverPath = "";
             Toast.makeText(this, "Audio mix saved ✓", Toast.LENGTH_SHORT).show();
         }
@@ -291,6 +293,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         intent.putExtra("mix_voiceover_path",  mixVoiceoverPath);
         intent.putExtra("mix_voiceover_vol",   mixVoiceoverVol);
         intent.putExtra("mix_music_start_ms",  mixMusicStartMs); // FIX 9
+        intent.putExtra("mix_audio_mode",      mixAudioMode);
 
         startActivity(intent);
     }

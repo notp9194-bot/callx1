@@ -56,6 +56,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String RESULT_VOICEOVER_PATH= "result_vo_path";
     public static final String RESULT_VOICEOVER_VOL  = "result_vo_vol";
     public static final String RESULT_MUSIC_START_MS  = "result_music_start_ms";
+    public static final String RESULT_AUDIO_MODE      = "result_audio_mode"; // 0=mic+sound, 1=sound only, 2=mic only
 
     private static final int REQ_MIC = 501;
 
@@ -69,6 +70,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private TextView      tvVoiceoverStatus;
     private ProgressBar   progressBuf;
     private View          layoutVoiceoverRow;
+    private RadioGroup    rgAudioMode;
 
     private ExoPlayer  exoPlayer;
     private MediaPlayer musicPlayer;
@@ -78,6 +80,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private boolean isFilePath;
     private String musicUrl;
     private long   musicStartMs   = 0L;  // FIX 9
+    private int    audioMode      = 0;   // 0=Mic+Sound, 1=Sound Only, 2=Mic Only
     private String voiceoverPath;
     private boolean isRecordingVoiceover = false;
 
@@ -104,6 +107,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         setupPlayer();
         setupSliders();
         setupMuteToggles();
+        setupAudioMode();
         setupVoiceover();
 
         btnBack.setOnClickListener(v -> finish());
@@ -133,6 +137,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         tvVoiceoverStatus = findViewById(R.id.tv_voiceover_status);
         progressBuf       = findViewById(R.id.mixer_progress_buf);
         layoutVoiceoverRow= findViewById(R.id.layout_voiceover_row);
+        rgAudioMode       = findViewById(R.id.rg_audio_mode);
     }
 
     private void populateMusicInfo(String title, String artist) {
@@ -300,6 +305,50 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         tvVoiceoverStatus.setText("Voiceover recorded");
     }
 
+    private void setupAudioMode() {
+        if (rgAudioMode == null) return;
+        rgAudioMode.check(R.id.rb_mic_and_sound); // default
+
+        rgAudioMode.setOnCheckedChangeListener((group, checkedId) -> {
+            if (checkedId == R.id.rb_sound_only) {
+                // Sound Only — mic 100% off
+                audioMode = 1;
+                origVol   = 0f;
+                sbOrigVol.setProgress(0);
+                tvOrigVolPct.setText("0%");
+                sbOrigVol.setEnabled(false);
+                if (exoPlayer != null) exoPlayer.setVolume(0f);
+            } else if (checkedId == R.id.rb_mic_only) {
+                // Mic Only
+                audioMode = 2;
+                origVol   = 1f;
+                sbOrigVol.setProgress(100);
+                tvOrigVolPct.setText("100%");
+                sbOrigVol.setEnabled(true);
+                if (exoPlayer != null) exoPlayer.setVolume(1f);
+                // Also mute music preview
+                musicVol  = 0f;
+                sbMusicVol.setProgress(0);
+                tvMusicVolPct.setText("0%");
+                sbMusicVol.setEnabled(false);
+                if (musicPlayer != null) musicPlayer.setVolume(0f, 0f);
+            } else {
+                // Mic + Sound
+                audioMode = 0;
+                origVol   = 1f;
+                sbOrigVol.setProgress(100);
+                tvOrigVolPct.setText("100%");
+                sbOrigVol.setEnabled(true);
+                if (exoPlayer != null) exoPlayer.setVolume(1f);
+                musicVol  = 0.8f;
+                sbMusicVol.setProgress(80);
+                tvMusicVolPct.setText("80%");
+                sbMusicVol.setEnabled(true);
+                if (musicPlayer != null) musicPlayer.setVolume(0.8f, 0.8f);
+            }
+        });
+    }
+
     private void applyAndReturn() {
         Intent result = new Intent();
         result.putExtra(RESULT_ORIG_VOL,       origVol);
@@ -307,6 +356,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         result.putExtra(RESULT_VOICEOVER_PATH, voiceoverPath != null ? voiceoverPath : "");
         result.putExtra(RESULT_VOICEOVER_VOL,   voiceoverVol);
         result.putExtra(RESULT_MUSIC_START_MS,  musicStartMs);
+        result.putExtra(RESULT_AUDIO_MODE,      audioMode);
         setResult(RESULT_OK, result);
         finish();
     }
