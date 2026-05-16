@@ -383,7 +383,7 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
             return;
         }
         stopPlayback();
-        String title = getTitle();
+        String title = getSoundTitle();
         Intent result = new Intent();
         result.putExtra(RESULT_AUDIO_PATH,  outputPath);
         result.putExtra(RESULT_AUDIO_TITLE, title);
@@ -403,7 +403,7 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
             Toast.makeText(this, "Nothing recorded yet", Toast.LENGTH_SHORT).show();
             return;
         }
-        String title = getTitle();
+        String title = getSoundTitle();
         if (title.isEmpty()) {
             Toast.makeText(this, "Enter a name for your sound", Toast.LENGTH_SHORT).show();
             return;
@@ -478,7 +478,7 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private String getTitle() {
+    private String getSoundTitle() {
         if (etSoundTitle != null && etSoundTitle.getText() != null) {
             String t = etSoundTitle.getText().toString().trim();
             if (!t.isEmpty()) return t;
