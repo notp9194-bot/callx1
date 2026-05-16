@@ -14,15 +14,16 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
 import com.callx.app.reels.R;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.storage.FirebaseStorage;
-import com.google.firebase.storage.StorageReference;
+
 import java.io.File;
-import java.io.IOException;
+import java.util.HashMap;
 import java.util.Locale;
-import java.util.UUID;
+import java.util.Map;
 
 /**
  * ReelSoundRecorderActivity — Record original audio / voiceover for reels.
@@ -36,10 +37,13 @@ import java.util.UUID;
  *  ✅ 9 voice-effect presets applied at preview via AudioEffect + PlaybackParams:
  *       Normal | Echo | Reverb | Pitch Up | Pitch Down | Telephone | Helium | Underwater | Slow-Mo
  *  ✅ Save → returns local file path to caller (ReelEditorActivity / ReelAudioMixerActivity)
- *  ✅ "Publish as Sound" → uploads to Firebase Storage + writes musicLibrary entry
- *       so other users can discover and use the original sound in their reels
- *  ✅ Waveform bars grow/shrink based on mic amplitude in real time
+ *  ✅ "Publish as Sound" → uploads to Cloudinary (callx/sounds/) + writes musicLibrary
+ *       entry in Firebase Realtime DB so other users can discover the original sound
+ *  ✅ Waveform bars grow/shrink based on real mic amplitude
  *  ✅ Named sound title entry for publish flow
+ *
+ * Storage: Cloudinary (via CloudinaryUploader — server-signed upload, same as all
+ *          other media in this app). No Firebase Storage used.
  */
 public class ReelSoundRecorderActivity extends AppCompatActivity {
 
@@ -65,16 +69,15 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
     private MediaPlayer   player;
     private String        outputPath;
     private boolean       isRecording  = false;
-    private boolean       isPaused     = false;   // pause/resume
+    private boolean       isPaused     = false;
     private boolean       isPlaying    = false;
     private boolean       hasRecording = false;
     private long          recordStart  = 0;
-    private long          accumulatedMs= 0;        // accumulated from previous segments
+    private long          accumulatedMs= 0;
 
     private EnvironmentalReverb reverbEffect;
     private BassBoost           bassEffect;
 
-    // Effect ids (matching rgEffects radio buttons)
     private static final int E_NORMAL     = 0;
     private static final int E_ECHO       = 1;
     private static final int E_REVERB     = 2;
@@ -87,7 +90,6 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
     private int selectedEffect = E_NORMAL;
 
     private final Handler handler     = new Handler(Looper.getMainLooper());
-    private final Handler waveHandler = new Handler(Looper.getMainLooper());
 
     private final Runnable timerRunnable = new Runnable() {
         @Override public void run() {
@@ -135,12 +137,12 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
         etSoundTitle    = findViewById(R.id.et_sound_title);
         layoutPostRecord= findViewById(R.id.layout_post_record);
 
-        btnBack.setOnClickListener(v -> finish());
-        btnRecord.setOnClickListener(v -> handleRecordButton());
-        if (btnPlay   != null) btnPlay.setOnClickListener(v -> { if (isPlaying) stopPlayback(); else startPlayback(); });
-        if (btnRetake != null) btnRetake.setOnClickListener(v -> retake());
-        if (btnUse    != null) btnUse.setOnClickListener(v -> useRecording());
-        if (btnPublish!= null) btnPublish.setOnClickListener(v -> publishAsSound());
+        if (btnBack    != null) btnBack.setOnClickListener(v -> finish());
+        if (btnRecord  != null) btnRecord.setOnClickListener(v -> handleRecordButton());
+        if (btnPlay    != null) btnPlay.setOnClickListener(v -> { if (isPlaying) stopPlayback(); else startPlayback(); });
+        if (btnRetake  != null) btnRetake.setOnClickListener(v -> retake());
+        if (btnUse     != null) btnUse.setOnClickListener(v -> useRecording());
+        if (btnPublish != null) btnPublish.setOnClickListener(v -> publishAsSound());
 
         if (rgEffects != null) {
             rgEffects.setOnCheckedChangeListener((rg, id) -> {
@@ -173,43 +175,35 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
             lp.gravity = Gravity.BOTTOM;
             bar.setLayoutParams(lp);
             bar.setBackgroundColor(0x44FFFFFF);
-            bar.setTag("wBar");
             layoutWaveform.addView(bar);
         }
     }
 
-    /** Update waveform bars using actual mic amplitude. */
     private void updateWaveformAmplitude() {
         if (layoutWaveform == null || recorder == null) return;
         int amp = 0;
         try { amp = recorder.getMaxAmplitude(); } catch (Exception ignored) {}
-        float dp = getResources().getDisplayMetrics().density;
-        int count = layoutWaveform.getChildCount();
+        float dp    = getResources().getDisplayMetrics().density;
+        int   count = layoutWaveform.getChildCount();
         for (int i = 0; i < count; i++) {
-            View bar = layoutWaveform.getChildAt(i);
-            // shift: each bar takes the value of the next bar (scroll effect)
-            float ratio = (i == count - 1)
-                    ? Math.min(1f, amp / 28000f)
-                    : (layoutWaveform.getChildAt(i + 1).getLayoutParams().height
-                       / (float)(dp * 52));
-            int newH = Math.max((int)(6 * dp), (int)((6 + ratio * 46) * dp));
+            View bar   = layoutWaveform.getChildAt(i);
+            float prev = (i < count - 1)
+                    ? layoutWaveform.getChildAt(i + 1).getLayoutParams().height / dp
+                    : Math.min(52f, 6f + (amp / 28000f) * 46f);
+            int newH = Math.max((int)(6 * dp), (int)(prev * dp));
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) bar.getLayoutParams();
             lp.height = newH;
             bar.setLayoutParams(lp);
-            bar.setBackgroundColor(isRecording ? 0xFFFF3B5C : 0x44FFFFFF);
+            bar.setBackgroundColor(0xFFFF3B5C);
         }
     }
 
     // ── Recording ─────────────────────────────────────────────────────────
 
     private void handleRecordButton() {
-        if (!isRecording) {
-            startRecording();
-        } else if (!isPaused) {
-            pauseRecording();
-        } else {
-            resumeRecording();
-        }
+        if (!isRecording)      startRecording();
+        else if (!isPaused)    pauseRecording();
+        else                   resumeRecording();
     }
 
     private void startRecording() {
@@ -227,11 +221,11 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
             recorder.start();
             isRecording = true; isPaused = false; hasRecording = false;
             recordStart = System.currentTimeMillis();
-            btnRecord.setImageResource(R.drawable.ic_pause);
-            tvStatus.setText("Recording…");
+            if (btnRecord != null) btnRecord.setImageResource(R.drawable.ic_pause);
+            if (tvStatus  != null) tvStatus.setText("Recording…");
             setPostRecordVisible(false);
             handler.post(timerRunnable);
-        } catch (IOException e) {
+        } catch (java.io.IOException e) {
             Toast.makeText(this, "Failed to start recording", Toast.LENGTH_SHORT).show();
         }
     }
@@ -242,13 +236,10 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
                 recorder.pause();
                 isPaused = true;
                 accumulatedMs += System.currentTimeMillis() - recordStart;
-                btnRecord.setImageResource(R.drawable.ic_play);
-                tvStatus.setText("Paused — tap to resume");
+                if (btnRecord != null) btnRecord.setImageResource(R.drawable.ic_play);
+                if (tvStatus  != null) tvStatus.setText("Paused — tap to resume");
                 handler.removeCallbacks(timerRunnable);
-            } catch (Exception e) {
-                // Pause not supported — just stop
-                stopRecording();
-            }
+            } catch (Exception e) { stopRecording(); }
         } else {
             stopRecording();
         }
@@ -258,10 +249,10 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 recorder.resume();
-                isPaused = false;
-                recordStart = System.currentTimeMillis();
-                btnRecord.setImageResource(R.drawable.ic_pause);
-                tvStatus.setText("Recording…");
+                isPaused   = false;
+                recordStart= System.currentTimeMillis();
+                if (btnRecord != null) btnRecord.setImageResource(R.drawable.ic_pause);
+                if (tvStatus  != null) tvStatus.setText("Recording…");
                 handler.post(timerRunnable);
             } catch (Exception e) {
                 Toast.makeText(this, "Resume failed", Toast.LENGTH_SHORT).show();
@@ -277,10 +268,9 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
             recorder.release(); recorder = null;
         }
         isRecording = false; isPaused = false; hasRecording = true;
-        btnRecord.setImageResource(R.drawable.ic_reel_camera);
-        tvStatus.setText("Done — " + tvTimer.getText());
-        sbPlayback.setMax((int) accumulatedMs);
-        sbPlayback.setProgress(0);
+        if (btnRecord != null) btnRecord.setImageResource(R.drawable.ic_reel_camera);
+        if (tvStatus  != null) tvStatus.setText("Done — " + (tvTimer != null ? tvTimer.getText() : ""));
+        if (sbPlayback!= null) { sbPlayback.setMax((int) accumulatedMs); sbPlayback.setProgress(0); }
         buildStaticWaveform();
         setPostRecordVisible(true);
     }
@@ -298,7 +288,7 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
             player.start();
             isPlaying = true;
             if (btnPlay != null) btnPlay.setImageResource(R.drawable.ic_pause);
-            sbPlayback.setMax(player.getDuration());
+            if (sbPlayback != null) sbPlayback.setMax(player.getDuration());
             handler.post(playbackRunnable);
             player.setOnCompletionListener(mp -> stopPlayback());
         } catch (Exception e) {
@@ -310,9 +300,8 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
         if (player == null) return;
         int session = player.getAudioSessionId();
 
-        // Reverb / echo effects via EnvironmentalReverb
         boolean wantReverb = selectedEffect == E_REVERB || selectedEffect == E_ECHO
-                || selectedEffect == E_UNDERWATER || selectedEffect == E_SLOW_MO;
+                || selectedEffect == E_UNDERWATER;
         if (wantReverb) {
             try {
                 reverbEffect = new EnvironmentalReverb(0, session);
@@ -334,11 +323,6 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
                         reverbEffect.setReverbLevel((short) 2500);
                         reverbEffect.setDecayTime(5000);
                         reverbEffect.setDecayHFRatio((short) 100);
-                        reverbEffect.setDensity((short) 800);
-                        break;
-                    case E_SLOW_MO:
-                        reverbEffect.setReverbLevel((short) 500);
-                        reverbEffect.setDecayTime(1500);
                         break;
                 }
                 reverbEffect.setEnabled(true);
@@ -346,8 +330,6 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
                 player.setAuxEffectSendLevel(1.0f);
             } catch (Exception ignored) {}
         }
-
-        // Bass boost for telephone effect
         if (selectedEffect == E_TELEPHONE) {
             try {
                 bassEffect = new BassBoost(0, session);
@@ -355,8 +337,6 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
                 bassEffect.setEnabled(true);
             } catch (Exception ignored) {}
         }
-
-        // Pitch / speed shift
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 PlaybackParams pp = new PlaybackParams();
@@ -367,7 +347,7 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
                     case E_HELIUM:     pp.setPitch(1.80f); pp.setSpeed(1.2f); break;
                     case E_SLOW_MO:    pp.setSpeed(0.60f); break;
                     case E_TELEPHONE:  pp.setPitch(1.05f); break;
-                    default: pp.setPitch(1.0f); break;
+                    default:           pp.setPitch(1.0f);  break;
                 }
                 player.setPlaybackParams(pp);
             } catch (Exception ignored) {}
@@ -391,20 +371,19 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
         stopPlayback(); stopRecording();
         hasRecording = false; accumulatedMs = 0;
         if (outputPath != null) { new File(outputPath).delete(); outputPath = null; }
-        tvTimer.setText("00:00");
-        tvStatus.setText("Tap the mic to start recording");
+        if (tvTimer  != null) tvTimer.setText("00:00");
+        if (tvStatus != null) tvStatus.setText("Tap the mic to start recording");
         setPostRecordVisible(false);
         buildStaticWaveform();
     }
 
     private void useRecording() {
         if (!hasRecording || outputPath == null) {
-            Toast.makeText(this, "Nothing recorded yet", Toast.LENGTH_SHORT).show(); return;
+            Toast.makeText(this, "Nothing recorded yet", Toast.LENGTH_SHORT).show();
+            return;
         }
         stopPlayback();
-        String title = etSoundTitle != null && etSoundTitle.getText() != null
-                ? etSoundTitle.getText().toString().trim() : "";
-        if (title.isEmpty()) title = "Original Sound";
+        String title = getTitle();
         Intent result = new Intent();
         result.putExtra(RESULT_AUDIO_PATH,  outputPath);
         result.putExtra(RESULT_AUDIO_TITLE, title);
@@ -413,86 +392,99 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
     }
 
     /**
-     * Upload recorded sound to Firebase Storage + write to musicLibrary so
-     * other users can discover it in MusicPickerActivity.
+     * Upload recorded sound to Cloudinary (callx/sounds/) then write the track
+     * metadata to Firebase Realtime DB → musicLibrary/{trackId} so the sound
+     * is discoverable in MusicPickerActivity / ReelTrendingAudioActivity.
+     *
+     * Follows the same CloudinaryUploader pattern used throughout the app.
      */
     private void publishAsSound() {
         if (!hasRecording || outputPath == null) {
-            Toast.makeText(this, "Nothing recorded yet", Toast.LENGTH_SHORT).show(); return;
+            Toast.makeText(this, "Nothing recorded yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String title = getTitle();
+        if (title.isEmpty()) {
+            Toast.makeText(this, "Enter a name for your sound", Toast.LENGTH_SHORT).show();
+            return;
         }
         stopPlayback();
-        String title = etSoundTitle != null && etSoundTitle.getText() != null
-                ? etSoundTitle.getText().toString().trim() : "";
-        if (title.isEmpty()) { Toast.makeText(this, "Enter a name for your sound", Toast.LENGTH_SHORT).show(); return; }
 
         if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
         if (btnPublish  != null) btnPublish.setEnabled(false);
+        if (tvStatus    != null) tvStatus.setText("Uploading…");
 
         String uid = null;
-        String displayName = "Unknown";
         try { uid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) {}
-        final String finalUid  = uid != null ? uid : "anon";
+        final String finalUid   = uid != null ? uid : "anon";
         final String finalTitle = title;
+        final long   finalDur   = accumulatedMs;
 
-        String trackId = UUID.randomUUID().toString();
-        File   file    = new File(outputPath);
-
-        StorageReference storageRef = FirebaseStorage.getInstance()
-                .getReference("sounds/" + trackId + ".m4a");
-
-        storageRef.putFile(Uri.fromFile(file))
-                .addOnProgressListener(snap -> {
-                    double pct = (100.0 * snap.getBytesTransferred()) / snap.getTotalByteCount();
-                    if (tvStatus != null) tvStatus.setText("Uploading… " + (int) pct + "%");
-                })
-                .addOnSuccessListener(snap -> snap.getStorage().getDownloadUrl()
-                        .addOnSuccessListener(uri -> {
-                            // Write track metadata to musicLibrary
-                            DatabaseReference libRef = FirebaseUtils.getMusicLibraryRef().child(trackId);
-                            com.google.firebase.database.DataSnapshot ignored2 = null;
-                            java.util.Map<String, Object> meta = new java.util.HashMap<>();
-                            meta.put("trackId",       trackId);
-                            meta.put("title",         finalTitle);
-                            meta.put("name",          finalTitle);
-                            meta.put("artist",        displayName);
-                            meta.put("audioUrl",      uri.toString());
-                            meta.put("coverUrl",      "");
-                            meta.put("durationMs",    accumulatedMs);
-                            meta.put("usageCount",    0L);
-                            meta.put("trendingRank",  0L);
-                            meta.put("totalSaves",    0L);
-                            meta.put("isOriginalSound", true);
-                            meta.put("isVerified",    false);
-                            meta.put("uploadedByUid", finalUid);
-                            meta.put("addedAt",       System.currentTimeMillis());
-                            meta.put("genre",         "Original");
-                            libRef.setValue(meta)
-                                    .addOnSuccessListener(u -> {
-                                        if (progressBar != null) progressBar.setVisibility(View.GONE);
-                                        Toast.makeText(this, "\"" + finalTitle + "\" published!", Toast.LENGTH_LONG).show();
-                                        // Also use it in the reel
-                                        Intent result = new Intent();
-                                        result.putExtra(RESULT_AUDIO_PATH,  outputPath);
-                                        result.putExtra(RESULT_AUDIO_TITLE, finalTitle);
-                                        result.putExtra("published_sound_id",  trackId);
-                                        result.putExtra("published_sound_url", uri.toString());
-                                        setResult(RESULT_OK, result);
-                                        finish();
-                                    })
-                                    .addOnFailureListener(e -> {
-                                        if (progressBar != null) progressBar.setVisibility(View.GONE);
-                                        if (btnPublish != null) btnPublish.setEnabled(true);
-                                        Toast.makeText(this, "Metadata save failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                                    });
-                        }))
-                .addOnFailureListener(e -> {
+        Uri fileUri = Uri.fromFile(new File(outputPath));
+        CloudinaryUploader.upload(this, fileUri, "callx/sounds", "raw",
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result result) {
+                    String audioUrl = result.secureUrl;
+                    writeLibraryEntry(audioUrl, finalTitle, finalUid, finalDur);
+                }
+                @Override public void onError(String message) {
                     if (progressBar != null) progressBar.setVisibility(View.GONE);
-                    if (btnPublish != null) btnPublish.setEnabled(true);
-                    Toast.makeText(this, "Upload failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                });
+                    if (btnPublish  != null) btnPublish.setEnabled(true);
+                    if (tvStatus    != null) tvStatus.setText("Upload failed");
+                    Toast.makeText(ReelSoundRecorderActivity.this,
+                        "Upload failed: " + message, Toast.LENGTH_SHORT).show();
+                }
+            });
     }
 
-    // ── Misc ──────────────────────────────────────────────────────────────
+    private void writeLibraryEntry(String audioUrl, String title, String uid, long durationMs) {
+        String trackId = java.util.UUID.randomUUID().toString();
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("trackId",       trackId);
+        meta.put("title",         title);
+        meta.put("name",          title);
+        meta.put("artist",        "Original Sound");
+        meta.put("audioUrl",      audioUrl);
+        meta.put("coverUrl",      "");
+        meta.put("durationMs",    durationMs);
+        meta.put("usageCount",    0L);
+        meta.put("trendingRank",  0L);
+        meta.put("totalSaves",    0L);
+        meta.put("isOriginalSound", true);
+        meta.put("isVerified",    false);
+        meta.put("uploadedByUid", uid);
+        meta.put("addedAt",       System.currentTimeMillis());
+        meta.put("genre",         "Original");
+
+        FirebaseUtils.getMusicLibraryRef().child(trackId).setValue(meta)
+            .addOnSuccessListener(unused -> {
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                Toast.makeText(this, "\"" + title + "\" published!", Toast.LENGTH_LONG).show();
+                Intent result = new Intent();
+                result.putExtra(RESULT_AUDIO_PATH,       outputPath);
+                result.putExtra(RESULT_AUDIO_TITLE,      title);
+                result.putExtra("published_sound_id",    trackId);
+                result.putExtra("published_sound_url",   audioUrl);
+                setResult(RESULT_OK, result);
+                finish();
+            })
+            .addOnFailureListener(e -> {
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                if (btnPublish  != null) btnPublish.setEnabled(true);
+                if (tvStatus    != null) tvStatus.setText("Metadata save failed");
+                Toast.makeText(this, "Metadata failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            });
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private String getTitle() {
+        if (etSoundTitle != null && etSoundTitle.getText() != null) {
+            String t = etSoundTitle.getText().toString().trim();
+            if (!t.isEmpty()) return t;
+        }
+        return "Original Sound";
+    }
 
     private void releaseEffects() {
         if (reverbEffect != null) { try { reverbEffect.release(); } catch (Exception ignored) {} reverbEffect = null; }
@@ -501,15 +493,13 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
 
     private void setPostRecordVisible(boolean v) {
         int vis = v ? View.VISIBLE : View.GONE;
-        if (layoutPostRecord != null) layoutPostRecord.setVisibility(vis);
-        else {
-            if (btnPlay    != null) btnPlay.setVisibility(vis);
-            if (btnRetake  != null) btnRetake.setVisibility(vis);
-            if (btnUse     != null) btnUse.setVisibility(vis);
-            if (btnPublish != null) btnPublish.setVisibility(vis);
-            if (sbPlayback != null) sbPlayback.setVisibility(vis);
-            if (layoutEffects != null) layoutEffects.setVisibility(vis);
-        }
+        if (layoutPostRecord != null) { layoutPostRecord.setVisibility(vis); return; }
+        if (btnPlay     != null) btnPlay.setVisibility(vis);
+        if (btnRetake   != null) btnRetake.setVisibility(vis);
+        if (btnUse      != null) btnUse.setVisibility(vis);
+        if (btnPublish  != null) btnPublish.setVisibility(vis);
+        if (sbPlayback  != null) sbPlayback.setVisibility(vis);
+        if (layoutEffects!= null) layoutEffects.setVisibility(vis);
     }
 
     private void checkPermission() {
@@ -520,9 +510,9 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
         }
     }
 
-    @Override public void onRequestPermissionsResult(int rc, @NonNull String[] perms, @NonNull int[] results) {
-        super.onRequestPermissionsResult(rc, perms, results);
-        if (rc == RC_AUDIO && (results.length == 0 || results[0] != PackageManager.PERMISSION_GRANTED)) {
+    @Override public void onRequestPermissionsResult(int rc, @NonNull String[] p, @NonNull int[] r) {
+        super.onRequestPermissionsResult(rc, p, r);
+        if (rc == RC_AUDIO && (r.length == 0 || r[0] != PackageManager.PERMISSION_GRANTED)) {
             Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show();
             finish();
         }
@@ -530,10 +520,12 @@ public class ReelSoundRecorderActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
-        waveHandler.removeCallbacksAndMessages(null);
         releaseEffects();
         stopPlayback();
-        if (isRecording) { try { recorder.stop(); } catch (Exception ignored) {} if (recorder != null) { recorder.release(); recorder = null; } }
+        if (isRecording && recorder != null) {
+            try { recorder.stop(); } catch (Exception ignored) {}
+            recorder.release(); recorder = null;
+        }
         super.onDestroy();
     }
 

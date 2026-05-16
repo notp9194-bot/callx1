@@ -1,24 +1,24 @@
 package com.callx.app.activities;
 
 import android.content.Intent;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.*;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
 import com.callx.app.reels.R;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
-import com.google.firebase.storage.FirebaseStorage;
-import com.google.firebase.storage.StorageReference;
 
-import java.io.File;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -30,11 +30,14 @@ import java.util.UUID;
  *  ✅ Preview selected audio inline (MediaPlayer)
  *  ✅ Fill metadata: title, artist, genre, BPM
  *  ✅ Choose visibility: Everyone / Followers Only / Private
- *  ✅ Upload to Firebase Storage → sounds/{trackId}.m4a
- *  ✅ Write musicLibrary entry so everyone can use the sound in their reels
+ *  ✅ Upload to Cloudinary (callx/sounds/) via CloudinaryUploader — same pattern as
+ *       all other media in this app (server-signed, direct to Cloudinary)
+ *  ✅ Write musicLibrary entry in Firebase Realtime DB
  *  ✅ Progress bar and percentage during upload
  *  ✅ "Original Sound" badge auto-applied to uploader's tracks
  *  ✅ Returns uploaded trackId + audioUrl to caller
+ *
+ * Storage: Cloudinary. No Firebase Storage. Follows CloudinaryUploader pattern.
  */
 public class SoundUploadActivity extends AppCompatActivity {
 
@@ -48,16 +51,14 @@ public class SoundUploadActivity extends AppCompatActivity {
     private ImageButton btnBack;
     private EditText    etTitle, etArtist, etBpm;
     private Spinner     spinnerGenre, spinnerVisibility;
-    private TextView    tvFileName, tvDuration;
+    private TextView    tvFileName, tvDuration, tvUploadPct;
     private ProgressBar progressUpload;
-    private TextView    tvUploadPct;
     private View        layoutPreview;
     private LinearLayout layoutMeta;
 
-    private Uri         selectedUri;
-    private String      selectedPath;
-    private long        durationMs;
-    private boolean     isPreviewing = false;
+    private Uri     selectedUri;
+    private long    durationMs;
+    private boolean isPreviewing = false;
     private MediaPlayer player;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -89,26 +90,29 @@ public class SoundUploadActivity extends AppCompatActivity {
     }
 
     private void bindViews() {
-        btnBack          = findViewById(R.id.btn_sound_upload_back);
-        btnPickFile      = findViewById(R.id.btn_pick_audio_file);
-        btnPreview       = findViewById(R.id.btn_upload_preview);
-        btnUpload        = findViewById(R.id.btn_upload_sound);
-        etTitle          = findViewById(R.id.et_upload_title);
-        etArtist         = findViewById(R.id.et_upload_artist);
-        etBpm            = findViewById(R.id.et_upload_bpm);
-        spinnerGenre     = findViewById(R.id.spinner_upload_genre);
-        spinnerVisibility= findViewById(R.id.spinner_upload_visibility);
-        tvFileName       = findViewById(R.id.tv_upload_filename);
-        tvDuration       = findViewById(R.id.tv_upload_duration);
-        progressUpload   = findViewById(R.id.progress_upload_sound);
-        tvUploadPct      = findViewById(R.id.tv_upload_pct);
-        layoutPreview    = findViewById(R.id.layout_upload_preview);
-        layoutMeta       = findViewById(R.id.layout_upload_meta);
+        btnBack           = findViewById(R.id.btn_sound_upload_back);
+        btnPickFile       = findViewById(R.id.btn_pick_audio_file);
+        btnPreview        = findViewById(R.id.btn_upload_preview);
+        btnUpload         = findViewById(R.id.btn_upload_sound);
+        etTitle           = findViewById(R.id.et_upload_title);
+        etArtist          = findViewById(R.id.et_upload_artist);
+        etBpm             = findViewById(R.id.et_upload_bpm);
+        spinnerGenre      = findViewById(R.id.spinner_upload_genre);
+        spinnerVisibility = findViewById(R.id.spinner_upload_visibility);
+        tvFileName        = findViewById(R.id.tv_upload_filename);
+        tvDuration        = findViewById(R.id.tv_upload_duration);
+        progressUpload    = findViewById(R.id.progress_upload_sound);
+        tvUploadPct       = findViewById(R.id.tv_upload_pct);
+        layoutPreview     = findViewById(R.id.layout_upload_preview);
+        layoutMeta        = findViewById(R.id.layout_upload_meta);
 
         if (btnBack     != null) btnBack.setOnClickListener(v -> finish());
         if (btnPickFile != null) btnPickFile.setOnClickListener(v -> pickAudio());
         if (btnPreview  != null) btnPreview.setOnClickListener(v -> togglePreview());
-        if (btnUpload   != null) btnUpload.setOnClickListener(v -> startUpload());
+        if (btnUpload   != null) {
+            btnUpload.setOnClickListener(v -> startUpload());
+            btnUpload.setEnabled(false);
+        }
     }
 
     private void setupSpinners() {
@@ -117,6 +121,10 @@ public class SoundUploadActivity extends AppCompatActivity {
                     android.R.layout.simple_spinner_item, GENRES);
             ga.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
             spinnerGenre.setAdapter(ga);
+            // Default to "Original"
+            for (int i = 0; i < GENRES.length; i++) {
+                if ("Original".equals(GENRES[i])) { spinnerGenre.setSelection(i); break; }
+            }
         }
         if (spinnerVisibility != null) {
             ArrayAdapter<String> va = new ArrayAdapter<>(this,
@@ -146,44 +154,39 @@ public class SoundUploadActivity extends AppCompatActivity {
 
     private void onFileSelected() {
         stopPreview();
-        // Get file name
+
+        // Resolve display name
         String name = "Selected audio";
         android.database.Cursor cursor = null;
         try {
             cursor = getContentResolver().query(selectedUri,
-                    new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null);
-            if (cursor != null && cursor.moveToFirst()) {
-                name = cursor.getString(0);
-            }
+                    new String[]{android.provider.OpenableColumns.DISPLAY_NAME},
+                    null, null, null);
+            if (cursor != null && cursor.moveToFirst()) name = cursor.getString(0);
         } finally { if (cursor != null) cursor.close(); }
 
         if (tvFileName != null) tvFileName.setText(name);
 
-        // Auto-fill title from filename
+        // Auto-fill title from filename (strip extension)
         if (etTitle != null && etTitle.getText().toString().trim().isEmpty()) {
-            String autoTitle = name.replaceAll("\\.[^.]+$", "").replace("_", " ").trim();
-            etTitle.setText(autoTitle);
+            etTitle.setText(name.replaceAll("\\.[^.]+$", "").replace("_", " ").trim());
         }
 
-        // Get duration
-        android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+        // Duration via MediaMetadataRetriever
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
         try {
             mmr.setDataSource(this, selectedUri);
-            String durStr = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+            String durStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
             durationMs = durStr != null ? Long.parseLong(durStr) : 0;
             if (tvDuration != null && durationMs > 0) {
                 int sec = (int)(durationMs / 1000);
-                tvDuration.setText(String.format(java.util.Locale.US, "%d:%02d", sec / 60, sec % 60));
+                tvDuration.setText(String.format(Locale.US, "%d:%02d", sec / 60, sec % 60));
             }
-            // Auto-fill BPM if available
-            String bpmStr = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
-            // Note: BPM is not always in metadata; user fills it manually
         } catch (Exception ignored) {
         } finally { try { mmr.release(); } catch (Exception ignored2) {} }
 
         if (layoutPreview != null) layoutPreview.setVisibility(View.VISIBLE);
         setMetaVisible(true);
-        if (btnUpload != null) btnUpload.setEnabled(true);
     }
 
     // ── Preview ───────────────────────────────────────────────────────────
@@ -197,7 +200,6 @@ public class SoundUploadActivity extends AppCompatActivity {
         try {
             player = new MediaPlayer();
             player.setDataSource(this, selectedUri);
-            player.setLooping(false);
             player.prepareAsync();
             player.setOnPreparedListener(MediaPlayer::start);
             player.setOnCompletionListener(mp -> handler.post(this::stopPreview));
@@ -218,102 +220,103 @@ public class SoundUploadActivity extends AppCompatActivity {
         }
     }
 
-    // ── Upload ────────────────────────────────────────────────────────────
+    // ── Upload via Cloudinary ─────────────────────────────────────────────
 
     private void startUpload() {
+        if (selectedUri == null) {
+            Toast.makeText(this, "No file selected", Toast.LENGTH_SHORT).show(); return;
+        }
         String title = etTitle != null ? etTitle.getText().toString().trim() : "";
-        if (title.isEmpty()) { etTitle.setError("Title is required"); etTitle.requestFocus(); return; }
-        if (selectedUri == null) { Toast.makeText(this, "No file selected", Toast.LENGTH_SHORT).show(); return; }
+        if (title.isEmpty()) {
+            if (etTitle != null) { etTitle.setError("Title is required"); etTitle.requestFocus(); }
+            return;
+        }
 
         stopPreview();
 
-        String artist  = etArtist  != null ? etArtist.getText().toString().trim()  : "";
-        String bpmStr  = etBpm     != null ? etBpm.getText().toString().trim()      : "";
-        int    bpm     = 0;
+        String artist = etArtist != null ? etArtist.getText().toString().trim() : "";
+        String bpmStr = etBpm    != null ? etBpm.getText().toString().trim()    : "";
+        int    bpm    = 0;
         try { if (!bpmStr.isEmpty()) bpm = Integer.parseInt(bpmStr); } catch (Exception ignored) {}
-        String genre   = spinnerGenre != null ? GENRES[spinnerGenre.getSelectedItemPosition()] : "Other";
-        String visStr  = spinnerVisibility != null ? VISIBILITY[spinnerVisibility.getSelectedItemPosition()] : "Everyone";
+        String genre  = spinnerGenre     != null ? GENRES[spinnerGenre.getSelectedItemPosition()]         : "Other";
+        String vis    = spinnerVisibility!= null ? VISIBILITY[spinnerVisibility.getSelectedItemPosition()]: "Everyone";
 
         String uid = null;
         try { uid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) {}
-        final String finalUid = uid != null ? uid : "anon";
-
-        if (btnUpload    != null) btnUpload.setEnabled(false);
-        if (progressUpload != null) progressUpload.setVisibility(View.VISIBLE);
-        if (tvUploadPct  != null) tvUploadPct.setVisibility(View.VISIBLE);
-
-        String trackId = UUID.randomUUID().toString();
-        StorageReference ref = FirebaseStorage.getInstance()
-                .getReference("sounds/" + trackId);
-
+        final String finalUid    = uid != null ? uid : "anon";
         final String finalTitle  = title;
         final String finalArtist = artist.isEmpty() ? "Unknown Artist" : artist;
         final int    finalBpm    = bpm;
         final String finalGenre  = genre;
-        final String finalVis    = visStr;
+        final String finalVis    = vis.toLowerCase().replace(" ", "_");
         final long   finalDur    = durationMs;
 
-        ref.putFile(selectedUri)
-                .addOnProgressListener(snap -> {
-                    double pct = (100.0 * snap.getBytesTransferred()) / snap.getTotalByteCount();
-                    if (progressUpload != null) progressUpload.setProgress((int) pct);
-                    if (tvUploadPct != null) tvUploadPct.setText((int) pct + "%");
-                })
-                .addOnSuccessListener(snap -> snap.getStorage().getDownloadUrl()
-                        .addOnSuccessListener(uri -> {
-                            writeLibraryEntry(trackId, uri.toString(), finalTitle,
-                                    finalArtist, finalGenre, finalBpm, finalDur,
-                                    finalUid, finalVis);
-                        }))
-                .addOnFailureListener(e -> {
+        if (btnUpload    != null) btnUpload.setEnabled(false);
+        if (progressUpload != null) progressUpload.setVisibility(View.VISIBLE);
+        if (tvUploadPct  != null) tvUploadPct.setVisibility(View.VISIBLE);
+        if (tvUploadPct  != null) tvUploadPct.setText("Uploading…");
+
+        // CloudinaryUploader.upload handles server-signing + direct Cloudinary upload
+        // Use resource_type "raw" for audio files (not "video" or "image")
+        CloudinaryUploader.upload(this, selectedUri, "callx/sounds", "raw",
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result result) {
+                    if (tvUploadPct != null) tvUploadPct.setText("Saving…");
+                    writeLibraryEntry(result.secureUrl, finalTitle, finalArtist,
+                            finalGenre, finalBpm, finalDur, finalUid, finalVis);
+                }
+                @Override public void onError(String message) {
                     if (progressUpload != null) progressUpload.setVisibility(View.GONE);
-                    if (tvUploadPct != null) tvUploadPct.setVisibility(View.GONE);
-                    if (btnUpload != null) btnUpload.setEnabled(true);
-                    Toast.makeText(this, "Upload failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                });
+                    if (tvUploadPct   != null) tvUploadPct.setVisibility(View.GONE);
+                    if (btnUpload     != null) btnUpload.setEnabled(true);
+                    Toast.makeText(SoundUploadActivity.this,
+                        "Upload failed: " + message, Toast.LENGTH_SHORT).show();
+                }
+            });
     }
 
-    private void writeLibraryEntry(String trackId, String audioUrl, String title,
-            String artist, String genre, int bpm, long durationMs,
-            String uid, String visibility) {
+    private void writeLibraryEntry(String audioUrl, String title, String artist,
+            String genre, int bpm, long dur, String uid, String visibility) {
+
+        String trackId = UUID.randomUUID().toString();
 
         Map<String, Object> meta = new HashMap<>();
-        meta.put("trackId",       trackId);
-        meta.put("title",         title);
-        meta.put("name",          title);
-        meta.put("artist",        artist);
-        meta.put("audioUrl",      audioUrl);
-        meta.put("coverUrl",      "");
-        meta.put("durationMs",    durationMs);
-        meta.put("usageCount",    0L);
-        meta.put("trendingRank",  0L);
-        meta.put("totalSaves",    0L);
-        meta.put("bpm",           bpm);
-        meta.put("genre",         genre);
+        meta.put("trackId",         trackId);
+        meta.put("title",           title);
+        meta.put("name",            title);
+        meta.put("artist",          artist);
+        meta.put("audioUrl",        audioUrl);
+        meta.put("coverUrl",        "");
+        meta.put("durationMs",      dur);
+        meta.put("usageCount",      0L);
+        meta.put("trendingRank",    0L);
+        meta.put("totalSaves",      0L);
+        meta.put("bpm",             bpm);
+        meta.put("genre",           genre);
         meta.put("isOriginalSound", true);
-        meta.put("isVerified",    false);
-        meta.put("uploadedByUid", uid);
-        meta.put("addedAt",       System.currentTimeMillis());
-        meta.put("visibility",    visibility.toLowerCase().replace(" ", "_"));
+        meta.put("isVerified",      false);
+        meta.put("uploadedByUid",   uid);
+        meta.put("addedAt",         System.currentTimeMillis());
+        meta.put("visibility",      visibility);
 
         FirebaseUtils.getMusicLibraryRef().child(trackId).setValue(meta)
-                .addOnSuccessListener(unused -> {
-                    if (progressUpload != null) progressUpload.setVisibility(View.GONE);
-                    if (tvUploadPct != null) tvUploadPct.setVisibility(View.GONE);
-                    Toast.makeText(this, "\"" + title + "\" uploaded successfully!", Toast.LENGTH_LONG).show();
-                    Intent result = new Intent();
-                    result.putExtra(RESULT_TRACK_ID,  trackId);
-                    result.putExtra(RESULT_AUDIO_URL, audioUrl);
-                    result.putExtra(RESULT_TITLE,     title);
-                    setResult(RESULT_OK, result);
-                    finish();
-                })
-                .addOnFailureListener(e -> {
-                    if (progressUpload != null) progressUpload.setVisibility(View.GONE);
-                    if (tvUploadPct != null) tvUploadPct.setVisibility(View.GONE);
-                    if (btnUpload != null) btnUpload.setEnabled(true);
-                    Toast.makeText(this, "Metadata failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                });
+            .addOnSuccessListener(unused -> {
+                if (progressUpload != null) progressUpload.setVisibility(View.GONE);
+                if (tvUploadPct   != null) tvUploadPct.setVisibility(View.GONE);
+                Toast.makeText(this, "\"" + title + "\" uploaded!", Toast.LENGTH_LONG).show();
+                Intent result = new Intent();
+                result.putExtra(RESULT_TRACK_ID,  trackId);
+                result.putExtra(RESULT_AUDIO_URL, audioUrl);
+                result.putExtra(RESULT_TITLE,     title);
+                setResult(RESULT_OK, result);
+                finish();
+            })
+            .addOnFailureListener(e -> {
+                if (progressUpload != null) progressUpload.setVisibility(View.GONE);
+                if (tvUploadPct   != null) tvUploadPct.setVisibility(View.GONE);
+                if (btnUpload     != null) btnUpload.setEnabled(true);
+                Toast.makeText(this, "Metadata failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            });
     }
 
     private void setMetaVisible(boolean v) {
