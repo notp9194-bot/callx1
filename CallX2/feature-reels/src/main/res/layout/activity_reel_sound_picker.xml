@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#0D0D0D">
+
+    <!-- Toolbar -->
+    <RelativeLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:paddingHorizontal="12dp">
+        <ImageButton android:id="@+id/btn_picker_back"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:layout_centerVertical="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="Sounds" android:textColor="#FFFFFF"
+            android:textSize="17sp" android:textStyle="bold"/>
+    </RelativeLayout>
+
+    <!-- Now playing banner -->
+    <TextView android:id="@+id/tv_picker_now_playing"
+        android:layout_width="match_parent" android:layout_height="32dp"
+        android:gravity="center_vertical" android:paddingHorizontal="16dp"
+        android:background="#FF3B5C" android:textColor="#FFFFFF"
+        android:textSize="13sp" android:singleLine="true"
+        android:ellipsize="marquee" android:visibility="gone"/>
+
+    <!-- No music option -->
+    <TextView android:id="@+id/btn_picker_no_music"
+        android:layout_width="match_parent" android:layout_height="48dp"
+        android:text="🚫  No Music (Original Audio)"
+        android:textColor="#AAAAAA" android:textSize="14sp"
+        android:gravity="center_vertical" android:paddingHorizontal="16dp"
+        android:background="?attr/selectableItemBackground"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#222222"/>
+
+    <!-- Search bar -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:background="#1A1A1A" android:paddingHorizontal="12dp"
+        android:layout_margin="10dp">
+        <ImageView android:layout_width="18dp" android:layout_height="18dp"
+            android:src="@drawable/ic_search" android:tint="#666666"/>
+        <EditText android:id="@+id/et_picker_search"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:layout_marginStart="8dp"
+            android:hint="Search sounds, artists..." android:textColor="#FFFFFF"
+            android:textColorHint="#555555" android:background="@null"
+            android:textSize="14sp" android:singleLine="true"/>
+    </LinearLayout>
+
+    <!-- Genre chips -->
+    <HorizontalScrollView android:layout_width="match_parent" android:layout_height="44dp"
+        android:scrollbars="none" android:paddingHorizontal="8dp">
+        <LinearLayout android:id="@+id/layout_picker_genres"
+            android:layout_width="wrap_content" android:layout_height="match_parent"
+            android:orientation="horizontal" android:gravity="center_vertical"/>
+    </HorizontalScrollView>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1E1E1E" android:layout_marginTop="4dp"/>
+
+    <!-- Shortcuts row -->
+    <LinearLayout android:id="@+id/layout_picker_shortcuts"
+        android:layout_width="match_parent" android:layout_height="52dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="8dp">
+
+        <LinearLayout android:id="@+id/btn_picker_record"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center" android:layout_marginHorizontal="4dp"
+            android:background="@drawable/bg_sort_chip">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="🎙" android:textSize="14sp"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Record" android:textColor="#FFFFFF" android:textSize="10sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/btn_picker_upload"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center" android:layout_marginHorizontal="4dp"
+            android:background="@drawable/bg_sort_chip">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="⬆️" android:textSize="14sp"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Upload" android:textColor="#FFFFFF" android:textSize="10sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/btn_picker_beat_sync"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center" android:layout_marginHorizontal="4dp"
+            android:background="@drawable/bg_sort_chip">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="🥁" android:textSize="14sp"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Beat Sync" android:textColor="#FFFFFF" android:textSize="10sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/btn_picker_eq"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center" android:layout_marginHorizontal="4dp"
+            android:background="@drawable/bg_sort_chip">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="🎛️" android:textSize="14sp"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="EQ" android:textColor="#FFFFFF" android:textSize="10sp"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1E1E1E"/>
+
+    <!-- Track list -->
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_picker_tracks"
+            android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipToPadding="false" android:paddingBottom="16dp"/>
+
+        <ProgressBar android:id="@+id/progress_picker_load"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:visibility="gone"/>
+
+        <LinearLayout android:id="@+id/layout_picker_empty"
+            android:layout_width="match_parent" android:layout_height="match_parent"
+            android:orientation="vertical" android:gravity="center"
+            android:visibility="gone">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="🎵" android:textSize="48sp"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="No sounds found" android:textColor="#666666"
+                android:textSize="15sp" android:layout_marginTop="8dp"/>
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>
