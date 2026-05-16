@@ -171,7 +171,8 @@ dependencies {
     implementation 'com.squareup.okio:okio:3.6.0'
 
     // Media
-    implementation 'com.linkedin.android.litr:litr:1.5.1'
+    // LiTr removed (v25) — video compression ab server pe hoti hai
+    // implementation 'com.linkedin.android.litr:litr:1.5.1'
 
     // Image Loading
     implementation 'com.github.bumptech.glide:glide:4.16.0'

@@ -28,21 +28,18 @@ import java.util.*;
  * MusicPickerActivity — Production-level music picker for Reels.
  *
  * Features:
- *  ✅ Genre/mood category chips (All, For You, Trending, Pop, Hip-Hop, Romantic, Chill, EDM,
- *       Lo-Fi, Dance, Acoustic, R&B, Classical, Bollywood, Original)
- *  ✅ "For You" tab — personalised suggestions based on user's recent reel music
- *  ✅ Recently used tracks section at top (max 5, from SharedPreferences)
+ *  ✅ Genre/mood category chips (All, Trending, Pop, Hip-Hop, Romantic, Chill, EDM, Lo-Fi, Dance)
+ *  ✅ Recently used tracks section at top (max 5, stored in SharedPreferences)
  *  ✅ Cover art per row via Glide
  *  ✅ Duration display (mm:ss)
- *  ✅ Usage count badge + Trending rank badge
+ *  ✅ Usage count badge
+ *  ✅ Trending rank badge
  *  ✅ Save/bookmark button per track (written to Firebase)
- *  ✅ Real-time search filter (name / artist / genre / mood)
- *  ✅ Play/pause 30s preview via MediaPlayer (auto-stop when another starts)
+ *  ✅ Real-time search filter (name / artist / genre)
+ *  ✅ Play/pause 30s preview via MediaPlayer
  *  ✅ "No Music" option to clear selection
  *  ✅ Long-press → SoundDetailActivity
- *  ✅ Quick-access buttons: Saved Sounds / Trending Audio / Record Sound / Upload Sound
- *  ✅ Beat Sync shortcut button → ReelBeatSyncActivity
- *  ✅ Equalizer shortcut button → ReelEqualizerActivity
+ *  ✅ Saved Sounds / Trending Audio / Record Sound quick-access buttons
  */
 public class MusicPickerActivity extends AppCompatActivity
         implements MusicTrackAdapter.OnTrackActionListener {
@@ -52,20 +49,16 @@ public class MusicPickerActivity extends AppCompatActivity
     public static final String EXTRA_MUSIC_ID         = "music_id";
     public static final String EXTRA_MUSIC_COVER_URL  = "music_cover_url";
     public static final String EXTRA_MUSIC_ARTIST     = "music_artist";
-    public static final String EXTRA_VIDEO_URI        = "video_uri";   // for Beat Sync
 
-    private static final String PREFS_RECENT   = "music_picker_recent";
-    private static final String PREFS_HISTORY  = "music_picker_history";
-    private static final int    MAX_RECENT     = 5;
-    private static final int    MAX_FOR_YOU    = 30;
+    private static final String PREFS_RECENT = "music_picker_recent";
+    private static final int    MAX_RECENT   = 5;
 
     private RecyclerView      rvTracks, rvRecent;
     private EditText          etSearch;
     private ProgressBar       progressBar;
     private View              layoutEmpty;
     private TextView          btnNoMusic;
-    private View              btnSavedSounds, btnTrendingAudio, btnRecordSound,
-                              btnUploadSound, btnBeatSync, btnEqualizer;
+    private View              btnSavedSounds, btnTrendingAudio, btnRecordSound;
     private LinearLayout      layoutCategoryChips;
     private View              layoutRecentSection;
     private TextView          tvRecentLabel;
@@ -81,13 +74,12 @@ public class MusicPickerActivity extends AppCompatActivity
     private MusicTrack   currentlyPlaying;
     private int          currentlyPlayingPos = -1;
 
-    private Set<String>  savedIds       = new HashSet<>();
-    private Set<String>  historyGenres  = new LinkedHashSet<>(); // genres from user's recent reels
+    private Set<String>  savedIds = new HashSet<>();
     private String       myUid;
 
     private static final String[] GENRE_CHIPS = {
-        "All", "For You", "Trending", "Pop", "Hip-Hop", "Romantic", "Chill", "EDM",
-        "Lo-Fi", "Dance", "Acoustic", "R&B", "Classical", "Bollywood", "Original"
+        "All", "Trending", "Pop", "Hip-Hop", "Romantic", "Chill", "EDM", "Lo-Fi", "Dance",
+        "Acoustic", "R&B", "Classical", "Bollywood", "Original"
     };
 
     @Override
@@ -95,7 +87,8 @@ public class MusicPickerActivity extends AppCompatActivity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_music_picker);
 
-        try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
+        try { myUid = FirebaseUtils.getCurrentUid(); }
+        catch (Exception e) { myUid = null; }
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
@@ -106,7 +99,6 @@ public class MusicPickerActivity extends AppCompatActivity
         toolbar.setNavigationOnClickListener(v -> finish());
 
         bindViews();
-        loadListeningHistory();
         setupCategoryChips();
         setupRecyclers();
         setupSearch();
@@ -114,17 +106,15 @@ public class MusicPickerActivity extends AppCompatActivity
         loadMusicLibrary();
         loadRecentTracks();
 
-        if (btnNoMusic != null) {
-            btnNoMusic.setOnClickListener(v -> {
-                stopPreview();
-                Intent result = new Intent();
-                result.putExtra(EXTRA_MUSIC_NAME, "");
-                result.putExtra(EXTRA_MUSIC_URL,  "");
-                result.putExtra(EXTRA_MUSIC_ID,   "");
-                setResult(RESULT_OK, result);
-                finish();
-            });
-        }
+        btnNoMusic.setOnClickListener(v -> {
+            stopPreview();
+            Intent result = new Intent();
+            result.putExtra(EXTRA_MUSIC_NAME, "");
+            result.putExtra(EXTRA_MUSIC_URL,  "");
+            result.putExtra(EXTRA_MUSIC_ID,   "");
+            setResult(RESULT_OK, result);
+            finish();
+        });
     }
 
     private void bindViews() {
@@ -137,74 +127,26 @@ public class MusicPickerActivity extends AppCompatActivity
         btnSavedSounds      = findViewById(R.id.btn_saved_sounds);
         btnTrendingAudio    = findViewById(R.id.btn_trending_audio);
         btnRecordSound      = findViewById(R.id.btn_record_sound);
-        btnUploadSound      = findViewById(R.id.btn_upload_sound);
-        btnBeatSync         = findViewById(R.id.btn_beat_sync);
-        btnEqualizer        = findViewById(R.id.btn_equalizer);
         layoutCategoryChips = findViewById(R.id.layout_category_chips);
         layoutRecentSection = findViewById(R.id.layout_recent_section);
         tvRecentLabel       = findViewById(R.id.tv_recent_label);
 
-        if (btnSavedSounds != null) btnSavedSounds.setOnClickListener(v ->
+        if (btnSavedSounds   != null) btnSavedSounds.setOnClickListener(v   ->
             startActivity(new Intent(this, SavedSoundsActivity.class)));
         if (btnTrendingAudio != null) btnTrendingAudio.setOnClickListener(v ->
             startActivity(new Intent(this, ReelTrendingAudioActivity.class)));
-        if (btnRecordSound != null) btnRecordSound.setOnClickListener(v ->
+        if (btnRecordSound   != null) btnRecordSound.setOnClickListener(v   ->
             startActivity(new Intent(this, ReelSoundRecorderActivity.class)));
-        if (btnUploadSound != null) btnUploadSound.setOnClickListener(v ->
-            startActivity(new Intent(this, SoundUploadActivity.class)));
-        if (btnBeatSync != null) btnBeatSync.setOnClickListener(v -> {
-            Intent i = new Intent(this, ReelBeatSyncActivity.class);
-            String videoUri = getIntent().getStringExtra(EXTRA_VIDEO_URI);
-            if (videoUri != null) i.putExtra(ReelBeatSyncActivity.EXTRA_AUDIO_URL, videoUri);
-            startActivity(i);
-        });
-        if (btnEqualizer != null) btnEqualizer.setOnClickListener(v ->
-            startActivity(new Intent(this, ReelEqualizerActivity.class)));
-    }
-
-    /** Load recent reel genres from the user's own reels for "For You" personalisation. */
-    private void loadListeningHistory() {
-        if (myUid == null) return;
-        android.content.SharedPreferences prefs = getSharedPreferences(PREFS_HISTORY, MODE_PRIVATE);
-        String saved = prefs.getString("genres", "");
-        if (!saved.isEmpty()) {
-            historyGenres.addAll(Arrays.asList(saved.split(",")));
-        }
-
-        // Also fetch from Firebase for richer signal (async, non-blocking)
-        FirebaseUtils.db().getReference("reels").orderByChild("uid").equalTo(myUid)
-            .limitToLast(20)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    for (DataSnapshot s : snap.getChildren()) {
-                        String g = s.child("musicGenre").getValue(String.class);
-                        if (g == null) g = s.child("genre").getValue(String.class);
-                        if (g != null && !g.isEmpty()) historyGenres.add(g.toLowerCase());
-                        // Also consider the music used in others' reels the user watched
-                        // (this would require a separate watch-history node)
-                    }
-                    // Persist
-                    String joined = String.join(",", historyGenres);
-                    getSharedPreferences(PREFS_HISTORY, MODE_PRIVATE)
-                        .edit().putString("genres", joined).apply();
-
-                    if ("for_you".equals(selectedGenre)) filterTracks(
-                        etSearch != null && etSearch.getText() != null
-                            ? etSearch.getText().toString() : "");
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
     }
 
     private void setupCategoryChips() {
         if (layoutCategoryChips == null) return;
         layoutCategoryChips.removeAllViews();
 
-        float dp = getResources().getDisplayMetrics().density;
-        int dp8  = (int)(8  * dp);
-        int dp16 = (int)(16 * dp);
-        int dp6  = (int)(6  * dp);
-        int dp36 = (int)(36 * dp);
+        int dp8  = (int)(8  * getResources().getDisplayMetrics().density);
+        int dp16 = (int)(16 * getResources().getDisplayMetrics().density);
+        int dp6  = (int)(6  * getResources().getDisplayMetrics().density);
+        int dp36 = (int)(36 * getResources().getDisplayMetrics().density);
 
         for (String genre : GENRE_CHIPS) {
             TextView chip = new TextView(this);
@@ -218,7 +160,8 @@ public class MusicPickerActivity extends AppCompatActivity
             chip.setFocusable(true);
 
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(0, 0, dp8, 0);
             chip.setLayoutParams(lp);
 
@@ -226,16 +169,12 @@ public class MusicPickerActivity extends AppCompatActivity
             setChipActive(chip, active);
 
             chip.setOnClickListener(v -> {
-                if      (genre.equalsIgnoreCase("All"))     selectedGenre = "all";
-                else if (genre.equalsIgnoreCase("For You")) selectedGenre = "for_you";
-                else if (genre.equalsIgnoreCase("Trending"))selectedGenre = "trending";
-                else                                        selectedGenre = genre.toLowerCase();
-
+                selectedGenre = genre.equalsIgnoreCase("All") ? "all" : genre.toLowerCase();
                 for (int i = 0; i < layoutCategoryChips.getChildCount(); i++) {
                     View c = layoutCategoryChips.getChildAt(i);
                     if (c instanceof TextView) setChipActive((TextView) c, c == chip);
                 }
-                filterTracks(etSearch != null && etSearch.getText() != null
+                filterTracks(etSearch.getText() != null
                     ? etSearch.getText().toString() : "");
             });
             layoutCategoryChips.addView(chip);
@@ -254,14 +193,12 @@ public class MusicPickerActivity extends AppCompatActivity
 
     private void setupRecyclers() {
         adapter = new MusicTrackAdapter(filtered, this);
-        if (rvTracks != null) {
-            rvTracks.setLayoutManager(new LinearLayoutManager(this));
-            rvTracks.setAdapter(adapter);
-        }
+        rvTracks.setLayoutManager(new LinearLayoutManager(this));
+        rvTracks.setAdapter(adapter);
 
         if (rvRecent != null) {
             recentAdapter = new MusicTrackAdapter(recentTracks, new MusicTrackAdapter.OnTrackActionListener() {
-                @Override public void onPreviewToggle(MusicTrack t, int p) { previewToggleImpl(t, p); }
+                @Override public void onPreviewToggle(MusicTrack t, int p) { previewToggleImpl(t, p, false); }
                 @Override public void onSelect(MusicTrack t)               { selectTrack(t); }
                 @Override public void onSaveToggle(MusicTrack t, int p)    { saveToggle(t, p); }
                 @Override public void onLongPress(MusicTrack t)            { openSoundDetail(t); }
@@ -302,56 +239,23 @@ public class MusicPickerActivity extends AppCompatActivity
     private void filterTracks(String query) {
         filtered.clear();
         String q = query.toLowerCase().trim();
-
         for (MusicTrack t : allTracks) {
-            boolean matchesGenre;
-            switch (selectedGenre) {
-                case "all":
-                    matchesGenre = true;
-                    break;
-                case "trending":
-                    matchesGenre = t.trendingRank > 0 && t.trendingRank <= 50;
-                    break;
-                case "for_you":
-                    // Match against user's listening history genres
-                    matchesGenre = historyGenres.isEmpty() || (
-                        (t.genre != null && historyGenres.contains(t.genre.toLowerCase())) ||
-                        (t.mood  != null && historyGenres.contains(t.mood.toLowerCase()))
-                    );
-                    break;
-                default:
-                    matchesGenre =
-                        (t.genre != null && t.genre.toLowerCase().contains(selectedGenre)) ||
-                        (t.mood  != null && t.mood.toLowerCase().contains(selectedGenre));
-                    break;
-            }
+            boolean matchesGenre = selectedGenre.equals("all")
+                || (selectedGenre.equals("trending") && t.trendingRank > 0 && t.trendingRank <= 50)
+                || (t.genre  != null && t.genre.toLowerCase().contains(selectedGenre))
+                || (t.mood   != null && t.mood.toLowerCase().contains(selectedGenre));
 
             boolean matchesQuery = q.isEmpty()
                 || t.getDisplayTitle().toLowerCase().contains(q)
                 || (t.artist != null && t.artist.toLowerCase().contains(q))
                 || (t.genre  != null && t.genre.toLowerCase().contains(q))
-                || (t.mood   != null && t.mood.toLowerCase().contains(q))
-                || (t.language != null && t.language.toLowerCase().contains(q));
+                || (t.mood   != null && t.mood.toLowerCase().contains(q));
 
             if (matchesGenre && matchesQuery) filtered.add(t);
         }
 
-        // Sort
         if ("trending".equals(selectedGenre)) {
             filtered.sort((a, b) -> Long.compare(a.trendingRank, b.trendingRank));
-        } else if ("for_you".equals(selectedGenre)) {
-            // Personalised: boost tracks in user's preferred genres, then by usageCount
-            filtered.sort((a, b) -> {
-                boolean aMatch = (a.genre != null && historyGenres.contains(a.genre.toLowerCase()));
-                boolean bMatch = (b.genre != null && historyGenres.contains(b.genre.toLowerCase()));
-                if (aMatch != bMatch) return aMatch ? -1 : 1;
-                return Long.compare(b.usageCount, a.usageCount);
-            });
-            if (filtered.size() > MAX_FOR_YOU) {
-                List<MusicTrack> trimmed = new ArrayList<>(filtered.subList(0, MAX_FOR_YOU));
-                filtered.clear();
-                filtered.addAll(trimmed);
-            }
         } else {
             filtered.sort((a, b) -> Long.compare(b.usageCount, a.usageCount));
         }
@@ -390,16 +294,14 @@ public class MusicPickerActivity extends AppCompatActivity
     private void loadDefaultTracks() {
         allTracks.clear();
         Object[][] defaults = {
-            {"Trending Beat 1",  "CallX Originals", "Pop",       "Energetic", 8200L, 1L,  128,  false},
-            {"Chill Vibes",      "CallX Originals", "Chill",     "Relaxed",   5100L, 3L,   90,  false},
-            {"Hype Mode",        "CallX Originals", "Hip-Hop",   "Hype",      7400L, 2L,  140,  false},
-            {"Romantic Mood",    "CallX Originals", "Romantic",  "Romantic",  3200L, 5L,   72,  false},
-            {"Dance Fever",      "CallX Originals", "Dance",     "Energetic", 6300L, 4L,  128,  false},
-            {"Lo-Fi Study",      "CallX Originals", "Lo-Fi",     "Focused",   4800L, 7L,   80,  false},
-            {"Party Anthem",     "CallX Originals", "EDM",       "Party",     9100L, 0L,  138,  false},
-            {"Acoustic Soul",    "CallX Originals", "Acoustic",  "Calm",      2700L, 0L,   68,  false},
-            {"Bollywood Hits",   "CallX Originals", "Bollywood", "Festive",   3900L, 8L,  115,  false},
-            {"R&B Smooth",       "CallX Originals", "R&B",       "Smooth",    2100L, 11L,  85,  false},
+            {"Trending Beat 1",  "CallX Originals", "Pop",      "",  8200L, 1L,  128,  false},
+            {"Chill Vibes",      "CallX Originals", "Chill",    "",  5100L, 3L,   90,  false},
+            {"Hype Mode",        "CallX Originals", "Hip-Hop",  "",  7400L, 2L,  140,  false},
+            {"Romantic Mood",    "CallX Originals", "Romantic", "",  3200L, 5L,   72,  false},
+            {"Dance Fever",      "CallX Originals", "Dance",    "",  6300L, 4L,  128,  false},
+            {"Lo-Fi Study",      "CallX Originals", "Lo-Fi",    "",  4800L, 7L,   80,  false},
+            {"Party Anthem",     "CallX Originals", "EDM",      "",  9100L, 0L,  138,  false},
+            {"Acoustic Soul",    "CallX Originals", "Acoustic", "",  2700L, 0L,   68,  false},
         };
         for (Object[] d : defaults) {
             MusicTrack t = new MusicTrack();
@@ -407,7 +309,7 @@ public class MusicPickerActivity extends AppCompatActivity
             t.title        = (String)  d[0];
             t.artist       = (String)  d[1];
             t.genre        = (String)  d[2];
-            t.mood         = (String)  d[3];
+            t.audioUrl     = (String)  d[3];
             t.usageCount   = (Long)    d[4];
             t.trendingRank = (Long)    d[5];
             t.bpm          = (Integer) d[6];
@@ -466,27 +368,25 @@ public class MusicPickerActivity extends AppCompatActivity
         stopPreview();
         saveToRecent(track.trackId);
         Intent result = new Intent();
-        result.putExtra(EXTRA_MUSIC_NAME,
-            track.getDisplayTitle() + (track.artist != null && !track.artist.isEmpty()
-                ? " – " + track.artist : ""));
-        result.putExtra(EXTRA_MUSIC_URL,       track.audioUrl  != null ? track.audioUrl  : "");
-        result.putExtra(EXTRA_MUSIC_ID,        track.trackId   != null ? track.trackId   : "");
-        result.putExtra(EXTRA_MUSIC_COVER_URL, track.coverUrl  != null ? track.coverUrl  : "");
-        result.putExtra(EXTRA_MUSIC_ARTIST,    track.artist    != null ? track.artist    : "");
+        result.putExtra(EXTRA_MUSIC_NAME,      track.getDisplayTitle()
+            + (track.artist != null && !track.artist.isEmpty() ? " – " + track.artist : ""));
+        result.putExtra(EXTRA_MUSIC_URL,       track.audioUrl != null ? track.audioUrl : "");
+        result.putExtra(EXTRA_MUSIC_ID,        track.trackId  != null ? track.trackId  : "");
+        result.putExtra(EXTRA_MUSIC_COVER_URL, track.coverUrl != null ? track.coverUrl : "");
+        result.putExtra(EXTRA_MUSIC_ARTIST,    track.artist   != null ? track.artist   : "");
         setResult(RESULT_OK, result);
         finish();
     }
 
     private void openSoundDetail(MusicTrack track) {
         Intent i = new Intent(this, SoundDetailActivity.class);
-        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    track.trackId  != null ? track.trackId  : "");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    track.trackId != null ? track.trackId : "");
         i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, track.getDisplayTitle());
-        i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      track.artist   != null ? track.artist   : "");
-        i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   track.audioUrl != null ? track.audioUrl : "");
-        i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   track.coverUrl != null ? track.coverUrl : "");
+        i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      track.artist  != null ? track.artist  : "");
+        i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   track.audioUrl!= null ? track.audioUrl: "");
+        i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   track.coverUrl!= null ? track.coverUrl: "");
         i.putExtra(SoundDetailActivity.EXTRA_DURATION_MS, (int) track.getDurationMs());
         i.putExtra(SoundDetailActivity.EXTRA_BPM,         track.bpm);
-        i.putExtra(SoundDetailActivity.EXTRA_GENRE,       track.genre    != null ? track.genre    : "");
         startActivity(i);
     }
 
@@ -496,7 +396,7 @@ public class MusicPickerActivity extends AppCompatActivity
         if (currentlySaved) {
             savedIds.remove(track.trackId);
             FirebaseUtils.getUserRef(myUid).child("saved_sounds").child(track.trackId).removeValue();
-            Toast.makeText(this, "Sound removed", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Sound removed from saved", Toast.LENGTH_SHORT).show();
         } else {
             savedIds.add(track.trackId);
             FirebaseUtils.getUserRef(myUid).child("saved_sounds").child(track.trackId)
@@ -507,7 +407,7 @@ public class MusicPickerActivity extends AppCompatActivity
         adapter.notifyItemChanged(pos);
     }
 
-    private void previewToggleImpl(MusicTrack track, int position) {
+    private void previewToggleImpl(MusicTrack track, int position, boolean fromMainList) {
         if (currentlyPlaying != null && currentlyPlaying.trackId != null
                 && currentlyPlaying.trackId.equals(track.trackId)) {
             stopPreview();
@@ -540,10 +440,25 @@ public class MusicPickerActivity extends AppCompatActivity
         }
     }
 
-    @Override public void onPreviewToggle(MusicTrack track, int position) { previewToggleImpl(track, position); }
-    @Override public void onSelect(MusicTrack track)                      { selectTrack(track); }
-    @Override public void onSaveToggle(MusicTrack track, int position)    { saveToggle(track, position); }
-    @Override public void onLongPress(MusicTrack track)                   { openSoundDetail(track); }
+    @Override
+    public void onPreviewToggle(MusicTrack track, int position) {
+        previewToggleImpl(track, position, true);
+    }
+
+    @Override
+    public void onSelect(MusicTrack track) {
+        selectTrack(track);
+    }
+
+    @Override
+    public void onSaveToggle(MusicTrack track, int position) {
+        saveToggle(track, position);
+    }
+
+    @Override
+    public void onLongPress(MusicTrack track) {
+        openSoundDetail(track);
+    }
 
     private void stopPreview() {
         if (mediaPlayer != null) {
@@ -555,5 +470,9 @@ public class MusicPickerActivity extends AppCompatActivity
         currentlyPlayingPos = -1;
     }
 
-    @Override protected void onDestroy() { stopPreview(); super.onDestroy(); }
+    @Override
+    protected void onDestroy() {
+        stopPreview();
+        super.onDestroy();
+    }
 }

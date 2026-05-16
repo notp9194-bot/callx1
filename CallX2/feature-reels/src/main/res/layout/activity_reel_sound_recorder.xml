@@ -46,67 +46,40 @@
         android:layout_height="wrap_content" android:orientation="vertical"
         android:padding="16dp" android:visibility="gone">
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="VOICE EFFECTS" android:textColor="#888888" android:textSize="11sp"
+            android:text="AUDIO EFFECTS" android:textColor="#888888" android:textSize="11sp"
             android:paddingBottom="8dp"/>
-        <RadioGroup android:id="@+id/rg_recorder_effects" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:orientation="vertical">
-            <RadioButton android:id="@+id/rb_fx_normal" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Normal"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C" android:checked="true"/>
-            <RadioButton android:id="@+id/rb_fx_echo" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Echo"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C"/>
-            <RadioButton android:id="@+id/rb_fx_reverb" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Reverb"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C"/>
-            <RadioButton android:id="@+id/rb_fx_pitch_up" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Pitch Up"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C"/>
-            <RadioButton android:id="@+id/rb_fx_pitch_down" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Pitch Down"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C"/>
-            <RadioButton android:id="@+id/rb_fx_telephone" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Telephone"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C"/>
-            <RadioButton android:id="@+id/rb_fx_helium" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Helium"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C"/>
-            <RadioButton android:id="@+id/rb_fx_underwater" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Underwater"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C"/>
-            <RadioButton android:id="@+id/rb_fx_slow_mo" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="Slow-Mo"
-                android:textColor="#FFFFFF" android:buttonTint="#FF3B5C"/>
-        </RadioGroup>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <CheckBox android:id="@+id/cb_effect_echo" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:text="Echo" android:textColor="#FFFFFF"/>
+            <CheckBox android:id="@+id/cb_effect_reverb" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:text="Reverb" android:textColor="#FFFFFF"/>
+            <CheckBox android:id="@+id/cb_effect_pitch_up" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:text="Pitch ↑" android:textColor="#FFFFFF"/>
+            <CheckBox android:id="@+id/cb_effect_pitch_down" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:text="Pitch ↓" android:textColor="#FFFFFF"/>
+        </LinearLayout>
     </LinearLayout>
 
-    <LinearLayout android:id="@+id/layout_post_record"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="vertical" android:visibility="gone">
-
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="horizontal" android:gravity="center" android:paddingHorizontal="16dp"
-            android:paddingTop="8dp" android:paddingBottom="4dp">
-            <ImageButton android:id="@+id/btn_recorder_play" android:layout_width="52dp"
-                android:layout_height="52dp" android:background="@drawable/bg_circle_white"
-                android:src="@drawable/ic_play" android:tint="#FFFFFF"
-                android:layout_marginEnd="16dp"/>
-            <ImageButton android:id="@+id/btn_recorder_retake" android:layout_width="52dp"
-                android:layout_height="52dp" android:background="@drawable/bg_circle_white"
-                android:src="@drawable/ic_close" android:tint="#FFFFFF"
-                android:layout_marginEnd="16dp"/>
-            <TextView android:id="@+id/btn_recorder_use" android:layout_width="wrap_content"
-                android:layout_height="44dp" android:text="Use Sound" android:textColor="#FFFFFF"
-                android:background="#FF3B5C" android:paddingHorizontal="20dp"
-                android:gravity="center" android:textStyle="bold"/>
-        </LinearLayout>
-
-        <TextView android:id="@+id/btn_recorder_publish"
-            android:layout_width="match_parent" android:layout_height="44dp"
-            android:text="Publish as Original Sound"
-            android:textColor="#AAAAAA" android:textSize="13sp"
-            android:gravity="center" android:paddingVertical="8dp"
-            android:layout_marginBottom="8dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center" android:paddingHorizontal="16dp"
+        android:paddingBottom="24dp">
+        <ImageButton android:id="@+id/btn_recorder_play" android:layout_width="52dp"
+            android:layout_height="52dp" android:background="@drawable/bg_circle_white"
+            android:src="@drawable/ic_play" android:tint="#FFFFFF"
+            android:layout_marginEnd="16dp" android:visibility="gone"/>
+        <ImageButton android:id="@+id/btn_recorder_retake" android:layout_width="52dp"
+            android:layout_height="52dp" android:background="@drawable/bg_circle_white"
+            android:src="@drawable/ic_close" android:tint="#FFFFFF"
+            android:layout_marginEnd="16dp" android:visibility="gone"/>
+        <TextView android:id="@+id/btn_recorder_use" android:layout_width="wrap_content"
+            android:layout_height="44dp" android:text="Use Sound" android:textColor="#FFFFFF"
+            android:background="#FF3B5C" android:paddingHorizontal="20dp"
+            android:gravity="center" android:textStyle="bold" android:visibility="gone"/>
     </LinearLayout>
 
     <ProgressBar android:id="@+id/progress_recorder" android:layout_width="wrap_content"
