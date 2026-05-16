@@ -146,10 +146,8 @@ public class DeepLinkRouterActivity extends AppCompatActivity {
                         break;
                     }
                     case "sound": {
-                        // /reels/sound/{soundId}
-                        Intent i = new Intent(this, SoundDetailActivity.class);
-                        i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID, param2);
-                        startActivity(i);
+                        // /reels/sound/{soundId} — sound system removed, fallback to reels tab
+                        openMainTab("reels");
                         break;
                     }
                     default:

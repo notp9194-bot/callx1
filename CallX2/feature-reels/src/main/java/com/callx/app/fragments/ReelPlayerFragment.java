@@ -45,7 +45,6 @@ import com.callx.app.activities.DuetReelActivity;
 import com.callx.app.activities.StitchReelActivity;
 import com.callx.app.activities.ReelVideoReplyActivity;
 import com.callx.app.activities.UserReelsActivity;
-import com.callx.app.activities.ReelSoundActivity;
 import com.callx.app.activities.ReelBookmarkCollectionsActivity;
 import com.callx.app.activities.ReelCollabRequestActivity;
 import com.callx.app.activities.ReelQRCodeActivity;
@@ -1202,16 +1201,7 @@ public class ReelPlayerFragment extends Fragment {
     }
 
     private void openSoundDetail() {
-        if (!isAdded() || getActivity() == null || reel == null) return;
-        Intent i = new Intent(getActivity(), ReelSoundActivity.class);
-        i.putExtra(ReelSoundActivity.EXTRA_SOUND_ID,    reel.musicId     != null ? reel.musicId    : "");
-        i.putExtra(ReelSoundActivity.EXTRA_SOUND_TITLE, reel.musicName   != null ? reel.musicName  : "Original Audio");
-        i.putExtra(ReelSoundActivity.EXTRA_SOUND_URL,   reel.musicUrl    != null ? reel.musicUrl   : "");
-        i.putExtra(ReelSoundActivity.EXTRA_COVER_URL,   reel.musicCoverUrl != null ? reel.musicCoverUrl : "");
-        i.putExtra(ReelSoundActivity.EXTRA_ARTIST,      reel.musicArtist != null && !reel.musicArtist.isEmpty()
-            ? reel.musicArtist : (reel.ownerName != null ? reel.ownerName : ""));
-        i.putExtra(ReelSoundActivity.EXTRA_VIDEO_URL,   reel.videoUrl    != null ? reel.videoUrl   : "");
-        startActivity(i);
+        // Sound system removed — no-op
     }
 
     private void openBookmarkCollections() {
