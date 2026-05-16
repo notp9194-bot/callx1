@@ -191,6 +191,15 @@
         <activity android:name="com.callx.app.activities.ReelSoundRecorderActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.ReelBeatSyncActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.activities.SoundUploadActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelEqualizerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
 
         <!-- Followers / Following -->
         <activity android:name="com.callx.app.activities.FollowersListActivity"
