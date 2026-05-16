@@ -1,698 +1,959 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    activity_reel_sound.xml
-    Opens when user taps the music ticker (spinning disc + title) at the bottom of a reel.
-    Production-level sound detail screen — full Instagram/TikTok parity.
--->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#0D0D0D"
-    android:fillViewport="true"
-    android:scrollbars="none">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-        <!-- ── Hero area: blurred cover + disc ──────────────────────────── -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="260dp">
-
-            <!-- Blurred cover background -->
-            <ImageView
-                android:id="@+id/iv_sound_cover"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:scaleType="centerCrop"
-                android:alpha="0.25"
-                android:src="@drawable/ic_music_disc"/>
-
-            <!-- Dark gradient overlay -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/gradient_reel_bottom"/>
-
-            <!-- Toolbar row -->
-            <RelativeLayout
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_gravity="top"
-                android:paddingHorizontal="4dp">
-
-                <ImageButton
-                    android:id="@+id/btn_sound_back"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_centerVertical="true"
-                    android:layout_alignParentStart="true"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:src="@drawable/ic_arrow_back"
-                    android:tint="#FFFFFF"
-                    android:contentDescription="Back"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_centerInParent="true"
-                    android:text="Sound"
-                    android:textColor="#FFFFFF"
-                    android:textSize="17sp"
-                    android:fontFamily="sans-serif-medium"/>
-
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_alignParentEnd="true"
-                    android:layout_centerVertical="true"
-                    android:orientation="horizontal">
-
-                    <ImageButton
-                        android:id="@+id/btn_sound_save"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:src="@drawable/ic_bookmark"
-                        android:tint="#FFFFFF"
-                        android:contentDescription="Save sound"/>
-
-                    <ImageButton
-                        android:id="@+id/btn_sound_share"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:src="@drawable/ic_share_reel"
-                        android:tint="#FFFFFF"
-                        android:contentDescription="Share sound"/>
-
-                    <ImageButton
-                        android:id="@+id/btn_sound_more"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:src="@drawable/ic_more_vert"
-                        android:tint="#FFFFFF"
-                        android:contentDescription="More options"/>
-                </LinearLayout>
-            </RelativeLayout>
-
-            <!-- Spinning disc + glow ring, centered in hero area -->
-            <FrameLayout
-                android:layout_width="148dp"
-                android:layout_height="148dp"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="56dp">
-
-                <!-- Outer glow ring -->
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="@drawable/bg_story_ring"/>
-
-                <!-- Spinning disc image -->
-                <ImageView
-                    android:id="@+id/iv_sound_disc"
-                    android:layout_width="136dp"
-                    android:layout_height="136dp"
-                    android:layout_gravity="center"
-                    android:scaleType="centerCrop"
-                    android:src="@drawable/ic_music_disc"/>
-
-                <!-- Center hole -->
-                <View
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:layout_gravity="center"
-                    android:background="#0D0D0D"
-                    android:elevation="2dp"/>
-
-                <!-- Inner dot -->
-                <View
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
-                    android:layout_gravity="center"
-                    android:background="#444444"
-                    android:elevation="3dp"/>
-            </FrameLayout>
-        </FrameLayout>
-
-        <!-- ── Sound title + artist ──────────────────────────────────────── -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="14dp">
-
-            <TextView
-                android:id="@+id/tv_sound_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:textColor="#FFFFFF"
-                android:textSize="20sp"
-                android:fontFamily="sans-serif-medium"
-                android:maxLines="2"
-                android:ellipsize="end"
-                android:text="Sound Title"/>
-
-            <!-- Artist name — clickable to view profile -->
-            <TextView
-                android:id="@+id/tv_sound_artist"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:gravity="center"
-                android:textColor="#CCCCCC"
-                android:textSize="14sp"
-                android:paddingTop="4dp"
-                android:paddingBottom="2dp"
-                android:text="• Original Sound"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackground"/>
-
-            <!-- Badges row: trending, original, verified -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingTop="6dp">
-
-                <TextView
-                    android:id="@+id/tv_sound_trending_rank"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="#1 Trending"
-                    android:textColor="#FF3B5C"
-                    android:textSize="11sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:background="@drawable/bg_reel_chip_selected"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="3dp"
-                    android:layout_marginEnd="6dp"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/tv_sound_original_badge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Original"
-                    android:textColor="#FF3B5C"
-                    android:textSize="11sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="3dp"
-                    android:layout_marginEnd="6dp"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/tv_sound_verified_badge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="✓ Verified"
-                    android:textColor="#4FC3F7"
-                    android:textSize="11sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="3dp"
-                    android:visibility="gone"/>
-            </LinearLayout>
-
-            <!-- Stats row: usage count · saves count -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingTop="6dp">
-
-                <TextView
-                    android:id="@+id/tv_sound_usage_count"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0 Reels"
-                    android:textColor="#888888"
-                    android:textSize="13sp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="  ·  "
-                    android:textColor="#555555"
-                    android:textSize="13sp"/>
-
-                <TextView
-                    android:id="@+id/tv_sound_saves_count"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0 Saves"
-                    android:textColor="#888888"
-                    android:textSize="13sp"
-                    android:visibility="gone"/>
-            </LinearLayout>
-
-            <!-- Genre + BPM tags -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingTop="6dp">
-
-                <TextView
-                    android:id="@+id/tv_sound_genre"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#AAAAAA"
-                    android:textSize="12sp"
-                    android:background="@drawable/bg_sort_chip"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="4dp"
-                    android:layout_marginEnd="6dp"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/tv_sound_bpm"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#FF3B5C"
-                    android:textSize="12sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:background="@drawable/bg_sort_chip"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="4dp"
-                    android:visibility="gone"/>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- ── Waveform + Playback controls ──────────────────────────────── -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="16dp">
-
-            <!-- Animated waveform bars -->
-            <LinearLayout
-                android:id="@+id/layout_sound_waveform"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:orientation="horizontal"
-                android:gravity="center"/>
-
-            <!-- SeekBar -->
-            <SeekBar
-                android:id="@+id/seekbar_sound"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:progressTint="#FF3B5C"
-                android:thumbTint="#FF3B5C"
-                android:progressBackgroundTint="#333333"
-                android:max="1000"/>
-
-            <!-- Position / duration row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="6dp">
-
-                <TextView
-                    android:id="@+id/tv_sound_position_duration"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:textColor="#888888"
-                    android:textSize="11sp"
-                    android:text="0:00"/>
-
-                <!-- Play/Pause button -->
-                <TextView
-                    android:id="@+id/btn_sound_play_pause"
-                    android:layout_width="wrap_content"
-                    android:layout_height="44dp"
-                    android:text="▶  Play"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:background="@drawable/bg_speed_chip_active"
-                    android:paddingHorizontal="28dp"
-                    android:gravity="center"/>
-
-                <!-- Loading indicator (shown while MediaPlayer prepares) -->
-                <ProgressBar
-                    android:id="@+id/progress_sound_load"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:layout_marginStart="8dp"
-                    android:indeterminateTint="#FF3B5C"
-                    android:visibility="gone"/>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- ── Primary action buttons: Use in Camera / Use with Video ────── -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="20dp">
-
-            <TextView
-                android:id="@+id/btn_use_camera"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:text="Use in Camera"
-                android:gravity="center"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:fontFamily="sans-serif-medium"
-                android:background="@drawable/bg_reel_upload_btn"
-                android:layout_marginEnd="8dp"/>
-
-            <TextView
-                android:id="@+id/btn_use_gallery"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:text="Use with Video"
-                android:gravity="center"
-                android:textColor="#FF3B5C"
-                android:textSize="14sp"
-                android:fontFamily="sans-serif-medium"
-                android:background="@drawable/bg_reel_follow_btn"/>
-        </LinearLayout>
-
-        <!-- Set Start Point chip -->
-        <TextView
-            android:id="@+id/btn_trim_start"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_marginStart="20dp"
-            android:layout_marginTop="10dp"
-            android:text="✂  Set Start Point"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"
-            android:paddingHorizontal="14dp"
-            android:background="@drawable/bg_sort_chip"
-            android:visibility="gone"/>
-
-        <!-- ── Secondary action chips row ───────────────────────────────── -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none"
-            android:paddingHorizontal="16dp"
-            android:layout_marginTop="12dp"
-            android:clipToPadding="false">
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/btn_duet_sound"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:text="🤝  Duet"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp"
-                    android:gravity="center"
-                    android:paddingHorizontal="14dp"
-                    android:background="@drawable/bg_sort_chip"
-                    android:layout_marginEnd="8dp"/>
-
-                <TextView
-                    android:id="@+id/btn_stitch_sound"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:text="✂  Stitch"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp"
-                    android:gravity="center"
-                    android:paddingHorizontal="14dp"
-                    android:background="@drawable/bg_sort_chip"
-                    android:layout_marginEnd="8dp"/>
-
-                <TextView
-                    android:id="@+id/btn_sound_record"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:text="🎙  Record"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp"
-                    android:gravity="center"
-                    android:paddingHorizontal="14dp"
-                    android:background="@drawable/bg_outlined_btn_red"
-                    android:layout_marginEnd="8dp"/>
-
-                <TextView
-                    android:id="@+id/btn_sound_browse"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:text="🎵  Browse All"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp"
-                    android:gravity="center"
-                    android:paddingHorizontal="14dp"
-                    android:background="@drawable/bg_outlined_btn_red"/>
-            </LinearLayout>
-        </HorizontalScrollView>
-
-        <!-- ── Divider ────────────────────────────────────────────────────── -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#222222"
-            android:layout_marginTop="20dp"/>
-
-        <!-- ── Creator info card ─────────────────────────────────────────── -->
-        <LinearLayout
-            android:id="@+id/layout_creator_section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:id="@+id/layout_creator_card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:padding="16dp">
-
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_creator_avatar"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:src="@drawable/ic_person"/>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="12dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Creator"
-                        android:textColor="#888888"
-                        android:textSize="11sp"/>
-
-                    <TextView
-                        android:id="@+id/tv_creator_name"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Creator Name"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:background="?attr/selectableItemBackground"/>
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/btn_view_profile"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:text="View Profile"
-                    android:textColor="#FF3B5C"
-                    android:textSize="13sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:gravity="center"
-                    android:paddingHorizontal="14dp"
-                    android:background="@drawable/bg_reel_follow_btn"/>
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#222222"/>
-        </LinearLayout>
-
-        <!-- ── Reels using this sound ─────────────────────────────────────── -->
-        <LinearLayout
-            android:id="@+id/layout_reels_section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <!-- Header -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingHorizontal="16dp"
-                android:paddingTop="18dp"
-                android:paddingBottom="10dp">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Reels with this sound"
-                    android:textColor="#FFFFFF"
-                    android:textSize="15sp"
-                    android:fontFamily="sans-serif-medium"/>
-
-                <TextView
-                    android:id="@+id/btn_see_all_reels"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="See all"
-                    android:textColor="#FF3B5C"
-                    android:textSize="13sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:paddingStart="8dp"
-                    android:visibility="gone"/>
-            </LinearLayout>
-
-            <!-- Grid of reel thumbnails -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_sound_reels"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:nestedScrollingEnabled="false"
-                android:clipToPadding="false"/>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#222222"
-                android:layout_marginTop="16dp"/>
-        </LinearLayout>
-
-        <!-- Skeleton loading for reels grid -->
-        <LinearLayout
-            android:id="@+id/layout_skeleton_reels"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Reels with this sound"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp"
-                android:fontFamily="sans-serif-medium"
-                android:paddingHorizontal="16dp"
-                android:paddingTop="18dp"
-                android:paddingBottom="10dp"/>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingHorizontal="2dp">
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:background="#2A2A2A"
-                    android:layout_margin="2dp"/>
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:background="#2A2A2A"
-                    android:layout_margin="2dp"/>
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:background="#2A2A2A"
-                    android:layout_margin="2dp"/>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- ── Related / Similar sounds ──────────────────────────────────── -->
-        <LinearLayout
-            android:id="@+id/layout_related_section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Similar Sounds"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp"
-                android:fontFamily="sans-serif-medium"
-                android:paddingHorizontal="16dp"
-                android:paddingTop="18dp"
-                android:paddingBottom="10dp"/>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_related_sounds"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingHorizontal="12dp"
-                android:paddingBottom="8dp"
-                android:clipToPadding="false"
-                android:nestedScrollingEnabled="false"/>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#222222"
-                android:layout_marginTop="8dp"/>
-        </LinearLayout>
-
-        <!-- Bottom spacer -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="40dp"/>
-
-    </LinearLayout>
-</ScrollView>
+  <!--
+      activity_reel_sound.xml  — Production-level Sound Detail Screen
+      Full feature set matching ReelSoundActivity.java:
+      • Hero blur area + spinning disc
+      • Waveform + SeekBar + position display
+      • Speed chips: 0.5x / 1x / 1.5x / 2x
+      • Primary CTA: Use in Camera / Use with Video
+      • Set Start Point chip
+      • Secondary chips: Duet, Stitch, Record, Browse, Equalizer, Add to Playlist
+      • Analytics chip (shown for owner by code)
+      • Sound description expandable section
+      • Mood tags HorizontalScrollView
+      • Stats: Reels count · Plays count · Saves count
+      • Added date
+      • Top creators using this sound (avatar row)
+      • Creator card: avatar + name + Follow button + View Profile
+      • Reels grid (3-col) + skeleton loading
+      • More by creator horizontal carousel
+      • Related/Similar sounds horizontal carousel
+      • Bottom nav padding
+  -->
+  <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:background="#0D0D0D"
+      android:fillViewport="true"
+      android:scrollbars="none">
+
+      <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="vertical">
+
+          <!-- ── Hero: blurred cover + disc ──────────────────────────────── -->
+          <FrameLayout
+              android:layout_width="match_parent"
+              android:layout_height="260dp">
+
+              <ImageView
+                  android:id="@+id/iv_sound_cover"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:scaleType="centerCrop"
+                  android:alpha="0.25"
+                  android:src="@drawable/ic_music_disc"/>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:background="@drawable/gradient_reel_bottom"/>
+
+              <!-- Toolbar -->
+              <RelativeLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="56dp"
+                  android:layout_gravity="top"
+                  android:paddingHorizontal="4dp">
+
+                  <ImageButton
+                      android:id="@+id/btn_sound_back"
+                      android:layout_width="48dp"
+                      android:layout_height="48dp"
+                      android:layout_centerVertical="true"
+                      android:layout_alignParentStart="true"
+                      android:background="?attr/selectableItemBackgroundBorderless"
+                      android:src="@drawable/ic_arrow_back"
+                      android:tint="#FFFFFF"
+                      android:contentDescription="Back"/>
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_centerInParent="true"
+                      android:text="Sound"
+                      android:textColor="#FFFFFF"
+                      android:textSize="17sp"
+                      android:fontFamily="sans-serif-medium"/>
+
+                  <LinearLayout
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_alignParentEnd="true"
+                      android:layout_centerVertical="true"
+                      android:orientation="horizontal">
+
+                      <ImageButton
+                          android:id="@+id/btn_sound_analytics"
+                          android:layout_width="44dp"
+                          android:layout_height="44dp"
+                          android:background="?attr/selectableItemBackgroundBorderless"
+                          android:src="@drawable/ic_analytics"
+                          android:tint="#FFFFFF"
+                          android:contentDescription="Sound Analytics"
+                          android:visibility="gone"/>
+
+                      <ImageButton
+                          android:id="@+id/btn_sound_save"
+                          android:layout_width="44dp"
+                          android:layout_height="44dp"
+                          android:background="?attr/selectableItemBackgroundBorderless"
+                          android:src="@drawable/ic_bookmark"
+                          android:tint="#FFFFFF"
+                          android:contentDescription="Save sound"/>
+
+                      <ImageButton
+                          android:id="@+id/btn_sound_share"
+                          android:layout_width="44dp"
+                          android:layout_height="44dp"
+                          android:background="?attr/selectableItemBackgroundBorderless"
+                          android:src="@drawable/ic_share_reel"
+                          android:tint="#FFFFFF"
+                          android:contentDescription="Share sound"/>
+
+                      <ImageButton
+                          android:id="@+id/btn_sound_more"
+                          android:layout_width="44dp"
+                          android:layout_height="44dp"
+                          android:background="?attr/selectableItemBackgroundBorderless"
+                          android:src="@drawable/ic_more_vert"
+                          android:tint="#FFFFFF"
+                          android:contentDescription="More options"/>
+                  </LinearLayout>
+              </RelativeLayout>
+
+              <!-- Spinning disc (centered) -->
+              <FrameLayout
+                  android:layout_width="148dp"
+                  android:layout_height="148dp"
+                  android:layout_gravity="center_horizontal"
+                  android:layout_marginTop="56dp">
+
+                  <View
+                      android:layout_width="match_parent"
+                      android:layout_height="match_parent"
+                      android:background="@drawable/bg_story_ring"/>
+
+                  <ImageView
+                      android:id="@+id/iv_sound_disc"
+                      android:layout_width="136dp"
+                      android:layout_height="136dp"
+                      android:layout_gravity="center"
+                      android:scaleType="centerCrop"
+                      android:src="@drawable/ic_music_disc"/>
+
+                  <View
+                      android:layout_width="24dp"
+                      android:layout_height="24dp"
+                      android:layout_gravity="center"
+                      android:background="#0D0D0D"
+                      android:elevation="2dp"/>
+
+                  <View
+                      android:layout_width="10dp"
+                      android:layout_height="10dp"
+                      android:layout_gravity="center"
+                      android:background="#444444"
+                      android:elevation="3dp"/>
+              </FrameLayout>
+          </FrameLayout>
+
+          <!-- ── Title + artist + badges + stats ──────────────────────────── -->
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:paddingHorizontal="20dp"
+              android:paddingTop="14dp">
+
+              <TextView
+                  android:id="@+id/tv_sound_title"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:gravity="center"
+                  android:textColor="#FFFFFF"
+                  android:textSize="20sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:maxLines="2"
+                  android:ellipsize="end"
+                  android:text="Sound Title"/>
+
+              <TextView
+                  android:id="@+id/tv_sound_artist"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:gravity="center"
+                  android:textColor="#CCCCCC"
+                  android:textSize="14sp"
+                  android:paddingTop="4dp"
+                  android:paddingBottom="2dp"
+                  android:text="• Original Sound"
+                  android:clickable="true"
+                  android:focusable="true"
+                  android:background="?attr/selectableItemBackground"/>
+
+              <!-- Badges row -->
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical"
+                  android:paddingTop="6dp">
+
+                  <TextView
+                      android:id="@+id/tv_sound_trending_rank"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="#1 Trending"
+                      android:textColor="#FF3B5C"
+                      android:textSize="11sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:background="@drawable/bg_reel_chip_selected"
+                      android:paddingHorizontal="8dp"
+                      android:paddingVertical="3dp"
+                      android:layout_marginEnd="6dp"
+                      android:visibility="gone"/>
+
+                  <TextView
+                      android:id="@+id/tv_sound_original_badge"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Original"
+                      android:textColor="#FF3B5C"
+                      android:textSize="11sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:paddingHorizontal="8dp"
+                      android:paddingVertical="3dp"
+                      android:layout_marginEnd="6dp"
+                      android:visibility="gone"/>
+
+                  <TextView
+                      android:id="@+id/tv_sound_verified_badge"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="✓ Verified"
+                      android:textColor="#4FC3F7"
+                      android:textSize="11sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:paddingHorizontal="8dp"
+                      android:paddingVertical="3dp"
+                      android:visibility="gone"/>
+              </LinearLayout>
+
+              <!-- Stats row: Reels · Plays · Saves -->
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical"
+                  android:paddingTop="6dp">
+
+                  <TextView
+                      android:id="@+id/tv_sound_usage_count"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="0 Reels"
+                      android:textColor="#888888"
+                      android:textSize="13sp"/>
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="  ·  "
+                      android:textColor="#555555"
+                      android:textSize="13sp"/>
+
+                  <TextView
+                      android:id="@+id/tv_sound_play_count"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="0 Plays"
+                      android:textColor="#888888"
+                      android:textSize="13sp"
+                      android:visibility="gone"/>
+
+                  <TextView
+                      android:id="@+id/tv_sound_plays_sep"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="  ·  "
+                      android:textColor="#555555"
+                      android:textSize="13sp"
+                      android:visibility="gone"/>
+
+                  <TextView
+                      android:id="@+id/tv_sound_saves_count"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="0 Saves"
+                      android:textColor="#888888"
+                      android:textSize="13sp"
+                      android:visibility="gone"/>
+              </LinearLayout>
+
+              <!-- Added date -->
+              <TextView
+                  android:id="@+id/tv_sound_added_date"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:textColor="#555555"
+                  android:textSize="11sp"
+                  android:paddingTop="4dp"
+                  android:visibility="gone"/>
+
+              <!-- Genre + BPM chips -->
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical"
+                  android:paddingTop="6dp">
+
+                  <TextView
+                      android:id="@+id/tv_sound_genre"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:textColor="#AAAAAA"
+                      android:textSize="12sp"
+                      android:background="@drawable/bg_sort_chip"
+                      android:paddingHorizontal="10dp"
+                      android:paddingVertical="4dp"
+                      android:layout_marginEnd="6dp"
+                      android:visibility="gone"/>
+
+                  <TextView
+                      android:id="@+id/tv_sound_bpm"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:textColor="#FF3B5C"
+                      android:textSize="12sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:background="@drawable/bg_sort_chip"
+                      android:paddingHorizontal="10dp"
+                      android:paddingVertical="4dp"
+                      android:visibility="gone"/>
+              </LinearLayout>
+
+              <!-- Mood tags (HorizontalScrollView built programmatically, container here) -->
+              <HorizontalScrollView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:scrollbars="none"
+                  android:paddingTop="6dp">
+
+                  <LinearLayout
+                      android:id="@+id/layout_mood_tags"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal"
+                      android:gravity="center_vertical"
+                      android:visibility="gone"/>
+              </HorizontalScrollView>
+
+          </LinearLayout>
+
+          <!-- ── Waveform + SeekBar + Playback controls ─────────────────── -->
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:paddingHorizontal="20dp"
+              android:paddingTop="16dp">
+
+              <!-- Waveform -->
+              <LinearLayout
+                  android:id="@+id/layout_sound_waveform"
+                  android:layout_width="match_parent"
+                  android:layout_height="48dp"
+                  android:orientation="horizontal"
+                  android:gravity="center"/>
+
+              <!-- SeekBar -->
+              <SeekBar
+                  android:id="@+id/seekbar_sound"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="6dp"
+                  android:progressTint="#FF3B5C"
+                  android:thumbTint="#FF3B5C"
+                  android:progressBackgroundTint="#333333"
+                  android:max="1000"/>
+
+              <!-- Position row: time on left, play button center, spinner right -->
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical"
+                  android:layout_marginTop="6dp">
+
+                  <TextView
+                      android:id="@+id/tv_sound_position_duration"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:textColor="#888888"
+                      android:textSize="11sp"
+                      android:text="0:00"/>
+
+                  <TextView
+                      android:id="@+id/btn_sound_play_pause"
+                      android:layout_width="wrap_content"
+                      android:layout_height="44dp"
+                      android:text="▶  Play"
+                      android:textColor="#FFFFFF"
+                      android:textSize="14sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:background="@drawable/bg_speed_chip_active"
+                      android:paddingHorizontal="28dp"
+                      android:gravity="center"/>
+
+                  <ProgressBar
+                      android:id="@+id/progress_sound_load"
+                      android:layout_width="24dp"
+                      android:layout_height="24dp"
+                      android:layout_marginStart="8dp"
+                      android:indeterminateTint="#FF3B5C"
+                      android:visibility="gone"/>
+              </LinearLayout>
+          </LinearLayout>
+
+          <!-- ── Speed chips ────────────────────────────────────────────── -->
+          <LinearLayout
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="center_horizontal"
+              android:orientation="horizontal"
+              android:gravity="center_vertical"
+              android:paddingTop="10dp"
+              android:paddingBottom="2dp">
+
+              <TextView
+                  android:id="@+id/chip_speed_05"
+                  android:layout_width="wrap_content"
+                  android:layout_height="32dp"
+                  android:text="0.5x"
+                  android:textColor="#AAAAAA"
+                  android:textSize="12sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:gravity="center"
+                  android:paddingHorizontal="12dp"
+                  android:background="@drawable/bg_sort_chip"
+                  android:layout_marginEnd="6dp"/>
+
+              <TextView
+                  android:id="@+id/chip_speed_1"
+                  android:layout_width="wrap_content"
+                  android:layout_height="32dp"
+                  android:text="1x"
+                  android:textColor="#FFFFFF"
+                  android:textSize="12sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:gravity="center"
+                  android:paddingHorizontal="12dp"
+                  android:background="@drawable/bg_reel_chip_selected"
+                  android:layout_marginEnd="6dp"/>
+
+              <TextView
+                  android:id="@+id/chip_speed_15"
+                  android:layout_width="wrap_content"
+                  android:layout_height="32dp"
+                  android:text="1.5x"
+                  android:textColor="#AAAAAA"
+                  android:textSize="12sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:gravity="center"
+                  android:paddingHorizontal="12dp"
+                  android:background="@drawable/bg_sort_chip"
+                  android:layout_marginEnd="6dp"/>
+
+              <TextView
+                  android:id="@+id/chip_speed_2"
+                  android:layout_width="wrap_content"
+                  android:layout_height="32dp"
+                  android:text="2x"
+                  android:textColor="#AAAAAA"
+                  android:textSize="12sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:gravity="center"
+                  android:paddingHorizontal="12dp"
+                  android:background="@drawable/bg_sort_chip"/>
+          </LinearLayout>
+
+          <!-- ── Primary CTA buttons ───────────────────────────────────── -->
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="horizontal"
+              android:paddingHorizontal="20dp"
+              android:paddingTop="18dp">
+
+              <TextView
+                  android:id="@+id/btn_use_camera"
+                  android:layout_width="0dp"
+                  android:layout_height="48dp"
+                  android:layout_weight="1"
+                  android:text="Use in Camera"
+                  android:gravity="center"
+                  android:textColor="#FFFFFF"
+                  android:textSize="14sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:background="@drawable/bg_reel_upload_btn"
+                  android:layout_marginEnd="8dp"/>
+
+              <TextView
+                  android:id="@+id/btn_use_gallery"
+                  android:layout_width="0dp"
+                  android:layout_height="48dp"
+                  android:layout_weight="1"
+                  android:text="Use with Video"
+                  android:gravity="center"
+                  android:textColor="#FF3B5C"
+                  android:textSize="14sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:background="@drawable/bg_reel_follow_btn"/>
+          </LinearLayout>
+
+          <!-- Set Start Point chip -->
+          <TextView
+              android:id="@+id/btn_trim_start"
+              android:layout_width="wrap_content"
+              android:layout_height="36dp"
+              android:layout_marginStart="20dp"
+              android:layout_marginTop="10dp"
+              android:text="✂  Set Start Point"
+              android:textColor="#FFFFFF"
+              android:textSize="12sp"
+              android:fontFamily="sans-serif-medium"
+              android:gravity="center"
+              android:paddingHorizontal="14dp"
+              android:background="@drawable/bg_sort_chip"
+              android:visibility="gone"/>
+
+          <!-- ── Secondary action chips ────────────────────────────────── -->
+          <HorizontalScrollView
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:scrollbars="none"
+              android:paddingHorizontal="16dp"
+              android:layout_marginTop="12dp"
+              android:clipToPadding="false">
+
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical">
+
+                  <TextView
+                      android:id="@+id/btn_duet_sound"
+                      android:layout_width="wrap_content"
+                      android:layout_height="36dp"
+                      android:text="🤝  Duet"
+                      android:textColor="#FFFFFF"
+                      android:textSize="12sp"
+                      android:gravity="center"
+                      android:paddingHorizontal="14dp"
+                      android:background="@drawable/bg_sort_chip"
+                      android:layout_marginEnd="8dp"/>
+
+                  <TextView
+                      android:id="@+id/btn_stitch_sound"
+                      android:layout_width="wrap_content"
+                      android:layout_height="36dp"
+                      android:text="✂  Stitch"
+                      android:textColor="#FFFFFF"
+                      android:textSize="12sp"
+                      android:gravity="center"
+                      android:paddingHorizontal="14dp"
+                      android:background="@drawable/bg_sort_chip"
+                      android:layout_marginEnd="8dp"/>
+
+                  <TextView
+                      android:id="@+id/btn_sound_record"
+                      android:layout_width="wrap_content"
+                      android:layout_height="36dp"
+                      android:text="🎙  Record"
+                      android:textColor="#FFFFFF"
+                      android:textSize="12sp"
+                      android:gravity="center"
+                      android:paddingHorizontal="14dp"
+                      android:background="@drawable/bg_outlined_btn_red"
+                      android:layout_marginEnd="8dp"/>
+
+                  <TextView
+                      android:id="@+id/btn_sound_equalizer"
+                      android:layout_width="wrap_content"
+                      android:layout_height="36dp"
+                      android:text="🎛  Equalizer"
+                      android:textColor="#FFFFFF"
+                      android:textSize="12sp"
+                      android:gravity="center"
+                      android:paddingHorizontal="14dp"
+                      android:background="@drawable/bg_sort_chip"
+                      android:layout_marginEnd="8dp"/>
+
+                  <TextView
+                      android:id="@+id/btn_sound_add_playlist"
+                      android:layout_width="wrap_content"
+                      android:layout_height="36dp"
+                      android:text="➕  Playlist"
+                      android:textColor="#FFFFFF"
+                      android:textSize="12sp"
+                      android:gravity="center"
+                      android:paddingHorizontal="14dp"
+                      android:background="@drawable/bg_sort_chip"
+                      android:layout_marginEnd="8dp"/>
+
+                  <TextView
+                      android:id="@+id/btn_sound_browse"
+                      android:layout_width="wrap_content"
+                      android:layout_height="36dp"
+                      android:text="🎵  Browse All"
+                      android:textColor="#FFFFFF"
+                      android:textSize="12sp"
+                      android:gravity="center"
+                      android:paddingHorizontal="14dp"
+                      android:background="@drawable/bg_outlined_btn_red"/>
+              </LinearLayout>
+          </HorizontalScrollView>
+
+          <!-- ── Sound description (expandable) ───────────────────────── -->
+          <LinearLayout
+              android:id="@+id/layout_desc_section"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:paddingHorizontal="20dp"
+              android:paddingTop="16dp"
+              android:visibility="gone">
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="About this sound"
+                  android:textColor="#FFFFFF"
+                  android:textSize="13sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:paddingBottom="6dp"/>
+
+              <TextView
+                  android:id="@+id/tv_sound_description"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:textColor="#AAAAAA"
+                  android:textSize="13sp"
+                  android:lineSpacingMultiplier="1.4"
+                  android:maxLines="3"
+                  android:ellipsize="end"/>
+
+              <TextView
+                  android:id="@+id/tv_sound_desc_toggle"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Show more ▼"
+                  android:textColor="#FF3B5C"
+                  android:textSize="12sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:paddingTop="6dp"
+                  android:clickable="true"
+                  android:focusable="true"
+                  android:background="?attr/selectableItemBackground"/>
+          </LinearLayout>
+
+          <!-- ── Divider ────────────────────────────────────────────────── -->
+          <View
+              android:layout_width="match_parent"
+              android:layout_height="1dp"
+              android:background="#1E1E1E"
+              android:layout_marginTop="20dp"/>
+
+          <!-- ── Creator card ──────────────────────────────────────────── -->
+          <LinearLayout
+              android:id="@+id/layout_creator_section"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:visibility="gone">
+
+              <LinearLayout
+                  android:id="@+id/layout_creator_card"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical"
+                  android:padding="16dp">
+
+                  <de.hdodenhof.circleimageview.CircleImageView
+                      android:id="@+id/iv_creator_avatar"
+                      android:layout_width="44dp"
+                      android:layout_height="44dp"
+                      android:src="@drawable/ic_person"/>
+
+                  <LinearLayout
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:orientation="vertical"
+                      android:layout_marginStart="12dp">
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="Creator"
+                          android:textColor="#666666"
+                          android:textSize="11sp"/>
+
+                      <TextView
+                          android:id="@+id/tv_creator_name"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="Creator Name"
+                          android:textColor="#FFFFFF"
+                          android:textSize="14sp"
+                          android:fontFamily="sans-serif-medium"
+                          android:maxLines="1"
+                          android:ellipsize="end"
+                          android:clickable="true"
+                          android:focusable="true"
+                          android:background="?attr/selectableItemBackground"/>
+                  </LinearLayout>
+
+                  <!-- Follow button -->
+                  <TextView
+                      android:id="@+id/btn_follow_creator"
+                      android:layout_width="wrap_content"
+                      android:layout_height="36dp"
+                      android:text="Follow"
+                      android:textColor="#FFFFFF"
+                      android:textSize="13sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:gravity="center"
+                      android:paddingHorizontal="14dp"
+                      android:background="@drawable/bg_reel_upload_btn"
+                      android:layout_marginEnd="8dp"
+                      android:visibility="gone"/>
+
+                  <TextView
+                      android:id="@+id/btn_view_profile"
+                      android:layout_width="wrap_content"
+                      android:layout_height="36dp"
+                      android:text="Profile"
+                      android:textColor="#FF3B5C"
+                      android:textSize="13sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:gravity="center"
+                      android:paddingHorizontal="12dp"
+                      android:background="@drawable/bg_reel_follow_btn"/>
+              </LinearLayout>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#1E1E1E"/>
+          </LinearLayout>
+
+          <!-- ── Top creators using this sound ────────────────────────── -->
+          <LinearLayout
+              android:id="@+id/layout_top_creators"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:visibility="gone">
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Creators using this sound"
+                  android:textColor="#FFFFFF"
+                  android:textSize="14sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:paddingHorizontal="16dp"
+                  android:paddingTop="16dp"
+                  android:paddingBottom="8dp"/>
+
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_top_creators"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:paddingHorizontal="8dp"
+                  android:clipToPadding="false"
+                  android:nestedScrollingEnabled="false"/>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#1E1E1E"
+                  android:layout_marginTop="8dp"/>
+          </LinearLayout>
+
+          <!-- ── Reels using this sound ─────────────────────────────────── -->
+          <LinearLayout
+              android:id="@+id/layout_reels_section"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:visibility="gone">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical"
+                  android:paddingHorizontal="16dp"
+                  android:paddingTop="18dp"
+                  android:paddingBottom="10dp">
+
+                  <TextView
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:text="Reels with this sound"
+                      android:textColor="#FFFFFF"
+                      android:textSize="15sp"
+                      android:fontFamily="sans-serif-medium"/>
+
+                  <TextView
+                      android:id="@+id/btn_see_all_reels"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="See all"
+                      android:textColor="#FF3B5C"
+                      android:textSize="13sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:paddingStart="8dp"
+                      android:visibility="gone"/>
+              </LinearLayout>
+
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_sound_reels"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:nestedScrollingEnabled="false"
+                  android:clipToPadding="false"/>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#1E1E1E"
+                  android:layout_marginTop="16dp"/>
+          </LinearLayout>
+
+          <!-- Skeleton loading for reels -->
+          <LinearLayout
+              android:id="@+id/layout_skeleton_reels"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:visibility="gone">
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Reels with this sound"
+                  android:textColor="#FFFFFF"
+                  android:textSize="15sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:paddingHorizontal="16dp"
+                  android:paddingTop="18dp"
+                  android:paddingBottom="10dp"/>
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:paddingHorizontal="2dp">
+
+                  <View android:layout_width="0dp" android:layout_height="120dp" android:layout_weight="1" android:background="#2A2A2A" android:layout_margin="2dp"/>
+                  <View android:layout_width="0dp" android:layout_height="120dp" android:layout_weight="1" android:background="#2A2A2A" android:layout_margin="2dp"/>
+                  <View android:layout_width="0dp" android:layout_height="120dp" android:layout_weight="1" android:background="#2A2A2A" android:layout_margin="2dp"/>
+              </LinearLayout>
+          </LinearLayout>
+
+          <!-- ── More by creator ──────────────────────────────────────── -->
+          <LinearLayout
+              android:id="@+id/layout_more_by_creator"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:visibility="gone">
+
+              <TextView
+                  android:id="@+id/tv_more_by_creator_label"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="More by Creator"
+                  android:textColor="#FFFFFF"
+                  android:textSize="15sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:paddingHorizontal="16dp"
+                  android:paddingTop="18dp"
+                  android:paddingBottom="10dp"/>
+
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_more_by_creator"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:paddingHorizontal="12dp"
+                  android:paddingBottom="8dp"
+                  android:clipToPadding="false"
+                  android:nestedScrollingEnabled="false"/>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#1E1E1E"
+                  android:layout_marginTop="8dp"/>
+          </LinearLayout>
+
+          <!-- ── Similar / Related sounds ──────────────────────────────── -->
+          <LinearLayout
+              android:id="@+id/layout_related_section"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:visibility="gone">
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Similar Sounds"
+                  android:textColor="#FFFFFF"
+                  android:textSize="15sp"
+                  android:fontFamily="sans-serif-medium"
+                  android:paddingHorizontal="16dp"
+                  android:paddingTop="18dp"
+                  android:paddingBottom="10dp"/>
+
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_related_sounds"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:paddingHorizontal="12dp"
+                  android:paddingBottom="8dp"
+                  android:clipToPadding="false"
+                  android:nestedScrollingEnabled="false"/>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#1E1E1E"
+                  android:layout_marginTop="8dp"/>
+          </LinearLayout>
+
+          <!-- Bottom spacer (for nav bar) -->
+          <View
+              android:layout_width="match_parent"
+              android:layout_height="64dp"/>
+
+      </LinearLayout>
+  </ScrollView>
+  
