@@ -116,6 +116,33 @@
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Record" android:textSize="13sp"/>
         </LinearLayout>
+
+        <LinearLayout android:id="@+id/btn_upload_sound"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center" android:layout_marginStart="6dp"
+            android:background="?attr/selectableItemBackground">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Upload" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/btn_beat_sync"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center" android:layout_marginStart="6dp"
+            android:background="?attr/selectableItemBackground">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Beat Sync" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/btn_equalizer"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center" android:layout_marginStart="6dp"
+            android:background="?attr/selectableItemBackground">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="EQ" android:textSize="13sp"/>
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Recently used section -->
