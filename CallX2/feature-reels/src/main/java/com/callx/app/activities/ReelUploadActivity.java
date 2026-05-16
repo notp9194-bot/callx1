@@ -201,18 +201,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
         if (mixVoiceoverPath == null) mixVoiceoverPath = "";
 
-        // Sound screen se sound select hua hai →
-        //   mic audio    = 0%   (camera recording ki awaaz remove)
-        //   background   = 0%   (alag music nahi chahiye)
-        //   selected sound = 100% (yahi final audio hoga)
-        // Ye override Audio Mixer ke kisi bhi setting se upar hoga
-        if (!preSelectedSoundId.isEmpty() && !preSelectedSoundUrl.isEmpty()) {
-            mixOrigVol       = 0.0f;
-            mixMusicVol      = 1.0f;
-            mixVoiceoverPath = "";
-            mixVoiceoverVol  = 0.0f;
-        }
-
         // ── If no video URI, stop here (gallery flow: user picks video later) ──
         String videoUriStr = i.getStringExtra(EXTRA_VIDEO_URI);
         if (videoUriStr == null || videoUriStr.isEmpty()) return;

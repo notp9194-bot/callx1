@@ -491,14 +491,9 @@ public class SoundDetailActivity extends AppCompatActivity {
         }
 
         if (btnUseSoundCamera != null) btnUseSoundCamera.setOnClickListener(v -> {
-            // Guard: soundUrl might still be loading from Firebase
-            if (soundUrl == null || soundUrl.isEmpty()) {
-                Toast.makeText(this, "Sound is still loading, please wait…", Toast.LENGTH_SHORT).show();
-                return;
-            }
             Intent i = new Intent(this, ReelCameraActivity.class);
             i.putExtra("selected_sound_id",    soundId);
-            i.putExtra("selected_sound_title", soundTitle != null ? soundTitle : "");
+            i.putExtra("selected_sound_title", soundTitle);
             i.putExtra("selected_sound_url",   soundUrl);
             startActivity(i);
         });

@@ -1,14 +1,20 @@
 package com.callx.app.activities;
 
+import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.media.MediaPlayer;
+import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.widget.*;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
@@ -16,22 +22,25 @@ import androidx.media3.ui.PlayerView;
 import com.callx.app.reels.R;
 
 import java.io.File;
+import java.io.IOException;
 
 /**
- * ReelAudioMixerActivity — Audio Mixer (Original + Music only).
+ * ReelAudioMixerActivity — Production-level Audio Mixer.
  *
  * Features:
  *  ✅ ExoPlayer: plays original reel video (looped preview)
  *  ✅ Original audio volume slider (0–100%)
  *  ✅ Background music volume slider (0–100%)
+ *  ✅ Voiceover recording (tap mic → records over video, stores as separate track)
+ *  ✅ Voiceover volume slider
  *  ✅ Mute/unmute toggles per track
  *  ✅ Music track info display (title + artist)
- *  ✅ "Apply" returns mix config back to ReelEditorActivity
+ *  ✅ "Apply" returns mix config back to ReelUploadActivity/ReelEditorActivity
  *
  * Extras:
  *   INPUT:  EXTRA_VIDEO_URI, EXTRA_MUSIC_TITLE, EXTRA_MUSIC_ARTIST,
  *           EXTRA_MUSIC_URL, EXTRA_IS_FILE_PATH
- *   OUTPUT: RESULT_ORIG_VOL, RESULT_MUSIC_VOL
+ *   OUTPUT: RESULT_ORIG_VOL, RESULT_MUSIC_VOL, RESULT_VOICEOVER_PATH, RESULT_VOICEOVER_VOL
  */
 public class ReelAudioMixerActivity extends AppCompatActivity {
 
@@ -46,23 +55,32 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String RESULT_VOICEOVER_PATH= "result_vo_path";
     public static final String RESULT_VOICEOVER_VOL = "result_vo_vol";
 
-    private PlayerView  playerView;
-    private ImageButton btnBack, btnApply;
-    private TextView    tvMusicTitle, tvMusicArtist;
-    private SeekBar     sbOrigVol, sbMusicVol;
-    private TextView    tvOrigVolPct, tvMusicVolPct;
-    private ImageButton btnMuteOrig, btnMuteMusic;
-    private ProgressBar progressBuf;
+    private static final int REQ_MIC = 501;
 
-    private ExoPlayer   exoPlayer;
+    private PlayerView    playerView;
+    private ImageButton   btnBack, btnApply;
+    private TextView      tvMusicTitle, tvMusicArtist;
+    private SeekBar       sbOrigVol, sbMusicVol, sbVoiceoverVol;
+    private TextView      tvOrigVolPct, tvMusicVolPct, tvVoiceoverVolPct;
+    private ImageButton   btnMuteOrig, btnMuteMusic, btnMuteVoiceover;
+    private ImageButton   btnVoiceoverRecord;
+    private TextView      tvVoiceoverStatus;
+    private ProgressBar   progressBuf;
+    private View          layoutVoiceoverRow;
+
+    private ExoPlayer  exoPlayer;
     private MediaPlayer musicPlayer;
+    private MediaRecorder recorder;
 
-    private String  videoUri;
+    private String videoUri;
     private boolean isFilePath;
-    private String  musicUrl;
+    private String musicUrl;
+    private String voiceoverPath;
+    private boolean isRecordingVoiceover = false;
 
-    private float origVol  = 1.0f;
-    private float musicVol = 0.8f;
+    private float origVol     = 1.0f;
+    private float musicVol    = 0.8f;
+    private float voiceoverVol= 1.0f;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -82,24 +100,35 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         setupPlayer();
         setupSliders();
         setupMuteToggles();
+        setupVoiceover();
 
         btnBack.setOnClickListener(v -> finish());
         btnApply.setOnClickListener(v -> applyAndReturn());
+
+        if (musicUrl == null || musicUrl.isEmpty()) {
+            layoutVoiceoverRow.setVisibility(View.GONE);
+        }
     }
 
     private void bindViews() {
-        playerView    = findViewById(R.id.mixer_player_view);
-        btnBack       = findViewById(R.id.btn_mixer_back);
-        btnApply      = findViewById(R.id.btn_mixer_apply);
-        tvMusicTitle  = findViewById(R.id.tv_mixer_music_title);
-        tvMusicArtist = findViewById(R.id.tv_mixer_music_artist);
-        sbOrigVol     = findViewById(R.id.sb_orig_vol);
-        sbMusicVol    = findViewById(R.id.sb_music_vol);
-        tvOrigVolPct  = findViewById(R.id.tv_orig_vol_pct);
-        tvMusicVolPct = findViewById(R.id.tv_music_vol_pct);
-        btnMuteOrig   = findViewById(R.id.btn_mute_orig);
-        btnMuteMusic  = findViewById(R.id.btn_mute_music);
-        progressBuf   = findViewById(R.id.mixer_progress_buf);
+        playerView        = findViewById(R.id.mixer_player_view);
+        btnBack           = findViewById(R.id.btn_mixer_back);
+        btnApply          = findViewById(R.id.btn_mixer_apply);
+        tvMusicTitle      = findViewById(R.id.tv_mixer_music_title);
+        tvMusicArtist     = findViewById(R.id.tv_mixer_music_artist);
+        sbOrigVol         = findViewById(R.id.sb_orig_vol);
+        sbMusicVol        = findViewById(R.id.sb_music_vol);
+        sbVoiceoverVol    = findViewById(R.id.sb_voiceover_vol);
+        tvOrigVolPct      = findViewById(R.id.tv_orig_vol_pct);
+        tvMusicVolPct     = findViewById(R.id.tv_music_vol_pct);
+        tvVoiceoverVolPct = findViewById(R.id.tv_voiceover_vol_pct);
+        btnMuteOrig       = findViewById(R.id.btn_mute_orig);
+        btnMuteMusic      = findViewById(R.id.btn_mute_music);
+        btnMuteVoiceover  = findViewById(R.id.btn_mute_voiceover);
+        btnVoiceoverRecord= findViewById(R.id.btn_voiceover_record);
+        tvVoiceoverStatus = findViewById(R.id.tv_voiceover_status);
+        progressBuf       = findViewById(R.id.mixer_progress_buf);
+        layoutVoiceoverRow= findViewById(R.id.layout_voiceover_row);
     }
 
     private void populateMusicInfo(String title, String artist) {
@@ -155,6 +184,10 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         sbMusicVol.setProgress((int)(musicVol * 100));
         tvMusicVolPct.setText((int)(musicVol * 100) + "%");
 
+        sbVoiceoverVol.setMax(100);
+        sbVoiceoverVol.setProgress((int)(voiceoverVol * 100));
+        tvVoiceoverVolPct.setText((int)(voiceoverVol * 100) + "%");
+
         sbOrigVol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
                 origVol = p / 100f;
@@ -174,11 +207,21 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
+
+        sbVoiceoverVol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
+                voiceoverVol = p / 100f;
+                tvVoiceoverVolPct.setText(p + "%");
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
     }
 
     private void setupMuteToggles() {
-        final boolean[] mutedOrig  = {false};
-        final boolean[] mutedMusic = {false};
+        final boolean[] mutedOrig      = {false};
+        final boolean[] mutedMusic     = {false};
+        final boolean[] mutedVoiceover = {false};
 
         btnMuteOrig.setOnClickListener(v -> {
             mutedOrig[0] = !mutedOrig[0];
@@ -186,7 +229,6 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             btnMuteOrig.setImageResource(mutedOrig[0]
                 ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
         });
-
         btnMuteMusic.setOnClickListener(v -> {
             mutedMusic[0] = !mutedMusic[0];
             if (musicPlayer != null) {
@@ -196,16 +238,84 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             btnMuteMusic.setImageResource(mutedMusic[0]
                 ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
         });
+        btnMuteVoiceover.setOnClickListener(v -> {
+            mutedVoiceover[0] = !mutedVoiceover[0];
+            btnMuteVoiceover.setImageResource(mutedVoiceover[0]
+                ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
+        });
+    }
+
+    private void setupVoiceover() {
+        btnVoiceoverRecord.setOnClickListener(v -> {
+            if (isRecordingVoiceover) stopVoiceoverRecording();
+            else checkMicAndStartVoiceover();
+        });
+    }
+
+    private void checkMicAndStartVoiceover() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
+        } else {
+            startVoiceoverRecording();
+        }
+    }
+
+    private void startVoiceoverRecording() {
+        voiceoverPath = new File(getCacheDir(),
+            "voiceover_" + System.currentTimeMillis() + ".aac").getAbsolutePath();
+        recorder = new MediaRecorder();
+        recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+        recorder.setOutputFormat(MediaRecorder.OutputFormat.AAC_ADTS);
+        recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+        recorder.setAudioSamplingRate(44100);
+        recorder.setAudioEncodingBitRate(128000);
+        recorder.setOutputFile(voiceoverPath);
+        try {
+            recorder.prepare();
+            recorder.start();
+            isRecordingVoiceover = true;
+            btnVoiceoverRecord.setImageResource(R.drawable.ic_pause);
+            tvVoiceoverStatus.setText("Recording voiceover…");
+            if (exoPlayer != null && !exoPlayer.isPlaying()) exoPlayer.play();
+        } catch (IOException e) {
+            Toast.makeText(this, "Voiceover failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            voiceoverPath = null;
+        }
+    }
+
+    private void stopVoiceoverRecording() {
+        if (recorder != null) {
+            try { recorder.stop(); } catch (Exception ignored) {}
+            recorder.release();
+            recorder = null;
+        }
+        isRecordingVoiceover = false;
+        btnVoiceoverRecord.setImageResource(R.drawable.ic_mic);
+        tvVoiceoverStatus.setText("Voiceover recorded");
     }
 
     private void applyAndReturn() {
         Intent result = new Intent();
         result.putExtra(RESULT_ORIG_VOL,       origVol);
         result.putExtra(RESULT_MUSIC_VOL,      musicVol);
-        result.putExtra(RESULT_VOICEOVER_PATH, "");
-        result.putExtra(RESULT_VOICEOVER_VOL,  1.0f);
+        result.putExtra(RESULT_VOICEOVER_PATH, voiceoverPath != null ? voiceoverPath : "");
+        result.putExtra(RESULT_VOICEOVER_VOL,  voiceoverVol);
         setResult(RESULT_OK, result);
         finish();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, @NonNull String[] perms,
+                                           @NonNull int[] grants) {
+        super.onRequestPermissionsResult(req, perms, grants);
+        if (req == REQ_MIC && grants.length > 0
+                && grants[0] == PackageManager.PERMISSION_GRANTED) {
+            startVoiceoverRecording();
+        } else {
+            Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override
@@ -224,6 +334,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (isRecordingVoiceover) stopVoiceoverRecording();
         if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.release(); }
         if (musicPlayer != null) { musicPlayer.release(); musicPlayer = null; }
         handler.removeCallbacksAndMessages(null);

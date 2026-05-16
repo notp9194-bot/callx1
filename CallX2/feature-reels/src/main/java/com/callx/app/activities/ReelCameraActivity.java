@@ -304,13 +304,11 @@ public class ReelCameraActivity extends AppCompatActivity {
         progressRecord.setProgress(0);
 
         Intent intent = new Intent(this, ReelEditorActivity.class);
-        intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI,    filePath);
-        intent.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH, true);
+        intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI, filePath);
         // Pass pre-selected sound through to editor → upload
-        // Always pass soundId; pass URL/title regardless of empty check
-        intent.putExtra("selected_sound_id",    preSelectedSoundId);
-        intent.putExtra("selected_sound_title", preSelectedSoundTitle);
-        intent.putExtra("selected_sound_url",   preSelectedSoundUrl);
+        if (!preSelectedSoundId.isEmpty())    intent.putExtra("selected_sound_id",    preSelectedSoundId);
+        if (!preSelectedSoundTitle.isEmpty()) intent.putExtra("selected_sound_title", preSelectedSoundTitle);
+        if (!preSelectedSoundUrl.isEmpty())   intent.putExtra("selected_sound_url",   preSelectedSoundUrl);
         startActivity(intent);
     }
 
