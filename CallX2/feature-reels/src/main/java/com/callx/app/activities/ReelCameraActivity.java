@@ -35,6 +35,7 @@ import com.callx.app.reels.R;
 import com.callx.app.activities.ReelEffectsActivity;
 import com.callx.app.activities.ReelFiltersActivity;
 import com.callx.app.activities.ReelSpeedControlActivity;
+import com.callx.app.activities.MusicPickerActivity;
 import com.callx.app.activities.MultiClipCameraActivity;
 import com.callx.app.activities.ReelDraftsActivity;
 
@@ -154,7 +155,7 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (btnEffects != null)       btnEffects.setOnClickListener(v -> startActivityForResult(new Intent(this, ReelEffectsActivity.class), 301));
         if (btnCameraFilters != null) btnCameraFilters.setOnClickListener(v -> { Intent i = new Intent(this, ReelFiltersActivity.class); startActivityForResult(i, 302); });
         if (btnCameraSpeed != null)   btnCameraSpeed.setOnClickListener(v -> startActivityForResult(new Intent(this, ReelSpeedControlActivity.class), 303));
-        if (btnCameraMusic != null)   btnCameraMusic.setVisibility(android.view.View.GONE); // sound system removed
+        if (btnCameraMusic != null)   btnCameraMusic.setOnClickListener(v -> startActivityForResult(new Intent(this, MusicPickerActivity.class), 304));
         if (btnMultiClip != null)     btnMultiClip.setOnClickListener(v -> startActivity(new Intent(this, MultiClipCameraActivity.class)));
         if (btnDrafts != null)        btnDrafts.setOnClickListener(v -> startActivity(new Intent(this, ReelDraftsActivity.class)));
         chip15s.setOnClickListener(v -> { if (!isRecording) selectDurationChip(15); });
@@ -350,7 +351,24 @@ public class ReelCameraActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, @androidx.annotation.Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 304 && resultCode == RESULT_OK && data != null) {
-            // Sound system removed — MusicPickerActivity no longer exists, skip
+            // MusicPickerActivity returned a selected track
+            String id    = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_ID);
+            String title = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_NAME);
+            String url   = data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_URL);
+            if (id    != null && !id.isEmpty())    preSelectedSoundId    = id;
+            if (title != null && !title.isEmpty()) preSelectedSoundTitle = title;
+            if (url   != null && !url.isEmpty())   preSelectedSoundUrl   = url;
+
+            // Update music button label to show selected sound
+            if (btnCameraMusic != null) {
+                btnCameraMusic.setContentDescription(
+                    preSelectedSoundTitle.isEmpty() ? "Add music" : preSelectedSoundTitle);
+            }
+            Toast.makeText(this,
+                "Sound selected: " + preSelectedSoundTitle, Toast.LENGTH_SHORT).show();
+
+            // Start background preview so user can hear the beat
+            startSoundPreview();
         }
     }
 

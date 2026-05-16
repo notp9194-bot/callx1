@@ -17,6 +17,7 @@ import com.callx.app.reels.R;
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.activities.ReelChallengeActivity;
+import com.callx.app.activities.ReelTrendingAudioActivity;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.firebase.database.*;
@@ -93,8 +94,11 @@ public class ReelExploreActivity extends AppCompatActivity {
 
         btnBack.setOnClickListener(v -> finish());
 
-        // "See All" on Trending Sounds section — sound system removed, no-op
-        // if (tvSectionSounds != null) { ... }
+        // "See All" on Trending Sounds section → ReelTrendingAudioActivity
+        if (tvSectionSounds != null) {
+            tvSectionSounds.setOnClickListener(v ->
+                startActivity(new Intent(this, ReelTrendingAudioActivity.class)));
+        }
 
         // "See All" on Featured Creators → opens Explore with no filter
         if (tvSectionCreators != null) {
@@ -305,8 +309,15 @@ public class ReelExploreActivity extends AppCompatActivity {
                             });
                     }
                     Collections.reverse(items);
-                    // Sound system removed — sounds section hidden
-                    if (rvSounds != null) rvSounds.setVisibility(android.view.View.GONE);
+                    if (rvSounds != null)
+                        rvSounds.setAdapter(new SoundCardAdapter(items, item -> {
+                            Intent i = new Intent(ReelExploreActivity.this, SoundDetailActivity.class);
+                            i.putExtra(SoundDetailActivity.EXTRA_SOUND_ID,    item[0]);
+                            i.putExtra(SoundDetailActivity.EXTRA_SOUND_TITLE, item[1]);
+                            i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      item[2]);
+                            i.putExtra(SoundDetailActivity.EXTRA_SOUND_URL,   item[3]);
+                            startActivity(i);
+                        }));
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });

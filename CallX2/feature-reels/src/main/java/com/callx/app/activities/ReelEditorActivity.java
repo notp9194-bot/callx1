@@ -25,6 +25,8 @@ import com.callx.app.activities.ReelFiltersActivity;
 import com.callx.app.activities.ReelStickerPickerActivity;
 import com.callx.app.activities.ReelSubtitlesActivity;
 import com.callx.app.activities.ReelTransitionsActivity;
+import com.callx.app.activities.ReelVoiceEffectsActivity;
+import com.callx.app.activities.ReelAudioMixerActivity;
 import com.callx.app.activities.ReelThumbnailPickerActivity;
 
 
@@ -237,8 +239,16 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (btnToolStickers   != null) btnToolStickers.setOnClickListener(v   -> startActivityForResult(new Intent(this, ReelStickerPickerActivity.class), 402));
         if (btnToolSubtitles  != null) btnToolSubtitles.setOnClickListener(v  -> startActivityForResult(new Intent(this, ReelSubtitlesActivity.class), 403));
         if (btnToolTransitions!= null) btnToolTransitions.setOnClickListener(v-> startActivityForResult(new Intent(this, ReelTransitionsActivity.class), 404));
-        if (btnToolVoice      != null) btnToolVoice.setVisibility(android.view.View.GONE); // sound system removed
-        if (btnToolAudioMixer != null) btnToolAudioMixer.setVisibility(android.view.View.GONE); // sound system removed
+        if (btnToolVoice      != null) btnToolVoice.setOnClickListener(v      -> startActivityForResult(new Intent(this, ReelVoiceEffectsActivity.class), 405));
+        if (btnToolAudioMixer != null) btnToolAudioMixer.setOnClickListener(v -> {
+            Intent mixIntent = new Intent(this, ReelAudioMixerActivity.class);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_VIDEO_URI,    videoUriStr);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_IS_FILE_PATH, isFilePath);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  preSelectedSoundTitle);
+            mixIntent.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, "");
+            startActivityForResult(mixIntent, 406);
+        });
         if (btnToolThumbnail  != null) btnToolThumbnail.setOnClickListener(v  -> startActivityForResult(new Intent(this, ReelThumbnailPickerActivity.class), 407));
         btnNext.setOnClickListener(v -> proceedToUpload());
     }
@@ -246,7 +256,15 @@ public class ReelEditorActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @androidx.annotation.Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        // requestCode 406 (AudioMixer) removed — sound system removed
+        if (requestCode == 406 && resultCode == RESULT_OK && data != null) {
+            // Audio mixer returned — store the mix settings for upload
+            mixOrigVol       = data.getFloatExtra(ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
+            mixMusicVol      = data.getFloatExtra(ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
+            mixVoiceoverPath = data.getStringExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
+            mixVoiceoverVol  = data.getFloatExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
+            if (mixVoiceoverPath == null) mixVoiceoverPath = "";
+            Toast.makeText(this, "Audio mix saved ✓", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void proceedToUpload() {

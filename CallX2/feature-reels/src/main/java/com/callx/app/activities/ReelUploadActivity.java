@@ -28,7 +28,7 @@ import com.callx.app.activities.ReelSchedulerActivity;
 import com.callx.app.activities.ReelDraftsActivity;
 import com.callx.app.activities.ReelProductTagActivity;
 
-import com.callx.app.services.VideoCompressService;
+import com.callx.app.helpers.AudioMixHelper;
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.VideoCompressor;
@@ -411,11 +411,52 @@ public class ReelUploadActivity extends AppCompatActivity {
     }
 
     /**
-     * Sound system removed — skip audio mixing and upload directly.
+     * Step: mix audio tracks with AudioMixHelper, then proceed to upload.
      */
     private void runAudioMixThenUpload(String caption, String musicName) {
+        btnPostReel.setEnabled(false);
+        layoutUploadProgress.setVisibility(View.VISIBLE);
+        progressUpload.setProgress(0);
+        tvUploadStatus.setText("Mixing audio…");
+
         String rawVideoPath = compressedResult.videoFile.getAbsolutePath();
-        uploadReel(caption, musicName, rawVideoPath);
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+
+        AudioMixHelper.mixAndExport(
+            this,
+            rawVideoPath,
+            preSelectedSoundUrl,
+            mixVoiceoverPath,
+            mixOrigVol,
+            mixMusicVol,
+            mixVoiceoverVol,
+            new AudioMixHelper.MixCallback() {
+                @Override public void onProgress(int percent) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.progressUpload.setProgress(percent / 2); // mix = 0–50%, upload = 50–100%
+                    a.tvUploadStatus.setText("Mixing audio… " + percent + "%");
+                }
+                @Override public void onSuccess(String mixedPath) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.mixedVideoPath = mixedPath;
+                    a.tvUploadStatus.setText("Uploading reel…");
+                    a.uploadReel(caption, musicName, mixedPath);
+                }
+                @Override public void onError(Exception e) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.btnPostReel.setEnabled(true);
+                    a.layoutUploadProgress.setVisibility(View.GONE);
+                    // Fallback: upload without mixing
+                    Toast.makeText(a,
+                        "Audio mix failed, uploading original video. (" + e.getMessage() + ")",
+                        Toast.LENGTH_LONG).show();
+                    a.uploadReel(caption, musicName, rawVideoPath);
+                }
+            }
+        );
     }
 
     private void uploadReel(String caption, String musicName, String videoPath) {

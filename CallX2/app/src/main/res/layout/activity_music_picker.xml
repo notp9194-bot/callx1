@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"/>
+
+    <!-- No music option -->
+    <TextView
+        android:id="@+id/btn_no_music"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:text="🚫  No Music (Original Audio)"
+        android:textSize="15sp"
+        android:textColor="?attr/colorOnSurface"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:background="?attr/selectableItemBackground"/>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider"/>
+
+    <!-- Search bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_search"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:contentDescription="Search"/>
+
+        <EditText
+            android:id="@+id/et_music_search"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:hint="Search music, artist..."
+            android:singleLine="true"
+            android:inputType="text"
+            android:background="@null"
+            android:textSize="15sp"/>
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider"/>
+
+    <!-- Loading -->
+    <ProgressBar
+        android:id="@+id/progress_music"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="32dp"
+        android:visibility="gone"/>
+
+    <!-- Track list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_music_tracks"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="16dp"/>
+
+    <!-- Empty state -->
+    <LinearLayout
+        android:id="@+id/layout_music_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🎵"
+            android:textSize="48sp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="No tracks found"
+            android:textSize="16sp"
+            android:textColor="?attr/colorOnSurface"/>
+    </LinearLayout>
+
+</LinearLayout>

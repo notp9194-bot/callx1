@@ -67,7 +67,9 @@ public class ReelChallengeCreateActivity extends AppCompatActivity {
         btnBack.setOnClickListener(v -> finish());
         btnSubmit.setOnClickListener(v -> submitChallenge());
         btnPreview.setOnClickListener(v -> previewChallenge());
-        if (btnSelectAudio != null) btnSelectAudio.setVisibility(android.view.View.GONE); // sound system removed
+        btnSelectAudio.setOnClickListener(v -> {
+            startActivityForResult(new android.content.Intent(this, MusicPickerActivity.class), RC_MUSIC);
+        });
 
         etChallengeName.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}

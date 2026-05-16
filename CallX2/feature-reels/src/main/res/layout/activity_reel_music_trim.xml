@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- Top bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="8dp">
+
+        <ImageButton
+            android:id="@+id/btn_trim_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="Back"/>
+
+        <TextView
+            android:id="@+id/tv_trim_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Trim Audio"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:fontFamily="sans-serif-medium"
+            android:paddingStart="8dp"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+        <ImageButton
+            android:id="@+id/btn_trim_use"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_send_fill"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FF3B5C"
+            android:contentDescription="Use selection"/>
+    </LinearLayout>
+
+    <!-- Loading indicator -->
+    <ProgressBar
+        android:id="@+id/progress_trim_load"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="48dp"
+        android:visibility="gone"/>
+
+    <!-- Main controls (hidden until audio loads) -->
+    <LinearLayout
+        android:id="@+id/layout_trim_controls"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="20dp"
+        android:visibility="visible">
+
+        <!-- Preset radio buttons: 15s / 30s / 60s -->
+        <RadioGroup
+            android:id="@+id/rg_trim_presets"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="20dp">
+
+            <RadioButton
+                android:id="@+id/rb_preset_15"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="15s"
+                android:gravity="center"
+                android:textColor="#FFFFFF"
+                android:buttonTint="#FF3B5C"/>
+
+            <RadioButton
+                android:id="@+id/rb_preset_30"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="30s"
+                android:gravity="center"
+                android:textColor="#FFFFFF"
+                android:buttonTint="#FF3B5C"
+                android:checked="true"/>
+
+            <RadioButton
+                android:id="@+id/rb_preset_60"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="60s"
+                android:gravity="center"
+                android:textColor="#FFFFFF"
+                android:buttonTint="#FF3B5C"/>
+        </RadioGroup>
+
+        <!-- Waveform visualization -->
+        <LinearLayout
+            android:id="@+id/layout_trim_waveform"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:orientation="horizontal"
+            android:gravity="bottom|center_horizontal"
+            android:background="#1A1A1A"
+            android:paddingHorizontal="8dp"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Time labels -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:id="@+id/tv_trim_start_time"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="0:00"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"/>
+
+            <TextView
+                android:id="@+id/tv_trim_selected_range"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Selected: 0:30"
+                android:textColor="#FF3B5C"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"/>
+
+            <TextView
+                android:id="@+id/tv_trim_end_time"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="0:30"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- Start point seekbar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Start"
+            android:textColor="#888888"
+            android:textSize="11sp"
+            android:layout_marginTop="12dp"/>
+
+        <SeekBar
+            android:id="@+id/sb_trim_start"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:progressTint="#FF3B5C"
+            android:thumbTint="#FF3B5C"
+            android:layout_marginBottom="4dp"/>
+
+        <!-- End point seekbar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="End"
+            android:textColor="#888888"
+            android:textSize="11sp"
+            android:layout_marginTop="8dp"/>
+
+        <SeekBar
+            android:id="@+id/sb_trim_end"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:progressTint="#FF3B5C"
+            android:thumbTint="#FF3B5C"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Total duration info -->
+        <TextView
+            android:id="@+id/tv_trim_total_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Total: —"
+            android:textColor="#666666"
+            android:textSize="12sp"/>
+
+        <!-- Preview button -->
+        <ImageButton
+            android:id="@+id/btn_trim_preview"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="24dp"
+            android:src="@drawable/ic_play"
+            android:background="@drawable/bg_circle_action"
+            android:tint="#FFFFFF"
+            android:padding="14dp"
+            android:contentDescription="Preview selection"/>
+
+    </LinearLayout>
+
+</LinearLayout>

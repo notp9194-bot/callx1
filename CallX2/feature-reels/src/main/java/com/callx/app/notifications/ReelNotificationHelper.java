@@ -482,9 +482,15 @@ public class ReelNotificationHelper {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // 29. SOUND TRENDING — sound system removed, no-op
+    // 29. SOUND TRENDING
+    // ─────────────────────────────────────────────────────────────────────
     public static void showSoundTrendingNotification(Context ctx, String soundTitle, String soundId, long useCount) {
-        // Sound system removed — notification suppressed
+        String title = "🎵 \"" + soundTitle + "\" is trending!";
+        String body  = fmt(useCount) + " reels are using this sound now.";
+        NotificationCompat.Builder b = base(ctx, ReelNotificationChannelManager.CHANNEL_REEL_SOUND_TRENDING, R.drawable.ic_music_note, title, body, 0xFF5AC8FA)
+            .setContentIntent(genericPi(ctx, ReelTrendingAudioActivity.class))
+            .addAction(R.drawable.ic_add_reels, "Make a Reel", genericPi(ctx, ReelCameraActivity.class));
+        show(ctx, b, notifId("sound", soundId));
     }
 
     // ─────────────────────────────────────────────────────────────────────

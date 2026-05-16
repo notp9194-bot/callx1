@@ -33,6 +33,7 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
 import com.callx.app.repository.ChatRepository;
+import com.callx.app.utils.AudioRecorderHelper;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.FirebaseUtils;
@@ -127,8 +128,7 @@ public class GroupChatActivity extends AppCompatActivity {
 
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker;
-    private android.media.MediaRecorder mediaRecorder = null;
-    private String currentAudioPath = null;
+    private final AudioRecorderHelper recorder = new AudioRecorderHelper();
 
     // ── Network monitoring (Task 5) ────────────────────────────────────────
     private ConnectivityManager          connMgr;
@@ -1065,34 +1065,15 @@ public class GroupChatActivity extends AppCompatActivity {
             return;
         }
         if (!isRecording) {
-            try {
-                currentAudioPath = getCacheDir().getAbsolutePath() + "/voice_" + System.currentTimeMillis() + ".aac";
-                mediaRecorder = new android.media.MediaRecorder();
-                mediaRecorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC);
-                mediaRecorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.AAC_ADTS);
-                mediaRecorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC);
-                mediaRecorder.setOutputFile(currentAudioPath);
-                mediaRecorder.prepare();
-                mediaRecorder.start();
+            if (recorder.start(this)) {
                 isRecording = true;
                 binding.btnMic.setBackgroundResource(R.drawable.circle_reject);
-            } catch (Exception e) {
-                if (mediaRecorder != null) { mediaRecorder.release(); mediaRecorder = null; }
             }
         } else {
             isRecording = false;
             binding.btnMic.setBackgroundResource(R.drawable.circle_primary);
-            try {
-                if (mediaRecorder != null) { mediaRecorder.stop(); mediaRecorder.release(); mediaRecorder = null; }
-            } catch (Exception ignored) {}
-            if (currentAudioPath != null) {
-                java.io.File f = new java.io.File(currentAudioPath);
-                if (f.exists()) {
-                    Uri u = androidx.core.content.FileProvider.getUriForFile(this,
-                        getPackageName() + ".provider", f);
-                    if (u != null) uploadAndSend(u, "audio", "raw", null);
-                }
-            }
+            Uri u = recorder.stop(this);
+            if (u != null) uploadAndSend(u, "audio", "raw", null);
         }
     }
 
