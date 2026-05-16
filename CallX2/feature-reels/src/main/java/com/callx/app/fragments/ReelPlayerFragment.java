@@ -46,6 +46,7 @@ import com.callx.app.activities.StitchReelActivity;
 import com.callx.app.activities.ReelVideoReplyActivity;
 import com.callx.app.activities.UserReelsActivity;
 import com.callx.app.activities.ReelSoundActivity;
+import com.callx.app.activities.ReelUploadActivity;
 import com.callx.app.activities.ReelBookmarkCollectionsActivity;
 import com.callx.app.activities.ReelCollabRequestActivity;
 import com.callx.app.activities.ReelQRCodeActivity;
@@ -108,6 +109,7 @@ public class ReelPlayerFragment extends Fragment {
     // Feature 11: Music disc
     private ImageView       ivMusicDisc;
     private LinearLayout    layoutMusicTicker;
+    private TextView        btnUseSound;
     private ObjectAnimator  discAnimator;
     // Feature 12: Live reaction counts strip
     private LinearLayout    layoutLiveReactions;
@@ -313,6 +315,7 @@ public class ReelPlayerFragment extends Fragment {
         layoutReactions    = v.findViewById(R.id.layout_reactions);
         ivMusicDisc        = v.findViewById(R.id.iv_music_disc);
         layoutMusicTicker  = v.findViewById(R.id.layout_music_ticker);
+        btnUseSound        = v.findViewById(R.id.btn_use_sound);
         layoutLiveReactions = v.findViewById(R.id.layout_live_reactions);
         progressVideo     = v.findViewById(R.id.progress_video);
         progressBuffering = v.findViewById(R.id.progress_buffering);
@@ -480,6 +483,7 @@ public class ReelPlayerFragment extends Fragment {
         if (btnSave != null) btnSave.setOnLongClickListener(v -> { openBookmarkCollections(); return true; });
         if (tvMusicName != null) tvMusicName.setOnClickListener(v -> openSoundDetail());
         if (ivMusicDisc != null) ivMusicDisc.setOnClickListener(v -> openSoundDetail());
+        if (btnUseSound != null) btnUseSound.setOnClickListener(v -> openUploadWithSound());
         btnMute.setOnClickListener(v -> toggleMute());
         btnMore.setOnClickListener(v -> showMoreOptions());
         if (btnDownload != null) btnDownload.setOnClickListener(v -> downloadReel());
@@ -1204,21 +1208,33 @@ public class ReelPlayerFragment extends Fragment {
     private void openSoundDetail() {
         if (!isAdded() || getActivity() == null || reel == null) return;
         Intent i = new Intent(getActivity(), ReelSoundActivity.class);
-        i.putExtra(ReelSoundActivity.EXTRA_SOUND_ID,    reel.musicId       != null ? reel.musicId       : "");
-        i.putExtra(ReelSoundActivity.EXTRA_SOUND_TITLE, reel.musicName     != null ? reel.musicName     : "Original Audio");
-        i.putExtra(ReelSoundActivity.EXTRA_SOUND_URL,   reel.musicUrl      != null ? reel.musicUrl      : "");
+        i.putExtra(ReelSoundActivity.EXTRA_SOUND_ID,    reel.musicId     != null ? reel.musicId    : "");
+        i.putExtra(ReelSoundActivity.EXTRA_SOUND_TITLE, reel.musicName   != null ? reel.musicName  : "Original Audio");
+        i.putExtra(ReelSoundActivity.EXTRA_SOUND_URL,   reel.musicUrl    != null ? reel.musicUrl   : "");
         i.putExtra(ReelSoundActivity.EXTRA_COVER_URL,   reel.musicCoverUrl != null ? reel.musicCoverUrl : "");
-        i.putExtra(ReelSoundActivity.EXTRA_ARTIST,
-            reel.musicArtist != null && !reel.musicArtist.isEmpty()
-                ? reel.musicArtist : (reel.ownerName != null ? reel.ownerName : ""));
-        i.putExtra(ReelSoundActivity.EXTRA_VIDEO_URL,   reel.videoUrl  != null ? reel.videoUrl  : "");
-        // NEW: pass reel context so sound screen can load reels grid, duet/stitch, seek to start
-        i.putExtra(ReelSoundActivity.EXTRA_REEL_ID,     reel.reelId    != null ? reel.reelId    : "");
-        i.putExtra(ReelSoundActivity.EXTRA_START_SEC,   reel.musicStartSec);
-        i.putExtra(ReelSoundActivity.EXTRA_DURATION_MS, reel.duration > 0 ? reel.duration * 1000 : 0);
-        // Creator UID: for original audio the creator IS the reel owner
-        i.putExtra(ReelSoundActivity.EXTRA_CREATOR_UID,
-            (reel.uid != null && !reel.uid.isEmpty()) ? reel.uid : "");
+        i.putExtra(ReelSoundActivity.EXTRA_ARTIST,      reel.musicArtist != null && !reel.musicArtist.isEmpty()
+            ? reel.musicArtist : (reel.ownerName != null ? reel.ownerName : ""));
+        i.putExtra(ReelSoundActivity.EXTRA_VIDEO_URL,   reel.videoUrl    != null ? reel.videoUrl   : "");
+        startActivity(i);
+    }
+
+    /**
+     * "Use this Sound" button clicked from the reel player.
+     * Opens ReelUploadActivity with the reel's sound pre-selected so the
+     * user can record / pick a video that will be mixed with this sound.
+     */
+    private void openUploadWithSound() {
+        if (!isAdded() || getActivity() == null || reel == null) return;
+        Intent i = new Intent(getActivity(), ReelUploadActivity.class);
+        // Pass sound details so ReelUploadActivity pre-fills the sound
+        String soundId    = reel.musicId     != null ? reel.musicId    : "";
+        String soundTitle = reel.musicName   != null ? reel.musicName  : "Original Audio";
+        String soundUrl   = reel.musicUrl    != null ? reel.musicUrl   : "";
+        // Fallback: if no dedicated musicUrl, use the reel's own video audio
+        if (soundUrl.isEmpty() && reel.videoUrl != null) soundUrl = reel.videoUrl;
+        i.putExtra(ReelUploadActivity.EXTRA_SOUND_ID,    soundId);
+        i.putExtra(ReelUploadActivity.EXTRA_SOUND_TITLE, soundTitle);
+        i.putExtra(ReelUploadActivity.EXTRA_SOUND_URL,   soundUrl);
         startActivity(i);
     }
 
