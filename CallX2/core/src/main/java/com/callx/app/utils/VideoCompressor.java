@@ -369,7 +369,7 @@ public class VideoCompressor {
         // Cloudinary URL transform: video → JPEG thumbnail at 1 second
         return videoUrl
             .replace("/upload/", "/upload/w_400,h_400,c_fill,so_1,f_jpg/")
-            .replaceAll("\.[^.]+$", ".jpg");
+            .replaceAll("\\.[^.]+$", ".jpg");
     }
 
     // ── Quality → Cloudinary eager transform ──────────────────────────────
