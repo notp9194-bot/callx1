@@ -143,13 +143,11 @@ public class VideoQualitySheet extends BottomSheetDialogFragment {
         if (swWifiHd    != null) swWifiHd.setChecked(prefs.isHdOnWifiOnly());
         if (swDataSaver != null) swDataSaver.setChecked(prefs.isDataSaverMode());
 
-        // Codec info
+        // Codec info — v25: server pe compress hota hai
         if (tvCodec != null) {
             String codec = com.callx.app.utils.VideoCompressor.pickCodec(currentQ);
             String display = codec.replace("video/", "").toUpperCase();
-            tvCodec.setText("Active codec: " + display
-                + (com.callx.app.utils.VideoCompressor.hasHardwareEncoder(codec)
-                   ? " (HW)" : " (SW)"));
+            tvCodec.setText("Compression: Server (" + display + ")");
         }
 
         // Stats

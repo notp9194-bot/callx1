@@ -385,8 +385,15 @@ public class ReelUploadActivity extends AppCompatActivity {
             Toast.makeText(this, "Compression not complete. Please wait.", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (compressedResult.videoFile == null || !compressedResult.videoFile.exists()
-                || compressedResult.videoFile.length() == 0) {
+        // v25 server-side compress: videoFile hamesha null hota hai.
+        // serverVideoUrl hai toh ready hai — local file check skip karo.
+        boolean serverReady = compressedResult.serverVideoUrl != null
+                && !compressedResult.serverVideoUrl.isEmpty();
+        boolean localReady  = compressedResult.videoFile != null
+                && compressedResult.videoFile.exists()
+                && compressedResult.videoFile.length() > 0;
+
+        if (!serverReady && !localReady) {
             Toast.makeText(this, "Compressed video file is missing. Please try again.",
                 Toast.LENGTH_SHORT).show();
             compressedResult = null;
@@ -405,8 +412,12 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (hasMusicTrack || hasVoiceover) {
             runAudioMixThenUpload(caption, musicName);
         } else {
-            // No extra audio — upload compressed video directly
-            uploadReel(caption, musicName, compressedResult.videoFile.getAbsolutePath());
+            // No extra audio — v25: server already uploaded, videoFile null hoga
+            // VideoUploader.doUpload() serverVideoUrl detect karke seedha callback karega
+            uploadReel(caption, musicName,
+                compressedResult.videoFile != null
+                    ? compressedResult.videoFile.getAbsolutePath()
+                    : "");
         }
     }
 
@@ -419,7 +430,9 @@ public class ReelUploadActivity extends AppCompatActivity {
         progressUpload.setProgress(0);
         tvUploadStatus.setText("Mixing audio…");
 
-        String rawVideoPath = compressedResult.videoFile.getAbsolutePath();
+        // v25: server-side compress mein videoFile null hota hai — serverVideoUrl use hoga
+        String rawVideoPath = compressedResult.videoFile != null
+                ? compressedResult.videoFile.getAbsolutePath() : "";
         WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
 
         AudioMixHelper.mixAndExport(

@@ -1488,87 +1488,34 @@ public class ChatActivity extends AppCompatActivity {
 
         binding.uploadProgress.setVisibility(View.VISIBLE);
 
-        // IMAGE: compress first (5MB → ~400KB WebP), then upload
+        // IMAGE: v26 SERVER-SIDE compress — mobile pe zero CPU
+        // ImageCompressor.compress() raw image server pe bhejta hai →
+        // server sharp se resize + WebP + Cloudinary upload kare →
+        // sirf URLs wapas aate hain — koi local Bitmap decode/encode nahi
         if ("image".equals(msgType)) {
+            binding.uploadProgress.setIndeterminate(true);
             ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
                 @Override
                 public void onSuccess(ImageCompressor.Result result) {
-                    // Upload full image to Cloudinary; store thumb URL separately
-                    Uri fullUri  = Uri.fromFile(result.fullFile);
-                    Uri thumbUri = Uri.fromFile(result.thumbFile);
+                    // Server ne already compress + Cloudinary upload kar diya
+                    // serverImageUrl aur serverThumbUrl directly use karo
+                    binding.uploadProgress.setVisibility(View.GONE);
+                    binding.uploadProgress.setIndeterminate(false);
 
-                    // First upload thumbnail (fast, ~30KB)
-                    CloudinaryUploader.upload(ChatActivity.this, thumbUri,
-                        "callx/thumb", "image",
-                        new CloudinaryUploader.UploadCallback() {
-                            @Override
-                            public void onSuccess(CloudinaryUploader.Result thumbResult) {
-                                String thumbUrl = thumbResult.secureUrl;
-                                // Now upload full image
-                                CloudinaryUploader.upload(ChatActivity.this, fullUri,
-                                    "callx/image", "image",
-                                    new CloudinaryUploader.UploadCallback() {
-                                        @Override
-                                        public void onSuccess(CloudinaryUploader.Result fullResult) {
-                                            binding.uploadProgress.setVisibility(View.GONE);
-                                            // Cleanup temp files
-                                            result.thumbFile.delete();
-                                            result.fullFile.delete();
-                                            // Build message with BOTH urls
-                                            Message m     = buildOutgoing();
-                                            m.type        = "image";
-                                            m.mediaUrl    = fullResult.secureUrl;
-                                            m.imageUrl    = fullResult.secureUrl;
-                                            m.thumbnailUrl = thumbUrl;
-                                            m.fileSize    = fullResult.bytes;
-                                            pushMessage(m, "📷 Photo");
-                                            clearReply();
-                                        }
-                                        @Override
-                                        public void onError(String err) {
-                                            binding.uploadProgress.setVisibility(View.GONE);
-                                            result.thumbFile.delete();
-                                            result.fullFile.delete();
-                                            Toast.makeText(ChatActivity.this,
-                                                err != null ? err : "Upload failed",
-                                                Toast.LENGTH_LONG).show();
-                                        }
-                                    });
-                            }
-                            @Override
-                            public void onError(String err) {
-                                // Thumb failed — still upload full (no thumb preview)
-                                CloudinaryUploader.upload(ChatActivity.this, fullUri,
-                                    "callx/image", "image",
-                                    new CloudinaryUploader.UploadCallback() {
-                                        @Override
-                                        public void onSuccess(CloudinaryUploader.Result r) {
-                                            binding.uploadProgress.setVisibility(View.GONE);
-                                            result.thumbFile.delete();
-                                            result.fullFile.delete();
-                                            Message m  = buildOutgoing();
-                                            m.type     = "image";
-                                            m.mediaUrl = r.secureUrl;
-                                            m.imageUrl = r.secureUrl;
-                                            pushMessage(m, "📷 Photo");
-                                            clearReply();
-                                        }
-                                        @Override
-                                        public void onError(String e) {
-                                            binding.uploadProgress.setVisibility(View.GONE);
-                                            result.thumbFile.delete();
-                                            result.fullFile.delete();
-                                            Toast.makeText(ChatActivity.this,
-                                                "Upload failed", Toast.LENGTH_LONG).show();
-                                        }
-                                    });
-                            }
-                        });
+                    Message m      = buildOutgoing();
+                    m.type         = "image";
+                    m.mediaUrl     = result.serverImageUrl;
+                    m.imageUrl     = result.serverImageUrl;
+                    m.thumbnailUrl = result.serverThumbUrl;
+                    pushMessage(m, "📷 Photo");
+                    clearReply();
                 }
                 @Override
                 public void onError(Exception e) {
-                    // Compression failed — fallback to direct upload
-                    android.util.Log.w("ChatActivity", "Compression failed, uploading original", e);
+                    binding.uploadProgress.setVisibility(View.GONE);
+                    binding.uploadProgress.setIndeterminate(false);
+                    // Fallback: direct upload original (no compression)
+                    android.util.Log.w("ChatActivity", "Server image compress failed, fallback", e);
                     doUpload(uri, msgType, resourceType, fileName);
                 }
             });
