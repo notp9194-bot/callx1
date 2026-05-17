@@ -147,11 +147,11 @@ public class VideoCompressor {
                 String eagerTransform = mapQualityToEager(quality);
                 JSONObject signPayload = new JSONObject()
                     .put("folder",        "callx/videos/file")
-                    .put("resource_type", "video")
-                    .put("eager",         eagerTransform);
+                    .put("resource_type", "video");
+                // eager is NOT signed — Cloudinary free plan doesn't support signed eager
 
                 Request signReq = new Request.Builder()
-                    .url(Constants.SERVER_URL + "/cloudinary/sign/video")
+                    .url(Constants.SERVER_URL + "/cloudinary/sign")
                     .post(RequestBody.create(signPayload.toString(),
                         MediaType.parse("application/json")))
                     .build();
@@ -274,9 +274,9 @@ public class VideoCompressor {
             .addFormDataPart("signature", signature)
             .addFormDataPart("folder",    folder);
 
+        // eager is added AFTER signature — unsigned param, Cloudinary accepts this
         if (eagerTransform != null && !eagerTransform.isEmpty()) {
-            mb.addFormDataPart("eager",           eagerTransform);
-            mb.addFormDataPart("eager_async",     "false"); // sync — URL seedha milega
+            mb.addFormDataPart("eager", eagerTransform);
         }
 
         Response res  = HTTP.newCall(new Request.Builder()
@@ -328,10 +328,9 @@ public class VideoCompressor {
                     .addFormDataPart("signature", signature)
                     .addFormDataPart("folder",    folder);
 
-                // Eager only on last chunk
+                // Eager only on last chunk — unsigned param (after signature)
                 if (eagerTransform != null && !eagerTransform.isEmpty() && (offset + read >= fileSize)) {
-                    mb.addFormDataPart("eager",       eagerTransform);
-                    mb.addFormDataPart("eager_async", "false");
+                    mb.addFormDataPart("eager", eagerTransform);
                 }
 
                 Response res = HTTP.newCall(new Request.Builder()
@@ -375,13 +374,15 @@ public class VideoCompressor {
     // ── Quality → Cloudinary eager transform ──────────────────────────────
 
     private static String mapQualityToEager(VideoQualityPreferences.Quality q) {
+        if (q == null) return "c_scale,w_960,h_540,vc_h264,b_800k";
         switch (q) {
-            case LOW:      return "c_scale,w_640,h_360,vc_h264,b_500k";
-            case STANDARD: return "c_scale,w_854,h_480,vc_h264,b_800k";
+            case LOW:      return "c_scale,w_640,h_360,vc_h264,b_400k";
+            case STANDARD: return "c_scale,w_960,h_540,vc_h264,b_800k";
             case HD:       return "c_scale,w_1280,h_720,vc_h264,b_1500k";
             case FULL_HD:  return "c_scale,w_1920,h_1080,vc_h264,b_3000k";
+            case AUTO:     return "c_scale,w_960,h_540,vc_h264,b_800k"; // auto = 540p default
             case ORIGINAL: return ""; // no transform
-            default:       return "c_scale,w_854,h_480,vc_h264,b_800k";
+            default:       return "c_scale,w_960,h_540,vc_h264,b_800k";
         }
     }
 

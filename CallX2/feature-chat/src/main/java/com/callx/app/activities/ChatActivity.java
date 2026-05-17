@@ -1522,7 +1522,8 @@ public class ChatActivity extends AppCompatActivity {
             return;
         }
 
-        // VIDEO: compress → dual Cloudinary upload (thumb + video)
+        // VIDEO: v26 Cloudinary direct upload — VideoCompressor already uploads to Cloudinary
+        // serverVideoUrl + serverThumbUrl directly use karo — VideoUploader call NAHI karna
         if ("video".equals(msgType)) {
             binding.uploadProgress.setVisibility(View.VISIBLE);
             binding.uploadProgress.setIndeterminate(false);
@@ -1534,49 +1535,26 @@ public class ChatActivity extends AppCompatActivity {
 
                 @Override
                 public void onProgress(int percent) {
-                    binding.uploadProgress.setProgress(percent / 2); // 0–50% = compress
+                    binding.uploadProgress.setProgress(percent);
                 }
 
                 @Override
                 public void onSuccess(com.callx.app.utils.VideoCompressor.Result result) {
-                    // Compression done — upload thumb + video to Cloudinary
-                    com.callx.app.utils.VideoUploader.upload(
-                            ChatActivity.this, result,
-                            new com.callx.app.utils.VideoUploader.UploadCallback() {
-
-                        @Override
-                        public void onProgress(int percent) {
-                            // 50–100% = upload phase
-                            binding.uploadProgress.setProgress(50 + percent / 2);
-                        }
-
-                        @Override
-                        public void onSuccess(String thumbUrl, String videoUrl,
-                                              int durationMs, int width, int height) {
-                            binding.uploadProgress.setVisibility(View.GONE);
-                            Message m       = buildOutgoing();
-                            m.type          = "video";
-                            m.mediaUrl      = videoUrl;
-                            m.thumbnailUrl  = thumbUrl;
-                            m.duration      = (long) durationMs;
-                            pushMessage(m, "\uD83C\uDFAC Video");
-                            clearReply();
-                        }
-
-                        @Override
-                        public void onError(Exception e) {
-                            binding.uploadProgress.setVisibility(View.GONE);
-                            Toast.makeText(ChatActivity.this,
-                                    e != null ? e.getMessage() : "Video upload failed",
-                                    Toast.LENGTH_LONG).show();
-                        }
-                    });
+                    // v26: Cloudinary pe already upload ho gaya — seedha message banao
+                    binding.uploadProgress.setVisibility(View.GONE);
+                    Message m      = buildOutgoing();
+                    m.type         = "video";
+                    m.mediaUrl     = result.serverVideoUrl;
+                    m.thumbnailUrl = result.serverThumbUrl;
+                    m.duration     = (long) result.durationMs;
+                    pushMessage(m, "\uD83C\uDFAC Video");
+                    clearReply();
                 }
 
                 @Override
                 public void onError(Exception e) {
-                    // Compression failed — fallback to direct upload
-                    android.util.Log.w("ChatActivity", "Video compress failed, fallback", e);
+                    binding.uploadProgress.setVisibility(View.GONE);
+                    android.util.Log.w("ChatActivity", "Video upload failed, fallback", e);
                     doUpload(uri, msgType, resourceType, fileName);
                 }
             });
