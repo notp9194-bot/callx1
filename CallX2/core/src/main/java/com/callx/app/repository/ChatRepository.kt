@@ -124,31 +124,33 @@ class ChatRepository private constructor(ctx: Context) {
 
     // ── Helpers — model ↔ entity conversion ──────────────────────────
 
-    private fun toEntity(m: Message, chatId: String) = MessageEntity(
-        id                = m.id ?: "",
-        chatId            = chatId,
-        senderId          = m.senderId,
-        senderName        = m.senderName,
-        text              = m.text,
-        type              = m.type ?: "text",
-        mediaUrl          = m.mediaUrl ?: m.imageUrl,
-        thumbnailUrl      = m.thumbnailUrl,
-        fileName          = m.fileName,
-        fileSize          = m.fileSize,
-        duration          = m.duration,
-        timestamp         = m.timestamp,
-        status            = m.status,
-        replyToId         = m.replyToId,
-        replyToText       = m.replyToText,
-        replyToSenderName = m.replyToSenderName,
-        edited            = m.edited,
-        editedAt          = m.editedAt,
-        deleted           = m.deleted,
-        forwardedFrom     = m.forwardedFrom,
-        starred           = m.starred,
-        pinned            = m.pinned,
-        syncedAt          = System.currentTimeMillis()
-    )
+    private fun toEntity(m: Message, chatId: String): MessageEntity {
+        val e = MessageEntity()
+        e.id                = m.id ?: ""
+        e.chatId            = chatId
+        e.senderId          = m.senderId
+        e.senderName        = m.senderName
+        e.text              = m.text
+        e.type              = m.type ?: "text"
+        e.mediaUrl          = m.mediaUrl ?: m.imageUrl
+        e.thumbnailUrl      = m.thumbnailUrl
+        e.fileName          = m.fileName
+        e.fileSize          = m.fileSize
+        e.duration          = m.duration
+        e.timestamp         = m.timestamp
+        e.status            = m.status
+        e.replyToId         = m.replyToId
+        e.replyToText       = m.replyToText
+        e.replyToSenderName = m.replyToSenderName
+        e.edited            = m.edited
+        e.editedAt          = m.editedAt
+        e.deleted           = m.deleted
+        e.forwardedFrom     = m.forwardedFrom
+        e.starred           = m.starred
+        e.pinned            = m.pinned
+        e.syncedAt          = System.currentTimeMillis()
+        return e
+    }
 
     // UserEntity is a Java class — use field assignment, NOT named constructor args
     private fun userToEntity(u: User): UserEntity {

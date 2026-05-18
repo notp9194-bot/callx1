@@ -7,6 +7,9 @@ import androidx.room.PrimaryKey
 /**
  * Room DB entity for chat metadata cache.
  * Covers both 1-on-1 and group chats.
+ *
+ * Plain class (not data class) with @JvmField on every property so that
+ * Java classes (SyncWorker) can access fields directly without Kotlin getters.
  */
 @Entity(
     tableName = "chats",
@@ -15,22 +18,23 @@ import androidx.room.PrimaryKey
         Index(value = ["type"])
     ]
 )
-data class ChatEntity(
-    @PrimaryKey var chatId: String = "",
+class ChatEntity {
+
+    @JvmField @PrimaryKey var chatId: String = ""
     /** "private" or "group" */
-    var type: String? = null,
-    var partnerUid: String? = null,
-    var partnerName: String? = null,
-    var partnerPhoto: String? = null,
-    var partnerThumb: String? = null,
-    var lastMessage: String? = null,
-    var lastMessageAt: Long? = null,
-    var unread: Long? = null,
-    var muted: Boolean? = null,
-    var pinned: Boolean? = null,
-    var syncedAt: Long = System.currentTimeMillis(),
+    @JvmField var type: String? = null
+    @JvmField var partnerUid: String? = null
+    @JvmField var partnerName: String? = null
+    @JvmField var partnerPhoto: String? = null
+    @JvmField var partnerThumb: String? = null
+    @JvmField var lastMessage: String? = null
+    @JvmField var lastMessageAt: Long? = null
+    @JvmField var unread: Long? = null
+    @JvmField var muted: Boolean? = null
+    @JvmField var pinned: Boolean? = null
+    @JvmField var syncedAt: Long = System.currentTimeMillis()
     /** Draft message persist */
-    var draft: String? = null,
+    @JvmField var draft: String? = null
     /** Offline read receipt queue */
-    var pendingMarkRead: Boolean? = null
-)
+    @JvmField var pendingMarkRead: Boolean? = null
+}

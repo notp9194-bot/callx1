@@ -228,12 +228,20 @@ class GroupChatActivity : AppCompatActivity() {
         clearReplyBar()
         ref.setValue(m)
         ioExecutor.execute {
-            db.messageDao().insertMessage(MessageEntity(
-                id = msgId, chatId = chatId, senderId = currentUid, senderName = currentName,
-                text = text, type = "text", timestamp = m.timestamp, status = "sent",
-                replyToId = m.replyToId, replyToText = m.replyToText,
-                replyToSenderName = m.replyToSenderName, syncedAt = System.currentTimeMillis()
-            ))
+            val me = MessageEntity()
+            me.id                = msgId
+            me.chatId            = chatId
+            me.senderId          = currentUid
+            me.senderName        = currentName
+            me.text              = text
+            me.type              = "text"
+            me.timestamp         = m.timestamp
+            me.status            = "sent"
+            me.replyToId         = m.replyToId
+            me.replyToText       = m.replyToText
+            me.replyToSenderName = m.replyToSenderName
+            me.syncedAt          = System.currentTimeMillis()
+            db.messageDao().insertMessage(me)
         }
         updateGroupMeta(text)
     }
@@ -266,18 +274,28 @@ class GroupChatActivity : AppCompatActivity() {
                 val m = snapshot.getValue(Message::class.java) ?: return
                 if (m.id == null) m.id = snapshot.key
                 ioExecutor.execute {
-                    db.messageDao().insertMessage(MessageEntity(
-                        id = m.id ?: return@execute, chatId = chatId,
-                        senderId = m.senderId, senderName = m.senderName,
-                        text = m.text, type = m.type ?: "text",
-                        mediaUrl = m.mediaUrl, thumbnailUrl = m.thumbnailUrl,
-                        fileName = m.fileName, timestamp = m.timestamp, status = m.status,
-                        replyToId = m.replyToId, replyToText = m.replyToText,
-                        replyToSenderName = m.replyToSenderName,
-                        edited = m.edited, deleted = m.deleted,
-                        starred = m.starred, pinned = m.pinned,
-                        syncedAt = System.currentTimeMillis()
-                    ))
+                    val msgId2 = m.id ?: return@execute
+                    val me = MessageEntity()
+                    me.id                = msgId2
+                    me.chatId            = chatId
+                    me.senderId          = m.senderId
+                    me.senderName        = m.senderName
+                    me.text              = m.text
+                    me.type              = m.type ?: "text"
+                    me.mediaUrl          = m.mediaUrl
+                    me.thumbnailUrl      = m.thumbnailUrl
+                    me.fileName          = m.fileName
+                    me.timestamp         = m.timestamp
+                    me.status            = m.status
+                    me.replyToId         = m.replyToId
+                    me.replyToText       = m.replyToText
+                    me.replyToSenderName = m.replyToSenderName
+                    me.edited            = m.edited
+                    me.deleted           = m.deleted
+                    me.starred           = m.starred
+                    me.pinned            = m.pinned
+                    me.syncedAt          = System.currentTimeMillis()
+                    db.messageDao().insertMessage(me)
                 }
             }
             override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) = onChildAdded(snapshot, previousChildName)

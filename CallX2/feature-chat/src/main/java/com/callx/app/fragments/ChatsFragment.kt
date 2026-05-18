@@ -117,12 +117,19 @@ class ChatsFragment : Fragment() {
         unread = unread
     )
 
-    private fun User.toChatEntity() = com.callx.app.db.entity.ChatEntity(
-        chatId = buildChatId(FirebaseAuth.getInstance().currentUser?.uid ?: "", uid ?: ""),
-        type = "private", partnerUid = uid, partnerName = name, partnerPhoto = photoUrl,
-        partnerThumb = thumbUrl, lastMessage = lastMessage, lastMessageAt = lastMessageAt,
-        unread = unread
-    )
+    private fun User.toChatEntity(): com.callx.app.db.entity.ChatEntity {
+        val e = com.callx.app.db.entity.ChatEntity()
+        e.chatId       = buildChatId(FirebaseAuth.getInstance().currentUser?.uid ?: "", uid ?: "")
+        e.type         = "private"
+        e.partnerUid   = uid
+        e.partnerName  = name
+        e.partnerPhoto = photoUrl
+        e.partnerThumb = thumbUrl
+        e.lastMessage  = lastMessage
+        e.lastMessageAt = lastMessageAt
+        e.unread       = unread
+        return e
+    }
 
     private fun buildChatId(a: String, b: String) = if (a < b) "${a}_${b}" else "${b}_${a}"
 }
