@@ -62,9 +62,17 @@ class StarredMessagesActivity : AppCompatActivity(), MessageAdapter.ActionListen
             val db = AppDatabase.getInstance(this)
             val entities = db.messageDao().getStarredMessagesSync()
             val messages = entities.filter { it.chatId == chatId }.map { e ->
-                Message(id = e.id, messageId = e.id, senderId = e.senderId, senderName = e.senderName,
-                    text = e.text, type = e.type, mediaUrl = e.mediaUrl, timestamp = e.timestamp,
-                    starred = e.starred)
+                val m = Message()
+                m.id          = e.id
+                m.messageId   = e.id
+                m.senderId    = e.senderId
+                m.senderName  = e.senderName
+                m.text        = e.text
+                m.type        = e.type
+                m.mediaUrl    = e.mediaUrl
+                m.timestamp   = e.timestamp
+                m.starred     = e.starred
+                m
             }
             runOnUiThread {
                 starred.clear(); starred.addAll(messages)

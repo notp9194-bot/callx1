@@ -111,11 +111,17 @@ class ChatsFragment : Fragment() {
         emptyState?.visibility = if (contacts.isEmpty()) View.VISIBLE else View.GONE
     }
 
-    private fun ChatEntity.toUser() = User(
-        uid = partnerUid, name = partnerName, photoUrl = partnerPhoto,
-        thumbUrl = partnerThumb, lastMessage = lastMessage, lastMessageAt = lastMessageAt,
-        unread = unread
-    )
+    private fun ChatEntity.toUser(): User {
+        val u = User()
+        u.uid          = partnerUid
+        u.name         = partnerName
+        u.photoUrl     = partnerPhoto
+        u.thumbUrl     = partnerThumb
+        u.lastMessage  = lastMessage
+        u.lastMessageAt = lastMessageAt
+        u.unread       = unread
+        return u
+    }
 
     private fun User.toChatEntity(): com.callx.app.db.entity.ChatEntity {
         val e = com.callx.app.db.entity.ChatEntity()

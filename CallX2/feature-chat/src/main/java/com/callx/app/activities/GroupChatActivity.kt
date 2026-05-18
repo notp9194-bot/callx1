@@ -165,16 +165,27 @@ class GroupChatActivity : AppCompatActivity() {
         }
         pager.liveData.observe(this) { pagingData ->
             pagingAdapter.submitData(lifecycle, pagingData.map { entity ->
-                Message(
-                    id = entity.id, messageId = entity.id, senderId = entity.senderId,
-                    senderName = entity.senderName, text = entity.text, type = entity.type,
-                    mediaUrl = entity.mediaUrl, thumbnailUrl = entity.thumbnailUrl,
-                    fileName = entity.fileName, timestamp = entity.timestamp,
-                    status = entity.status, replyToId = entity.replyToId,
-                    replyToText = entity.replyToText, replyToSenderName = entity.replyToSenderName,
-                    edited = entity.edited, deleted = entity.deleted,
-                    starred = entity.starred, pinned = entity.pinned, isGroup = true
-                )
+                val msg = Message()
+                msg.id                = entity.id
+                msg.messageId         = entity.id
+                msg.senderId          = entity.senderId
+                msg.senderName        = entity.senderName
+                msg.text              = entity.text
+                msg.type              = entity.type
+                msg.mediaUrl          = entity.mediaUrl
+                msg.thumbnailUrl      = entity.thumbnailUrl
+                msg.fileName          = entity.fileName
+                msg.timestamp         = entity.timestamp
+                msg.status            = entity.status
+                msg.replyToId         = entity.replyToId
+                msg.replyToText       = entity.replyToText
+                msg.replyToSenderName = entity.replyToSenderName
+                msg.edited            = entity.edited
+                msg.deleted           = entity.deleted
+                msg.starred           = entity.starred
+                msg.pinned            = entity.pinned
+                msg.isGroup           = true
+                msg
             })
         }
     }
@@ -218,11 +229,15 @@ class GroupChatActivity : AppCompatActivity() {
     private fun sendTextMessage(text: String, chatId: String) {
         val ref = groupMessagesRef.push()
         val msgId = ref.key ?: return
-        val m = Message(
-            id = msgId, senderId = currentUid, senderName = currentName,
-            text = text, type = "text",
-            timestamp = System.currentTimeMillis(), status = "sent", isGroup = true
-        )
+        val m = Message()
+        m.id        = msgId
+        m.senderId  = currentUid
+        m.senderName = currentName
+        m.text      = text
+        m.type      = "text"
+        m.timestamp = System.currentTimeMillis()
+        m.status    = "sent"
+        m.isGroup   = true
         replyingTo?.let { ReplyDataMapper.applyReplyFields(m, it, currentUid) }
         binding.etMessage.setText("")
         clearReplyBar()
@@ -252,11 +267,16 @@ class GroupChatActivity : AppCompatActivity() {
                 override fun onSuccess(url: String) {
                     val ref = groupMessagesRef.push()
                     val msgId = ref.key ?: return
-                    val m = Message(
-                        id = msgId, senderId = currentUid, senderName = currentName,
-                        type = msgType, mediaUrl = url, fileName = fileName,
-                        timestamp = System.currentTimeMillis(), status = "sent", isGroup = true
-                    )
+                    val m = Message()
+                    m.id        = msgId
+                    m.senderId  = currentUid
+                    m.senderName = currentName
+                    m.type      = msgType
+                    m.mediaUrl  = url
+                    m.fileName  = fileName
+                    m.timestamp = System.currentTimeMillis()
+                    m.status    = "sent"
+                    m.isGroup   = true
                     ref.setValue(m)
                     updateGroupMeta("[$msgType]")
                 }

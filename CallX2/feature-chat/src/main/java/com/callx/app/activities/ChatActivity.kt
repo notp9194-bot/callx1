@@ -201,11 +201,13 @@ class ChatActivity : AppCompatActivity() {
     private fun sendTextMessage(text: String) {
         val ref = messagesRef.push()
         val msgId = ref.key ?: return
-        val m = Message(
-            id = msgId, senderId = currentUid,
-            text = text, type = "text",
-            timestamp = System.currentTimeMillis(), status = "sent"
-        )
+        val m = Message()
+        m.id        = msgId
+        m.senderId  = currentUid
+        m.text      = text
+        m.type      = "text"
+        m.timestamp = System.currentTimeMillis()
+        m.status    = "sent"
         replyingTo?.let { ReplyDataMapper.applyReplyFields(m, it, currentUid) }
 
         binding.etMessage.setText("")
@@ -229,11 +231,14 @@ class ChatActivity : AppCompatActivity() {
                 override fun onSuccess(url: String) {
                     val ref = messagesRef.push()
                     val msgId = ref.key ?: return
-                    val m = Message(
-                        id = msgId, senderId = currentUid, type = msgType,
-                        mediaUrl = url, fileName = fileName,
-                        timestamp = System.currentTimeMillis(), status = "sent"
-                    )
+                    val m = Message()
+                    m.id        = msgId
+                    m.senderId  = currentUid
+                    m.type      = msgType
+                    m.mediaUrl  = url
+                    m.fileName  = fileName
+                    m.timestamp = System.currentTimeMillis()
+                    m.status    = "sent"
                     ref.setValue(m)
                     ioExecutor.execute { db.messageDao().insertMessage(entityFromMessage(m, chatId)) }
                     updateChatMeta(chatId, "[$msgType]")
@@ -325,15 +330,32 @@ class ChatActivity : AppCompatActivity() {
         return e
     }
 
-    private fun entityToMessage(e: MessageEntity) = Message(
-        id = e.id, messageId = e.id, senderId = e.senderId, senderName = e.senderName,
-        text = e.text, type = e.type, mediaUrl = e.mediaUrl, thumbnailUrl = e.thumbnailUrl,
-        fileName = e.fileName, fileSize = e.fileSize, duration = e.duration,
-        timestamp = e.timestamp, status = e.status, replyToId = e.replyToId,
-        replyToText = e.replyToText, replyToSenderName = e.replyToSenderName,
-        edited = e.edited, editedAt = e.editedAt, deleted = e.deleted,
-        forwardedFrom = e.forwardedFrom, starred = e.starred, pinned = e.pinned
-    )
+    private fun entityToMessage(e: MessageEntity): Message {
+        val m = Message()
+        m.id                = e.id
+        m.messageId         = e.id
+        m.senderId          = e.senderId
+        m.senderName        = e.senderName
+        m.text              = e.text
+        m.type              = e.type
+        m.mediaUrl          = e.mediaUrl
+        m.thumbnailUrl      = e.thumbnailUrl
+        m.fileName          = e.fileName
+        m.fileSize          = e.fileSize
+        m.duration          = e.duration
+        m.timestamp         = e.timestamp
+        m.status            = e.status
+        m.replyToId         = e.replyToId
+        m.replyToText       = e.replyToText
+        m.replyToSenderName = e.replyToSenderName
+        m.edited            = e.edited
+        m.editedAt          = e.editedAt
+        m.deleted           = e.deleted
+        m.forwardedFrom     = e.forwardedFrom
+        m.starred           = e.starred
+        m.pinned            = e.pinned
+        return m
+    }
 
     override fun onDestroy() {
         super.onDestroy()
