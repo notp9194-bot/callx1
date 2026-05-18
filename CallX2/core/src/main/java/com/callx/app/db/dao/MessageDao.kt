@@ -17,6 +17,10 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC")
     fun getMessagesDesc(chatId: String): LiveData<List<MessageEntity>>
 
+    // Paged list — used by CacheManager (Java) for offline cache reads
+    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    fun getMessagesPaged(chatId: String, limit: Int, offset: Int): List<MessageEntity>
+
     // Delta Sync
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp > :lastTimestamp ORDER BY timestamp ASC")
     fun getMessagesSince(chatId: String, lastTimestamp: Long): List<MessageEntity>

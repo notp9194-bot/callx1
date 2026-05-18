@@ -34,6 +34,7 @@ class ChatRepository private constructor(ctx: Context) {
 
         @Volatile private var sInstance: ChatRepository? = null
 
+        @JvmStatic
         fun getInstance(ctx: Context): ChatRepository =
             sInstance ?: synchronized(this) {
                 sInstance ?: ChatRepository(ctx.applicationContext).also { sInstance = it }
