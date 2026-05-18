@@ -163,9 +163,17 @@ class GroupInfoActivity : AppCompatActivity() {
                     // Cache to Room
                     executor.execute {
                         AppDatabase.getInstance(this@GroupInfoActivity).groupDao().insertGroup(
-                            GroupEntity(id = groupId, name = g.name, description = g.description,
-                                iconUrl = g.iconUrl, createdBy = g.createdBy,
-                                lastMessage = g.lastMessage, lastMessageAt = g.lastMessageAt)
+run {
+                                val ge = GroupEntity()
+                                ge.id = groupId
+                                ge.name = g.name
+                                ge.description = g.description
+                                ge.iconUrl = g.iconUrl
+                                ge.createdBy = g.createdBy
+                                ge.lastMessage = g.lastMessage
+                                ge.lastMessageAt = g.lastMessageAt
+                                ge
+                            }
                         )
                     }
                 }

@@ -98,9 +98,18 @@ class GroupsFragment : Fragment() {
             val db = AppDatabase.getInstance(ctx)
             val entities = list.mapNotNull { g ->
                 if (g.id.isNullOrEmpty()) null
-                else GroupEntity(id = g.id!!, name = g.name, description = g.description,
-                    iconUrl = g.iconUrl, createdBy = g.createdBy, lastMessage = g.lastMessage,
-                    lastSenderName = g.lastSenderName, lastMessageAt = g.lastMessageAt)
+else run {
+                    val ge = GroupEntity()
+                    ge.id = g.id!!
+                    ge.name = g.name
+                    ge.description = g.description
+                    ge.iconUrl = g.iconUrl
+                    ge.createdBy = g.createdBy
+                    ge.lastMessage = g.lastMessage
+                    ge.lastSenderName = g.lastSenderName
+                    ge.lastMessageAt = g.lastMessageAt
+                    ge
+                }
             }
             db.groupDao().insertGroups(entities)
         }

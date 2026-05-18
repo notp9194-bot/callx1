@@ -125,44 +125,47 @@ class ChatRepository private constructor(ctx: Context) {
     // ── Helpers — model ↔ entity conversion ──────────────────────────
 
     private fun toEntity(m: Message, chatId: String) = MessageEntity(
-        id              = m.id ?: "",
-        chatId          = chatId,
-        senderId        = m.senderId,
-        senderName      = m.senderName,
-        text            = m.text,
-        type            = m.type ?: "text",
-        mediaUrl        = m.mediaUrl ?: m.imageUrl,
-        thumbnailUrl    = m.thumbnailUrl,
-        fileName        = m.fileName,
-        fileSize        = m.fileSize,
-        duration        = m.duration,
-        timestamp       = m.timestamp,
-        status          = m.status,
-        replyToId       = m.replyToId,
-        replyToText     = m.replyToText,
+        id                = m.id ?: "",
+        chatId            = chatId,
+        senderId          = m.senderId,
+        senderName        = m.senderName,
+        text              = m.text,
+        type              = m.type ?: "text",
+        mediaUrl          = m.mediaUrl ?: m.imageUrl,
+        thumbnailUrl      = m.thumbnailUrl,
+        fileName          = m.fileName,
+        fileSize          = m.fileSize,
+        duration          = m.duration,
+        timestamp         = m.timestamp,
+        status            = m.status,
+        replyToId         = m.replyToId,
+        replyToText       = m.replyToText,
         replyToSenderName = m.replyToSenderName,
-        edited          = m.edited,
-        editedAt        = m.editedAt,
-        deleted         = m.deleted,
-        forwardedFrom   = m.forwardedFrom,
-        starred         = m.starred,
-        pinned          = m.pinned,
-        syncedAt        = System.currentTimeMillis()
+        edited            = m.edited,
+        editedAt          = m.editedAt,
+        deleted           = m.deleted,
+        forwardedFrom     = m.forwardedFrom,
+        starred           = m.starred,
+        pinned            = m.pinned,
+        syncedAt          = System.currentTimeMillis()
     )
 
-    private fun userToEntity(u: User) = UserEntity(
-        uid           = u.uid ?: "",
-        email         = u.email,
-        name          = u.name,
-        emoji         = u.emoji,
-        callxId       = u.callxId,
-        about         = u.about,
-        photoUrl      = u.photoUrl,
-        fcmToken      = u.fcmToken,
-        lastSeen      = u.lastSeen,
-        lastMessage   = u.lastMessage,
-        lastMessageAt = u.lastMessageAt,
-        unread        = u.unread,
-        cachedAt      = System.currentTimeMillis()
-    )
+    // UserEntity is a Java class — use field assignment, NOT named constructor args
+    private fun userToEntity(u: User): UserEntity {
+        val e = UserEntity()
+        e.uid          = u.uid ?: ""
+        e.email        = u.email
+        e.name         = u.name
+        e.emoji        = u.emoji
+        e.callxId      = u.callxId
+        e.about        = u.about
+        e.photoUrl     = u.photoUrl
+        e.fcmToken     = u.fcmToken
+        e.lastSeen     = u.lastSeen
+        e.lastMessage  = u.lastMessage
+        e.lastMessageAt = u.lastMessageAt
+        e.unread       = u.unread
+        e.cachedAt     = System.currentTimeMillis()
+        return e
+    }
 }
