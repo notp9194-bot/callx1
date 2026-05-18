@@ -214,22 +214,19 @@ public class VideoCompressService extends Service {
     private void processJob(CompressJob job) {
         currentJobId = job.jobId;
         Log.i(TAG, "Processing job: " + job.jobId + " [" + job.quality.label + "]");
-        updateNotification("Sending video to server…", 0);
+        updateNotification("Compressing video…", 0);
 
         try {
             Uri uri = Uri.parse(job.uriStr);
             VideoCompressor.Result result = VideoCompressor.compressSync(
                 this, uri, job.quality,
                 pct -> {
-                    // Server pe bhej raha hai — progress zyada smooth hoga
-                    String text = pct < 30 ? "Uploading to server… " + pct + "%"
-                                : pct < 90 ? "Server processing… " + pct + "%"
-                                :            "Finalizing… " + pct + "%";
-                    updateNotification(text, (int)(pct * 0.90f));
-                    notifyCallback(job.jobId, (int)(pct * 0.90f), text);
+                    String text = "Compressing… " + pct + "%";
+                    updateNotification(text, (int)(pct * 0.40f));
+                    notifyCallback(job.jobId, (int)(pct * 0.40f), text);
                 });
 
-            updateNotification("Saving to Firebase…", 92);
+            updateNotification("Uploading video…", 40);
 
             // Use VideoUploader with callback
             java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);

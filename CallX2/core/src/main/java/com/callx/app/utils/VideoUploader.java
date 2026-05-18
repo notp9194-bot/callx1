@@ -144,41 +144,17 @@ public class VideoUploader {
         }
 
         try {
-            MAIN.post(() -> cb.onProgress(10));
-
-            // v25 SERVER-SIDE: VideoCompressor ne already server pe compress + upload kar diya.
-            // serverVideoUrl aur serverThumbUrl directly use karo — koi local file upload nahi.
-            if (r.serverVideoUrl != null && !r.serverVideoUrl.isEmpty()) {
-                // Server ne already Cloudinary pe upload kar diya — seedha callback karo
-                try {
-                    new VideoQualityPreferences(ctx)
-                        .recordCompression(r.originalBytes, r.compressedBytes);
-                } catch (Exception ignored) {}
-
-                MAIN.post(() -> {
-                    cb.onProgress(100);
-                    cb.onSuccess(r.serverThumbUrl, r.serverVideoUrl,
-                                 r.durationMs, r.width, r.height);
-                });
-                return;
-            }
-
-            // ── Legacy path (v24 Result — local files hain) ──────────────────────
             MAIN.post(() -> cb.onProgress(0));
 
             // 1. Thumbnail (0–20%) — small, direct upload
-            String thumbUrl = (r.thumbFile != null && r.thumbFile.exists())
-                ? uploadDirect(r.thumbFile, "image", "callx/videos/thumb",
-                    pct -> MAIN.post(() -> cb.onProgress((int)(pct * 0.20f))))
-                : "";
+            String thumbUrl = uploadDirect(r.thumbFile, "image", "callx/videos/thumb",
+                pct -> MAIN.post(() -> cb.onProgress((int)(pct * 0.20f))));
 
             // 2. Video (20–100%) — chunked for large files
-            String videoUrl = (r.videoFile != null && r.videoFile.exists())
-                ? uploadVideoChunked(r.videoFile, "callx/videos/file",
-                    pct -> MAIN.post(() -> cb.onProgress(20 + (int)(pct * 0.80f))))
-                : "";
+            String videoUrl = uploadVideoChunked(r.videoFile, "callx/videos/file",
+                pct -> MAIN.post(() -> cb.onProgress(20 + (int)(pct * 0.80f))));
 
-            // 3. Record compression stats internally
+            // 3. Record compression stats internally (no API change needed)
             try {
                 new VideoQualityPreferences(ctx)
                     .recordCompression(r.originalBytes, r.compressedBytes);

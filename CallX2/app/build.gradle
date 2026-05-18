@@ -1,6 +1,8 @@
 plugins {
     id 'com.android.application'
     id 'com.google.gms.google-services'
+    id 'org.jetbrains.kotlin.android'
+    id 'kotlin-kapt'
 }
 
 android {
@@ -96,6 +98,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
     buildFeatures {
         viewBinding true
         buildConfig true
@@ -171,12 +177,11 @@ dependencies {
     implementation 'com.squareup.okio:okio:3.6.0'
 
     // Media
-    // LiTr removed (v25) — video compression ab server pe hoti hai
-    // implementation 'com.linkedin.android.litr:litr:1.5.1'
+    implementation 'com.linkedin.android.litr:litr:1.5.1'
 
     // Image Loading
     implementation 'com.github.bumptech.glide:glide:4.16.0'
-    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+    kapt 'com.github.bumptech.glide:compiler:4.16.0'
     implementation 'de.hdodenhof:circleimageview:3.1.0'
 
     // Guava (required by CameraX)
@@ -185,7 +190,7 @@ dependencies {
 
     // Room DB
     implementation 'androidx.room:room-runtime:2.6.1'
-    annotationProcessor 'androidx.room:room-compiler:2.6.1'
+    kapt 'androidx.room:room-compiler:2.6.1'
     implementation 'androidx.room:room-paging:2.6.1'
 
     // Paging 3
@@ -204,4 +209,10 @@ dependencies {
 
     // Serialization
     implementation 'com.google.code.gson:gson:2.10.1'
+}
+
+    // Kotlin
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'androidx.room:room-ktx:2.6.1'
 }
