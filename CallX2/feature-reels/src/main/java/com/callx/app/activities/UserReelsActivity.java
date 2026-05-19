@@ -567,19 +567,21 @@ public class UserReelsActivity extends AppCompatActivity
             loadCurrentTab(true);
             if (activeTab == TAB_REELS) loadPinnedReel();
         });
-    }
-
-    // ── Pagination (Feature 2) ────────────────────────────────────────────
-
-    private void setupPagination() {
-        // RecyclerView has nestedScrollingEnabled=false, so NestedScrollView
-        // owns all scrolling. Attach infinite-scroll trigger to it.
+        // SwipeRefreshLayout is inside NestedScrollView — only enable pull-to-refresh
+        // when NestedScrollView is at the very top, otherwise scroll gesture
+        // is eaten by SwipeRefreshLayout and the list doesn't scroll.
         if (nestedScrollView != null) {
             nestedScrollView.setOnScrollChangeListener(
                 new androidx.core.widget.NestedScrollView.OnScrollChangeListener() {
                     @Override
                     public void onScrollChange(androidx.core.widget.NestedScrollView v,
                             int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
+                        // Enable SwipeRefresh only when fully scrolled to top
+                        if (swipeRefresh != null) {
+                            swipeRefresh.setEnabled(scrollY == 0);
+                        }
+
+                        // Pagination: trigger next page load near bottom
                         if (isLoadingMore) return;
                         boolean hasMore = activeTab == TAB_REELS ? reelsHasMore
                             : (activeTab == TAB_LIKED ? likedHasMore
@@ -587,15 +589,23 @@ public class UserReelsActivity extends AppCompatActivity
                         if (!hasMore) return;
                         View child = v.getChildAt(0);
                         if (child == null) return;
-                        int totalHeight = child.getMeasuredHeight();
+                        int totalHeight   = child.getMeasuredHeight();
                         int visibleHeight = v.getMeasuredHeight();
-                        // Trigger load when 800dp from bottom (earlier trigger for smoother UX)
+                        // Trigger load when 800px from bottom (earlier trigger for smoother UX)
                         if (scrollY >= totalHeight - visibleHeight - 800) {
                             loadCurrentTab(false);
                         }
                     }
                 });
         }
+    }
+
+    // ── Pagination (Feature 2) ────────────────────────────────────────────
+
+    private void setupPagination() {
+        // Pagination + SwipeRefresh enabled-state are both handled in setupSwipeRefresh()
+        // scroll listener to avoid registering two separate OnScrollChangeListeners.
+        // This method is intentionally a no-op (kept for call-site compatibility).
     }
 
     private void loadCurrentTab(boolean refresh) {
