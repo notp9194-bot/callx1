@@ -25,20 +25,29 @@ import java.util.concurrent.Executors;
  *
  * Flow:
  *  1. Download music URL → local cache file
- *  2. Extract raw PCM from video's mic audio track
- *  3. Extract raw PCM from music audio file
+ *  2. Extract raw PCM from video's mic audio track  ← now detects actual sampleRate/channels
+ *  3. Extract raw PCM from music audio file          ← resampled to match mic sampleRate/channels
  *  4. Mix PCM samples with volume weights (micVol, musicVol)
  *  5. Optionally mix voiceover PCM track (voiceoverVol)
- *  6. Re-encode mixed PCM → AAC via MediaCodec
+ *  6. Re-encode mixed PCM → AAC via MediaCodec      ← uses detected sampleRate/channels
  *  7. Mux final AAC + original video track → output MP4
  *
- * Uses only Android built-in APIs (MediaExtractor, MediaMuxer, MediaCodec).
- * No FFmpeg binary required — LiTr dependency already in build.gradle is used
- * for video passthrough; audio mixing is done natively here.
+ * BUG FIX (v3 → v4):
+ *  Previously, encodePcmToAac() used hardcoded sampleRate=44100 and channelCount=1.
+ *  If the source audio was 48 kHz or stereo, the decoded PCM had a different number of
+ *  samples than what 44100 Hz expected, causing slow/fast playback in uploaded videos.
+ *  Fix: detect actual sampleRate + channelCount from the video's audio track, resample
+ *  music PCM to match, and encode the mixed output at the correct rate.
  */
 public class AudioMixHelper {
 
     private static final String TAG = "AudioMixHelper";
+
+    // ── Target output format — detected from the recorded video audio track ──
+    // These are set once per mix job inside doMix() and used by encodePcmToAac().
+    // Safe because the executor is single-threaded.
+    private static int TARGET_SAMPLE_RATE   = 44100;
+    private static int TARGET_CHANNEL_COUNT = 1;
 
     public interface MixCallback {
         void onProgress(int percent);
@@ -50,17 +59,9 @@ public class AudioMixHelper {
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     /**
-     * ✅ NEW — "Use in Camera" flow:
+     * ✅ "Use in Camera" flow:
      * Completely replace the recorded video's mic audio track with the given sound URL.
      * Mic audio is set to 0 volume; sound URL audio is set to 1.0 (full volume).
-     *
-     * This is called from ReelCameraActivity right after recording finishes,
-     * BEFORE the video is passed to ReelEditorActivity.
-     *
-     * @param context   App context
-     * @param videoPath Absolute path to the recorded video (contains mic audio)
-     * @param soundUrl  Cloudinary/Firebase URL of the selected original audio
-     * @param callback  Result callback (always called on main thread)
      */
     public static void replaceAudioWithSound(
             Context context,
@@ -68,30 +69,20 @@ public class AudioMixHelper {
             String soundUrl,
             MixCallback callback) {
 
-        // mic volume = 0 (mute mic), music volume = 1.0 (full sound URL)
         mixAndExport(
             context,
             videoPath,
             soundUrl,
-            null,   // no voiceover
-            0.0f,   // micVol = 0 → remove original recording audio
-            1.0f,   // musicVol = 1 → only the selected sound URL
-            0.0f,   // voiceoverVol = 0
+            null,
+            0.0f,   // micVol = 0 → mute original recording
+            1.0f,   // musicVol = 1 → only the selected sound
+            0.0f,
             callback
         );
     }
 
     /**
      * Main entry point — call from ReelUploadActivity before upload.
-     *
-     * @param context      App context
-     * @param videoPath    Absolute path to recorded video (with mic audio)
-     * @param musicUrl     URL of background music (nullable/empty = skip music track)
-     * @param voiceoverPath Path to voiceover AAC file (nullable/empty = skip)
-     * @param micVol       Mic audio volume 0.0-1.0
-     * @param musicVol     Music volume 0.0-1.0
-     * @param voiceoverVol Voiceover volume 0.0-1.0
-     * @param callback     Result callback (always called on main thread)
      */
     public static void mixAndExport(
             Context context,
@@ -136,38 +127,66 @@ public class AudioMixHelper {
         }
         mainHandler.post(() -> callback.onProgress(20));
 
-        // Step 2: Decode mic audio from video
+        // Step 2: Detect actual audio format from the recorded video FIRST
+        //         so we know what sampleRate/channels the mic PCM will be.
+        AudioFormat micFormat = detectAudioFormat(videoPath);
+        TARGET_SAMPLE_RATE   = micFormat.sampleRate;
+        TARGET_CHANNEL_COUNT = micFormat.channelCount;
+        Log.d(TAG, "Detected video audio format: " + TARGET_SAMPLE_RATE
+                + " Hz, " + TARGET_CHANNEL_COUNT + " ch");
+
+        // Step 3: Decode mic audio from video (at its native format)
         short[] micPcm = extractPcmFromVideo(videoPath);
         mainHandler.post(() -> callback.onProgress(40));
 
-        // Step 3: Decode music audio (trimmed to mic length)
+        // Step 4: Decode music audio and RESAMPLE to match mic format
         short[] musicPcm = null;
         if (musicFile != null) {
-            musicPcm = extractPcmFromFile(musicFile.getAbsolutePath(), micPcm.length);
+            AudioFormat musicFormat = detectAudioFormat(musicFile.getAbsolutePath());
+            short[] rawMusicPcm = extractPcmFromFile(
+                    musicFile.getAbsolutePath(), Integer.MAX_VALUE);
+
+            // Resample music to match mic sampleRate + channelCount
+            musicPcm = resampleAndConvert(
+                    rawMusicPcm,
+                    musicFormat.sampleRate,
+                    musicFormat.channelCount,
+                    TARGET_SAMPLE_RATE,
+                    TARGET_CHANNEL_COUNT,
+                    micPcm.length);
         }
         mainHandler.post(() -> callback.onProgress(55));
 
-        // Step 4: Decode voiceover
+        // Step 5: Decode voiceover and resample to match mic format
         short[] voiceoverPcm = null;
         if (voiceoverPath != null && !voiceoverPath.isEmpty()) {
             File voFile = new File(voiceoverPath);
             if (voFile.exists()) {
-                voiceoverPcm = extractPcmFromFile(voiceoverPath, micPcm.length);
+                AudioFormat voFormat = detectAudioFormat(voiceoverPath);
+                short[] rawVoPcm = extractPcmFromFile(voiceoverPath, Integer.MAX_VALUE);
+                voiceoverPcm = resampleAndConvert(
+                        rawVoPcm,
+                        voFormat.sampleRate,
+                        voFormat.channelCount,
+                        TARGET_SAMPLE_RATE,
+                        TARGET_CHANNEL_COUNT,
+                        micPcm.length);
             }
         }
         mainHandler.post(() -> callback.onProgress(65));
 
-        // Step 5: Mix PCM samples
+        // Step 6: Mix PCM samples
         short[] mixedPcm = mixPcm(micPcm, micVol, musicPcm, musicVol, voiceoverPcm, voiceoverVol);
         mainHandler.post(() -> callback.onProgress(75));
 
-        // Step 6: Encode mixed PCM → AAC temp file
+        // Step 7: Encode mixed PCM → AAC at the correct sample rate
         File aacTemp = new File(context.getCacheDir(),
                 "mixed_audio_" + System.currentTimeMillis() + ".aac");
-        encodePcmToAac(mixedPcm, aacTemp.getAbsolutePath());
+        encodePcmToAac(mixedPcm, aacTemp.getAbsolutePath(),
+                TARGET_SAMPLE_RATE, TARGET_CHANNEL_COUNT);
         mainHandler.post(() -> callback.onProgress(88));
 
-        // Step 7: Mux video track + new audio track → final MP4
+        // Step 8: Mux video track + new audio track → final MP4
         String outputPath = new File(context.getCacheDir(),
                 "final_reel_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
         muxVideoAndAudio(videoPath, aacTemp.getAbsolutePath(), outputPath);
@@ -180,13 +199,117 @@ public class AudioMixHelper {
         return outputPath;
     }
 
+    // ── Audio format detection ─────────────────────────────────────────────
+
+    private static class AudioFormat {
+        int sampleRate;
+        int channelCount;
+        AudioFormat(int sr, int cc) {
+            sampleRate   = sr;
+            channelCount = cc;
+        }
+    }
+
+    /**
+     * Read sampleRate and channelCount from first audio track in the file.
+     * Falls back to 44100/1 if not found (safe default).
+     */
+    private static AudioFormat detectAudioFormat(String filePath) {
+        MediaExtractor ex = new MediaExtractor();
+        try {
+            ex.setDataSource(filePath);
+            for (int i = 0; i < ex.getTrackCount(); i++) {
+                MediaFormat fmt = ex.getTrackFormat(i);
+                String mime = fmt.getString(MediaFormat.KEY_MIME);
+                if (mime != null && mime.startsWith("audio/")) {
+                    int sr = fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE)
+                            ? fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE) : 44100;
+                    int cc = fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT)
+                            ? fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT) : 1;
+                    return new AudioFormat(sr, cc);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "detectAudioFormat failed for " + filePath + ": " + e.getMessage());
+        } finally {
+            ex.release();
+        }
+        return new AudioFormat(44100, 1); // safe fallback
+    }
+
+    // ── Resampling + channel conversion ───────────────────────────────────
+
+    /**
+     * Resample PCM from (srcRate, srcCh) → (dstRate, dstCh) and
+     * trim/pad to exactly `targetSamples` output samples.
+     *
+     * Uses linear interpolation — sufficient quality for background music mixing.
+     */
+    private static short[] resampleAndConvert(
+            short[] src,
+            int srcRate, int srcCh,
+            int dstRate, int dstCh,
+            int targetSamples) {
+
+        if (src == null || src.length == 0) return new short[targetSamples];
+
+        // 1. Convert stereo → mono by averaging channels (if needed)
+        short[] mono;
+        if (srcCh == 2) {
+            mono = new short[src.length / 2];
+            for (int i = 0; i < mono.length; i++) {
+                mono[i] = (short) ((src[i * 2] + src[i * 2 + 1]) / 2);
+            }
+        } else {
+            mono = src;
+        }
+
+        // 2. Convert mono → stereo by duplicating (if needed)
+        // Then handle rate conversion.
+        // For simplicity we always produce mono output matching dstCh=1 flow,
+        // but if dstCh==2 we duplicate after rate conversion.
+
+        // 3. Resample with linear interpolation
+        double ratio = (double) srcRate / dstRate;
+        int resampledLen = (int)(mono.length / ratio);
+        short[] resampled = new short[resampledLen];
+
+        for (int i = 0; i < resampledLen; i++) {
+            double srcIdx = i * ratio;
+            int lo = (int) srcIdx;
+            int hi = Math.min(lo + 1, mono.length - 1);
+            double frac = srcIdx - lo;
+            resampled[i] = (short)(mono[lo] * (1 - frac) + mono[hi] * frac);
+        }
+
+        // 4. If dstCh == 2, duplicate to stereo
+        short[] channelConverted;
+        if (dstCh == 2) {
+            channelConverted = new short[resampled.length * 2];
+            for (int i = 0; i < resampled.length; i++) {
+                channelConverted[i * 2]     = resampled[i];
+                channelConverted[i * 2 + 1] = resampled[i];
+            }
+        } else {
+            channelConverted = resampled;
+        }
+
+        // 5. Trim or zero-pad to match mic PCM length
+        short[] out = new short[targetSamples];
+        int copyLen = Math.min(channelConverted.length, targetSamples);
+        System.arraycopy(channelConverted, 0, out, 0, copyLen);
+        // Remaining samples stay 0 (silence) if music is shorter than video
+
+        return out;
+    }
+
     // ── Step 1: Download music ─────────────────────────────────────────────
 
     private static File downloadToCache(Context context, String urlStr) throws IOException {
         File cacheFile = new File(context.getCacheDir(),
                 "music_cache_" + urlStr.hashCode() + ".aac");
         if (cacheFile.exists() && cacheFile.length() > 0) {
-            return cacheFile; // Already cached
+            return cacheFile;
         }
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -205,16 +328,16 @@ public class AudioMixHelper {
 
     // ── Step 2/3: Extract PCM ──────────────────────────────────────────────
 
-    /**
-     * Extract PCM from the audio track embedded in a video file.
-     */
     private static short[] extractPcmFromVideo(String videoPath) throws Exception {
         return extractPcmFromFile(videoPath, Integer.MAX_VALUE);
     }
 
     /**
      * Generic PCM extractor — works on MP4 (video+audio), AAC, or any
-     * MediaExtractor-supported container. Returns 16-bit mono PCM at 44100 Hz.
+     * MediaExtractor-supported container.
+     *
+     * NOTE: Returns PCM at the file's NATIVE sample rate and channel count.
+     * Call resampleAndConvert() afterwards if you need a different format.
      */
     private static short[] extractPcmFromFile(String filePath, int maxSamples) throws Exception {
         MediaExtractor extractor = new MediaExtractor();
@@ -242,10 +365,9 @@ public class AudioMixHelper {
         codec.configure(format, null, null, 0);
         codec.start();
 
-        // Collect all raw PCM output
-        java.util.ArrayList<Short> samples = new java.util.ArrayList<>(44100 * 60);
+        java.util.ArrayList<Short> samples = new java.util.ArrayList<>(48000 * 60 * 2);
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-        boolean inputDone = false;
+        boolean inputDone  = false;
         boolean outputDone = false;
         long timeoutUs = 10_000;
 
@@ -322,10 +444,17 @@ public class AudioMixHelper {
 
     // ── Step 5: Encode PCM → AAC ───────────────────────────────────────────
 
-    private static void encodePcmToAac(short[] pcm, String outPath) throws Exception {
-        int sampleRate   = 44100;
-        int channelCount = 1;
-        int bitRate      = 128_000;
+    /**
+     * FIXED: sampleRate and channelCount are now passed in (detected from source audio)
+     * instead of being hardcoded. This ensures the AAC file plays at the correct speed.
+     */
+    private static void encodePcmToAac(
+            short[] pcm,
+            String outPath,
+            int sampleRate,
+            int channelCount) throws Exception {
+
+        int bitRate = 128_000;
 
         MediaFormat format = MediaFormat.createAudioFormat(
                 MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channelCount);
@@ -343,10 +472,12 @@ public class AudioMixHelper {
         boolean muxerStarted = false;
 
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-        int frameSize = 1024; // AAC frame = 1024 samples
+        int frameSize = 1024; // AAC frame = 1024 samples per channel
         int offset = 0;
         boolean inputDone = false;
         long presentationUs = 0;
+        // frameDurationUs must reflect channelCount:
+        // each AAC frame is 1024 samples per channel at the given sample rate
         long frameDurationUs = (long)(frameSize * 1_000_000L / sampleRate);
 
         while (true) {
@@ -360,7 +491,9 @@ public class AudioMixHelper {
                                 MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                         inputDone = true;
                     } else {
-                        int samplesToWrite = Math.min(frameSize, pcm.length - offset);
+                        // For stereo: each AAC frame needs 1024 * channelCount shorts
+                        int samplesToWrite = Math.min(frameSize * channelCount,
+                                pcm.length - offset);
                         ShortBuffer sb = inBuf.asShortBuffer();
                         sb.put(pcm, offset, samplesToWrite);
                         offset += samplesToWrite;
