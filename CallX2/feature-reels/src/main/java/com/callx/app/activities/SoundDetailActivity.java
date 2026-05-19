@@ -517,8 +517,6 @@ public class SoundDetailActivity extends AppCompatActivity {
             i.putExtra("selected_sound_id",    soundId);
             i.putExtra("selected_sound_title", soundTitle);
             i.putExtra("selected_sound_url",   soundUrl);
-            // ✅ FIX: Gallery flow bhi audio replace kare, mix nahi
-            i.putExtra("replace_audio_with_sound", true);
             startActivity(i);
         });
 

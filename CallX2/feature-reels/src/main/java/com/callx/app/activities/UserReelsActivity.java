@@ -85,6 +85,8 @@ public class UserReelsActivity extends AppCompatActivity
     private ProgressBar     progressBar;
     private View            layoutEmpty;
     private SwipeRefreshLayout swipeRefresh;
+    private androidx.core.widget.NestedScrollView nestedScrollView;
+      private androidx.core.widget.NestedScrollView nestedScrollView;
 
     private View        layoutMultiSelectBar;
     private TextView    tvSelectedCount;
@@ -178,6 +180,7 @@ public class UserReelsActivity extends AppCompatActivity
         progressBar          = findViewById(R.id.progress_bar);
         layoutEmpty          = findViewById(R.id.layout_empty);
         swipeRefresh         = findViewById(R.id.swipe_refresh);
+        nestedScrollView        = findViewById(R.id.nested_scroll_view);
         layoutMultiSelectBar = findViewById(R.id.layout_multi_select_bar);
         tvSelectedCount      = findViewById(R.id.tv_selected_count);
         btnShareSelected      = findViewById(R.id.btn_share_selected);
@@ -568,18 +571,24 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Pagination (Feature 2) ────────────────────────────────────────────
 
     private void setupPagination() {
-        rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (dy <= 0 || isLoadingMore) return;
-                boolean hasMore = activeTab == TAB_REELS ? reelsHasMore
-                    : (activeTab == TAB_LIKED ? likedHasMore
-                    : (activeTab == TAB_REPOST ? repostsHasMore : savedHasMore));
-                if (!hasMore) return;
-                int total       = gridLayoutManager.getItemCount();
-                int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-                if (lastVisible >= total - 6) loadCurrentTab(false);
-            }
-        });
+        // RecyclerView.nestedScrollingEnabled=false means NestedScrollView
+        // owns all scrolling — listen there for infinite-scroll pagination.
+        if (nestedScrollView != null) {
+            nestedScrollView.setOnScrollChangeListener(
+                (androidx.core.widget.NestedScrollView.OnScrollChangeListener)
+                (v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+                    if (scrollY <= oldScrollY || isLoadingMore) return;
+                    boolean hasMore = activeTab == TAB_REELS ? reelsHasMore
+                        : (activeTab == TAB_LIKED ? likedHasMore
+                        : (activeTab == TAB_REPOST ? repostsHasMore : savedHasMore));
+                    if (!hasMore) return;
+                    int totalHeight = v.getChildAt(0).getMeasuredHeight();
+                    int visibleHeight = v.getMeasuredHeight();
+                    if (scrollY >= totalHeight - visibleHeight - 400) {
+                        loadCurrentTab(false);
+                    }
+                });
+        }
     }
 
     private void loadCurrentTab(boolean refresh) {
