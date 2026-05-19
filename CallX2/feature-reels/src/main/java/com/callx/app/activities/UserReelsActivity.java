@@ -580,14 +580,17 @@ public class UserReelsActivity extends AppCompatActivity
                     @Override
                     public void onScrollChange(androidx.core.widget.NestedScrollView v,
                             int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
-                        if (scrollY <= oldScrollY || isLoadingMore) return;
+                        if (isLoadingMore) return;
                         boolean hasMore = activeTab == TAB_REELS ? reelsHasMore
                             : (activeTab == TAB_LIKED ? likedHasMore
                             : (activeTab == TAB_REPOST ? repostsHasMore : savedHasMore));
                         if (!hasMore) return;
-                        int totalHeight = v.getChildAt(0).getMeasuredHeight();
+                        View child = v.getChildAt(0);
+                        if (child == null) return;
+                        int totalHeight = child.getMeasuredHeight();
                         int visibleHeight = v.getMeasuredHeight();
-                        if (scrollY >= totalHeight - visibleHeight - 400) {
+                        // Trigger load when 800dp from bottom (earlier trigger for smoother UX)
+                        if (scrollY >= totalHeight - visibleHeight - 800) {
                             loadCurrentTab(false);
                         }
                     }
