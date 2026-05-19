@@ -571,21 +571,24 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Pagination (Feature 2) ────────────────────────────────────────────
 
     private void setupPagination() {
-        // RecyclerView.nestedScrollingEnabled=false means NestedScrollView
-        // owns all scrolling — listen there for infinite-scroll pagination.
+        // RecyclerView has nestedScrollingEnabled=false, so NestedScrollView
+        // owns all scrolling. Attach infinite-scroll trigger to it.
         if (nestedScrollView != null) {
             nestedScrollView.setOnScrollChangeListener(
-                (androidx.core.widget.NestedScrollView.OnScrollChangeListener)
-                (v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
-                    if (scrollY <= oldScrollY || isLoadingMore) return;
-                    boolean hasMore = activeTab == TAB_REELS ? reelsHasMore
-                        : (activeTab == TAB_LIKED ? likedHasMore
-                        : (activeTab == TAB_REPOST ? repostsHasMore : savedHasMore));
-                    if (!hasMore) return;
-                    int totalHeight = v.getChildAt(0).getMeasuredHeight();
-                    int visibleHeight = v.getMeasuredHeight();
-                    if (scrollY >= totalHeight - visibleHeight - 400) {
-                        loadCurrentTab(false);
+                new androidx.core.widget.NestedScrollView.OnScrollChangeListener() {
+                    @Override
+                    public void onScrollChange(androidx.core.widget.NestedScrollView v,
+                            int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
+                        if (scrollY <= oldScrollY || isLoadingMore) return;
+                        boolean hasMore = activeTab == TAB_REELS ? reelsHasMore
+                            : (activeTab == TAB_LIKED ? likedHasMore
+                            : (activeTab == TAB_REPOST ? repostsHasMore : savedHasMore));
+                        if (!hasMore) return;
+                        int totalHeight = v.getChildAt(0).getMeasuredHeight();
+                        int visibleHeight = v.getMeasuredHeight();
+                        if (scrollY >= totalHeight - visibleHeight - 400) {
+                            loadCurrentTab(false);
+                        }
                     }
                 });
         }
