@@ -164,6 +164,8 @@
         android:id="@+id/nested_scroll_view"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:fillViewport="true"
+        android:overScrollMode="never"
         >
 
         <LinearLayout
@@ -443,8 +445,7 @@
             <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
                 android:id="@+id/swipe_refresh"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:minHeight="400dp">
+                android:layout_height="wrap_content">
 
                 <FrameLayout
                     android:layout_width="match_parent"
@@ -457,6 +458,7 @@
                         android:layout_height="wrap_content"
                         android:nestedScrollingEnabled="false"
                         android:clipToPadding="false"
+                        android:overScrollMode="never"
                         android:padding="1dp"/>
 
                     <!-- Private account overlay -->

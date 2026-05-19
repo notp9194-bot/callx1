@@ -255,6 +255,8 @@ public class UserReelsActivity extends AppCompatActivity
         });
         rvReels.setLayoutManager(gridLayoutManager);
         rvReels.setAdapter(adapter);
+        rvReels.setNestedScrollingEnabled(false);
+        rvReels.setHasFixedSize(false);
 
         if (layoutActions != null) layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
         if (btnFollow     != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
