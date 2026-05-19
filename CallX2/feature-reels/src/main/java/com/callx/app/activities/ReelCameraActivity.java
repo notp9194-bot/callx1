@@ -89,6 +89,10 @@ public class ReelCameraActivity extends AppCompatActivity {
     private String preSelectedSoundTitle = "";
     private String preSelectedSoundUrl   = "";
 
+    // ✅ NEW: When true, mic audio is fully replaced by selected sound URL (no mixing).
+    // Set when user comes from SoundDetailActivity → "Use in Camera".
+    private boolean replaceAudioWithSound = false;
+
     // Background sound player — plays selected sound while recording (earphone feedback)
     private MediaPlayer soundPreviewPlayer;
 
@@ -172,6 +176,9 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (id    != null && !id.isEmpty())    preSelectedSoundId    = id;
         if (title != null && !title.isEmpty()) preSelectedSoundTitle = title;
         if (url   != null && !url.isEmpty())   preSelectedSoundUrl   = url;
+
+        // ✅ NEW: Flag from SoundDetailActivity — fully replace mic audio
+        replaceAudioWithSound = i.getBooleanExtra("replace_audio_with_sound", false);
 
         // Show pre-selected music label on the music button if a sound was passed
         if (!preSelectedSoundTitle.isEmpty() && btnCameraMusic != null) {
@@ -303,12 +310,48 @@ public class ReelCameraActivity extends AppCompatActivity {
         tvTimer.setText("00:00");
         progressRecord.setProgress(0);
 
+        // ✅ NEW: If user came from SoundDetailActivity → "Use in Camera",
+        // replace the mic audio track entirely with the selected sound URL.
+        if (replaceAudioWithSound && preSelectedSoundUrl != null && !preSelectedSoundUrl.isEmpty()) {
+            // Show progress indicator while replacing audio
+            btnRecord.setEnabled(false);
+            Toast.makeText(this, "Applying sound…", Toast.LENGTH_SHORT).show();
+
+            AudioMixHelper.replaceAudioWithSound(
+                this,
+                filePath,
+                preSelectedSoundUrl,
+                new AudioMixHelper.MixCallback() {
+                    @Override public void onProgress(int percent) { /* silent */ }
+                    @Override public void onSuccess(String outputPath) {
+                        if (isFinishing() || isDestroyed()) return;
+                        btnRecord.setEnabled(true);
+                        launchEditorWithFile(outputPath);
+                    }
+                    @Override public void onError(Exception e) {
+                        if (isFinishing() || isDestroyed()) return;
+                        btnRecord.setEnabled(true);
+                        // Fallback: pass original file (sound will be mixed in upload step)
+                        Toast.makeText(ReelCameraActivity.this,
+                            "Audio replace failed, will mix on upload.", Toast.LENGTH_SHORT).show();
+                        launchEditorWithFile(filePath);
+                    }
+                }
+            );
+        } else {
+            launchEditorWithFile(filePath);
+        }
+    }
+
+    private void launchEditorWithFile(String filePath) {
         Intent intent = new Intent(this, ReelEditorActivity.class);
         intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI, filePath);
         // Pass pre-selected sound through to editor → upload
         if (!preSelectedSoundId.isEmpty())    intent.putExtra("selected_sound_id",    preSelectedSoundId);
         if (!preSelectedSoundTitle.isEmpty()) intent.putExtra("selected_sound_title", preSelectedSoundTitle);
         if (!preSelectedSoundUrl.isEmpty())   intent.putExtra("selected_sound_url",   preSelectedSoundUrl);
+        // If audio was already replaced at camera stage, tell upload NOT to mix again
+        if (replaceAudioWithSound)            intent.putExtra("audio_already_replaced", true);
         startActivity(intent);
     }
 

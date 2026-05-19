@@ -111,6 +111,10 @@ public class ReelUploadActivity extends AppCompatActivity {
     private float  mixVoiceoverVol  = 1.0f;
     private String mixedVideoPath   = null; // set after AudioMixHelper finishes
 
+    // ✅ NEW: True when ReelCameraActivity already replaced mic audio at recording time.
+    // If true, skip AudioMixHelper in handlePostReel() to avoid double-mixing.
+    private boolean audioAlreadyReplaced = false;
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -201,6 +205,9 @@ public class ReelUploadActivity extends AppCompatActivity {
         mixVoiceoverPath = i.getStringExtra("mix_voiceover_path");
         mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
         if (mixVoiceoverPath == null) mixVoiceoverPath = "";
+
+        // ✅ NEW: If ReelCameraActivity already replaced mic audio, skip mixing at upload time.
+        audioAlreadyReplaced = i.getBooleanExtra("audio_already_replaced", false);
 
         // ── If no video URI, stop here (gallery flow: user picks video later) ──
         String videoUriStr = i.getStringExtra(EXTRA_VIDEO_URI);
@@ -403,7 +410,10 @@ public class ReelUploadActivity extends AppCompatActivity {
         boolean hasMusicTrack = preSelectedSoundUrl != null && !preSelectedSoundUrl.isEmpty();
         boolean hasVoiceover  = mixVoiceoverPath != null && !mixVoiceoverPath.isEmpty();
 
-        if (hasMusicTrack || hasVoiceover) {
+        // ✅ NEW: If audio was already replaced at camera recording stage, skip mixing.
+        if (audioAlreadyReplaced) {
+            uploadReel(caption, musicName, compressedResult.videoFile.getAbsolutePath());
+        } else if (hasMusicTrack || hasVoiceover) {
             runAudioMixThenUpload(caption, musicName);
         } else {
             // No extra audio — upload compressed video directly

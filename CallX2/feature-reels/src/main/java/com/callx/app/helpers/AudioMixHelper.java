@@ -50,7 +50,38 @@ public class AudioMixHelper {
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     /**
-     * Main entry point — call from ReelUploadActivity before upload.
+     * ✅ NEW — "Use in Camera" flow:
+     * Completely replace the recorded video's mic audio track with the given sound URL.
+     * Mic audio is set to 0 volume; sound URL audio is set to 1.0 (full volume).
+     *
+     * This is called from ReelCameraActivity right after recording finishes,
+     * BEFORE the video is passed to ReelEditorActivity.
+     *
+     * @param context   App context
+     * @param videoPath Absolute path to the recorded video (contains mic audio)
+     * @param soundUrl  Cloudinary/Firebase URL of the selected original audio
+     * @param callback  Result callback (always called on main thread)
+     */
+    public static void replaceAudioWithSound(
+            Context context,
+            String videoPath,
+            String soundUrl,
+            MixCallback callback) {
+
+        // mic volume = 0 (mute mic), music volume = 1.0 (full sound URL)
+        mixAndExport(
+            context,
+            videoPath,
+            soundUrl,
+            null,   // no voiceover
+            0.0f,   // micVol = 0 → remove original recording audio
+            1.0f,   // musicVol = 1 → only the selected sound URL
+            0.0f,   // voiceoverVol = 0
+            callback
+        );
+    }
+
+
      *
      * @param context      App context
      * @param videoPath    Absolute path to recorded video (with mic audio)

@@ -507,6 +507,8 @@ public class SoundDetailActivity extends AppCompatActivity {
             i.putExtra("selected_sound_id",    soundId);
             i.putExtra("selected_sound_title", soundTitle);
             i.putExtra("selected_sound_url",   soundUrl);
+            // ✅ NEW: Replace mic audio with selected sound URL during recording
+            i.putExtra("replace_audio_with_sound", true);
             startActivity(i);
         });
 
