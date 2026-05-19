@@ -86,7 +86,6 @@ public class UserReelsActivity extends AppCompatActivity
     private View            layoutEmpty;
     private SwipeRefreshLayout swipeRefresh;
     private androidx.core.widget.NestedScrollView nestedScrollView;
-      private androidx.core.widget.NestedScrollView nestedScrollView;
 
     private View        layoutMultiSelectBar;
     private TextView    tvSelectedCount;
