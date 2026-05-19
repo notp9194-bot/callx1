@@ -81,15 +81,16 @@ public class AudioMixHelper {
         );
     }
 
-
+    /**
+     * Main entry point — call from ReelUploadActivity before upload.
      *
      * @param context      App context
      * @param videoPath    Absolute path to recorded video (with mic audio)
      * @param musicUrl     URL of background music (nullable/empty = skip music track)
      * @param voiceoverPath Path to voiceover AAC file (nullable/empty = skip)
-     * @param micVol       Mic audio volume 0.0–1.0
-     * @param musicVol     Music volume 0.0–1.0
-     * @param voiceoverVol Voiceover volume 0.0–1.0
+     * @param micVol       Mic audio volume 0.0-1.0
+     * @param musicVol     Music volume 0.0-1.0
+     * @param voiceoverVol Voiceover volume 0.0-1.0
      * @param callback     Result callback (always called on main thread)
      */
     public static void mixAndExport(
