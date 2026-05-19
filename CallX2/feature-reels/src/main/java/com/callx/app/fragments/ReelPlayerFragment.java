@@ -167,6 +167,7 @@ public class ReelPlayerFragment extends Fragment {
         args.putInt("shares",        reel.sharesCount);
         args.putInt("views",         reel.viewsCount);
         args.putInt("reposts",       reel.repostCount);  // FIX #5
+        args.putString("original_audio_url", reel.originalAudioUrl != null ? reel.originalAudioUrl : "");
         f.setArguments(args);
         return f;
     }
@@ -198,6 +199,7 @@ public class ReelPlayerFragment extends Fragment {
             reel.sharesCount   = getArguments().getInt("shares");
             reel.viewsCount    = getArguments().getInt("views");
             reel.repostCount   = getArguments().getInt("reposts");  // FIX #5
+            reel.originalAudioUrl = getArguments().getString("original_audio_url", "");
         }
     }
 
@@ -1210,8 +1212,16 @@ public class ReelPlayerFragment extends Fragment {
         i.putExtra(SoundDetailActivity.EXTRA_COVER_URL,   reel.musicCoverUrl != null ? reel.musicCoverUrl : "");
         i.putExtra(SoundDetailActivity.EXTRA_ARTIST,      reel.musicArtist != null && !reel.musicArtist.isEmpty()
             ? reel.musicArtist : (reel.ownerName != null ? reel.ownerName : ""));
-        // Fallback: pass reel's own videoUrl so SoundDetailActivity can play original audio
-        i.putExtra("reel_video_url", reel.videoUrl != null ? reel.videoUrl : "");
+
+        // ── Original Audio: pass the clean extracted audio URL (highest priority) ──
+        // originalAudioUrl is set by ReelUploadActivity after upload completes.
+        // SoundDetailActivity will use this URL for play — no video stream needed.
+        if (reel.originalAudioUrl != null && !reel.originalAudioUrl.isEmpty()) {
+            i.putExtra(SoundDetailActivity.EXTRA_ORIGINAL_AUDIO_URL, reel.originalAudioUrl);
+        } else {
+            // Fallback: pass reel's own videoUrl so SoundDetailActivity can play audio from it
+            i.putExtra("reel_video_url", reel.videoUrl != null ? reel.videoUrl : "");
+        }
         startActivity(i);
     }
 

@@ -37,8 +37,8 @@ public class Message {
     public String replyToId;
     public String replyToText;
     public String replyToSenderName;
-    public String replyToType;
-    public String replyToMediaUrl;
+    public String replyToType;       // Added: type of original message
+    public String replyToMediaUrl;   // Added: media URL of original (for thumbnail)
 
     // ── Feature 3: Emoji Reactions ────────────────────────
     /** Map of uid → emoji.  Firebase path: messages/{id}/reactions/{uid} */
@@ -52,6 +52,7 @@ public class Message {
     public Boolean deleted;
 
     // ── Feature 6: Forward ───────────────────────────────
+    /** Display name of original sender if message was forwarded */
     public String forwardedFrom;
 
     // ── Feature 7: Starred ───────────────────────────────
@@ -60,16 +61,23 @@ public class Message {
     // ── Feature 8: Pinned ────────────────────────────────
     public Boolean pinned;
 
+
     // ── Feature 9: Reel Seen Bubble ──────────────────────────────
+    /** Reel ID — set when type = "reel_seen". Used to open reel on tap. */
     public String reelId;
+    /** Reel thumbnail URL — shown in the reel_seen bubble. */
     public String reelThumbUrl;
 
     // ── Feature 10: Status Seen Bubble ───────────────────────────
+    /** Status owner UID — passed to StatusViewerActivity to load their statuses. */
     public String statusOwnerUid;
+    /** Status owner name — passed to StatusViewerActivity. */
     public String statusOwnerName;
+    /** Status thumbnail URL — shown in the status_seen bubble (image/video statuses). */
     public String statusThumbUrl;
 
     // ── Group flag ───────────────────────────────────────
+    /** True if this message belongs to a group chat */
     public boolean isGroup;
 
     public Message() {}

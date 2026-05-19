@@ -23,6 +23,11 @@ public class ReelModel {
     public String  musicCoverUrl;
     public String  musicArtist;
     public int     musicStartSec;
+    /**
+     * Cloudinary URL of the reel's own extracted audio track.
+     * Uploaded at post time so "Original Audio" screen can stream it.
+     */
+    public String  originalAudioUrl;
     public String  thumbnailUrl;
     public long    timestamp;
     public int     duration;

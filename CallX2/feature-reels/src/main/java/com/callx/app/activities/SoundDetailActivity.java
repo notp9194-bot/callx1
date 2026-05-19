@@ -40,14 +40,20 @@ import java.util.*;
  */
 public class SoundDetailActivity extends AppCompatActivity {
 
-    public static final String EXTRA_SOUND_ID     = "sound_id";
-    public static final String EXTRA_SOUND_TITLE  = "sound_title";
-    public static final String EXTRA_SOUND_URL    = "sound_url";
-    public static final String EXTRA_ARTIST       = "sound_artist";
-    public static final String EXTRA_DURATION_MS  = "sound_duration_ms";
-    public static final String EXTRA_COVER_URL    = "sound_cover_url";
-    public static final String EXTRA_BPM          = "sound_bpm";
-    public static final String EXTRA_GENRE        = "sound_genre";
+    public static final String EXTRA_SOUND_ID           = "sound_id";
+    public static final String EXTRA_SOUND_TITLE        = "sound_title";
+    public static final String EXTRA_SOUND_URL          = "sound_url";
+    public static final String EXTRA_ARTIST             = "sound_artist";
+    public static final String EXTRA_DURATION_MS        = "sound_duration_ms";
+    public static final String EXTRA_COVER_URL          = "sound_cover_url";
+    public static final String EXTRA_BPM                = "sound_bpm";
+    public static final String EXTRA_GENRE              = "sound_genre";
+    /**
+     * Pass this extra when opening SoundDetailActivity for a reel's own "Original Audio".
+     * It holds the Cloudinary URL of the extracted audio track uploaded at post-time.
+     * Has higher priority than EXTRA_SOUND_URL and reel_video_url.
+     */
+    public static final String EXTRA_ORIGINAL_AUDIO_URL = "original_audio_url";
 
     private ImageButton btnBack, btnPlayPause, btnShare;
     private TextView    tvSoundTitle, tvArtist, tvDuration, tvReelCount,
@@ -87,7 +93,13 @@ public class SoundDetailActivity extends AppCompatActivity {
         coverUrl   = getIntent().getStringExtra(EXTRA_COVER_URL);
         bpm        = getIntent().getIntExtra(EXTRA_BPM, 0);
         genre      = getIntent().getStringExtra(EXTRA_GENRE);
-        // Fallback: if no music URL, use the reel's own video URL (original audio = reel audio)
+
+        // Priority 1: originalAudioUrl — clean extracted audio (Cloudinary, uploaded at post-time)
+        String originalAudioUrl = getIntent().getStringExtra(EXTRA_ORIGINAL_AUDIO_URL);
+        if (originalAudioUrl != null && !originalAudioUrl.isEmpty()) {
+            soundUrl = originalAudioUrl;
+        }
+        // Priority 2: if still no soundUrl, fall back to reel's video URL (plays video as audio)
         if (soundUrl == null || soundUrl.isEmpty()) {
             String reelVideoUrl = getIntent().getStringExtra("reel_video_url");
             if (reelVideoUrl != null && !reelVideoUrl.isEmpty()) {

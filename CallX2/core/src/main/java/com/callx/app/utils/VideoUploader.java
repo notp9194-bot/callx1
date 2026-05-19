@@ -334,7 +334,7 @@ public class VideoUploader {
 
     // ── Sign helper ───────────────────────────────────────────────────────
 
-    private JSONObject sign(JSONObject payload) throws Exception {
+    private static JSONObject sign(JSONObject payload) throws Exception {
         Request req = new Request.Builder()
             .url(Constants.SERVER_URL + "/cloudinary/sign")
             .post(RequestBody.create(payload.toString(), MediaType.parse("application/json")))
@@ -377,5 +377,176 @@ public class VideoUploader {
         }
     }
 
+    // ── Original Audio Upload ─────────────────────────────────────────────
+
+    /**
+     * Callback for uploadOriginalAudio().
+     */
+    public interface AudioUploadCallback {
+        void onSuccess(String audioUrl);
+        void onError(Exception e);
+    }
+
+    /**
+     * Extracts audio from a local video file using MediaExtractor + MediaMuxer
+     * (no FFmpeg needed), compresses it to AAC 128 kbps, and uploads to Cloudinary.
+     *
+     * Called after video is already uploaded; audioUrl is then saved to Firebase
+     * as {@code ReelModel.originalAudioUrl}.
+     *
+     * @param ctx       Context
+     * @param videoFile Compressed/mixed video file (already exists locally)
+     * @param callback  AudioUploadCallback with Cloudinary URL on success
+     */
+    public static void uploadOriginalAudio(Context ctx, java.io.File videoFile,
+                                           AudioUploadCallback callback) {
+        new Thread(() -> {
+            java.io.File audioOut = null;
+            try {
+                // ── Step 1: Extract + re-encode audio to M4A ─────────────
+                audioOut = extractAudioToM4a(ctx, videoFile);
+                if (audioOut == null || !audioOut.exists() || audioOut.length() == 0) {
+                    MAIN.post(() -> callback.onError(
+                        new Exception("Audio extraction produced empty file")));
+                    return;
+                }
+
+                // ── Step 2: Upload raw M4A to Cloudinary as "raw" resource ─
+                final java.io.File finalAudio = audioOut;
+                String audioUrl = uploadAudioDirect(finalAudio, "callx/audio/original");
+                if (audioUrl == null || audioUrl.isEmpty()) {
+                    MAIN.post(() -> callback.onError(
+                        new Exception("Cloudinary returned empty URL for audio")));
+                    return;
+                }
+
+                final String fUrl = audioUrl;
+                MAIN.post(() -> callback.onSuccess(fUrl));
+
+            } catch (Exception e) {
+                Log.e(TAG, "uploadOriginalAudio error", e);
+                MAIN.post(() -> callback.onError(e));
+            } finally {
+                if (audioOut != null) audioOut.delete(); // cleanup temp
+            }
+        }).start();
+    }
+
+    /**
+     * Uses MediaExtractor + MediaMuxer to pull the audio track from a video
+     * and write it as a plain .m4a file. No re-encoding — raw AAC passthrough.
+     * Fast and zero-quality-loss.
+     */
+    private static java.io.File extractAudioToM4a(android.content.Context ctx,
+                                                   java.io.File videoFile) throws Exception {
+        java.io.File outDir  = ctx.getCacheDir();
+        java.io.File outFile = new java.io.File(outDir,
+            "orig_audio_" + System.currentTimeMillis() + ".m4a");
+
+        android.media.MediaExtractor extractor = new android.media.MediaExtractor();
+        extractor.setDataSource(videoFile.getAbsolutePath());
+
+        int audioTrack = -1;
+        android.media.MediaFormat audioFormat = null;
+        for (int i = 0; i < extractor.getTrackCount(); i++) {
+            android.media.MediaFormat fmt = extractor.getTrackFormat(i);
+            String mime = fmt.getString(android.media.MediaFormat.KEY_MIME);
+            if (mime != null && mime.startsWith("audio/")) {
+                audioTrack  = i;
+                audioFormat = fmt;
+                break;
+            }
+        }
+
+        if (audioTrack < 0 || audioFormat == null) {
+            extractor.release();
+            throw new Exception("No audio track found in video file");
+        }
+
+        extractor.selectTrack(audioTrack);
+
+        android.media.MediaMuxer muxer = new android.media.MediaMuxer(
+            outFile.getAbsolutePath(),
+            android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+
+        int muxAudioTrack = muxer.addTrack(audioFormat);
+        muxer.start();
+
+        android.media.MediaCodec.BufferInfo info = new android.media.MediaCodec.BufferInfo();
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(1024 * 1024); // 1 MB
+
+        while (true) {
+            int size = extractor.readSampleData(buf, 0);
+            if (size < 0) break;
+            info.offset         = 0;
+            info.size           = size;
+            info.presentationTimeUs = extractor.getSampleTime();
+            info.flags          = extractor.getSampleFlags();
+            muxer.writeSampleData(muxAudioTrack, buf, info);
+            extractor.advance();
+        }
+
+        muxer.stop();
+        muxer.release();
+        extractor.release();
+
+        Log.d(TAG, "Audio extracted: " + outFile.length() / 1024 + " KB → " + outFile.getPath());
+        return outFile;
+    }
+
+    /**
+     * Direct (non-chunked) upload for small audio files to Cloudinary.
+     * Uses signed upload (server sign endpoint) — resource_type=raw so Cloudinary
+     * stores it as a file (not video/audio transform), streamable via plain URL.
+     */
+    private static String uploadAudioDirect(java.io.File audioFile, String folder)
+            throws Exception {
+
+        // ── Step 1: Get signature from sign server ────────────────────────
+        JSONObject payload = new JSONObject();
+        payload.put("folder",        folder);
+        payload.put("resource_type", "raw");
+        JSONObject signJson = sign(payload);
+
+        String signature  = signJson.getString("signature");
+        String timestamp  = signJson.getString("timestamp");
+        String apiKey     = signJson.getString("api_key");
+        String cloudName  = signJson.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
+        String folderFinal = signJson.optString("folder", folder);
+
+        // ── Step 2: Upload to Cloudinary ──────────────────────────────────
+        byte[] bytes;
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(audioFile)) {
+            bytes = new byte[(int) audioFile.length()];
+            //noinspection ResultOfMethodCallIgnored
+            fis.read(bytes);
+        }
+
+        String uploadUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/raw/upload";
+        RequestBody body = new MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", audioFile.getName(),
+                RequestBody.create(bytes, MediaType.parse("audio/mp4")))
+            .addFormDataPart("api_key",   apiKey)
+            .addFormDataPart("timestamp", timestamp)
+            .addFormDataPart("signature", signature)
+            .addFormDataPart("folder",    folderFinal)
+            .build();
+
+        Request req = new Request.Builder().url(uploadUrl).post(body).build();
+        try (Response res = HTTP.newCall(req).execute()) {
+            String resBody = res.body() != null ? res.body().string() : "";
+            if (!res.isSuccessful())
+                throw new IOException("Cloudinary audio upload failed (" + res.code() + "): " + resBody);
+            JSONObject j = new JSONObject(resBody);
+            String url = j.optString("secure_url", j.optString("url", ""));
+            if (url.isEmpty())
+                throw new IOException("No URL in Cloudinary audio response");
+            Log.d(TAG, "Audio uploaded to Cloudinary: " + url);
+            return url;
+        }
+    }
+
     private VideoUploader() {}
 }
+

@@ -1,7 +1,5 @@
 plugins {
     id 'com.android.library'
-    id 'org.jetbrains.kotlin.android'
-    id 'kotlin-kapt'
 }
 
 android {
@@ -26,10 +24,6 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = '17'
-    }
-
     buildFeatures { buildConfig true }
 
     lint {
@@ -40,8 +34,8 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.core:core-ktx:1.13.1'
-    implementation 'androidx.work:work-runtime-ktx:2.9.0'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.work:work-runtime:2.9.0'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
@@ -57,8 +51,7 @@ dependencies {
 
     // Room DB
     implementation 'androidx.room:room-runtime:2.6.1'
-    kapt 'androidx.room:room-compiler:2.6.1'
-    implementation 'androidx.room:room-ktx:2.6.1'
+    annotationProcessor 'androidx.room:room-compiler:2.6.1'
     implementation 'androidx.room:room-paging:2.6.1'
 
     // SQLCipher
@@ -66,14 +59,10 @@ dependencies {
     implementation 'androidx.sqlite:sqlite:2.4.0'
 
     // Paging 3
-    implementation 'androidx.paging:paging-runtime-ktx:3.2.1'
+    implementation 'androidx.paging:paging-runtime:3.2.1'
     implementation 'io.reactivex.rxjava3:rxjava:3.1.8'
     implementation 'io.reactivex.rxjava3:rxandroid:3.0.2'
 
-    // LiTr
+    // LiTr — video compression (VideoCompressor)
     implementation 'com.linkedin.android.litr:litr:1.5.1'
-
-    // Kotlin
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }

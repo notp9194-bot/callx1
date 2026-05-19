@@ -1,5 +1,6 @@
 package com.callx.app.activities;
 
+import android.util.Log;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
@@ -488,7 +489,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                 ReelUploadActivity a = ref.get();
                 if (a == null || a.isFinishing() || a.isDestroyed()) return;
                 a.saveReelToFirebase(thumbUrl, videoUrl, durationMs, width, height,
-                    caption, musicName, uploadResult);
+                    caption, musicName, uploadResult, videoPath);
             }
 
             @Override
@@ -508,7 +509,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private void saveReelToFirebase(String thumbUrl, String videoUrl,
                                     int durationMs, int width, int height,
                                     String caption, String musicName,
-                                    VideoCompressor.Result result) {
+                                    VideoCompressor.Result result, String videoPath) {
         if (isFinishing() || isDestroyed()) return;
 
         String myUid, myName;
@@ -562,6 +563,32 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                         Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
                         b.setResult(RESULT_OK);
+
+                        // ── Background: extract + upload original audio ───────
+                        // This runs after the reel is already live, so user doesn't wait.
+                        java.io.File videoFileForAudio = new java.io.File(videoPath);
+                        if (videoFileForAudio.exists()) {
+                            VideoUploader.uploadOriginalAudio(b, videoFileForAudio,
+                                new VideoUploader.AudioUploadCallback() {
+                                    @Override
+                                    public void onSuccess(String audioUrl) {
+                                        // Save originalAudioUrl to Firebase
+                                        FirebaseUtils.getReelsRef()
+                                            .child(finalReelId)
+                                            .child("originalAudioUrl")
+                                            .setValue(audioUrl);
+                                        Log.d("ReelUpload",
+                                            "originalAudioUrl saved: " + audioUrl);
+                                    }
+                                    @Override
+                                    public void onError(Exception e) {
+                                        Log.w("ReelUpload",
+                                            "Audio upload failed (non-fatal): " + e.getMessage());
+                                    }
+                                });
+                        }
+                        // ─────────────────────────────────────────────────────
+
                         b.finish();
                     })
                     .addOnFailureListener(ex -> {
