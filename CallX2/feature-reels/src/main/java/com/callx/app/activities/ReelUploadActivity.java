@@ -206,6 +206,13 @@ public class ReelUploadActivity extends AppCompatActivity {
         mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
         if (mixVoiceoverPath == null) mixVoiceoverPath = "";
 
+        // ✅ FIX: If launched from SoundDetailActivity (gallery flow), replace audio fully
+        boolean replaceAudio = i.getBooleanExtra("replace_audio_with_sound", false);
+        if (replaceAudio) {
+            mixOrigVol  = 0.0f;  // mic audio = zero (hata do)
+            mixMusicVol = 1.0f;  // sound URL = full volume
+        }
+
         // ✅ NEW: If ReelCameraActivity already replaced mic audio, skip mixing at upload time.
         audioAlreadyReplaced = i.getBooleanExtra("audio_already_replaced", false);
 
