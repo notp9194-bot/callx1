@@ -794,7 +794,7 @@ public class ReelPlayerFragment extends Fragment {
                 likerAvatarsListener = new com.google.firebase.database.ValueEventListener() {
                     @Override
                     public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot likesSnap) {
-                        if (!isAdded() || getContext() == null) return;
+                        if (!isAdded() || getView() == null || getActivity() == null) return;
                         java.util.List<String> matchingUids = new java.util.ArrayList<>();
                         for (com.google.firebase.database.DataSnapshot likerSnap : likesSnap.getChildren()) {
                             String likerUid = likerSnap.getKey();
@@ -819,7 +819,7 @@ public class ReelPlayerFragment extends Fragment {
      * into ivLiker1, ivLiker2, ivLiker3. Hides the container if list is empty.
      */
     private void updateLikerAvatars(java.util.List<String> uids) {
-        if (!isAdded() || getContext() == null) return;
+        if (!isAdded() || getView() == null || flLikerAvatars == null) return;
         if (uids.isEmpty()) {
             flLikerAvatars.setVisibility(android.view.View.GONE);
             return;
@@ -828,22 +828,29 @@ public class ReelPlayerFragment extends Fragment {
 
         de.hdodenhof.circleimageview.CircleImageView[] views = {ivLiker1, ivLiker2, ivLiker3};
         // Hide all first
-        for (de.hdodenhof.circleimageview.CircleImageView v : views) v.setVisibility(android.view.View.GONE);
+        for (de.hdodenhof.circleimageview.CircleImageView v : views) {
+            if (v != null) v.setVisibility(android.view.View.GONE);
+        }
 
         for (int i = 0; i < uids.size() && i < views.length; i++) {
             final de.hdodenhof.circleimageview.CircleImageView avatarView = views[i];
+            if (avatarView == null) continue;
             avatarView.setVisibility(android.view.View.VISIBLE);
-            String likerUid = uids.get(i);
+            final String likerUid = uids.get(i);
             com.callx.app.utils.FirebaseUtils.getUserRef(likerUid).child("thumbUrl").get()
                 .addOnSuccessListener(snap -> {
-                    if (!isAdded() || getContext() == null) return;
+                    // Re-check fragment is still alive before touching views
+                    if (!isAdded() || getView() == null || getActivity() == null
+                            || flLikerAvatars == null || avatarView == null) return;
                     String thumbUrl = snap.getValue(String.class);
                     if (thumbUrl != null && !thumbUrl.isEmpty()) {
-                        com.bumptech.glide.Glide.with(requireContext())
-                            .load(thumbUrl)
-                            .placeholder(R.drawable.ic_person)
-                            .circleCrop()
-                            .into(avatarView);
+                        try {
+                            com.bumptech.glide.Glide.with(getActivity())
+                                .load(thumbUrl)
+                                .placeholder(R.drawable.ic_person)
+                                .circleCrop()
+                                .into(avatarView);
+                        } catch (Exception ignored) {}
                     } else {
                         avatarView.setImageResource(R.drawable.ic_person);
                     }
