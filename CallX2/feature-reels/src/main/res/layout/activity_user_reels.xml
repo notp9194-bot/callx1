@@ -243,12 +243,156 @@
         android:visibility="gone"/>
 
     <!-- Bio -->
+    <!-- Bio (max 3 lines, tap to expand) -->
     <TextView android:id="@+id/tv_bio"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:paddingTop="2dp" android:paddingBottom="6dp"
+        android:paddingTop="4dp" android:paddingBottom="2dp"
         android:textSize="13sp" android:textColor="?attr/colorOnSurfaceVariant"
-        android:maxLines="2" android:ellipsize="end" android:visibility="gone"/>
+        android:maxLines="3" android:ellipsize="end"
+        android:clickable="true" android:focusable="true"
+        android:visibility="gone"/>
+
+    <!-- Phone number row -->
+    <LinearLayout android:id="@+id/layout_phone"
+        android:layout_width="match_parent" android:layout_height="48dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:clickable="true" android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView android:layout_width="18dp" android:layout_height="18dp"
+            android:src="@drawable/ic_phone"
+            android:tint="@color/brand_primary"
+            android:contentDescription="Phone"/>
+
+        <TextView android:id="@+id/tv_phone"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:textSize="13sp"
+            android:textColor="?attr/colorOnSurface"
+            android:singleLine="true"/>
+
+        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+            android:src="@drawable/ic_arrow_forward"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:contentDescription="Open"/>
+    </LinearLayout>
+
+    <!-- WhatsApp row -->
+    <LinearLayout android:id="@+id/layout_whatsapp"
+        android:layout_width="match_parent" android:layout_height="48dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:clickable="true" android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView android:layout_width="18dp" android:layout_height="18dp"
+            android:src="@drawable/ic_whatsapp"
+            android:tint="#25D366"
+            android:contentDescription="WhatsApp"/>
+
+        <TextView android:id="@+id/tv_whatsapp"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:textSize="13sp"
+            android:textColor="#25D366"
+            android:singleLine="true"/>
+
+        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+            android:src="@drawable/ic_arrow_forward"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:contentDescription="Open"/>
+    </LinearLayout>
+
+    <!-- Instagram row -->
+    <LinearLayout android:id="@+id/layout_instagram"
+        android:layout_width="match_parent" android:layout_height="48dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:clickable="true" android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView android:layout_width="18dp" android:layout_height="18dp"
+            android:src="@drawable/ic_instagram"
+            android:tint="#E1306C"
+            android:contentDescription="Instagram"/>
+
+        <TextView android:id="@+id/tv_instagram"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:textSize="13sp"
+            android:textColor="#E1306C"
+            android:singleLine="true"/>
+
+        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+            android:src="@drawable/ic_arrow_forward"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:contentDescription="Open"/>
+    </LinearLayout>
+
+    <!-- YouTube row -->
+    <LinearLayout android:id="@+id/layout_youtube"
+        android:layout_width="match_parent" android:layout_height="48dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:clickable="true" android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView android:layout_width="18dp" android:layout_height="18dp"
+            android:src="@drawable/ic_youtube"
+            android:tint="#FF0000"
+            android:contentDescription="YouTube"/>
+
+        <TextView android:id="@+id/tv_youtube"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:textSize="13sp"
+            android:textColor="#FF0000"
+            android:singleLine="true"/>
+
+        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+            android:src="@drawable/ic_arrow_forward"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:contentDescription="Open"/>
+    </LinearLayout>
+
+    <!-- Other link row -->
+    <LinearLayout android:id="@+id/layout_other_link"
+        android:layout_width="match_parent" android:layout_height="48dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:clickable="true" android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView android:layout_width="18dp" android:layout_height="18dp"
+            android:src="@drawable/ic_link"
+            android:tint="@color/brand_primary"
+            android:contentDescription="Link"/>
+
+        <TextView android:id="@+id/tv_other_link"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:textSize="13sp"
+            android:textColor="@color/brand_primary"
+            android:singleLine="true"
+            android:ellipsize="end"/>
+
+        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+            android:src="@drawable/ic_arrow_forward"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:contentDescription="Open"/>
+    </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/divider"/>

@@ -63,6 +63,8 @@ public class UserReelsActivity extends AppCompatActivity
     private View            viewStoryRing;
     private TextView        tvName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
+    private TextView        tvPhone, tvWhatsapp, tvInstagram, tvYoutube, tvOtherLink;
+    private View            layoutPhone, layoutWhatsapp, layoutInstagram, layoutYoutube, layoutOtherLink;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
@@ -176,6 +178,16 @@ public class UserReelsActivity extends AppCompatActivity
         layoutFollowingClick = findViewById(R.id.layout_following_click);
         btnDeleteSelected    = findViewById(R.id.btn_delete_selected);
         btnCancelSelect      = findViewById(R.id.btn_cancel_select);
+        tvPhone          = findViewById(R.id.tv_phone);
+        tvWhatsapp       = findViewById(R.id.tv_whatsapp);
+        tvInstagram      = findViewById(R.id.tv_instagram);
+        tvYoutube        = findViewById(R.id.tv_youtube);
+        tvOtherLink      = findViewById(R.id.tv_other_link);
+        layoutPhone      = findViewById(R.id.layout_phone);
+        layoutWhatsapp   = findViewById(R.id.layout_whatsapp);
+        layoutInstagram  = findViewById(R.id.layout_instagram);
+        layoutYoutube    = findViewById(R.id.layout_youtube);
+        layoutOtherLink  = findViewById(R.id.layout_other_link);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -1013,19 +1025,54 @@ public class UserReelsActivity extends AppCompatActivity
     private void loadUserProfile() {
         FirebaseUtils.getUserRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                String name  = snap.child("name").getValue(String.class);
-                String photo = snap.child("photoUrl").getValue(String.class);
-                String bio   = snap.child("bio").getValue(String.class);
-                if (name  != null) { targetName = name; if (tvName != null) tvName.setText(name); }
+                String name      = snap.child("name").getValue(String.class);
+                String photo     = snap.child("photoUrl").getValue(String.class);
+                String bio       = snap.child("bio").getValue(String.class);
+                String phone     = snap.child("phone").getValue(String.class);
+                String whatsapp  = snap.child("whatsapp").getValue(String.class);
+                String instagram = snap.child("instagram").getValue(String.class);
+                String youtube   = snap.child("youtube").getValue(String.class);
+                String otherLink = snap.child("otherLink").getValue(String.class);
+
+                if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); }
                 if (photo != null && !photo.isEmpty()) {
                     targetPhoto = photo;
                     Glide.with(UserReelsActivity.this).load(photo).circleCrop()
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
+
+                // Bio
                 if (tvBio != null) {
                     tvBio.setText(bio != null ? bio : "");
                     tvBio.setVisibility(bio != null && !bio.isEmpty() ? View.VISIBLE : View.GONE);
                 }
+
+                // Phone — dial on tap
+                bindSocialRow(layoutPhone, tvPhone, phone,
+                    !isEmpty(phone) ? "tel:" + phone.replaceAll("[^+\\d]", "") : null,
+                    phone);
+
+                // WhatsApp — open wa.me link
+                String waNum = !isEmpty(whatsapp) ? whatsapp.replaceAll("[^+\\d]", "") : null;
+                bindSocialRow(layoutWhatsapp, tvWhatsapp, whatsapp,
+                    waNum != null ? "https://wa.me/" + waNum : null,
+                    whatsapp);
+
+                // Instagram
+                String igHandle = !isEmpty(instagram)
+                    ? (instagram.startsWith("http") ? instagram : "https://instagram.com/" + instagram.replace("@",""))
+                    : null;
+                bindSocialRow(layoutInstagram, tvInstagram, instagram, igHandle,
+                    !isEmpty(instagram) ? (instagram.startsWith("@") ? instagram : "@" + instagram) : null);
+
+                // YouTube
+                bindSocialRow(layoutYoutube, tvYoutube, youtube, youtube, youtube);
+
+                // Other link
+                String otherUrl = !isEmpty(otherLink)
+                    ? (otherLink.startsWith("http") ? otherLink : "https://" + otherLink)
+                    : null;
+                bindSocialRow(layoutOtherLink, tvOtherLink, otherLink, otherUrl, otherLink);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
@@ -1040,6 +1087,37 @@ public class UserReelsActivity extends AppCompatActivity
                 if (tvFollowing != null) tvFollowing.setText(String.valueOf(snap.getChildrenCount()));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
+    }
+
+
+    // ── Social link helper ──────────────────────────────────────────────
+    private boolean isEmpty(String s) { return s == null || s.trim().isEmpty(); }
+
+    private void bindSocialRow(View rowLayout, TextView tv, String rawValue, String url, String displayText) {
+        if (rowLayout == null || tv == null) return;
+        if (isEmpty(rawValue)) {
+            rowLayout.setVisibility(View.GONE);
+            return;
+        }
+        rowLayout.setVisibility(View.VISIBLE);
+        tv.setText(displayText != null ? displayText : rawValue);
+        rowLayout.setOnClickListener(v -> {
+            if (url == null) return;
+            try {
+                android.net.Uri uri = android.net.Uri.parse(url);
+                Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Exception e) {
+                Toast.makeText(UserReelsActivity.this, "Cannot open link", Toast.LENGTH_SHORT).show();
+            }
+        });
+        rowLayout.setOnLongClickListener(v -> {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("copy", rawValue));
+            Toast.makeText(UserReelsActivity.this, "Copied!", Toast.LENGTH_SHORT).show();
+            return true;
         });
     }
 
