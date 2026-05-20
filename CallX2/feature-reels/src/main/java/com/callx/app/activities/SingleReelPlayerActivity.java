@@ -114,6 +114,8 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
                     if (reel.reelId == null) reel.reelId = s.getKey();
                     reels.add(reel);
                 }
+                // Latest reel pehle — timestamp descending sort
+                reels.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
                 onReelsLoaded();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
