@@ -12,7 +12,6 @@ import androidx.recyclerview.widget.*;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
-import com.callx.app.activities.ChatActivity;
 import com.callx.app.activities.UserReelsActivity;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
@@ -28,7 +27,7 @@ import de.hdodenhof.circleimageview.CircleImageView;
  *
  * Instagram-style bottom sheet shown when user taps the likes count on a reel.
  * Displays:
- *   - "Likes and plays" header with ❤ likesCount + ▶ playsCount
+ *   - "Likes and plays" header with heart likesCount + play playsCount
  *   - "Liked by" section
  *   - Search bar to filter likers
  *   - RecyclerView: avatar + name + "Message" button per liker
@@ -77,7 +76,6 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
     public void onViewCreated(@NonNull View v, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(v, savedInstanceState);
 
-        // Read args
         Bundle args = getArguments();
         if (args != null) {
             reelId     = args.getString(ARG_REEL_ID);
@@ -85,7 +83,6 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
             playsCount = args.getInt(ARG_PLAYS, 0);
         }
 
-        // Bind views
         tvLikesCount = v.findViewById(R.id.tv_likes_count_header);
         tvPlaysCount = v.findViewById(R.id.tv_plays_count_header);
         etSearch     = v.findViewById(R.id.et_search);
@@ -93,23 +90,19 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
         progressBar  = v.findViewById(R.id.progress_bar);
         tvEmpty      = v.findViewById(R.id.tv_empty);
 
-        // Set header counts
         tvLikesCount.setText(formatCount(likesCount));
         tvPlaysCount.setText(formatCount(playsCount));
 
-        // RecyclerView setup
         adapter = new LikersAdapter(filteredItems);
         rv.setLayoutManager(new LinearLayoutManager(requireContext()));
         rv.setAdapter(adapter);
 
-        // Search
         etSearch.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void onTextChanged(CharSequence s, int st, int b, int c) { filterList(s.toString()); }
             @Override public void afterTextChanged(Editable s) {}
         });
 
-        // Load likers
         if (reelId != null) loadLikers();
         else showEmpty();
     }
@@ -191,6 +184,18 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
         rv.setVisibility(View.GONE);
     }
 
+    /** Launch an activity by fully-qualified class name (avoids cross-module import). */
+    private void launchByClass(String className, String[] keys, String[] values) {
+        try {
+            Class<?> cls = Class.forName(className);
+            Intent i = new Intent(requireContext(), cls);
+            for (int x = 0; x < keys.length; x++) i.putExtra(keys[x], values[x]);
+            startActivity(i);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(requireContext(), "Not available", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
     private String formatCount(int n) {
         if (n >= 1_000_000) return String.format(Locale.US, "%.1fM", n / 1_000_000f);
@@ -223,15 +228,11 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
             else
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
 
-            // Message button → open ChatActivity
-            h.btnMessage.setOnClickListener(v -> {
-                try {
-                    Intent i = new Intent(requireContext(), ChatActivity.class);
-                    i.putExtra("uid",  u.uid);
-                    i.putExtra("name", u.name);
-                    startActivity(i);
-                } catch (Exception ignored) {}
-            });
+            // Message button → open ChatActivity via reflection to avoid cross-module import
+            h.btnMessage.setOnClickListener(v ->
+                launchByClass("com.callx.app.activities.ChatActivity",
+                        new String[]{"partnerUid", "partnerName", "partnerPhoto"},
+                        new String[]{u.uid, u.name, u.photo}));
 
             // Tap row → open profile
             h.itemView.setOnClickListener(v -> {
