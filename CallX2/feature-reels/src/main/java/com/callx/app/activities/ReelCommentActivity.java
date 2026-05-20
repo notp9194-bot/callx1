@@ -379,7 +379,7 @@ public class ReelCommentActivity extends AppCompatActivity {
     /** Fetch profile photo from Firebase users node (FirebaseAuth photo may be stale). */
     private void loadMyPhoto() {
         if (myUid.isEmpty()) return;
-        FirebaseUtils.getUserRef(myUid).child("photo")
+        FirebaseUtils.getUserRef(myUid).child("photoUrl")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot s) {
                     String p = s.getValue(String.class);
