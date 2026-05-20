@@ -61,7 +61,7 @@ public class UserReelsActivity extends AppCompatActivity
     private CircleImageView ivAvatar;
     private ImageView       ivVerified;
     private View            viewStoryRing;
-    private TextView        tvName, tvFollowers, tvFollowing, tvBio;
+    private TextView        tvName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
     private List<String>    mutualUidsList = new ArrayList<>();
@@ -136,6 +136,7 @@ public class UserReelsActivity extends AppCompatActivity
         loadMutualFollowers();
         loadPinnedReel();
         loadCurrentTab(true);
+        loadReelCount();
         checkActiveStory();
         loadAccountPrivacy();
         setupStatsClicks();
@@ -148,6 +149,7 @@ public class UserReelsActivity extends AppCompatActivity
         ivVerified           = findViewById(R.id.iv_verified);
         viewStoryRing        = findViewById(R.id.view_story_ring);
         tvName               = findViewById(R.id.tv_name);
+        tvReelCount          = findViewById(R.id.tv_reel_count);
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
         tvBio                = findViewById(R.id.tv_bio);
@@ -1137,6 +1139,16 @@ public class UserReelsActivity extends AppCompatActivity
         });
     }
 
+
+    private void loadReelCount() {
+        FirebaseUtils.getReelsByUserRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                long n = snap.getChildrenCount();
+                if (tvReelCount != null) tvReelCount.setText(String.valueOf(n));
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
+    }
 
     // ── More menu ─────────────────────────────────────────────────────────
 
