@@ -233,25 +233,68 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Mutual followers (clickable) -->
+    <!-- Mutual followers — Instagram style (clickable) -->
     <LinearLayout android:id="@+id/layout_mutual_followers"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_width="match_parent" android:layout_height="48dp"
         android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingBottom="6dp" android:paddingTop="2dp"
+        android:paddingStart="16dp" android:paddingEnd="12dp"
         android:clickable="true" android:focusable="true"
         android:foreground="?attr/selectableItemBackground"
         android:visibility="gone">
 
+        <!-- Overlapping avatars container (fixed 62dp wide for up to 3 avatars) -->
+        <FrameLayout
+            android:id="@+id/frame_mutual_avatars"
+            android:layout_width="62dp"
+            android:layout_height="30dp"
+            android:layout_marginEnd="10dp">
+
+            <!-- Avatar 3 (back) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_mutual_3"
+                android:layout_width="28dp" android:layout_height="28dp"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="18dp"
+                android:src="@drawable/ic_person"
+                android:visibility="gone"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="?attr/colorSurface"
+                xmlns:app="http://schemas.android.com/apk/res-auto"/>
+
+            <!-- Avatar 2 (middle) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_mutual_2"
+                android:layout_width="28dp" android:layout_height="28dp"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="9dp"
+                android:src="@drawable/ic_person"
+                android:visibility="gone"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="?attr/colorSurface"
+                xmlns:app="http://schemas.android.com/apk/res-auto"/>
+
+            <!-- Avatar 1 (front) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_mutual_1"
+                android:layout_width="28dp" android:layout_height="28dp"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="0dp"
+                android:src="@drawable/ic_person"
+                android:visibility="gone"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="?attr/colorSurface"
+                xmlns:app="http://schemas.android.com/apk/res-auto"/>
+        </FrameLayout>
+
+        <!-- "Followed by name1, name2 and X others" -->
         <TextView android:id="@+id/tv_mutual_followers"
             android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+            android:textSize="12sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:maxLines="2"
+            android:lineSpacingMultiplier="1.2"/>
 
-        <ImageView
-            android:layout_width="14dp" android:layout_height="14dp"
-            android:src="@drawable/ic_arrow_forward"
-            android:tint="?attr/colorOnSurfaceVariant"
-            android:contentDescription="View mutual followers"/>
     </LinearLayout>
 
     <!-- Bio -->

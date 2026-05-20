@@ -64,6 +64,7 @@ public class UserReelsActivity extends AppCompatActivity
     private TextView        tvName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
+    private CircleImageView ivMutual1, ivMutual2, ivMutual3;
     private List<String>    mutualUidsList = new ArrayList<>();
     private TextView        tvPhone, tvWhatsapp, tvInstagram, tvYoutube, tvOtherLink;
     private View            layoutPhone, layoutWhatsapp, layoutInstagram, layoutYoutube, layoutOtherLink;
@@ -155,6 +156,9 @@ public class UserReelsActivity extends AppCompatActivity
         tvBio                = findViewById(R.id.tv_bio);
         tvMutualFollowers    = findViewById(R.id.tv_mutual_followers);
         layoutMutualFollowers= findViewById(R.id.layout_mutual_followers);
+        ivMutual1            = findViewById(R.id.iv_mutual_1);
+        ivMutual2            = findViewById(R.id.iv_mutual_2);
+        ivMutual3            = findViewById(R.id.iv_mutual_3);
         tvEmptyTitle         = findViewById(R.id.tv_empty_title);
         tvEmptySubtitle      = findViewById(R.id.tv_empty_subtitle);
         btnFollow            = findViewById(R.id.btn_follow);
@@ -492,7 +496,36 @@ public class UserReelsActivity extends AppCompatActivity
                                 mutualUidsList.clear();
                                 for (DataSnapshot s : tSnap.getChildren())
                                     if (mine.contains(s.getKey())) mutualUidsList.add(s.getKey());
-                                showMutualFollowers(mutualUidsList.size());
+                                if (mutualUidsList.isEmpty()) {
+                                    showMutualFollowers(new ArrayList<>(), new ArrayList<>());
+                                    return;
+                                }
+                                // Fetch name + photo of first 3 mutual users
+                                int fetchCount = Math.min(3, mutualUidsList.size());
+                                List<String> names  = new ArrayList<>();
+                                List<String> photos = new ArrayList<>();
+                                final int[] done = {0};
+                                for (int i = 0; i < fetchCount; i++) {
+                                    String uid = mutualUidsList.get(i);
+                                    FirebaseUtils.getUserRef(uid)
+                                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                                            @Override public void onDataChange(@NonNull DataSnapshot us) {
+                                                String n = us.child("name").getValue(String.class);
+                                                String p = us.child("photoUrl").getValue(String.class);
+                                                names.add(n != null ? n : "User");
+                                                photos.add(p != null ? p : "");
+                                                done[0]++;
+                                                if (done[0] >= fetchCount)
+                                                    showMutualFollowers(names, photos);
+                                            }
+                                            @Override public void onCancelled(@NonNull DatabaseError e) {
+                                                names.add("User"); photos.add("");
+                                                done[0]++;
+                                                if (done[0] >= fetchCount)
+                                                    showMutualFollowers(names, photos);
+                                            }
+                                        });
+                                }
                             }
                             @Override public void onCancelled(@NonNull DatabaseError e) {}
                         });
@@ -501,16 +534,46 @@ public class UserReelsActivity extends AppCompatActivity
             });
     }
 
-    private void showMutualFollowers(int count) {
-        if (tvMutualFollowers == null || layoutMutualFollowers == null
-                || isFinishing() || isDestroyed()) return;
+    private void showMutualFollowers(List<String> names, List<String> photos) {
+        if (layoutMutualFollowers == null || isFinishing() || isDestroyed()) return;
+        int count = mutualUidsList.size();
         if (count <= 0) {
             layoutMutualFollowers.setVisibility(View.GONE);
             return;
         }
-        tvMutualFollowers.setText(count == 1
-            ? "Followed by 1 person you know"
-            : "Followed by " + count + " people you know");
+
+        // ── Load avatars (up to 3, overlapping: avatar1=front, avatar3=back) ──
+        CircleImageView[] ivs = {ivMutual1, ivMutual2, ivMutual3};
+        for (int i = 0; i < 3; i++) {
+            if (ivs[i] == null) continue;
+            if (i < photos.size() && !photos.get(i).isEmpty()) {
+                ivs[i].setVisibility(View.VISIBLE);
+                Glide.with(this).load(photos.get(i))
+                    .placeholder(R.drawable.ic_person)
+                    .error(R.drawable.ic_person)
+                    .circleCrop()
+                    .into(ivs[i]);
+            } else if (i < names.size()) {
+                ivs[i].setVisibility(View.VISIBLE);
+                ivs[i].setImageResource(R.drawable.ic_person);
+            } else {
+                ivs[i].setVisibility(View.GONE);
+            }
+        }
+
+        // ── Build text: "Followed by name1, name2 and X others" ──
+        String text;
+        if (count == 1) {
+            text = "Followed by " + names.get(0);
+        } else if (count == 2) {
+            text = "Followed by " + names.get(0) + " and " + names.get(1);
+        } else {
+            int others = count - 2;
+            text = "Followed by " + names.get(0) + ", " + names.get(1)
+                + " and " + others + (others == 1 ? " other" : " others");
+        }
+
+        if (tvMutualFollowers != null) tvMutualFollowers.setText(text);
         layoutMutualFollowers.setVisibility(View.VISIBLE);
         layoutMutualFollowers.setOnClickListener(v -> openMutualFollowers());
     }
