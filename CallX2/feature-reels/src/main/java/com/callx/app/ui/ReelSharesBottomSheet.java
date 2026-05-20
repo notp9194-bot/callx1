@@ -144,7 +144,7 @@ public class ReelSharesBottomSheet extends BottomSheetDialogFragment {
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot s) {
                             String name  = s.child("name").getValue(String.class);
-                            String photo = s.child("photoUrl").getValue(String.class);
+                            String photo = s.child("thumbUrl").getValue(String.class);
                             String uid2  = s.getKey();
                             allItems.add(new UserItem(uid2,
                                     name  != null ? name  : "User",

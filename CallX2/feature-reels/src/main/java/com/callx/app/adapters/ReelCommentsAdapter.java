@@ -280,7 +280,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         if (uid == null || uid.isEmpty()) return;
 
         // Fetch from Firebase asynchronously
-        FirebaseUtils.getUserRef(uid).child("photoUrl")
+        FirebaseUtils.getUserRef(uid).child("thumbUrl")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot s) {

@@ -172,7 +172,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
             FirebaseUtils.getUserRef(item.uid)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot s) {
-                            String photo = s.child("photoUrl").getValue(String.class);
+                            String photo = s.child("thumbUrl").getValue(String.class);
                             if (photo != null && !photo.isEmpty()) item.ownerPhoto = photo;
                             done[0]++;
                             if (done[0] >= total && isAdded()) finishLoad();
