@@ -97,14 +97,26 @@ public class ProfileActivity extends AppCompatActivity {
         FirebaseUtils.getUserRef(viewUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot s) {
-                    String name    = orEmpty(s.child("name").getValue(String.class));
-                    String about   = orEmpty(s.child("about").getValue(String.class));
-                    String callxId = orEmpty(s.child("callxId").getValue(String.class));
-                    String email   = isOwnProfile ? orEmpty(s.child("email").getValue(String.class)) : "";
-                    String photo   = orEmpty(s.child("photoUrl").getValue(String.class));
+                    String name      = orEmpty(s.child("name").getValue(String.class));
+                    String about     = orEmpty(s.child("about").getValue(String.class));
+                    String bio       = orEmpty(s.child("bio").getValue(String.class));
+                    String phone     = orEmpty(s.child("phone").getValue(String.class));
+                    String whatsapp  = orEmpty(s.child("whatsapp").getValue(String.class));
+                    String instagram = orEmpty(s.child("instagram").getValue(String.class));
+                    String youtube   = orEmpty(s.child("youtube").getValue(String.class));
+                    String otherLink = orEmpty(s.child("otherLink").getValue(String.class));
+                    String callxId   = orEmpty(s.child("callxId").getValue(String.class));
+                    String email     = isOwnProfile ? orEmpty(s.child("email").getValue(String.class)) : "";
+                    String photo     = orEmpty(s.child("photoUrl").getValue(String.class));
 
                     binding.etName.setText(name);
                     binding.etAbout.setText(about);
+                    if (binding.etBio      != null) binding.etBio.setText(bio);
+                    if (binding.etPhone    != null) binding.etPhone.setText(phone);
+                    if (binding.etWhatsapp != null) binding.etWhatsapp.setText(whatsapp);
+                    if (binding.etInstagram!= null) binding.etInstagram.setText(instagram);
+                    if (binding.etYoutube  != null) binding.etYoutube.setText(youtube);
+                    if (binding.etOtherLink!= null) binding.etOtherLink.setText(otherLink);
                     binding.tvCallxId.setText(callxId);
                     if (isOwnProfile) binding.tvEmail.setText(email);
                     currentPhoto = photo;
@@ -180,15 +192,28 @@ public class ProfileActivity extends AppCompatActivity {
             });
     }
     private void save() {
-        String name  = binding.etName.getText().toString().trim();
-        String about = binding.etAbout.getText().toString().trim();
+        String name      = binding.etName.getText().toString().trim();
+        String about     = binding.etAbout.getText().toString().trim();
+        String bio       = binding.etBio       != null ? binding.etBio.getText().toString().trim() : "";
+        String phone     = binding.etPhone     != null ? binding.etPhone.getText().toString().trim() : "";
+        String whatsapp  = binding.etWhatsapp  != null ? binding.etWhatsapp.getText().toString().trim() : "";
+        String instagram = binding.etInstagram != null ? binding.etInstagram.getText().toString().trim() : "";
+        String youtube   = binding.etYoutube   != null ? binding.etYoutube.getText().toString().trim() : "";
+        String otherLink = binding.etOtherLink != null ? binding.etOtherLink.getText().toString().trim() : "";
+
         if (name.isEmpty()) {
             Toast.makeText(this, "Naam khali nahi ho sakta",
                 Toast.LENGTH_SHORT).show(); return;
         }
         Map<String, Object> updates = new HashMap<>();
-        updates.put("name", name);
-        updates.put("about", about);
+        updates.put("name",      name);
+        updates.put("about",     about);
+        updates.put("bio",       bio);
+        updates.put("phone",     phone);
+        updates.put("whatsapp",  whatsapp);
+        updates.put("instagram", instagram);
+        updates.put("youtube",   youtube);
+        updates.put("otherLink", otherLink);
         FirebaseUtils.getUserRef(currentUid).updateChildren(updates);
         FirebaseAuth.getInstance().getCurrentUser()
             .updateProfile(new UserProfileChangeRequest.Builder()
