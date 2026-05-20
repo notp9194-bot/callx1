@@ -63,6 +63,8 @@ public class UserReelsActivity extends AppCompatActivity
     private View            viewStoryRing;
     private TextView        tvName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
+    private LinearLayout    layoutMutualFollowers;
+    private List<String>    mutualUidsList = new ArrayList<>();
     private TextView        tvPhone, tvWhatsapp, tvInstagram, tvYoutube, tvOtherLink;
     private View            layoutPhone, layoutWhatsapp, layoutInstagram, layoutYoutube, layoutOtherLink;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
@@ -147,11 +149,11 @@ public class UserReelsActivity extends AppCompatActivity
         ivVerified           = findViewById(R.id.iv_verified);
         viewStoryRing        = findViewById(R.id.view_story_ring);
         tvName               = findViewById(R.id.tv_name);
-        tvReelCount          = findViewById(R.id.tv_reel_count);
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
         tvBio                = findViewById(R.id.tv_bio);
         tvMutualFollowers    = findViewById(R.id.tv_mutual_followers);
+        layoutMutualFollowers= findViewById(R.id.layout_mutual_followers);
         tvEmptyTitle         = findViewById(R.id.tv_empty_title);
         tvEmptySubtitle      = findViewById(R.id.tv_empty_subtitle);
         btnFollow            = findViewById(R.id.btn_follow);
@@ -486,10 +488,10 @@ public class UserReelsActivity extends AppCompatActivity
                     FirebaseUtils.getReelFollowersRef(targetUid)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
                             @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
-                                int mutual = 0;
+                                mutualUidsList.clear();
                                 for (DataSnapshot s : tSnap.getChildren())
-                                    if (mine.contains(s.getKey())) mutual++;
-                                showMutualFollowers(mutual);
+                                    if (mine.contains(s.getKey())) mutualUidsList.add(s.getKey());
+                                showMutualFollowers(mutualUidsList.size());
                             }
                             @Override public void onCancelled(@NonNull DatabaseError e) {}
                         });
@@ -499,12 +501,27 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void showMutualFollowers(int count) {
-        if (tvMutualFollowers == null || isFinishing() || isDestroyed()) return;
-        if (count <= 0) { tvMutualFollowers.setVisibility(View.GONE); return; }
+        if (tvMutualFollowers == null || layoutMutualFollowers == null
+                || isFinishing() || isDestroyed()) return;
+        if (count <= 0) {
+            layoutMutualFollowers.setVisibility(View.GONE);
+            return;
+        }
         tvMutualFollowers.setText(count == 1
             ? "Followed by 1 person you know"
             : "Followed by " + count + " people you know");
-        tvMutualFollowers.setVisibility(View.VISIBLE);
+        layoutMutualFollowers.setVisibility(View.VISIBLE);
+        layoutMutualFollowers.setOnClickListener(v -> openMutualFollowers());
+    }
+
+    private void openMutualFollowers() {
+        if (mutualUidsList.isEmpty()) return;
+        Intent i = new Intent(this, MutualFollowersActivity.class);
+        i.putStringArrayListExtra(MutualFollowersActivity.EXTRA_UIDS,
+                new ArrayList<>(mutualUidsList));
+        i.putExtra(MutualFollowersActivity.EXTRA_TARGET_NAME,
+                targetName != null ? targetName : "");
+        startActivity(i);
     }
 
     // ── Pinned Reel (Feature 6) ───────────────────────────────────────────

@@ -105,10 +105,7 @@
                     android:visibility="gone"/>
             </LinearLayout>
 
-            <TextView android:id="@+id/tv_reel_count"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="0 Reels" android:textSize="12sp"
-                android:textColor="?attr/colorOnSurfaceVariant"/>
+
         </LinearLayout>
 
         <ImageButton android:id="@+id/btn_share_profile"
@@ -235,12 +232,26 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Mutual followers -->
-    <TextView android:id="@+id/tv_mutual_followers"
+    <!-- Mutual followers (clickable) -->
+    <LinearLayout android:id="@+id/layout_mutual_followers"
         android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingBottom="4dp"
-        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
-        android:visibility="gone"/>
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingBottom="6dp" android:paddingTop="2dp"
+        android:clickable="true" android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <TextView android:id="@+id/tv_mutual_followers"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"/>
+
+        <ImageView
+            android:layout_width="14dp" android:layout_height="14dp"
+            android:src="@drawable/ic_arrow_forward"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:contentDescription="View mutual followers"/>
+    </LinearLayout>
 
     <!-- Bio -->
     <!-- Bio (max 3 lines, tap to expand) -->

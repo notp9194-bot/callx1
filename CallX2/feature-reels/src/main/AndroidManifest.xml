@@ -196,6 +196,9 @@
         <activity android:name="com.callx.app.activities.FollowersListActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.MutualFollowersActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.activities.FollowingListActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
