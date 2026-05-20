@@ -482,6 +482,9 @@ public class ReelPlayerFragment extends Fragment {
         // Tap shares count → show "Shares and reposts" bottom sheet
         tvSharesCount.setOnClickListener(v -> openSharesSheet());
 
+        // Tap comments COUNT → show "Comments" bottom sheet (icon still opens full activity)
+        tvCommentsCount.setOnClickListener(v -> openCommentsSheet());
+
         btnComment.setOnClickListener(v -> openComments());
         btnShare.setOnClickListener(v -> shareReel());
         if (btnSave != null) btnSave.setOnClickListener(v -> toggleSave());
@@ -1053,6 +1056,20 @@ public class ReelPlayerFragment extends Fragment {
                             reel.sharesCount,
                             reel.repostCount);
             sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelSharesBottomSheet.TAG);
+        } catch (Exception ignored) {}
+    }
+
+    // ── Comments bottom sheet ─────────────────────────────────────────────
+
+    private void openCommentsSheet() {
+        if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
+        try {
+            com.callx.app.ui.ReelCommentsBottomSheet sheet =
+                    com.callx.app.ui.ReelCommentsBottomSheet.newInstance(
+                            reel.reelId,
+                            reel.uid != null ? reel.uid : "",
+                            reel.commentsCount);
+            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelCommentsBottomSheet.TAG);
         } catch (Exception ignored) {}
     }
 
