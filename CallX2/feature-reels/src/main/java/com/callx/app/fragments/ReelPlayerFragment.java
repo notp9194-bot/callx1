@@ -793,7 +793,7 @@ public class ReelPlayerFragment extends Fragment {
                 // Now listen to likes on this reel — real-time
                 likerAvatarsListener = new com.google.firebase.database.ValueEventListener() {
                     @Override
-                    public void onDataChange(@android.annotation.NonNull com.google.firebase.database.DataSnapshot likesSnap) {
+                    public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot likesSnap) {
                         if (!isAdded() || getContext() == null) return;
                         java.util.List<String> matchingUids = new java.util.ArrayList<>();
                         for (com.google.firebase.database.DataSnapshot likerSnap : likesSnap.getChildren()) {
@@ -807,7 +807,7 @@ public class ReelPlayerFragment extends Fragment {
                         updateLikerAvatars(matchingUids);
                     }
                     @Override
-                    public void onCancelled(@android.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                    public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
                 };
                 com.callx.app.utils.FirebaseUtils.getReelLikesRef(reel.reelId)
                     .addValueEventListener(likerAvatarsListener);
