@@ -476,6 +476,9 @@ public class ReelPlayerFragment extends Fragment {
         btnLike.setOnClickListener(v -> { hideReactions(); toggleLike(); });
         btnLike.setOnLongClickListener(v -> { toggleReactionPanel(); return true; });
 
+        // Tap likes count → show "Likes and plays" bottom sheet
+        tvLikesCount.setOnClickListener(v -> openLikesSheet());
+
         btnComment.setOnClickListener(v -> openComments());
         btnShare.setOnClickListener(v -> shareReel());
         if (btnSave != null) btnSave.setOnClickListener(v -> toggleSave());
@@ -1020,6 +1023,20 @@ public class ReelPlayerFragment extends Fragment {
         } catch (Exception e) {
             Toast.makeText(requireContext(), "Download failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ── Likes bottom sheet ────────────────────────────────────────────────
+
+    private void openLikesSheet() {
+        if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
+        try {
+            com.callx.app.ui.ReelLikesBottomSheet sheet =
+                    com.callx.app.ui.ReelLikesBottomSheet.newInstance(
+                            reel.reelId,
+                            reel.likesCount,
+                            reel.viewsCount);
+            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelLikesBottomSheet.TAG);
+        } catch (Exception ignored) {}
     }
 
     // ── Comments ──────────────────────────────────────────────────────────
