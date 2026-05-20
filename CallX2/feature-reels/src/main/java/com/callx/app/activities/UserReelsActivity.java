@@ -7,8 +7,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.os.Bundle;
 import android.view.*;
-import android.view.animation.Animation;
-import android.view.animation.AnimationUtils;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
@@ -20,7 +18,6 @@ import androidx.media3.ui.PlayerView;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-import androidx.core.widget.NestedScrollView;
 import com.google.android.material.tabs.TabLayout;
 
 import com.bumptech.glide.Glide;
@@ -39,20 +36,12 @@ import java.util.*;
 /**
  * UserReelsActivity — Full production reel profile screen.
  *
- * Sprint 1 — Features 1–5:
- *  ✅ Pull-to-refresh, Pagination (12/page), Shimmer skeleton,
- *     Long-press preview dialog, Multi-select Share/Delete
- *
- * Sprint 2 — Features 6–10:
- *  ✅ Pinned Reel hero card, Tabs (Reels/Liked/Saved),
- *     Share Profile deep link, Verified Badge, Mutual Followers
- *
- * Sprint 3 — Features 11–15:
- *  ✅ Feature 11: Music ticker with rotating animated disc (in ReelPlayerFragment)
- *  ✅ Feature 12: Live reaction counts strip (in ReelPlayerFragment)
- *  ✅ Feature 13: Comments with inline replies (ReelCommentActivity)
- *  ✅ Feature 14: Story ring glow on profile avatar (checks active status ≤24h)
- *  ✅ Feature 15: Per-reel analytics overlay + analytics bottom sheet (own profile)
+ * SCROLLING FIX v2:
+ *  - Removed NestedScrollView wrapping the entire content.
+ *  - Profile header is a fixed top section; RecyclerView takes all remaining height.
+ *  - SwipeRefreshLayout wraps only the RecyclerView.
+ *  - Pagination uses RecyclerView.OnScrollListener — no NestedScrollView conflict.
+ *  - rvReels.setNestedScrollingEnabled(true) — RecyclerView owns its scrolling.
  */
 public class UserReelsActivity extends AppCompatActivity
         implements ReelGridAdapter.LongPressListener,
@@ -71,7 +60,7 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Views ─────────────────────────────────────────────────────────────
     private CircleImageView ivAvatar;
     private ImageView       ivVerified;
-    private View            viewStoryRing;            // Feature 14
+    private View            viewStoryRing;
     private TextView        tvName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
@@ -85,7 +74,6 @@ public class UserReelsActivity extends AppCompatActivity
     private ProgressBar     progressBar;
     private View            layoutEmpty;
     private SwipeRefreshLayout swipeRefresh;
-    private androidx.core.widget.NestedScrollView nestedScrollView;
 
     private View        layoutMultiSelectBar;
     private TextView    tvSelectedCount;
@@ -96,10 +84,10 @@ public class UserReelsActivity extends AppCompatActivity
     private boolean isFollowing   = false;
     private boolean isMultiSelect = false;
     private boolean isSelf           = false;
-    private boolean isAccountPrivate = false;   // Privacy: loaded from users/{uid}/isPrivate
-    private View    layoutPrivateAccount;        // Privacy overlay view
-    private View    layoutFollowersClick;        // Clickable followers stats
-    private View    layoutFollowingClick;        // Clickable following stats
+    private boolean isAccountPrivate = false;
+    private View    layoutPrivateAccount;
+    private View    layoutFollowersClick;
+    private View    layoutFollowingClick;
     private int     activeTab     = TAB_REELS;
 
     private final List<ReelModel> reelsTabData   = new ArrayList<>();
@@ -134,7 +122,7 @@ public class UserReelsActivity extends AppCompatActivity
         bindViews();
         setupHeader();
         setupSwipeRefresh();
-        setupPagination();
+        setupScrollPagination();
         setupTabs();
         setupMultiSelectBar();
         loadUserProfile();
@@ -144,9 +132,9 @@ public class UserReelsActivity extends AppCompatActivity
         loadPinnedReel();
         loadCurrentTab(true);
         loadReelCount();
-        checkActiveStory();          // Feature 14
-        loadAccountPrivacy();         // Private/Public logic
-        setupStatsClicks();           // Followers/Following list taps
+        checkActiveStory();
+        loadAccountPrivacy();
+        setupStatsClicks();
     }
 
     // ── Bind views ────────────────────────────────────────────────────────
@@ -179,13 +167,12 @@ public class UserReelsActivity extends AppCompatActivity
         progressBar          = findViewById(R.id.progress_bar);
         layoutEmpty          = findViewById(R.id.layout_empty);
         swipeRefresh         = findViewById(R.id.swipe_refresh);
-        nestedScrollView        = findViewById(R.id.nested_scroll_view);
         layoutMultiSelectBar = findViewById(R.id.layout_multi_select_bar);
         tvSelectedCount      = findViewById(R.id.tv_selected_count);
-        btnShareSelected      = findViewById(R.id.btn_share_selected);
-        layoutPrivateAccount  = findViewById(R.id.layout_private_account);
-        layoutFollowersClick  = findViewById(R.id.layout_followers_click);
-        layoutFollowingClick  = findViewById(R.id.layout_following_click);
+        btnShareSelected     = findViewById(R.id.btn_share_selected);
+        layoutPrivateAccount = findViewById(R.id.layout_private_account);
+        layoutFollowersClick = findViewById(R.id.layout_followers_click);
+        layoutFollowingClick = findViewById(R.id.layout_following_click);
         btnDeleteSelected    = findViewById(R.id.btn_delete_selected);
         btnCancelSelect      = findViewById(R.id.btn_cancel_select);
     }
@@ -203,38 +190,26 @@ public class UserReelsActivity extends AppCompatActivity
             Glide.with(this).load(targetPhoto).circleCrop()
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
 
-        // Feature 8: Share profile button
         if (btnShareProfile != null) btnShareProfile.setOnClickListener(v -> shareProfile());
 
-        // Creator Hub button — only visible on own profile
         if (btnCreatorHub != null) {
-            if (isSelf) {
-                btnCreatorHub.setVisibility(android.view.View.VISIBLE);
-                btnCreatorHub.setOnClickListener(v ->
-                    startActivity(new Intent(this, ReelCreatorHubActivity.class)));
-            } else {
-                btnCreatorHub.setVisibility(android.view.View.GONE);
-            }
+            btnCreatorHub.setVisibility(isSelf ? View.VISIBLE : View.GONE);
+            if (isSelf) btnCreatorHub.setOnClickListener(v ->
+                startActivity(new Intent(this, ReelCreatorHubActivity.class)));
         }
 
-        // Settings button — only visible on own profile, opens AccountMenuActivity
         if (btnSettings != null) {
-            if (isSelf) {
-                btnSettings.setVisibility(android.view.View.VISIBLE);
-                btnSettings.setOnClickListener(v -> {
-                    try {
-                        Class<?> cls = Class.forName("com.callx.app.activities.AccountMenuActivity");
-                        startActivity(new Intent(UserReelsActivity.this, cls));
-                    } catch (ClassNotFoundException e) {
-                        Toast.makeText(UserReelsActivity.this, "Not available", Toast.LENGTH_SHORT).show();
-                    }
-                });
-            } else {
-                btnSettings.setVisibility(android.view.View.GONE);
-            }
+            btnSettings.setVisibility(isSelf ? View.VISIBLE : View.GONE);
+            if (isSelf) btnSettings.setOnClickListener(v -> {
+                try {
+                    Class<?> cls = Class.forName("com.callx.app.activities.AccountMenuActivity");
+                    startActivity(new Intent(UserReelsActivity.this, cls));
+                } catch (ClassNotFoundException e) {
+                    Toast.makeText(UserReelsActivity.this, "Not available", Toast.LENGTH_SHORT).show();
+                }
+            });
         }
 
-        // Adapter
         adapter = new ReelGridAdapter(
             this, activeTabData(),
             pos -> {
@@ -243,8 +218,6 @@ public class UserReelsActivity extends AppCompatActivity
             },
             this, this
         );
-
-        // Feature 15: show views overlay only on own profile
         adapter.setShowViewsOverlay(isSelf);
 
         gridLayoutManager = new GridLayoutManager(this, 3);
@@ -255,7 +228,9 @@ public class UserReelsActivity extends AppCompatActivity
         });
         rvReels.setLayoutManager(gridLayoutManager);
         rvReels.setAdapter(adapter);
-        rvReels.setNestedScrollingEnabled(false);
+
+        // KEY FIX: RecyclerView must own scrolling — do NOT disable nested scrolling
+        rvReels.setNestedScrollingEnabled(true);
         rvReels.setHasFixedSize(false);
 
         if (layoutActions != null) layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
@@ -264,76 +239,52 @@ public class UserReelsActivity extends AppCompatActivity
         setupActionButtons();
         setupMoreMenu();
 
-        // Feature 14: avatar tap → StatusViewerActivity if has active story
         if (ivAvatar != null) {
             ivAvatar.setOnClickListener(v -> openStatusIfAvailable());
-            ivAvatar.setOnLongClickListener(v -> {
-                showAvatarZoom(targetPhoto, targetName);
-                return true;
-            });
+            ivAvatar.setOnLongClickListener(v -> { showAvatarZoom(targetPhoto, targetName); return true; });
         }
     }
 
-    // ── Private/Public Account Logic ─────────────────────────────────────
+    // ── Private/Public Account Logic ──────────────────────────────────────
 
-    /**
-     * Reads users/{uid}/isPrivate from Firebase.
-     * If true AND this user is not self AND not yet following → show private lock overlay.
-     * Also hides tabs and disables followers/following list for non-followers.
-     */
     private void loadAccountPrivacy() {
-        if (isSelf) return; // Own profile always visible
+        if (isSelf) return;
         FirebaseUtils.getUserRef(targetUid).child("isPrivate")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    Boolean priv = snap.getValue(Boolean.class);
-                    isAccountPrivate = Boolean.TRUE.equals(priv);
+                    isAccountPrivate = Boolean.TRUE.equals(snap.getValue(Boolean.class));
                     applyPrivacyState();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
-    /**
-     * Called after isAccountPrivate and isFollowing are both known.
-     * Applies UI changes: show lock overlay or show content.
-     */
     private void applyPrivacyState() {
         if (isFinishing() || isDestroyed()) return;
         boolean blocked = isAccountPrivate && !isFollowing && !isSelf;
-        if (layoutPrivateAccount != null)
-            layoutPrivateAccount.setVisibility(blocked ? View.VISIBLE : View.GONE);
+        if (layoutPrivateAccount != null) layoutPrivateAccount.setVisibility(blocked ? View.VISIBLE : View.GONE);
         if (rvReels   != null) rvReels.setVisibility(blocked ? View.GONE : View.VISIBLE);
-        if (tabLayout != null) tabLayout.setAlpha(blocked ? 0.4f : 1f);
-        if (tabLayout != null) tabLayout.setEnabled(!blocked);
+        if (tabLayout != null) { tabLayout.setAlpha(blocked ? 0.4f : 1f); tabLayout.setEnabled(!blocked); }
         if (swipeRefresh != null) swipeRefresh.setEnabled(!blocked);
     }
 
-    // ── Followers / Following stats tap → list screens ────────────────────
+    // ── Followers / Following stats tap ───────────────────────────────────
 
-    /**
-     * Sets up click on Followers count and Following count stat cells.
-     * - Private account + not following → shows "This account is private" toast
-     * - Otherwise → opens the respective list activity
-     */
     private void setupStatsClicks() {
-        if (layoutFollowersClick != null) {
+        if (layoutFollowersClick != null)
             layoutFollowersClick.setOnClickListener(v -> openFollowersList());
-        } else if (tvFollowers != null) {
+        else if (tvFollowers != null)
             tvFollowers.setOnClickListener(v -> openFollowersList());
-        }
 
-        if (layoutFollowingClick != null) {
+        if (layoutFollowingClick != null)
             layoutFollowingClick.setOnClickListener(v -> openFollowingList());
-        } else if (tvFollowing != null) {
+        else if (tvFollowing != null)
             tvFollowing.setOnClickListener(v -> openFollowingList());
-        }
     }
 
     private void openFollowersList() {
         if (isAccountPrivate && !isFollowing && !isSelf) {
-            Toast.makeText(this, "This account is private", Toast.LENGTH_SHORT).show();
-            return;
+            Toast.makeText(this, "This account is private", Toast.LENGTH_SHORT).show(); return;
         }
         Intent i = new Intent(this, FollowersListActivity.class);
         i.putExtra(FollowersListActivity.EXTRA_UID,  targetUid);
@@ -343,8 +294,7 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void openFollowingList() {
         if (isAccountPrivate && !isFollowing && !isSelf) {
-            Toast.makeText(this, "This account is private", Toast.LENGTH_SHORT).show();
-            return;
+            Toast.makeText(this, "This account is private", Toast.LENGTH_SHORT).show(); return;
         }
         Intent i = new Intent(this, FollowingListActivity.class);
         i.putExtra(FollowingListActivity.EXTRA_UID,     targetUid);
@@ -353,48 +303,24 @@ public class UserReelsActivity extends AppCompatActivity
         startActivity(i);
     }
 
-        // ── Feature 14: Story Ring ────────────────────────────────────────────
+    // ── Feature 14: Story Ring ────────────────────────────────────────────
 
-    /**
-     * Checks if the target user has any active status entry within the last 24h.
-     * If yes, shows a glowing gradient ring around the avatar.
-     */
     private void checkActiveStory() {
         long cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
         FirebaseUtils.getUserStatusRef(targetUid)
-            .orderByChild("timestamp")
-            .startAt((double) cutoff)
-            .limitToFirst(1)
+            .orderByChild("timestamp").startAt((double) cutoff).limitToFirst(1)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    boolean hasActiveStory = snap.exists() && snap.getChildrenCount() > 0;
-                    showStoryRing(hasActiveStory);
+                    showStoryRing(snap.exists() && snap.getChildrenCount() > 0);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
     private void showStoryRing(boolean show) {
-        if (isFinishing() || isDestroyed()) return;
-
-        // Show/hide the gradient ring view (see activity_user_reels.xml)
-        if (viewStoryRing != null) {
-            viewStoryRing.setVisibility(show ? View.VISIBLE : View.GONE);
-        }
-
-        // CircleImageView border color: brand primary when story active
-        if (ivAvatar != null) {
-            try {
-                int color = show
-                    ? getResources().getColor(R.color.brand_primary, null)
-                    : getResources().getColor(android.R.color.transparent, null);
-                // Reflect to set border colour dynamically if civ_border_color attr is not enough
-                // (the XML already sets border; here we only pulse the ring view)
-            } catch (Exception ignored) {}
-        }
-
-        // Pulse animation on story ring
-        if (show && viewStoryRing != null) {
+        if (isFinishing() || isDestroyed() || viewStoryRing == null) return;
+        viewStoryRing.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
             ObjectAnimator pulse = ObjectAnimator.ofFloat(viewStoryRing, "alpha", 0.6f, 1f);
             pulse.setDuration(900);
             pulse.setRepeatCount(ObjectAnimator.INFINITE);
@@ -420,27 +346,25 @@ public class UserReelsActivity extends AppCompatActivity
                             Toast.makeText(UserReelsActivity.this, "Status viewer unavailable", Toast.LENGTH_SHORT).show();
                         }
                     }
-                    // No active story → avatar tap does nothing extra
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
-    // ── Feature 8: Share Profile ──────────────────────────────────────────
+    // ── Share Profile ─────────────────────────────────────────────────────
 
     private void shareProfile() {
         String deepLink = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid;
         String name     = targetName != null ? targetName : "a creator";
-        String msg      = "Check out " + name + "'s Reels on CallX!\n" + deepLink;
         Intent share = new Intent(Intent.ACTION_SEND);
         share.setType("text/plain");
-        share.putExtra(Intent.EXTRA_TEXT, msg);
+        share.putExtra(Intent.EXTRA_TEXT, "Check out " + name + "'s Reels on CallX!\n" + deepLink);
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Profile link", deepLink));
         startActivity(Intent.createChooser(share, "Share Profile"));
     }
 
-    // ── Feature 7: Tabs ───────────────────────────────────────────────────
+    // ── Tabs ──────────────────────────────────────────────────────────────
 
     private void setupTabs() {
         if (tabLayout == null) return;
@@ -466,55 +390,50 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
-    // ── Feature 9: Verified Badge ─────────────────────────────────────────
+    // ── Verified Badge ────────────────────────────────────────────────────
 
     private void loadVerifiedStatus() {
         FirebaseUtils.getUserRef(targetUid).child("isVerified")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    boolean v = Boolean.TRUE.equals(snap.getValue(Boolean.class));
                     if (ivVerified != null)
-                        ivVerified.setVisibility(v ? View.VISIBLE : View.GONE);
+                        ivVerified.setVisibility(Boolean.TRUE.equals(snap.getValue(Boolean.class)) ? View.VISIBLE : View.GONE);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
-    // ── Feature 10: Mutual Followers ──────────────────────────────────────
+    // ── Mutual Followers ──────────────────────────────────────────────────
 
     private void loadMutualFollowers() {
         String myUid = safeMyUid();
         if (myUid == null || isSelf) return;
-        FirebaseUtils.getReelFollowersRef(myUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot mySnap) {
-                    Set<String> mine = new HashSet<>();
-                    for (DataSnapshot s : mySnap.getChildren()) mine.add(s.getKey());
-                    FirebaseUtils.getReelFollowersRef(targetUid)
-                        .addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
-                                int mutual = 0;
-                                for (DataSnapshot s : tSnap.getChildren())
-                                    if (mine.contains(s.getKey())) mutual++;
-                                showMutualFollowers(mutual);
-                            }
-                            @Override public void onCancelled(@NonNull DatabaseError e) {}
-                        });
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+        FirebaseUtils.getReelFollowersRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot mySnap) {
+                Set<String> mine = new HashSet<>();
+                for (DataSnapshot s : mySnap.getChildren()) mine.add(s.getKey());
+                FirebaseUtils.getReelFollowersRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
+                        int mutual = 0;
+                        for (DataSnapshot s : tSnap.getChildren()) if (mine.contains(s.getKey())) mutual++;
+                        showMutualFollowers(mutual);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
     }
 
     private void showMutualFollowers(int count) {
         if (tvMutualFollowers == null || isFinishing() || isDestroyed()) return;
         if (count <= 0) { tvMutualFollowers.setVisibility(View.GONE); return; }
-        String txt = count == 1 ? "Followed by 1 person you know"
-            : "Followed by " + count + " people you know";
-        tvMutualFollowers.setText(txt);
+        tvMutualFollowers.setText(count == 1 ? "Followed by 1 person you know"
+            : "Followed by " + count + " people you know");
         tvMutualFollowers.setVisibility(View.VISIBLE);
     }
 
-    // ── Feature 6: Pinned Reel ────────────────────────────────────────────
+    // ── Pinned Reel ───────────────────────────────────────────────────────
 
     private void loadPinnedReel() {
         FirebaseDatabase.getInstance().getReference("reelPinned").child(targetUid)
@@ -522,42 +441,32 @@ public class UserReelsActivity extends AppCompatActivity
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String pinnedId = snap.getValue(String.class);
                     if (pinnedId == null || pinnedId.isEmpty()) return;
-                    FirebaseUtils.getReelsRef().child(pinnedId)
-                        .addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                                ReelModel r = s.getValue(ReelModel.class);
-                                if (r != null && activeTab == TAB_REELS) {
-                                    pinnedReel = r;
-                                    adapter.setPinnedReel(r);
-                                }
-                            }
-                            @Override public void onCancelled(@NonNull DatabaseError e) {}
-                        });
+                    FirebaseUtils.getReelsRef().child(pinnedId).addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(@NonNull DataSnapshot s) {
+                            ReelModel r = s.getValue(ReelModel.class);
+                            if (r != null && activeTab == TAB_REELS) { pinnedReel = r; adapter.setPinnedReel(r); }
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {}
+                    });
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
     private void pinReel(String reelId) {
-        FirebaseDatabase.getInstance().getReference("reelPinned")
-            .child(targetUid).setValue(reelId)
-            .addOnSuccessListener(v -> {
-                Toast.makeText(this, "Reel pinned!", Toast.LENGTH_SHORT).show();
-                loadPinnedReel();
-            });
+        FirebaseDatabase.getInstance().getReference("reelPinned").child(targetUid).setValue(reelId)
+            .addOnSuccessListener(v -> { Toast.makeText(this, "Reel pinned!", Toast.LENGTH_SHORT).show(); loadPinnedReel(); });
     }
 
     private void unpinReel() {
-        FirebaseDatabase.getInstance().getReference("reelPinned")
-            .child(targetUid).removeValue()
+        FirebaseDatabase.getInstance().getReference("reelPinned").child(targetUid).removeValue()
             .addOnSuccessListener(v -> {
-                pinnedReel = null;
-                adapter.setPinnedReel(null);
+                pinnedReel = null; adapter.setPinnedReel(null);
                 Toast.makeText(this, "Pinned reel removed", Toast.LENGTH_SHORT).show();
             });
     }
 
-    // ── SwipeRefresh (Feature 1) ──────────────────────────────────────────
+    // ── SwipeRefresh ──────────────────────────────────────────────────────
 
     private void setupSwipeRefresh() {
         if (swipeRefresh == null) return;
@@ -567,46 +476,41 @@ public class UserReelsActivity extends AppCompatActivity
             loadCurrentTab(true);
             if (activeTab == TAB_REELS) loadPinnedReel();
         });
-        // SwipeRefreshLayout is inside NestedScrollView — only enable pull-to-refresh
-        // when NestedScrollView is at the very top, otherwise scroll gesture
-        // is eaten by SwipeRefreshLayout and the list doesn't scroll.
-        if (nestedScrollView != null) {
-            nestedScrollView.setOnScrollChangeListener(
-                new androidx.core.widget.NestedScrollView.OnScrollChangeListener() {
-                    @Override
-                    public void onScrollChange(androidx.core.widget.NestedScrollView v,
-                            int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
-                        // Enable SwipeRefresh only when fully scrolled to top
-                        if (swipeRefresh != null) {
-                            swipeRefresh.setEnabled(scrollY == 0);
-                        }
+    }
 
-                        // Pagination: trigger next page load near bottom
-                        if (isLoadingMore) return;
-                        boolean hasMore = activeTab == TAB_REELS ? reelsHasMore
-                            : (activeTab == TAB_LIKED ? likedHasMore
-                            : (activeTab == TAB_REPOST ? repostsHasMore : savedHasMore));
-                        if (!hasMore) return;
-                        View child = v.getChildAt(0);
-                        if (child == null) return;
-                        int totalHeight   = child.getMeasuredHeight();
-                        int visibleHeight = v.getMeasuredHeight();
-                        // Trigger load when 800px from bottom (earlier trigger for smoother UX)
-                        if (scrollY >= totalHeight - visibleHeight - 800) {
-                            loadCurrentTab(false);
-                        }
-                    }
-                });
+    // ── SCROLLING FIX: Pagination via RecyclerView.OnScrollListener ───────
+
+    private void setupScrollPagination() {
+        rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                // Enable SwipeRefresh only when RecyclerView is fully at top
+                if (swipeRefresh != null) {
+                    swipeRefresh.setEnabled(!rv.canScrollVertically(-1));
+                }
+
+                // Trigger next page when within 6 items of bottom
+                if (isLoadingMore) return;
+                if (!getCurrentTabHasMore()) return;
+                int totalItems  = gridLayoutManager.getItemCount();
+                int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
+                if (lastVisible >= totalItems - 6) {
+                    loadCurrentTab(false);
+                }
+            }
+        });
+    }
+
+    private boolean getCurrentTabHasMore() {
+        switch (activeTab) {
+            case TAB_LIKED:  return likedHasMore;
+            case TAB_SAVED:  return savedHasMore;
+            case TAB_REPOST: return repostsHasMore;
+            default:         return reelsHasMore;
         }
     }
 
-    // ── Pagination (Feature 2) ────────────────────────────────────────────
-
-    private void setupPagination() {
-        // Pagination + SwipeRefresh enabled-state are both handled in setupSwipeRefresh()
-        // scroll listener to avoid registering two separate OnScrollChangeListeners.
-        // This method is intentionally a no-op (kept for call-site compatibility).
-    }
+    // ── Load dispatcher ───────────────────────────────────────────────────
 
     private void loadCurrentTab(boolean refresh) {
         switch (activeTab) {
@@ -627,10 +531,10 @@ public class UserReelsActivity extends AppCompatActivity
             adapter.setSkeletonMode(true); adapter.notifyDataSetChanged();
             if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
         }
-        DatabaseReference ref = FirebaseUtils.getReelsByUserRef(targetUid);
-        Query query = reelsLastKey == null ? ref.orderByKey().limitToLast(PAGE_SIZE)
-            : ref.orderByKey().endBefore(reelsLastKey).limitToLast(PAGE_SIZE);
-        query.addListenerForSingleValueEvent(new ValueEventListener() {
+        Query q = reelsLastKey == null
+            ? FirebaseUtils.getReelsByUserRef(targetUid).orderByKey().limitToLast(PAGE_SIZE)
+            : FirebaseUtils.getReelsByUserRef(targetUid).orderByKey().endBefore(reelsLastKey).limitToLast(PAGE_SIZE);
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) reelsHasMore = false;
@@ -655,10 +559,10 @@ public class UserReelsActivity extends AppCompatActivity
             adapter.setSkeletonMode(true); adapter.notifyDataSetChanged();
             if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
         }
-        DatabaseReference ref = FirebaseUtils.getReelLikedByUserRef(targetUid);
-        Query query = likedLastKey == null ? ref.orderByKey().limitToLast(PAGE_SIZE)
-            : ref.orderByKey().endBefore(likedLastKey).limitToLast(PAGE_SIZE);
-        query.addListenerForSingleValueEvent(new ValueEventListener() {
+        Query q = likedLastKey == null
+            ? FirebaseUtils.getReelLikedByUserRef(targetUid).orderByKey().limitToLast(PAGE_SIZE)
+            : FirebaseUtils.getReelLikedByUserRef(targetUid).orderByKey().endBefore(likedLastKey).limitToLast(PAGE_SIZE);
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) likedHasMore = false;
@@ -683,10 +587,10 @@ public class UserReelsActivity extends AppCompatActivity
             adapter.setSkeletonMode(true); adapter.notifyDataSetChanged();
             if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
         }
-        DatabaseReference ref = FirebaseUtils.getReelSavesRef(targetUid);
-        Query query = savedLastKey == null ? ref.orderByKey().limitToLast(PAGE_SIZE)
-            : ref.orderByKey().endBefore(savedLastKey).limitToLast(PAGE_SIZE);
-        query.addListenerForSingleValueEvent(new ValueEventListener() {
+        Query q = savedLastKey == null
+            ? FirebaseUtils.getReelSavesRef(targetUid).orderByKey().limitToLast(PAGE_SIZE)
+            : FirebaseUtils.getReelSavesRef(targetUid).orderByKey().endBefore(savedLastKey).limitToLast(PAGE_SIZE);
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) savedHasMore = false;
@@ -711,10 +615,10 @@ public class UserReelsActivity extends AppCompatActivity
             adapter.setSkeletonMode(true); adapter.notifyDataSetChanged();
             if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
         }
-        DatabaseReference ref = FirebaseUtils.getReelRepostsByUserRef(targetUid);
-        Query query = repostsLastKey == null ? ref.orderByKey().limitToLast(PAGE_SIZE)
-            : ref.orderByKey().endBefore(repostsLastKey).limitToLast(PAGE_SIZE);
-        query.addListenerForSingleValueEvent(new ValueEventListener() {
+        Query q = repostsLastKey == null
+            ? FirebaseUtils.getReelRepostsByUserRef(targetUid).orderByKey().limitToLast(PAGE_SIZE)
+            : FirebaseUtils.getReelRepostsByUserRef(targetUid).orderByKey().endBefore(repostsLastKey).limitToLast(PAGE_SIZE);
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) repostsHasMore = false;
@@ -731,8 +635,7 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Shared fetch ──────────────────────────────────────────────────────
 
-    private void fetchAndAppend(List<String> ids, List<ReelModel> target,
-                                boolean refresh, int tab) {
+    private void fetchAndAppend(List<String> ids, List<ReelModel> target, boolean refresh, int tab) {
         final int[] remaining = {ids.size()};
         final List<ReelModel> fetched = new ArrayList<>();
         for (String id : ids) {
@@ -742,16 +645,14 @@ public class UserReelsActivity extends AppCompatActivity
                         ReelModel r = snap.getValue(ReelModel.class);
                         if (r != null) fetched.add(r);
                     }
-                    remaining[0]--;
-                    if (remaining[0] == 0) {
+                    if (--remaining[0] == 0) {
                         fetched.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
                         target.addAll(fetched);
                         finishLoading(refresh, tab);
                     }
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    remaining[0]--;
-                    if (remaining[0] == 0) finishLoading(refresh, tab);
+                    if (--remaining[0] == 0) finishLoading(refresh, tab);
                 }
             });
         }
@@ -773,13 +674,13 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.setVisibility(empty ? View.GONE : View.VISIBLE);
         if (tvEmptyTitle != null) {
             switch (activeTab) {
-                case TAB_LIKED: tvEmptyTitle.setText("No Liked Reels");
+                case TAB_LIKED:  tvEmptyTitle.setText("No Liked Reels");
                     if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Liked reels will appear here."); break;
-                case TAB_SAVED: tvEmptyTitle.setText("No Saved Reels");
+                case TAB_SAVED:  tvEmptyTitle.setText("No Saved Reels");
                     if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Saved reels will appear here."); break;
                 case TAB_REPOST: tvEmptyTitle.setText("No Reposted Reels");
                     if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Reposted reels will appear here."); break;
-                default: tvEmptyTitle.setText("No Reels Yet");
+                default:         tvEmptyTitle.setText("No Reels Yet");
                     if (tvEmptySubtitle != null) tvEmptySubtitle.setText("This creator hasn't posted any reels yet.");
             }
         }
@@ -790,72 +691,53 @@ public class UserReelsActivity extends AppCompatActivity
     private void openPlayerAt(int adapterPos) {
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
         if (reelIdx < 0) reelIdx = 0;
-
         Intent intent = new Intent(this, SingleReelPlayerActivity.class);
         intent.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, reelIdx);
         intent.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
             targetName != null ? targetName + "'s Reels" : "Reels");
-
         if (activeTab == TAB_REELS) {
-            // Reels tab → load by uid (includes pinned ordering handled by SingleReelPlayerActivity)
             intent.putExtra(SingleReelPlayerActivity.EXTRA_UID, targetUid);
         } else {
-            // Liked / Saved / Repost tabs → pass explicit reelIds so player shows correct set
-            List<ReelModel> data = activeTabData();
             ArrayList<String> ids = new ArrayList<>();
-            for (ReelModel r : data) {
-                if (r != null && r.reelId != null) ids.add(r.reelId);
-            }
+            for (ReelModel r : activeTabData()) if (r != null && r.reelId != null) ids.add(r.reelId);
             intent.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
         }
-
         startActivity(intent);
     }
 
-    // ── Long-press: preview (Feature 4) + analytics (Feature 15) ─────────
+    // ── Long-press ────────────────────────────────────────────────────────
 
     @Override
     public void onLongPress(int adapterPos) {
         List<ReelModel> data = activeTabData();
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
-
-        // Feature 15: Own profile long-press → show analytics sheet
         if (isSelf && activeTab == TAB_REELS && reelIdx >= 0 && reelIdx < data.size()) {
-            ReelModel reel = data.get(reelIdx);
-            showAnalyticsSheet(reel, adapterPos);
-            return;
+            showAnalyticsSheet(data.get(reelIdx), adapterPos); return;
         }
-
-        // Otherwise → preview dialog or multi-select
         if (reelIdx < 0 || reelIdx >= data.size()) { enterMultiSelectMode(adapterPos); return; }
         ReelModel reel = data.get(reelIdx);
         if (reel.videoUrl == null || reel.videoUrl.isEmpty()) { enterMultiSelectMode(adapterPos); return; }
         showVideoPreviewDialog(reel, adapterPos);
     }
 
-    // ── Feature 15: Analytics bottom sheet ───────────────────────────────
+    // ── Analytics sheet ───────────────────────────────────────────────────
 
     private void showAnalyticsSheet(ReelModel reel, int adapterPos) {
         new AlertDialog.Builder(this)
             .setTitle("Reel Options")
             .setItems(new String[]{"View Insights", "Pin Reel", "Share", "Delete"}, (d, which) -> {
                 switch (which) {
-                    case 0:
-                        ReelAnalyticsBottomSheet sheet = ReelAnalyticsBottomSheet.newInstance(reel);
-                        sheet.show(getSupportFragmentManager(), "analytics");
-                        break;
+                    case 0: ReelAnalyticsBottomSheet.newInstance(reel).show(getSupportFragmentManager(), "analytics"); break;
                     case 1: pinReel(reel.reelId); break;
                     case 2: shareProfile(); break;
                     case 3: confirmDeleteSingleReel(reel); break;
                 }
-            })
-            .show();
+            }).show();
     }
 
     private void confirmDeleteSingleReel(ReelModel reel) {
         new AlertDialog.Builder(this)
-            .setTitle("Delete Reel")
-            .setMessage("This reel will be permanently deleted.")
+            .setTitle("Delete Reel").setMessage("This reel will be permanently deleted.")
             .setPositiveButton("Delete", (d, w) -> {
                 FirebaseUtils.getReelsRef().child(reel.reelId).removeValue();
                 FirebaseUtils.getReelsByUserRef(targetUid).child(reel.reelId).removeValue();
@@ -864,11 +746,10 @@ public class UserReelsActivity extends AppCompatActivity
                 adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null).show();
+            }).setNegativeButton("Cancel", null).show();
     }
 
-    // ── Long-press: video preview (Feature 4) ────────────────────────────
+    // ── Video preview dialog ──────────────────────────────────────────────
 
     private void showVideoPreviewDialog(ReelModel reel, int adapterPos) {
         dismissPreviewDialog();
@@ -876,8 +757,7 @@ public class UserReelsActivity extends AppCompatActivity
         previewDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         previewDialog.setContentView(R.layout.dialog_reel_preview);
         Window w = previewDialog.getWindow();
-        if (w != null) w.setLayout(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+        if (w != null) w.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
 
         PlayerView playerView = previewDialog.findViewById(R.id.preview_player_view);
         TextView   tvCap      = previewDialog.findViewById(R.id.tv_preview_caption);
@@ -892,7 +772,6 @@ public class UserReelsActivity extends AppCompatActivity
             int s = (reel.duration / 1000) % 60, m = reel.duration / 60000;
             tvDur.setText(String.format(Locale.getDefault(), "%d:%02d", m, s));
         }
-
         previewPlayer = new ExoPlayer.Builder(this).build();
         previewPlayer.setVolume(0f);
         previewPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
@@ -900,31 +779,24 @@ public class UserReelsActivity extends AppCompatActivity
         previewPlayer.setMediaItem(MediaItem.fromUri(reel.videoUrl));
         previewPlayer.prepare();
         previewPlayer.setPlayWhenReady(true);
-
-        if (btnSelect != null) btnSelect.setOnClickListener(v -> {
-            dismissPreviewDialog(); enterMultiSelectMode(adapterPos);
-        });
-        if (btnPlay != null) btnPlay.setOnClickListener(v -> {
-            dismissPreviewDialog(); openPlayerAt(adapterPos);
-        });
+        if (btnSelect != null) btnSelect.setOnClickListener(v -> { dismissPreviewDialog(); enterMultiSelectMode(adapterPos); });
+        if (btnPlay   != null) btnPlay.setOnClickListener(v   -> { dismissPreviewDialog(); openPlayerAt(adapterPos); });
         previewDialog.setOnDismissListener(d -> dismissPreviewDialog());
         previewDialog.show();
     }
 
     private void dismissPreviewDialog() {
-        if (previewPlayer != null) {
-            previewPlayer.stop(); previewPlayer.release(); previewPlayer = null;
-        }
+        if (previewPlayer != null) { previewPlayer.release(); previewPlayer = null; }
         if (previewDialog != null && previewDialog.isShowing()) previewDialog.dismiss();
         previewDialog = null;
     }
 
-    // ── Multi-select (Feature 5) ──────────────────────────────────────────
+    // ── Multi-select ──────────────────────────────────────────────────────
 
     private void setupMultiSelectBar() {
         if (layoutMultiSelectBar == null) return;
-        if (btnCancelSelect  != null) btnCancelSelect.setOnClickListener(v -> exitMultiSelectMode());
-        if (btnShareSelected != null) btnShareSelected.setOnClickListener(v -> shareSelectedReels());
+        if (btnCancelSelect   != null) btnCancelSelect.setOnClickListener(v -> exitMultiSelectMode());
+        if (btnShareSelected  != null) btnShareSelected.setOnClickListener(v -> shareSelectedReels());
         if (btnDeleteSelected != null) btnDeleteSelected.setOnClickListener(v -> deleteSelectedReels());
     }
 
@@ -968,8 +840,7 @@ public class UserReelsActivity extends AppCompatActivity
         if (selectedReelIds.isEmpty()) return;
         StringBuilder sb = new StringBuilder();
         for (ReelModel r : activeTabData())
-            if (selectedReelIds.contains(r.reelId) && r.videoUrl != null)
-                sb.append(r.videoUrl).append("\n");
+            if (selectedReelIds.contains(r.reelId) && r.videoUrl != null) sb.append(r.videoUrl).append("\n");
         Intent share = new Intent(Intent.ACTION_SEND);
         share.setType("text/plain");
         share.putExtra(Intent.EXTRA_TEXT, sb.toString().trim());
@@ -997,16 +868,16 @@ public class UserReelsActivity extends AppCompatActivity
                 adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted successfully", Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null).show();
+            }).setNegativeButton("Cancel", null).show();
     }
 
     // ── Action buttons ────────────────────────────────────────────────────
 
     private void setupActionButtons() {
-        if (btnMessage != null) btnMessage.setOnClickListener(v -> launchActivity("com.callx.app.activities.ChatActivity",
-            new String[]{"partnerUid","partnerName","partnerPhoto"},
-            new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
+        if (btnMessage != null) btnMessage.setOnClickListener(v ->
+            launchActivity("com.callx.app.activities.ChatActivity",
+                new String[]{"partnerUid","partnerName","partnerPhoto"},
+                new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
         if (btnAudioCall != null) btnAudioCall.setOnClickListener(v -> {
             String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
             launchActivity("com.callx.app.activities.CallActivity",
@@ -1020,7 +891,7 @@ public class UserReelsActivity extends AppCompatActivity
                 new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, true, orEmpty(cid)});
         });
         if (btnViewStatus != null) btnViewStatus.setOnClickListener(v -> openStatusIfAvailable());
-        if (btnFollow    != null) btnFollow.setOnClickListener(v -> toggleFollow());
+        if (btnFollow     != null) btnFollow.setOnClickListener(v -> toggleFollow());
     }
 
     private void launchActivity(String className, String[] keys, String[] values) {
@@ -1054,7 +925,7 @@ public class UserReelsActivity extends AppCompatActivity
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     isFollowing = snap.exists() && Boolean.TRUE.equals(snap.getValue(Boolean.class));
                     updateFollowButton();
-                    applyPrivacyState(); // Re-check private lock after follow loaded
+                    applyPrivacyState();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
@@ -1065,7 +936,7 @@ public class UserReelsActivity extends AppCompatActivity
         if (myUid == null) return;
         isFollowing = !isFollowing;
         updateFollowButton();
-        applyPrivacyState(); // Re-evaluate private overlay after follow state change
+        applyPrivacyState();
         if (isFollowing) {
             FirebaseUtils.getReelFollowsRef(myUid).child(targetUid).setValue(true);
             FirebaseUtils.getReelFollowersRef(targetUid).child(myUid).setValue(true);
@@ -1079,8 +950,9 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void updateFollowButton() {
         if (btnFollow == null) return;
-        if (isFollowing) { btnFollow.setText("Following"); btnFollow.setBackgroundColor(0xFF333333); btnFollow.setTextColor(0xFFCCCCCC); }
-        else {
+        if (isFollowing) {
+            btnFollow.setText("Following"); btnFollow.setBackgroundColor(0xFF333333); btnFollow.setTextColor(0xFFCCCCCC);
+        } else {
             try { btnFollow.setBackgroundColor(getResources().getColor(R.color.brand_primary, null)); }
             catch (Exception e) { btnFollow.setBackgroundColor(0xFF6C5CE7); }
             btnFollow.setTextColor(0xFFFFFFFF); btnFollow.setText("Follow");
@@ -1157,7 +1029,8 @@ public class UserReelsActivity extends AppCompatActivity
                     case 2:
                         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                         if (cm != null) {
-                            cm.setPrimaryClip(ClipData.newPlainText("Link", com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid));
+                            cm.setPrimaryClip(ClipData.newPlainText("Link",
+                                com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid));
                             Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show();
                         }
                         break;
@@ -1180,71 +1053,45 @@ public class UserReelsActivity extends AppCompatActivity
     private String orEmpty(String s) { return s != null ? s : ""; }
 
     // ── Avatar Zoom Dialog ────────────────────────────────────────────────
+
     private void showAvatarZoom(String photoUrl, String name) {
         if (isFinishing() || isDestroyed()) return;
-        android.app.Dialog dialog = new android.app.Dialog(
-            this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-
+        android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         android.widget.FrameLayout root = new android.widget.FrameLayout(this);
         root.setBackgroundColor(0xEE000000);
-
-        com.github.chrisbanes.photoview.PhotoView photoView =
-            new com.github.chrisbanes.photoview.PhotoView(this);
-        android.widget.FrameLayout.LayoutParams ivLp =
-            new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
+        com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(this);
+        android.widget.FrameLayout.LayoutParams ivLp = new android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
         photoView.setLayoutParams(ivLp);
-        photoView.setMinimumScale(1f);
-        photoView.setMediumScale(2f);
-        photoView.setMaximumScale(5f);
+        photoView.setMinimumScale(1f); photoView.setMediumScale(2f); photoView.setMaximumScale(5f);
         photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
-
-        // Close button top-right
         android.widget.ImageButton btnClose = new android.widget.ImageButton(this);
-        int closeSizePx = (int)(40 * getResources().getDisplayMetrics().density);
-        android.widget.FrameLayout.LayoutParams closeLp =
-            new android.widget.FrameLayout.LayoutParams(closeSizePx, closeSizePx);
-        closeLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-        closeLp.topMargin   = (int)(40 * getResources().getDisplayMetrics().density);
-        closeLp.rightMargin = (int)(16 * getResources().getDisplayMetrics().density);
+        int dp40 = (int)(40 * getResources().getDisplayMetrics().density);
+        int dp16 = (int)(16 * getResources().getDisplayMetrics().density);
+        android.widget.FrameLayout.LayoutParams closeLp = new android.widget.FrameLayout.LayoutParams(dp40, dp40);
+        closeLp.gravity = Gravity.TOP | Gravity.END;
+        closeLp.topMargin = dp40; closeLp.rightMargin = dp16;
         btnClose.setLayoutParams(closeLp);
         btnClose.setImageResource(R.drawable.ic_close);
         btnClose.setBackgroundColor(0x00000000);
         btnClose.setOnClickListener(v -> dialog.dismiss());
-
-        // Name label bottom
-        android.widget.TextView tvName = new android.widget.TextView(this);
-        tvName.setText(name != null ? name : "");
-        tvName.setTextColor(0xFFFFFFFF);
-        tvName.setTextSize(15f);
-        tvName.setGravity(android.view.Gravity.CENTER);
-        tvName.setPadding(0, 0, 0, (int)(32 * getResources().getDisplayMetrics().density));
-        android.widget.FrameLayout.LayoutParams nameLp =
-            new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
-        nameLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
-        tvName.setLayoutParams(nameLp);
-
-        if (photoUrl != null && !photoUrl.isEmpty()) {
-            com.bumptech.glide.Glide.with(this).load(photoUrl)
-                .placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person)
-                .into(photoView);
-        } else {
-            photoView.setImageResource(R.drawable.ic_person);
-        }
-
-        root.addView(photoView);
-        root.addView(tvName);
-        root.addView(btnClose);
+        android.widget.TextView tvNameZoom = new android.widget.TextView(this);
+        tvNameZoom.setText(name != null ? name : "");
+        tvNameZoom.setTextColor(0xFFFFFFFF); tvNameZoom.setTextSize(15f);
+        tvNameZoom.setGravity(Gravity.CENTER);
+        tvNameZoom.setPadding(0, 0, 0, (int)(32 * getResources().getDisplayMetrics().density));
+        android.widget.FrameLayout.LayoutParams nameLp = new android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
+        nameLp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        tvNameZoom.setLayoutParams(nameLp);
+        if (photoUrl != null && !photoUrl.isEmpty())
+            Glide.with(this).load(photoUrl).placeholder(R.drawable.ic_person).error(R.drawable.ic_person).into(photoView);
+        else photoView.setImageResource(R.drawable.ic_person);
+        root.addView(photoView); root.addView(tvNameZoom); root.addView(btnClose);
         dialog.setContentView(root);
         android.view.Window w = dialog.getWindow();
-        if (w != null) w.setLayout(
-            android.view.WindowManager.LayoutParams.MATCH_PARENT,
-            android.view.WindowManager.LayoutParams.MATCH_PARENT);
+        if (w != null) w.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
         dialog.show();
     }
 
