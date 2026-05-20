@@ -29,17 +29,15 @@ import de.hdodenhof.circleimageview.CircleImageView;
  * Instagram-style bottom sheet shown when user taps the comments COUNT on a reel.
  * (Note: tapping the comment ICON still opens ReelCommentActivity for full interaction.)
  *
- * Displays:
- *   - "Comments" header with comment icon + commentsCount
- *   - Search bar to filter by commenter name or comment text
- *   - RecyclerView: avatar + name + comment preview + "Reply" button per comment
+ * Avatar fix: photoUrl is fetched fresh from the users node (same pattern as
+ * ReelLikesBottomSheet) because reelComments node may store a stale or missing ownerPhoto.
  */
 public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
 
-    public static final String TAG              = "ReelCommentsBottomSheet";
-    public static final String ARG_REEL_ID      = "reel_id";
-    public static final String ARG_REEL_UID     = "reel_uid";
-    public static final String ARG_COMMENTS     = "comments_count";
+    public static final String TAG          = "ReelCommentsBottomSheet";
+    public static final String ARG_REEL_ID  = "reel_id";
+    public static final String ARG_REEL_UID = "reel_uid";
+    public static final String ARG_COMMENTS = "comments_count";
 
     // ── Factory ────────────────────────────────────────────────────────────
     public static ReelCommentsBottomSheet newInstance(String reelId, String reelUid, int commentsCount) {
@@ -59,9 +57,9 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
     private ProgressBar  progressBar;
     private TextView     tvEmpty;
 
-    private CommentsAdapter          adapter;
-    private final List<CommentItem>  allItems      = new ArrayList<>();
-    private final List<CommentItem>  filteredItems = new ArrayList<>();
+    private CommentsAdapter         adapter;
+    private final List<CommentItem> allItems      = new ArrayList<>();
+    private final List<CommentItem> filteredItems = new ArrayList<>();
 
     private String reelId;
     private String reelUid;
@@ -109,6 +107,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
     }
 
     // ── Data loading ───────────────────────────────────────────────────────
+
     private void loadComments() {
         progressBar.setVisibility(View.VISIBLE);
         tvEmpty.setVisibility(View.GONE);
@@ -123,13 +122,13 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                             ReelComment c = child.getValue(ReelComment.class);
                             if (c != null) {
                                 if (c.commentId == null) c.commentId = child.getKey();
-                                // Show pinned first, then newest first
+                                // photo left empty — filled fresh by fetchPhotos() below
                                 allItems.add(0, new CommentItem(
                                         c.commentId,
-                                        c.uid         != null ? c.uid         : "",
-                                        c.ownerName   != null ? c.ownerName   : "User",
-                                        c.ownerPhoto  != null ? c.ownerPhoto  : "",
-                                        c.text        != null ? c.text        : "",
+                                        c.uid        != null ? c.uid        : "",
+                                        c.ownerName  != null ? c.ownerName  : "User",
+                                        "",
+                                        c.text       != null ? c.text       : "",
                                         c.likesCount,
                                         c.isPinned
                                 ));
@@ -141,12 +140,49 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                             if (!a.isPinned && b.isPinned) return 1;
                             return 0;
                         });
-                        finishLoad();
+
+                        if (allItems.isEmpty()) {
+                            if (isAdded()) { progressBar.setVisibility(View.GONE); showEmpty(); }
+                            return;
+                        }
+                        // Fetch fresh photoUrl from users node — same as ReelLikesBottomSheet
+                        fetchPhotos();
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {
                         if (isAdded()) { progressBar.setVisibility(View.GONE); showEmpty(); }
                     }
                 });
+    }
+
+    /**
+     * For each comment item, fetch photoUrl from the users node.
+     * This mirrors fetchUsers() in ReelLikesBottomSheet and guarantees fresh avatars
+     * regardless of what was stored in reelComments node.
+     */
+    private void fetchPhotos() {
+        final int total   = allItems.size();
+        final int[] done  = {0};
+
+        for (CommentItem item : allItems) {
+            if (item.uid.isEmpty()) {
+                done[0]++;
+                if (done[0] >= total && isAdded()) finishLoad();
+                continue;
+            }
+            FirebaseUtils.getUserRef(item.uid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(@NonNull DataSnapshot s) {
+                            String photo = s.child("photoUrl").getValue(String.class);
+                            if (photo != null && !photo.isEmpty()) item.ownerPhoto = photo;
+                            done[0]++;
+                            if (done[0] >= total && isAdded()) finishLoad();
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {
+                            done[0]++;
+                            if (done[0] >= total && isAdded()) finishLoad();
+                        }
+                    });
+        }
     }
 
     private void finishLoad() {
@@ -180,7 +216,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         rv.setVisibility(View.GONE);
     }
 
-    /** Open ReelCommentActivity (full comment screen) via reflection to avoid cross-module import. */
+    /** Open ReelCommentActivity via reflection to avoid cross-module import. */
     private void openCommentActivity(String scrollToCommentId) {
         try {
             Class<?> cls = Class.forName("com.callx.app.activities.ReelCommentActivity");
@@ -191,7 +227,6 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
             startActivity(i);
             dismiss();
         } catch (ClassNotFoundException e) {
-            // Fallback: just dismiss
             dismiss();
         }
     }
@@ -232,7 +267,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
             // Pinned badge
             h.tvPinned.setVisibility(c.isPinned ? View.VISIBLE : View.GONE);
 
-            // Avatar
+            // Avatar — fetched fresh from users node so always up-to-date
             if (!c.ownerPhoto.isEmpty()) {
                 Glide.with(requireContext())
                         .load(c.ownerPhoto)
@@ -243,7 +278,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
 
-            // Reply button → open full comment screen scrolled to this comment
+            // Reply → open full comment activity
             h.btnReply.setOnClickListener(v -> openCommentActivity(c.commentId));
 
             // Tap row → open commenter's profile
