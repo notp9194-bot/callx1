@@ -362,25 +362,19 @@ public class HomeFragment extends Fragment {
             // ★ Gradient ring for reel_story type (Instagram-style)
             ImageView ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
 
-            if (entry.hasReelStory) {
-                // Show gradient sweep ring — hides the plain border
+            if (entry.hasUnseen || entry.hasReelStory) {
+                // Instagram-style gradient ring (orange→pink→purple) for any unseen story
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
                 avatar.setBorderWidth(0);
                 if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
-            } else if (entry.hasUnseen) {
-                // Brand color ring for unseen WhatsApp-style status
-                if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
-                avatar.setBorderColor(getResources().getColor(R.color.brand_primary, null));
-                avatar.setBorderWidth(dpToPx(3));
-                if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
             } else {
-                // Gray ring for all-seen status
+                // Gray ring for all-seen stories
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
-                avatar.setBorderColor(0xFF666666);
-                avatar.setBorderWidth(dpToPx(2));
+                avatar.setBorderWidth(0);
                 if (ivSeenRing != null) {
                     ivSeenRing.setVisibility(View.VISIBLE);
-                    ivSeenRing.setColorFilter(0xFF666666, android.graphics.PorterDuff.Mode.SRC_IN);
+                    ivSeenRing.setImageResource(R.drawable.circle_status_seen);
+                    ivSeenRing.clearColorFilter();
                 }
             }
 
