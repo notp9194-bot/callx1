@@ -133,6 +133,10 @@ public class ReelPlayerFragment extends Fragment {
     private boolean   reactionsVisible = false;
 
     private ValueEventListener likeListener;
+    // ── Following-likers avatar views ─────────────────────────────────────
+    private FrameLayout        flLikerAvatars;
+    private de.hdodenhof.circleimageview.CircleImageView ivLiker1, ivLiker2, ivLiker3;
+    private com.google.firebase.database.ValueEventListener likerAvatarsListener;
     private ValueEventListener saveListener;
     private ValueEventListener followListener;
     private ValueEventListener countListener;
@@ -294,6 +298,10 @@ public class ReelPlayerFragment extends Fragment {
         tvMusicName       = v.findViewById(R.id.tv_music_name);
         tvViews           = v.findViewById(R.id.tv_views);
         tvLikesCount      = v.findViewById(R.id.tv_likes_count);
+        flLikerAvatars    = v.findViewById(R.id.fl_liker_avatars);
+        ivLiker1          = v.findViewById(R.id.iv_liker1);
+        ivLiker2          = v.findViewById(R.id.iv_liker2);
+        ivLiker3          = v.findViewById(R.id.iv_liker3);
         tvCommentsCount   = v.findViewById(R.id.tv_comments_count);
         tvSharesCount     = v.findViewById(R.id.tv_shares_count);
         tvFollowBtn       = v.findViewById(R.id.tv_follow_btn);
@@ -754,6 +762,92 @@ public class ReelPlayerFragment extends Fragment {
                             .child(reel.uid).push().setValue(inApp);
                     });
             }
+        }
+    }
+
+
+    // ── Following-likers floating avatar stack ────────────────────────────
+    /**
+     * Loads reelLikes/{reelId}, intersects with reelFollows/{myUid} to find
+     * followers of the current user who liked this reel, then shows up to 3
+     * overlapping circular avatars just below the like count.
+     *
+     * Firebase paths:
+     *   reelLikes/{reelId}/{likerUid} = true
+     *   reelFollows/{myUid}/{likerUid} = true   (people I follow)
+     *   users/{likerUid}/thumbUrl
+     */
+    private void loadFollowingLikers() {
+        String myUid = safeMyUid();
+        if (myUid == null || reel == null || reel.reelId == null) return;
+
+        // First, load the set of UIDs I follow (one-time fetch)
+        com.callx.app.utils.FirebaseUtils.getReelFollowsRef(myUid).get()
+            .addOnSuccessListener(followSnap -> {
+                if (!isAdded() || getContext() == null) return;
+                java.util.Set<String> followingSet = new java.util.HashSet<>();
+                for (com.google.firebase.database.DataSnapshot child : followSnap.getChildren()) {
+                    followingSet.add(child.getKey());
+                }
+
+                // Now listen to likes on this reel — real-time
+                likerAvatarsListener = new com.google.firebase.database.ValueEventListener() {
+                    @Override
+                    public void onDataChange(@android.annotation.NonNull com.google.firebase.database.DataSnapshot likesSnap) {
+                        if (!isAdded() || getContext() == null) return;
+                        java.util.List<String> matchingUids = new java.util.ArrayList<>();
+                        for (com.google.firebase.database.DataSnapshot likerSnap : likesSnap.getChildren()) {
+                            String likerUid = likerSnap.getKey();
+                            if (likerUid == null || likerUid.equals(myUid)) continue;
+                            if (followingSet.contains(likerUid)) {
+                                matchingUids.add(likerUid);
+                                if (matchingUids.size() == 3) break;
+                            }
+                        }
+                        updateLikerAvatars(matchingUids);
+                    }
+                    @Override
+                    public void onCancelled(@android.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                };
+                com.callx.app.utils.FirebaseUtils.getReelLikesRef(reel.reelId)
+                    .addValueEventListener(likerAvatarsListener);
+            });
+    }
+
+    /**
+     * Given up to 3 UIDs, fetches their thumbUrl from users/ and loads them
+     * into ivLiker1, ivLiker2, ivLiker3. Hides the container if list is empty.
+     */
+    private void updateLikerAvatars(java.util.List<String> uids) {
+        if (!isAdded() || getContext() == null) return;
+        if (uids.isEmpty()) {
+            flLikerAvatars.setVisibility(android.view.View.GONE);
+            return;
+        }
+        flLikerAvatars.setVisibility(android.view.View.VISIBLE);
+
+        de.hdodenhof.circleimageview.CircleImageView[] views = {ivLiker1, ivLiker2, ivLiker3};
+        // Hide all first
+        for (de.hdodenhof.circleimageview.CircleImageView v : views) v.setVisibility(android.view.View.GONE);
+
+        for (int i = 0; i < uids.size() && i < views.length; i++) {
+            final de.hdodenhof.circleimageview.CircleImageView avatarView = views[i];
+            avatarView.setVisibility(android.view.View.VISIBLE);
+            String likerUid = uids.get(i);
+            com.callx.app.utils.FirebaseUtils.getUserRef(likerUid).child("thumbUrl").get()
+                .addOnSuccessListener(snap -> {
+                    if (!isAdded() || getContext() == null) return;
+                    String thumbUrl = snap.getValue(String.class);
+                    if (thumbUrl != null && !thumbUrl.isEmpty()) {
+                        com.bumptech.glide.Glide.with(requireContext())
+                            .load(thumbUrl)
+                            .placeholder(R.drawable.ic_person)
+                            .circleCrop()
+                            .into(avatarView);
+                    } else {
+                        avatarView.setImageResource(R.drawable.ic_person);
+                    }
+                });
         }
     }
 
@@ -1321,6 +1415,7 @@ public class ReelPlayerFragment extends Fragment {
 
     private void startFirebaseListeners() {
         loadLiveReactionCounts(); // Feature 12
+        loadFollowingLikers();    // Feature: following-likers avatar stack
         String myUid = safeMyUid();
         if (myUid == null || reel == null || reel.reelId == null) return;
 
@@ -1403,6 +1498,12 @@ public class ReelPlayerFragment extends Fragment {
 
     private void removeFirebaseListeners() {
         removeLiveReactionsListener(); // Feature 12
+        // Remove following-likers listener
+        if (likerAvatarsListener != null && reel != null && reel.reelId != null) {
+            com.callx.app.utils.FirebaseUtils.getReelLikesRef(reel.reelId)
+                .removeEventListener(likerAvatarsListener);
+            likerAvatarsListener = null;
+        }
         String myUid = safeMyUid();
         if (reel == null || reel.reelId == null) return;
 
