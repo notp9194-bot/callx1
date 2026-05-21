@@ -363,66 +363,97 @@
             android:contentDescription="Cancel reply"/>
     </LinearLayout>
 
-    <!-- Input row -->
+    <!-- ═══════════════════════════════════════════════════════════════
+         INPUT AREA — WhatsApp-style, transparent background
+         ═══════════════════════════════════════════════════════════════ -->
     <LinearLayout
         android:id="@+id/ll_input_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="8dp"
-        android:background="@color/surface_card"
-        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="@android:color/transparent"
+        android:gravity="bottom"
         android:elevation="4dp">
-        <ImageButton
-            android:id="@+id/btn_attach"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_attach"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Attach"/>
-        <ImageButton
-            android:id="@+id/btn_camera"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_camera"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Camera"/>
-        <FrameLayout
+
+        <!-- ── Left pill: attach + camera + text field + emoji ── -->
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="bottom"
             android:background="@drawable/rounded_input_bg"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="8dp"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp">
+            android:layout_marginEnd="8dp">
+
+            <!-- Attach button -->
+            <ImageButton
+                android:id="@+id/btn_attach"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_attach"
+                android:tint="@color/text_muted"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="10dp"
+                android:contentDescription="Attach"/>
+
+            <!-- Message EditText (grows up to 4 lines) -->
             <EditText
                 android:id="@+id/et_message"
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:hint="@string/hint_message"
                 android:textColorHint="@color/text_muted"
                 android:textColor="?android:attr/textColorPrimary"
-                android:background="@color/transparent"
-                android:padding="12dp"
-                android:maxLines="4"/>
-        </FrameLayout>
+                android:textSize="15sp"
+                android:background="@android:color/transparent"
+                android:paddingTop="11dp"
+                android:paddingBottom="11dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:maxLines="4"
+                android:inputType="textMultiLine|textCapSentences"
+                android:imeOptions="actionNone"/>
+
+            <!-- Camera button (right side of pill — WhatsApp style) -->
+            <ImageButton
+                android:id="@+id/btn_camera"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_camera"
+                android:tint="@color/text_muted"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="10dp"
+                android:contentDescription="Camera"/>
+
+        </LinearLayout>
+
+        <!-- ── Right: mic button (shown when no text) ── -->
         <ImageButton
             android:id="@+id/btn_mic"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@drawable/ic_mic"
             android:background="@drawable/circle_primary"
+            android:padding="12dp"
             android:contentDescription="Voice message"/>
+
+        <!-- ── Right: send button (shown when typing) ── -->
         <ImageButton
             android:id="@+id/btn_send"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@drawable/ic_send"
             android:background="@drawable/circle_primary"
-            android:layout_marginStart="6dp"
+            android:padding="13dp"
+            android:layout_marginStart="0dp"
             android:visibility="gone"
             android:contentDescription="Send"/>
+
     </LinearLayout>
 
 </LinearLayout>

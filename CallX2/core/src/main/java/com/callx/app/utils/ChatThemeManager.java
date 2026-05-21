@@ -261,8 +261,9 @@ public class ChatThemeManager {
         android.content.Context ctx = toolbar.getContext();
         if (chatRoot != null) chatRoot.setBackgroundColor(getChatBgColor(ctx));
 
-        // ── Input bar background (dark-mode aware) ────────────────────────
-        if (inputBarRoot != null) inputBarRoot.setBackgroundColor(getInputBarColor(ctx));
+        // ── Input bar background — transparent (WhatsApp style) ──────────
+        // Do not apply any colour; the pill inside the row has its own background.
+        // if (inputBarRoot != null) inputBarRoot.setBackgroundColor(getInputBarColor(ctx));
 
         // ── Send button ───────────────────────────────────────────────────
         if (btnSend != null) {
