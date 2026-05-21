@@ -40,6 +40,12 @@
     <color name="action_danger">#EF4444</color>
     <color name="divider">#1F1F1F</color>
 
+    <!-- Password strength indicator -->
+    <color name="strength_weak">#EF4444</color>
+    <color name="strength_fair">#F97316</color>
+    <color name="strength_good">#EAB308</color>
+    <color name="strength_strong">#22C55E</color>
+
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
     <color name="transparent">#00000000</color>
