@@ -34,7 +34,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/bubble_received"
+            android:background="@drawable/bubble_reel_seen"
             android:paddingStart="12dp"
             android:paddingEnd="14dp"
             android:paddingTop="8dp"
@@ -93,7 +93,7 @@
                     android:layout_height="wrap_content"
                     android:text="Watched your reel"
                     android:textSize="14sp"
-                    android:textColor="@color/bubble_received_text"
+                    android:textColor="#FFFFFF"
                     android:textStyle="italic"/>
             </LinearLayout>
 

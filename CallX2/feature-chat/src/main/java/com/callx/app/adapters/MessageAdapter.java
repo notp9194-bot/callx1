@@ -175,22 +175,24 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 && (m.mediaUrl == null || m.mediaUrl.isEmpty())))
             type = "image";
 
-        // ── Per-type bubble background ─────────────────────────────────────────
-        if (h.llBubble != null) {
-            boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
-            int bgRes;
-            if (hasReply) {
-                bgRes = sent ? R.drawable.bubble_reply_sent : R.drawable.bubble_reply_received;
-            } else if ("image".equals(type) || (m.imageUrl != null && !m.imageUrl.isEmpty()
-                    && (m.mediaUrl == null || m.mediaUrl.isEmpty()))) {
-                bgRes = sent ? R.drawable.bubble_image_sent : R.drawable.bubble_image_received;
-            } else if ("video".equals(type)) {
-                bgRes = sent ? R.drawable.bubble_video_sent : R.drawable.bubble_video_received;
-            } else {
-                bgRes = sent ? R.drawable.bubble_sent : R.drawable.bubble_received;
+        // ── Per-type bubble background (safe) ────────────────────────────────
+        try {
+            android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
+            if (llBubble != null) {
+                boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
+                int bgRes;
+                if (hasReply) {
+                    bgRes = sent ? R.drawable.bubble_reply_sent : R.drawable.bubble_reply_received;
+                } else if ("image".equals(type)) {
+                    bgRes = sent ? R.drawable.bubble_image_sent : R.drawable.bubble_image_received;
+                } else if ("video".equals(type)) {
+                    bgRes = sent ? R.drawable.bubble_video_sent : R.drawable.bubble_video_received;
+                } else {
+                    bgRes = sent ? R.drawable.bubble_sent : R.drawable.bubble_received;
+                }
+                llBubble.setBackgroundResource(bgRes);
             }
-            h.llBubble.setBackgroundResource(bgRes);
-        }
+        } catch (Exception ignored) {}
 
         switch (type) {
             case "image": {
@@ -902,7 +904,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     @Override public int getItemCount() { return messages.size(); }
 
     static class VH extends RecyclerView.ViewHolder {
-        LinearLayout llBubble; // bubble container — background changes per message type
         TextView     tvMessage, tvTime, tvSenderName;
         ImageView    ivImage, ivVideoThumb;
         FrameLayout  flVideo;
@@ -930,7 +931,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvMessage    = v.findViewById(R.id.tv_message);
             tvTime       = v.findViewById(R.id.tv_time);
             tvSenderName = v.findViewById(R.id.tv_sender_name);
-            llBubble     = v.findViewById(R.id.ll_bubble);
             ivImage      = v.findViewById(R.id.iv_image);
             flVideo      = v.findViewById(R.id.fl_video);
             ivVideoThumb = v.findViewById(R.id.iv_video_thumb);
