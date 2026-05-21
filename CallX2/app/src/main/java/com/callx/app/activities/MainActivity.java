@@ -28,6 +28,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import com.callx.app.activities.ReelNotificationsActivity;
 import com.callx.app.workers.StoryNotificationWorker;
 import com.callx.app.fragments.ReelsFragment;
+import com.callx.app.utils.AppUpdateManager;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -160,6 +161,8 @@ public class MainActivity extends AppCompatActivity {
         loadMyAvatar();
         refreshFcmToken();
         startBadgeListeners();
+        // ── In-App Update Check — Firebase se version compare karta hai ──
+        AppUpdateManager.check(this);
     }
 
     // Called when app is ALREADY running and user taps a reel notification or deep link
