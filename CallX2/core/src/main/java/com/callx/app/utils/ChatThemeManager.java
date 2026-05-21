@@ -208,9 +208,9 @@ public class ChatThemeManager {
             android.view.View toolbar,
             android.view.View chatRoot,
             android.view.View inputBarRoot,
-            android.widget.ImageButton btnSend,
-            android.widget.ImageButton btnMic,
-            com.google.android.material.floatingactionbutton.FloatingActionButton fab,
+            android.view.View btnSend,
+            android.view.View btnMic,
+            android.view.View fab,
             android.view.View replyAccent) {
 
         int primary   = getPrimaryColor();
@@ -249,7 +249,7 @@ public class ChatThemeManager {
             btnMic.setBackground(micGd);
         }
 
-        // ── FAB ───────────────────────────────────────────────────────────
+        // ── FAB — tint via ColorStateList (View.setBackgroundTintList, API 21+) ──
         if (fab != null) {
             fab.setBackgroundTintList(
                     android.content.res.ColorStateList.valueOf(primary));
