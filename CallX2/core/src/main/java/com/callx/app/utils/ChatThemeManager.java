@@ -250,20 +250,18 @@ public class ChatThemeManager {
         int secondary = getSecondaryColor();
 
         // ── Toolbar gradient ──────────────────────────────────────────────
-        // Toolbar background is transparent — do not apply any gradient here.
-        // android.graphics.drawable.GradientDrawable toolbarGd =
-        //         new android.graphics.drawable.GradientDrawable(
-        //                 android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-        //                 new int[]{primary, secondary});
-        // toolbar.setBackground(toolbarGd);
+        android.graphics.drawable.GradientDrawable toolbarGd =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                        new int[]{primary, secondary});
+        toolbar.setBackground(toolbarGd);
 
         // ── Chat background (dark-mode aware) ───────────────────────────
         android.content.Context ctx = toolbar.getContext();
         if (chatRoot != null) chatRoot.setBackgroundColor(getChatBgColor(ctx));
 
-        // ── Input bar background — transparent (WhatsApp style) ──────────
-        // Do not apply any colour; the pill inside the row has its own background.
-        // if (inputBarRoot != null) inputBarRoot.setBackgroundColor(getInputBarColor(ctx));
+        // ── Input bar background (dark-mode aware) ────────────────────────
+        if (inputBarRoot != null) inputBarRoot.setBackgroundColor(getInputBarColor(ctx));
 
         // ── Send button ───────────────────────────────────────────────────
         if (btnSend != null) {

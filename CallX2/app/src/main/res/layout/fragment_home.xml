@@ -48,7 +48,7 @@
                             <!-- Add Story (My story) — always first -->
                             <LinearLayout
                                 android:id="@+id/btn_add_story"
-                                android:layout_width="72dp"
+                                android:layout_width="86dp"
                                 android:layout_height="wrap_content"
                                 android:orientation="vertical"
                                 android:gravity="center"
@@ -57,13 +57,13 @@
                                 android:focusable="true">
 
                                 <FrameLayout
-                                    android:layout_width="60dp"
-                                    android:layout_height="60dp">
+                                    android:layout_width="82dp"
+                                    android:layout_height="82dp">
 
                                     <de.hdodenhof.circleimageview.CircleImageView
                                         android:id="@+id/iv_my_story_avatar"
-                                        android:layout_width="56dp"
-                                        android:layout_height="56dp"
+                                        android:layout_width="68dp"
+                                        android:layout_height="68dp"
                                         android:layout_gravity="center"
                                         android:src="@drawable/ic_person"
                                         app:civ_border_width="1dp"
