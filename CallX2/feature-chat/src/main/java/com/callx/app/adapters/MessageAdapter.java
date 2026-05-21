@@ -465,6 +465,23 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             } else {
                 ivAvatar.setImageResource(com.callx.app.chat.R.drawable.ic_person);
             }
+            // Avatar click → open UserReelsActivity for the sender
+            final String senderUid   = m.senderId   != null ? m.senderId   : "";
+            final String senderName  = m.senderName != null ? m.senderName : "";
+            final String senderPhoto = m.senderPhoto != null ? m.senderPhoto : "";
+            ivAvatar.setOnClickListener(v -> {
+                if (senderUid.isEmpty()) return;
+                try {
+                    Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+                    android.content.Intent intent = new android.content.Intent(ctx, cls);
+                    intent.putExtra("uid",   senderUid);
+                    intent.putExtra("name",  senderName);
+                    intent.putExtra("photo", senderPhoto);
+                    ctx.startActivity(intent);
+                } catch (ClassNotFoundException e) {
+                    android.util.Log.e("MessageAdapter", "UserReelsActivity not found", e);
+                }
+            });
         }
 
         // Status thumbnail (tappable → open StatusViewerActivity)
@@ -558,6 +575,23 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             } else {
                 ivAvatar.setImageResource(com.callx.app.chat.R.drawable.ic_person);
             }
+            // Avatar click → open UserReelsActivity for the sender
+            final String senderUid   = m.senderId   != null ? m.senderId   : "";
+            final String senderName  = m.senderName != null ? m.senderName : "";
+            final String senderPhoto = m.senderPhoto != null ? m.senderPhoto : "";
+            ivAvatar.setOnClickListener(v -> {
+                if (senderUid.isEmpty()) return;
+                try {
+                    Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+                    android.content.Intent intent = new android.content.Intent(ctx, cls);
+                    intent.putExtra("uid",   senderUid);
+                    intent.putExtra("name",  senderName);
+                    intent.putExtra("photo", senderPhoto);
+                    ctx.startActivity(intent);
+                } catch (ClassNotFoundException e) {
+                    android.util.Log.e("MessageAdapter", "UserReelsActivity not found", e);
+                }
+            });
         }
 
         // Click handler — reelId se reel kholo (thumb ho ya na ho, click always kaam kare)
