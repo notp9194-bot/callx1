@@ -81,6 +81,7 @@ public class MessagePagingAdapter
     // ── Interface for long-press actions ─────────────────────────
     public interface ActionListener {
         void onReply(Message m);
+        void onNavigateToOriginal(String messageId);
         void onDelete(Message m);
         void onReact(Message m, String emoji);
         void onStar(Message m);
@@ -361,15 +362,11 @@ public class MessagePagingAdapter
                         h.ivReplyThumb.setVisibility(View.GONE);
                     }
                 }
-                // Click → navigate to original
+                // Click → scroll to original message
                 final String replyId = m.replyToId;
                 h.llReplyPreview.setOnClickListener(v -> {
                     if (actionListener != null) {
-                        // Encode nav request as a Reply action for routing in ChatActivity
-                        Message stub = new Message();
-                        stub.id = replyId;
-                        stub.messageId = replyId;
-                        actionListener.onReply(stub);
+                        actionListener.onNavigateToOriginal(replyId);
                     }
                 });
             } else {

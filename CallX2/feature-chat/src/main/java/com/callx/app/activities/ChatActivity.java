@@ -462,6 +462,7 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onStar(Message m)                { toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
+            @Override public void onNavigateToOriginal(String messageId) { navigateToOriginal(messageId); }
         });
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
