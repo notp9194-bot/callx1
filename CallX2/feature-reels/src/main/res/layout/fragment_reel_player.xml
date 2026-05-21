@@ -271,7 +271,7 @@
             android:text=""
             android:textColor="#FFFFFFEE"
             android:textSize="13sp"
-            android:maxLines="3"
+            android:maxLines="1"
             android:ellipsize="end"/>
 
         <!-- Hashtag chips -->
