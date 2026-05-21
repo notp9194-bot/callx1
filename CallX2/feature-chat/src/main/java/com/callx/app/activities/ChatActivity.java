@@ -193,6 +193,7 @@ public class ChatActivity extends AppCompatActivity {
             finish(); return;
         }
         setupToolbar();
+        applyScreenTheme();   // ← Apply full chat-screen theme on launch
         setupPickers();
         recorder = new VoiceRecorder();
 
@@ -1766,6 +1767,38 @@ public class ChatActivity extends AppCompatActivity {
                 .show();
     }
 
+    // ── Apply Chat Screen Theme (toolbar, bg, input bar, buttons) ─────────
+    private void applyScreenTheme() {
+        com.callx.app.utils.ChatThemeManager mgr =
+                com.callx.app.utils.ChatThemeManager.get(this);
+
+        // Toolbar = the root LinearLayout id="toolbar"
+        android.view.View toolbar = binding.getRoot().findViewById(R.id.toolbar);
+
+        // Root layout (for chat background)
+        android.view.View chatRoot = binding.getRoot();
+
+        // Input row
+        android.view.View inputRow = binding.getRoot().findViewById(R.id.ll_input_row);
+
+        // Reply bar accent stripe
+        android.view.View replyAccent = binding.getRoot().findViewById(R.id.view_reply_accent);
+
+        // Also update tv_reply_bar_name color to match primary
+        if (binding.tvReplyBarName != null) {
+            binding.tvReplyBarName.setTextColor(mgr.getPrimaryColor());
+        }
+
+        mgr.applyScreenTheme(
+                toolbar,
+                chatRoot,
+                inputRow,
+                binding.btnSend,
+                binding.btnMic,
+                binding.fabBackToLatest,
+                replyAccent);
+    }
+
     // ── Chat Bubble Theme Picker ──────────────────────────────────────────
     private void showThemePicker() {
         com.callx.app.utils.ChatThemeManager mgr =
@@ -1779,6 +1812,7 @@ public class ChatActivity extends AppCompatActivity {
                 (dialog, which) -> {
                     mgr.setTheme(which);
                     pagingAdapter.notifyDataSetChanged();
+                    applyScreenTheme();   // ← Apply to toolbar/bg/buttons too
                     dialog.dismiss();
                 })
             .setNegativeButton("Cancel", null)

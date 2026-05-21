@@ -127,6 +127,141 @@ public class ChatThemeManager {
     }
 
     /**
+     * Returns the primary/accent colour for this theme.
+     * Used for: toolbar gradient start, send/mic button, FAB, reply-bar accent stripe.
+     */
+    public int getPrimaryColor() {
+        switch (currentTheme) {
+            case THEME_OCEAN:     return 0xFF0EA5E9;
+            case THEME_FOREST:   return 0xFF16A34A;
+            case THEME_SUNSET:   return 0xFFF97316;
+            case THEME_LAVENDER: return 0xFF7C3AED;
+            case THEME_MIDNIGHT: return 0xFF1E293B;
+            case THEME_CLASSIC:  return 0xFF25D366;
+            case THEME_MONO:     return 0xFF374151;
+            case THEME_HYBRID:
+            default:             return 0xFFFF0080;
+        }
+    }
+
+    /**
+     * Returns the secondary/gradient-end colour for this theme.
+     * Used as the toolbar gradient end colour and send/mic button gradient end.
+     */
+    public int getSecondaryColor() {
+        switch (currentTheme) {
+            case THEME_OCEAN:     return 0xFF6366F1;
+            case THEME_FOREST:   return 0xFF0D9488;
+            case THEME_SUNSET:   return 0xFFEF4444;
+            case THEME_LAVENDER: return 0xFFDB2777;
+            case THEME_MIDNIGHT: return 0xFF0F172A;
+            case THEME_CLASSIC:  return 0xFF128C7E;
+            case THEME_MONO:     return 0xFF1F2937;
+            case THEME_HYBRID:
+            default:             return 0xFFFF6B00;
+        }
+    }
+
+    /**
+     * Returns the chat list background colour for this theme.
+     */
+    public int getChatBgColor() {
+        switch (currentTheme) {
+            case THEME_OCEAN:     return 0xFFE0F2FE;
+            case THEME_FOREST:   return 0xFFDCFCE7;
+            case THEME_SUNSET:   return 0xFFFFF7ED;
+            case THEME_LAVENDER: return 0xFFF5F3FF;
+            case THEME_MIDNIGHT: return 0xFF0F172A;
+            case THEME_CLASSIC:  return 0xFFECE5DD;
+            case THEME_MONO:     return 0xFFF3F4F6;
+            case THEME_HYBRID:
+            default:             return 0xFFECEEF5;
+        }
+    }
+
+    /**
+     * Returns the input bar background colour for this theme.
+     */
+    public int getInputBarColor() {
+        switch (currentTheme) {
+            case THEME_MIDNIGHT: return 0xFF1E293B;
+            case THEME_MONO:     return 0xFFE5E7EB;
+            default:             return 0xFFFFFFFF;
+        }
+    }
+
+    /**
+     * Applies the full-screen theme to the chat screen UI elements:
+     * toolbar gradient, input bar, send/mic buttons, FAB, chat background.
+     *
+     * Call this once in onCreate() and again after theme change.
+     *
+     * @param toolbar       the LinearLayout acting as the toolbar header
+     * @param chatRoot      the root layout (for background)
+     * @param inputBarRoot  the input row LinearLayout
+     * @param btnSend       the send ImageButton
+     * @param btnMic        the mic ImageButton
+     * @param fab           the FloatingActionButton (can be null)
+     * @param replyAccent   the accent stripe View inside reply bar (can be null)
+     */
+    public void applyScreenTheme(
+            android.view.View toolbar,
+            android.view.View chatRoot,
+            android.view.View inputBarRoot,
+            android.widget.ImageButton btnSend,
+            android.widget.ImageButton btnMic,
+            com.google.android.material.floatingactionbutton.FloatingActionButton fab,
+            android.view.View replyAccent) {
+
+        int primary   = getPrimaryColor();
+        int secondary = getSecondaryColor();
+
+        // ── Toolbar gradient ──────────────────────────────────────────────
+        android.graphics.drawable.GradientDrawable toolbarGd =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.L_R,
+                        new int[]{primary, secondary});
+        toolbar.setBackground(toolbarGd);
+
+        // ── Chat background ───────────────────────────────────────────────
+        if (chatRoot != null) chatRoot.setBackgroundColor(getChatBgColor());
+
+        // ── Input bar background ──────────────────────────────────────────
+        if (inputBarRoot != null) inputBarRoot.setBackgroundColor(getInputBarColor());
+
+        // ── Send button ───────────────────────────────────────────────────
+        if (btnSend != null) {
+            android.graphics.drawable.GradientDrawable sendGd =
+                    new android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                            new int[]{primary, secondary});
+            sendGd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            btnSend.setBackground(sendGd);
+        }
+
+        // ── Mic button ────────────────────────────────────────────────────
+        if (btnMic != null) {
+            android.graphics.drawable.GradientDrawable micGd =
+                    new android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                            new int[]{primary, secondary});
+            micGd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            btnMic.setBackground(micGd);
+        }
+
+        // ── FAB ───────────────────────────────────────────────────────────
+        if (fab != null) {
+            fab.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(primary));
+        }
+
+        // ── Reply bar accent stripe ───────────────────────────────────────
+        if (replyAccent != null) {
+            replyAccent.setBackgroundColor(primary);
+        }
+    }
+
+    /**
      * Returns tick / delivery-status colour for sent messages.
      * @param isRead true for "seen"/"read", false for "delivered"/"sent"
      */
