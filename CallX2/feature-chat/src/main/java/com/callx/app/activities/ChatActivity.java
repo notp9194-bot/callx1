@@ -1773,16 +1773,16 @@ public class ChatActivity extends AppCompatActivity {
                 com.callx.app.utils.ChatThemeManager.get(this);
 
         // Toolbar = the root LinearLayout id="toolbar"
-        android.view.View toolbar = binding.getRoot().findViewById(R.id.toolbar);
+        android.view.View toolbar = binding.toolbar;
 
         // Root layout (for chat background)
         android.view.View chatRoot = binding.getRoot();
 
         // Input row
-        android.view.View inputRow = binding.getRoot().findViewById(R.id.ll_input_row);
+        android.view.View inputRow = binding.llInputRow;
 
         // Reply bar accent stripe
-        android.view.View replyAccent = binding.getRoot().findViewById(R.id.view_reply_accent);
+        android.view.View replyAccent = binding.viewReplyAccent;
 
         // Also update tv_reply_bar_name color to match primary
         if (binding.tvReplyBarName != null) {
