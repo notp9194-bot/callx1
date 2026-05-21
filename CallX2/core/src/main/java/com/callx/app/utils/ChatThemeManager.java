@@ -219,7 +219,7 @@ public class ChatThemeManager {
         // ── Toolbar gradient ──────────────────────────────────────────────
         android.graphics.drawable.GradientDrawable toolbarGd =
                 new android.graphics.drawable.GradientDrawable(
-                        android.graphics.drawable.GradientDrawable.Orientation.L_R,
+                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
                         new int[]{primary, secondary});
         toolbar.setBackground(toolbarGd);
 
