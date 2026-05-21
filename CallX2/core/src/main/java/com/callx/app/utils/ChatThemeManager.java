@@ -250,11 +250,12 @@ public class ChatThemeManager {
         int secondary = getSecondaryColor();
 
         // ── Toolbar gradient ──────────────────────────────────────────────
-        android.graphics.drawable.GradientDrawable toolbarGd =
-                new android.graphics.drawable.GradientDrawable(
-                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                        new int[]{primary, secondary});
-        toolbar.setBackground(toolbarGd);
+        // Toolbar background is transparent — do not apply any gradient here.
+        // android.graphics.drawable.GradientDrawable toolbarGd =
+        //         new android.graphics.drawable.GradientDrawable(
+        //                 android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+        //                 new int[]{primary, secondary});
+        // toolbar.setBackground(toolbarGd);
 
         // ── Chat background (dark-mode aware) ───────────────────────────
         android.content.Context ctx = toolbar.getContext();
