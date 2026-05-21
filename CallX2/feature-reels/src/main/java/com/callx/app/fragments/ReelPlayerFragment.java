@@ -547,7 +547,7 @@ public class ReelPlayerFragment extends Fragment {
                 // Build label: "Liked by username and X others" or "Liked by username"
                 // Fetch first liker name for label
                 if (!likerUids.isEmpty()) {
-                    FirebaseUtils.getUserRef(likerUids.get(0)).child("username")
+                    FirebaseUtils.getUserRef(likerUids.get(0)).child("name")
                         .get().addOnSuccessListener(ds -> {
                             if (!isAdded() || getContext() == null || tvLikersLabel == null) return;
                             String firstName = ds.getValue(String.class);
