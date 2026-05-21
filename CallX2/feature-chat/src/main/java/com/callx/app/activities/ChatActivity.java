@@ -1766,6 +1766,25 @@ public class ChatActivity extends AppCompatActivity {
                 .show();
     }
 
+    // ── Chat Bubble Theme Picker ──────────────────────────────────────────
+    private void showThemePicker() {
+        com.callx.app.utils.ChatThemeManager mgr =
+                com.callx.app.utils.ChatThemeManager.get(this);
+        int current = mgr.getCurrentTheme();
+        new AlertDialog.Builder(this)
+            .setTitle("\uD83C\uDFA8 Choose Bubble Theme")
+            .setSingleChoiceItems(
+                com.callx.app.utils.ChatThemeManager.THEME_NAMES,
+                current,
+                (dialog, which) -> {
+                    mgr.setTheme(which);
+                    pagingAdapter.notifyDataSetChanged();
+                    dialog.dismiss();
+                })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // MENU
     // ─────────────────────────────────────────────────────────────────────
@@ -1799,6 +1818,7 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_mute)        { toggleMute();          return true; }
         if (id == R.id.action_block)       { confirmBlockUser();    return true; }
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
+        if (id == R.id.action_chat_theme)  { showThemePicker();     return true; }
         return super.onOptionsItemSelected(item);
     }
 

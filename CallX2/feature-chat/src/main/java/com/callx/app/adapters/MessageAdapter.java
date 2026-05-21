@@ -175,22 +175,14 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 && (m.mediaUrl == null || m.mediaUrl.isEmpty())))
             type = "image";
 
-        // ── Per-type bubble background (safe) ────────────────────────────────
+        // ── Per-type bubble background — ChatThemeManager (runtime gradient) ──
         try {
             android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
             if (llBubble != null) {
                 boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
-                int bgRes;
-                if (hasReply) {
-                    bgRes = sent ? R.drawable.bubble_reply_sent : R.drawable.bubble_reply_received;
-                } else if ("image".equals(type)) {
-                    bgRes = sent ? R.drawable.bubble_image_sent : R.drawable.bubble_image_received;
-                } else if ("video".equals(type)) {
-                    bgRes = sent ? R.drawable.bubble_video_sent : R.drawable.bubble_video_received;
-                } else {
-                    bgRes = sent ? R.drawable.bubble_sent : R.drawable.bubble_received;
-                }
-                llBubble.setBackgroundResource(bgRes);
+                com.callx.app.utils.ChatThemeManager
+                        .get(ctx)
+                        .applyBubble(llBubble, sent, type, hasReply);
             }
         } catch (Exception ignored) {}
 
@@ -409,7 +401,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
             default: {
                 h.tvMessage.setVisibility(View.VISIBLE);
-                h.tvMessage.setTextColor(sent ? 0xFFFFFFFF : 0xFF212121);
+                h.tvMessage.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent));
                 h.tvMessage.setTextSize(15f);
                 h.tvMessage.setTypeface(null, android.graphics.Typeface.NORMAL);
                 if (h.tvEdited != null && Boolean.TRUE.equals(m.edited))
@@ -681,15 +674,21 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     case "read":
                         h.tvStatus.setText("\u2713\u2713 ");
                         h.tvStatus.setTextSize(14f);
-                        h.tvStatus.setTextColor(0xFFFF00FF); break; // Magenta double-tick (read)
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
+                        break;
                     case "delivered":
                         h.tvStatus.setText("\u2713\u2713");
                         h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(0xFFFF00FF); break; // Magenta double-tick (delivered)
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                        break;
                     default:
                         h.tvStatus.setText("\u2713");
                         h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(0xCCFFFFFF); break;
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                        break;
                 }
             } else {
                 h.tvStatus.setVisibility(View.GONE);

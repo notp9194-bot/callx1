@@ -327,6 +327,18 @@ public class MessagePagingAdapter
         Context ctx = h.itemView.getContext();
         boolean sent = currentUid.equals(m.senderId);
 
+        // ── Theme-aware bubble background ─────────────────────────────────
+        try {
+            android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
+            if (llBubble != null) {
+                boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
+                String bType = m.type != null ? m.type : "text";
+                com.callx.app.utils.ChatThemeManager
+                        .get(ctx)
+                        .applyBubble(llBubble, sent, bType, hasReply);
+            }
+        } catch (Exception ignored) {}
+
         // Reset visibility
         h.tvMessage.setVisibility(View.GONE);
         if (h.ivImage    != null) h.ivImage.setVisibility(View.GONE);
@@ -561,13 +573,15 @@ public class MessagePagingAdapter
                     android.text.util.Linkify.PHONE_NUMBERS |
                     android.text.util.Linkify.EMAIL_ADDRESSES);
                 h.tvMessage.setText(spanned);
-                // Link color matching bubble theme (sent=white tint, received=blue)
+                // Link color matching bubble theme
                 boolean isSentMsg = currentUid.equals(m.senderId);
                 int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
                 h.tvMessage.setLinkTextColor(linkColor);
                 h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                 h.tvMessage.setHighlightColor(0x33FFFFFF);
                 h.tvMessage.setAlpha(1f);
+                h.tvMessage.setTextColor(
+                    com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
                 break;
         }
 
@@ -578,15 +592,18 @@ public class MessagePagingAdapter
             switch (status) {
                 case "seen":
                     h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(0xFF4FC3F7); // blue
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
                     break;
                 case "delivered":
                     h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(0xAAFFFFFF);
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
                     break;
                 default:
                     h.tvStatus.setText("✓");
-                    h.tvStatus.setTextColor(0xAAFFFFFF);
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
                     break;
             }
         } else if (h.tvStatus != null) {
