@@ -192,69 +192,6 @@
         android:paddingEnd="72dp"
         android:paddingBottom="0dp">
 
-        <!-- ── Likers Avatar Row (Instagram-style) ──────────────────────────────
-             Shows up to 3 overlapping circular profile pics of recent likers.
-             Visibility=gone until at least 1 liker is loaded.
-             Tapping opens ReelLikesBottomSheet.
-        -->
-        <LinearLayout
-            android:id="@+id/ll_likers_avatar_row"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="6dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:visibility="gone">
-
-            <!-- Liker avatar 1 (front) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_liker_1"
-                android:layout_width="26dp"
-                android:layout_height="26dp"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="#000000"
-                android:visibility="gone"/>
-
-            <!-- Liker avatar 2 (slightly overlaps 1) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_liker_2"
-                android:layout_width="26dp"
-                android:layout_height="26dp"
-                android:layout_marginStart="-8dp"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="#000000"
-                android:visibility="gone"/>
-
-            <!-- Liker avatar 3 (slightly overlaps 2) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_liker_3"
-                android:layout_width="26dp"
-                android:layout_height="26dp"
-                android:layout_marginStart="-8dp"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="#000000"
-                android:visibility="gone"/>
-
-            <!-- "X liked" label -->
-            <TextView
-                android:id="@+id/tv_likers_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:text="Liked by someone"
-                android:textColor="#DDFFFFFF"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif"
-                android:maxLines="1"
-                android:ellipsize="end"/>
-        </LinearLayout>
-
         <!-- Owner avatar + name + follow button -->
         <LinearLayout
             android:layout_width="wrap_content"
@@ -405,6 +342,88 @@
             android:textColor="#AAFFFFFF"
             android:textSize="11sp"/>
     </LinearLayout>
+
+
+    <!-- ── Floating Liker Avatars (Instagram explore style) ────────────────
+         3 large circular avatars floating above bottom-left info strip.
+         Gentle float animation applied in ReelPlayerFragment.
+         visibility=gone until at least 1 liker loads.
+         Tapping opens ReelLikesBottomSheet.
+    -->
+    <FrameLayout
+        android:id="@+id/ll_likers_avatar_row"
+        android:layout_width="220dp"
+        android:layout_height="120dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="120dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <!-- Liker avatar 1 — left, slightly lower -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_liker_1"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_gravity="bottom|start"
+            android:src="@drawable/ic_person"
+            app:civ_border_width="2dp"
+            app:civ_border_color="#FFFFFF"
+            android:elevation="2dp"
+            android:visibility="gone"/>
+
+        <!-- Liker avatar 2 — center, higher -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_liker_2"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_gravity="top|center_horizontal"
+            android:src="@drawable/ic_person"
+            app:civ_border_width="2dp"
+            app:civ_border_color="#FFFFFF"
+            android:elevation="3dp"
+            android:visibility="gone"/>
+
+        <!-- Liker avatar 3 — right, slightly lower -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_liker_3"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_gravity="bottom|end"
+            android:src="@drawable/ic_person"
+            app:civ_border_width="2dp"
+            app:civ_border_color="#FFFFFF"
+            android:elevation="2dp"
+            android:visibility="gone"/>
+
+        <!-- Heart emoji on avatar 1 -->
+        <TextView
+            android:id="@+id/tv_heart_1"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="44dp"
+            android:layout_marginBottom="52dp"
+            android:text="&#x2764;&#xFE0F;"
+            android:textSize="18sp"
+            android:elevation="4dp"
+            android:visibility="gone"/>
+
+        <!-- Heart emoji on avatar 3 -->
+        <TextView
+            android:id="@+id/tv_heart_3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="44dp"
+            android:layout_marginBottom="52dp"
+            android:text="&#x2764;&#xFE0F;"
+            android:textSize="18sp"
+            android:elevation="4dp"
+            android:visibility="gone"/>
+
+    </FrameLayout>
 
     <!-- Video progress bar — pinned to very bottom of video (0dp margin) -->
     <ProgressBar

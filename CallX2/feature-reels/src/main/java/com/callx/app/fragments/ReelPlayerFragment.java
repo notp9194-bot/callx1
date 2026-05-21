@@ -121,11 +121,12 @@ public class ReelPlayerFragment extends Fragment {
 
     private ProgressBar     progressVideo, progressBuffering;
 
-    // ── Likers Avatar Row ──────────────────────────────────────────────────
-    private LinearLayout    llLikersAvatarRow;
+    // ── Floating Liker Avatars ─────────────────────────────────────────────
+    private android.widget.FrameLayout llLikersAvatarRow;
     private CircleImageView ivLiker1, ivLiker2, ivLiker3;
-    private TextView        tvLikersLabel;
+    private TextView        tvHeart1, tvHeart3;
     private ValueEventListener likersListener;
+    private ObjectAnimator  floatAnim1, floatAnim2, floatAnim3;
 
     // ── State ──────────────────────────────────────────────────────────────
     private ReelModel reel;
@@ -244,6 +245,10 @@ public class ReelPlayerFragment extends Fragment {
         uiHandler.removeCallbacksAndMessages(null);
         removeFirebaseListeners();
         releasePlayer();
+        // Cancel liker float animations
+        if (floatAnim1 != null) { floatAnim1.cancel(); floatAnim1 = null; }
+        if (floatAnim2 != null) { floatAnim2.cancel(); floatAnim2 = null; }
+        if (floatAnim3 != null) { floatAnim3.cancel(); floatAnim3 = null; }
         super.onDestroyView();
     }
 
@@ -308,7 +313,8 @@ public class ReelPlayerFragment extends Fragment {
         ivLiker1          = v.findViewById(R.id.iv_liker_1);
         ivLiker2          = v.findViewById(R.id.iv_liker_2);
         ivLiker3          = v.findViewById(R.id.iv_liker_3);
-        tvLikersLabel     = v.findViewById(R.id.tv_likers_label);
+        tvHeart1          = v.findViewById(R.id.tv_heart_1);
+        tvHeart3          = v.findViewById(R.id.tv_heart_3);
 
         // FIXED: View, not ImageButton
         btnFollowOverlay  = v.findViewById(R.id.btn_follow_overlay);
@@ -511,7 +517,7 @@ public class ReelPlayerFragment extends Fragment {
                     if (likerUids.size() == 3) break;
                 }
 
-                // Show the row
+                // Show the floating container
                 if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.VISIBLE);
 
                 CircleImageView[] avatarViews = {ivLiker1, ivLiker2, ivLiker3};
@@ -519,11 +525,11 @@ public class ReelPlayerFragment extends Fragment {
                     if (av != null) av.setVisibility(View.GONE);
                 }
 
-                // Fetch each liker's thumbUrl and load into avatar views
+                // Fetch each liker's thumbUrl and load into floating avatar views
                 for (int i = 0; i < likerUids.size(); i++) {
-                    final int idx = i;
                     final CircleImageView targetView = avatarViews[i];
                     if (targetView == null) continue;
+                    final boolean isLast = (i == likerUids.size() - 1);
 
                     FirebaseUtils.getUserRef(likerUids.get(i)).child("thumbUrl")
                         .get().addOnSuccessListener(ds -> {
@@ -540,28 +546,16 @@ public class ReelPlayerFragment extends Fragment {
                             } else {
                                 targetView.setImageResource(R.drawable.ic_person);
                             }
+                            // Start float animation once last loaded avatar is visible
+                            if (isLast) startLikerFloatAnimations();
                         });
                 }
 
-                // Build label: "Liked by username and X others" or "Liked by username"
-                // Fetch first liker name for label
-                if (!likerUids.isEmpty()) {
-                    FirebaseUtils.getUserRef(likerUids.get(0)).child("name")
-                        .get().addOnSuccessListener(ds -> {
-                            if (!isAdded() || getContext() == null || tvLikersLabel == null) return;
-                            String firstName = ds.getValue(String.class);
-                            if (firstName == null || firstName.isEmpty()) firstName = "someone";
-                            if (total == 1) {
-                                tvLikersLabel.setText("Liked by " + firstName);
-                            } else if (total == 2) {
-                                tvLikersLabel.setText("Liked by " + firstName + " and 1 other");
-                            } else {
-                                tvLikersLabel.setText("Liked by " + firstName + " and " + (total - 1) + " others");
-                            }
-                        });
-                }
+                // Show heart emojis (only when 2+ likers)
+                if (tvHeart1 != null) tvHeart1.setVisibility(likerUids.size() >= 1 ? View.VISIBLE : View.GONE);
+                if (tvHeart3 != null) tvHeart3.setVisibility(likerUids.size() >= 3 ? View.VISIBLE : View.GONE);
 
-                // Tap likers row → open likes sheet
+                // Tap container → open likes sheet
                 if (llLikersAvatarRow != null) {
                     llLikersAvatarRow.setOnClickListener(v -> openLikesSheet());
                 }
@@ -574,6 +568,49 @@ public class ReelPlayerFragment extends Fragment {
         };
 
         likesRef.addValueEventListener(likersListener);
+    }
+
+    /**
+     * Starts gentle independent float (translateY) animations on each liker avatar.
+     * Each avatar bobs up and down at a slightly different speed/offset — Instagram explore style.
+     */
+    private void startLikerFloatAnimations() {
+        if (!isAdded() || getContext() == null) return;
+
+        // Stop any existing animations
+        if (floatAnim1 != null) floatAnim1.cancel();
+        if (floatAnim2 != null) floatAnim2.cancel();
+        if (floatAnim3 != null) floatAnim3.cancel();
+
+        float amplitude = dpToPx(6); // float up/down by 6dp
+
+        if (ivLiker1 != null && ivLiker1.getVisibility() == View.VISIBLE) {
+            floatAnim1 = ObjectAnimator.ofFloat(ivLiker1, "translationY", 0f, -amplitude, 0f);
+            floatAnim1.setDuration(2200);
+            floatAnim1.setRepeatCount(ObjectAnimator.INFINITE);
+            floatAnim1.setRepeatMode(ObjectAnimator.REVERSE);
+            floatAnim1.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            floatAnim1.setStartDelay(0);
+            floatAnim1.start();
+        }
+        if (ivLiker2 != null && ivLiker2.getVisibility() == View.VISIBLE) {
+            floatAnim2 = ObjectAnimator.ofFloat(ivLiker2, "translationY", 0f, -amplitude, 0f);
+            floatAnim2.setDuration(2600);
+            floatAnim2.setRepeatCount(ObjectAnimator.INFINITE);
+            floatAnim2.setRepeatMode(ObjectAnimator.REVERSE);
+            floatAnim2.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            floatAnim2.setStartDelay(300);
+            floatAnim2.start();
+        }
+        if (ivLiker3 != null && ivLiker3.getVisibility() == View.VISIBLE) {
+            floatAnim3 = ObjectAnimator.ofFloat(ivLiker3, "translationY", 0f, -amplitude, 0f);
+            floatAnim3.setDuration(2400);
+            floatAnim3.setRepeatCount(ObjectAnimator.INFINITE);
+            floatAnim3.setRepeatMode(ObjectAnimator.REVERSE);
+            floatAnim3.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            floatAnim3.setStartDelay(600);
+            floatAnim3.start();
+        }
     }
 
     // ── Click listeners ───────────────────────────────────────────────────
