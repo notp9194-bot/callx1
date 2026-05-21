@@ -476,8 +476,6 @@ public class ReelPlayerFragment extends Fragment {
         }
     }
 
-    }
-
     // ── Likers Avatar Row ─────────────────────────────────────────────────
 
     /**
