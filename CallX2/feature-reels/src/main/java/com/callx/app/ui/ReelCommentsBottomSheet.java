@@ -90,9 +90,6 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         progressBar     = v.findViewById(R.id.progress_bar);
         tvEmpty         = v.findViewById(R.id.tv_empty);
 
-        // Bottom reply box → opens full comment screen
-        v.findViewById(R.id.layout_reply_box).setOnClickListener(vv -> openCommentActivity(null));
-
         tvCommentsCount.setText(formatCount(commentsCount));
 
         adapter = new CommentsAdapter(filteredItems);
@@ -281,6 +278,9 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
 
+            // Reply → open full comment activity
+            h.btnReply.setOnClickListener(v -> openCommentActivity(c.commentId));
+
             // Tap row → open commenter's profile
             h.itemView.setOnClickListener(v -> {
                 if (c.uid.isEmpty()) return;
@@ -300,6 +300,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
             TextView        tvName, tvComment, tvLikes, tvPinned;
+            Button          btnReply;
             VH(@NonNull View v) {
                 super(v);
                 ivAvatar  = v.findViewById(R.id.iv_avatar);
@@ -307,6 +308,7 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 tvComment = v.findViewById(R.id.tv_comment);
                 tvLikes   = v.findViewById(R.id.tv_likes);
                 tvPinned  = v.findViewById(R.id.tv_pinned);
+                btnReply  = v.findViewById(R.id.btn_reply);
             }
         }
     }

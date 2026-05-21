@@ -138,7 +138,7 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="4dp"
+            android:layout_marginBottom="12dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -146,48 +146,6 @@
             android:paddingEnd="8dp"
             android:paddingTop="4dp"
             android:paddingBottom="4dp"/>
-
-        <!-- Following-likers floating avatar stack (max 3, overlapping) -->
-        <FrameLayout
-            android:id="@+id/fl_liker_avatars"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_marginBottom="8dp"
-            android:visibility="gone">
-
-            <!-- Avatar 3 (back) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_liker3"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:layout_gravity="top|start"
-                android:src="@drawable/ic_person"
-                android:visibility="gone"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="#000000"/>
-
-            <!-- Avatar 2 (middle) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_liker2"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:layout_gravity="top|end"
-                android:src="@drawable/ic_person"
-                android:visibility="gone"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="#000000"/>
-
-            <!-- Avatar 1 (front/bottom center) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_liker1"
-                android:layout_width="26dp"
-                android:layout_height="26dp"
-                android:layout_gravity="bottom|center_horizontal"
-                android:src="@drawable/ic_person"
-                android:visibility="gone"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="#000000"/>
-        </FrameLayout>
 
         <!-- Comment -->
         <ImageButton
@@ -272,6 +230,69 @@
         android:paddingStart="12dp"
         android:paddingEnd="72dp"
         android:paddingBottom="22dp">
+
+        <!-- ── Likers Avatar Row (Instagram-style) ──────────────────────────────
+             Shows up to 3 overlapping circular profile pics of recent likers.
+             Visibility=gone until at least 1 liker is loaded.
+             Tapping opens ReelLikesBottomSheet.
+        -->
+        <LinearLayout
+            android:id="@+id/ll_likers_avatar_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:visibility="gone">
+
+            <!-- Liker avatar 1 (front) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_1"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#000000"
+                android:visibility="gone"/>
+
+            <!-- Liker avatar 2 (slightly overlaps 1) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_2"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_marginStart="-8dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#000000"
+                android:visibility="gone"/>
+
+            <!-- Liker avatar 3 (slightly overlaps 2) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_3"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_marginStart="-8dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#000000"
+                android:visibility="gone"/>
+
+            <!-- "X liked" label -->
+            <TextView
+                android:id="@+id/tv_likers_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="Liked by someone"
+                android:textColor="#DDFFFFFF"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
 
         <!-- Owner name + follow button -->
         <LinearLayout

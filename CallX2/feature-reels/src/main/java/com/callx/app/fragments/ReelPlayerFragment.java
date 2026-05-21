@@ -121,6 +121,12 @@ public class ReelPlayerFragment extends Fragment {
 
     private ProgressBar     progressVideo, progressBuffering;
 
+    // ── Likers Avatar Row ──────────────────────────────────────────────────
+    private LinearLayout    llLikersAvatarRow;
+    private CircleImageView ivLiker1, ivLiker2, ivLiker3;
+    private TextView        tvLikersLabel;
+    private ValueEventListener likersListener;
+
     // ── State ──────────────────────────────────────────────────────────────
     private ReelModel reel;
     private ExoPlayer player;
@@ -133,10 +139,6 @@ public class ReelPlayerFragment extends Fragment {
     private boolean   reactionsVisible = false;
 
     private ValueEventListener likeListener;
-    // ── Following-likers avatar views ─────────────────────────────────────
-    private FrameLayout        flLikerAvatars;
-    private de.hdodenhof.circleimageview.CircleImageView ivLiker1, ivLiker2, ivLiker3;
-    private com.google.firebase.database.ValueEventListener likerAvatarsListener;
     private ValueEventListener saveListener;
     private ValueEventListener followListener;
     private ValueEventListener countListener;
@@ -298,13 +300,16 @@ public class ReelPlayerFragment extends Fragment {
         tvMusicName       = v.findViewById(R.id.tv_music_name);
         tvViews           = v.findViewById(R.id.tv_views);
         tvLikesCount      = v.findViewById(R.id.tv_likes_count);
-        flLikerAvatars    = v.findViewById(R.id.fl_liker_avatars);
-        ivLiker1          = v.findViewById(R.id.iv_liker1);
-        ivLiker2          = v.findViewById(R.id.iv_liker2);
-        ivLiker3          = v.findViewById(R.id.iv_liker3);
         tvCommentsCount   = v.findViewById(R.id.tv_comments_count);
         tvSharesCount     = v.findViewById(R.id.tv_shares_count);
         tvFollowBtn       = v.findViewById(R.id.tv_follow_btn);
+
+        // Likers avatar row
+        llLikersAvatarRow = v.findViewById(R.id.ll_likers_avatar_row);
+        ivLiker1          = v.findViewById(R.id.iv_liker_1);
+        ivLiker2          = v.findViewById(R.id.iv_liker_2);
+        ivLiker3          = v.findViewById(R.id.iv_liker_3);
+        tvLikersLabel     = v.findViewById(R.id.tv_likers_label);
 
         // FIXED: View, not ImageButton
         btnFollowOverlay  = v.findViewById(R.id.btn_follow_overlay);
@@ -429,6 +434,9 @@ public class ReelPlayerFragment extends Fragment {
         }
 
         renderHashtags();
+
+        // Load likers avatars (Instagram-style) below owner name
+        if (reel.reelId != null) fetchLikerAvatars();
     }
 
     // ── Hashtag rendering ─────────────────────────────────────────────────
@@ -466,6 +474,111 @@ public class ReelPlayerFragment extends Fragment {
             });
             containerHashtags.addView(chip);
         }
+    }
+
+    }
+
+    // ── Likers Avatar Row ─────────────────────────────────────────────────
+
+    /**
+     * Fetches up to 3 recent likers from Firebase and shows their circular
+     * profile pictures in the Instagram-style avatar row above the owner name.
+     */
+    private void fetchLikerAvatars() {
+        if (!isAdded() || getContext() == null || reel == null || reel.reelId == null) return;
+
+        // Remove any previous listener
+        if (likersListener != null) {
+            FirebaseUtils.getReelsRef()
+                .child(reel.reelId).child("likes")
+                .removeEventListener(likersListener);
+            likersListener = null;
+        }
+
+        DatabaseReference likesRef = FirebaseUtils.getReelsRef()
+            .child(reel.reelId).child("likes");
+
+        likersListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snapshot) {
+                if (!isAdded() || getContext() == null) return;
+
+                long total = snapshot.getChildrenCount();
+                if (total == 0) {
+                    if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.GONE);
+                    return;
+                }
+
+                // Collect up to 3 liker UIDs
+                java.util.List<String> likerUids = new java.util.ArrayList<>();
+                for (com.google.firebase.database.DataSnapshot child : snapshot.getChildren()) {
+                    likerUids.add(child.getKey());
+                    if (likerUids.size() == 3) break;
+                }
+
+                // Show the row
+                if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.VISIBLE);
+
+                CircleImageView[] avatarViews = {ivLiker1, ivLiker2, ivLiker3};
+                for (CircleImageView av : avatarViews) {
+                    if (av != null) av.setVisibility(View.GONE);
+                }
+
+                // Fetch each liker's thumbUrl and load into avatar views
+                for (int i = 0; i < likerUids.size(); i++) {
+                    final int idx = i;
+                    final CircleImageView targetView = avatarViews[i];
+                    if (targetView == null) continue;
+
+                    FirebaseUtils.getUserRef(likerUids.get(i)).child("thumbUrl")
+                        .get().addOnSuccessListener(ds -> {
+                            if (!isAdded() || getContext() == null) return;
+                            targetView.setVisibility(View.VISIBLE);
+                            String url = ds.getValue(String.class);
+                            if (url != null && !url.isEmpty()) {
+                                Glide.with(requireContext())
+                                    .load(url)
+                                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                                    .placeholder(R.drawable.ic_person)
+                                    .error(R.drawable.ic_person)
+                                    .into(targetView);
+                            } else {
+                                targetView.setImageResource(R.drawable.ic_person);
+                            }
+                        });
+                }
+
+                // Build label: "Liked by username and X others" or "Liked by username"
+                // Fetch first liker name for label
+                if (!likerUids.isEmpty()) {
+                    FirebaseUtils.getUserRef(likerUids.get(0)).child("username")
+                        .get().addOnSuccessListener(ds -> {
+                            if (!isAdded() || getContext() == null || tvLikersLabel == null) return;
+                            String firstName = ds.getValue(String.class);
+                            if (firstName == null || firstName.isEmpty()) firstName = "someone";
+                            if (total == 1) {
+                                tvLikersLabel.setText("Liked by " + firstName);
+                            } else if (total == 2) {
+                                tvLikersLabel.setText("Liked by " + firstName + " and 1 other");
+                            } else {
+                                tvLikersLabel.setText("Liked by " + firstName + " and " + (total - 1) + " others");
+                            }
+                        });
+                }
+
+                // Tap likers row → open likes sheet
+                if (llLikersAvatarRow != null) {
+                    llLikersAvatarRow.setOnClickListener(v -> openLikesSheet());
+                }
+            }
+
+            @Override
+            public void onCancelled(@NonNull com.google.firebase.database.DatabaseError error) {
+                // silently ignore
+            }
+        };
+
+        likesRef.addValueEventListener(likersListener);
     }
 
     // ── Click listeners ───────────────────────────────────────────────────
@@ -762,99 +875,6 @@ public class ReelPlayerFragment extends Fragment {
                             .child(reel.uid).push().setValue(inApp);
                     });
             }
-        }
-    }
-
-
-    // ── Following-likers floating avatar stack ────────────────────────────
-    /**
-     * Loads reelLikes/{reelId}, intersects with reelFollows/{myUid} to find
-     * followers of the current user who liked this reel, then shows up to 3
-     * overlapping circular avatars just below the like count.
-     *
-     * Firebase paths:
-     *   reelLikes/{reelId}/{likerUid} = true
-     *   reelFollows/{myUid}/{likerUid} = true   (people I follow)
-     *   users/{likerUid}/thumbUrl
-     */
-    private void loadFollowingLikers() {
-        String myUid = safeMyUid();
-        if (myUid == null || reel == null || reel.reelId == null) return;
-
-        // First, load the set of UIDs I follow (one-time fetch)
-        com.callx.app.utils.FirebaseUtils.getReelFollowsRef(myUid).get()
-            .addOnSuccessListener(followSnap -> {
-                if (!isAdded() || getContext() == null) return;
-                java.util.Set<String> followingSet = new java.util.HashSet<>();
-                for (com.google.firebase.database.DataSnapshot child : followSnap.getChildren()) {
-                    followingSet.add(child.getKey());
-                }
-
-                // Now listen to likes on this reel — real-time
-                likerAvatarsListener = new com.google.firebase.database.ValueEventListener() {
-                    @Override
-                    public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot likesSnap) {
-                        if (!isAdded() || getView() == null || getActivity() == null) return;
-                        java.util.List<String> matchingUids = new java.util.ArrayList<>();
-                        for (com.google.firebase.database.DataSnapshot likerSnap : likesSnap.getChildren()) {
-                            String likerUid = likerSnap.getKey();
-                            if (likerUid == null || likerUid.equals(myUid)) continue;
-                            if (followingSet.contains(likerUid)) {
-                                matchingUids.add(likerUid);
-                                if (matchingUids.size() == 3) break;
-                            }
-                        }
-                        updateLikerAvatars(matchingUids);
-                    }
-                    @Override
-                    public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
-                };
-                com.callx.app.utils.FirebaseUtils.getReelLikesRef(reel.reelId)
-                    .addValueEventListener(likerAvatarsListener);
-            });
-    }
-
-    /**
-     * Given up to 3 UIDs, fetches their thumbUrl from users/ and loads them
-     * into ivLiker1, ivLiker2, ivLiker3. Hides the container if list is empty.
-     */
-    private void updateLikerAvatars(java.util.List<String> uids) {
-        if (!isAdded() || getView() == null || flLikerAvatars == null) return;
-        if (uids.isEmpty()) {
-            flLikerAvatars.setVisibility(android.view.View.GONE);
-            return;
-        }
-        flLikerAvatars.setVisibility(android.view.View.VISIBLE);
-
-        de.hdodenhof.circleimageview.CircleImageView[] views = {ivLiker1, ivLiker2, ivLiker3};
-        // Hide all first
-        for (de.hdodenhof.circleimageview.CircleImageView v : views) {
-            if (v != null) v.setVisibility(android.view.View.GONE);
-        }
-
-        for (int i = 0; i < uids.size() && i < views.length; i++) {
-            final de.hdodenhof.circleimageview.CircleImageView avatarView = views[i];
-            if (avatarView == null) continue;
-            avatarView.setVisibility(android.view.View.VISIBLE);
-            final String likerUid = uids.get(i);
-            com.callx.app.utils.FirebaseUtils.getUserRef(likerUid).child("thumbUrl").get()
-                .addOnSuccessListener(snap -> {
-                    // Re-check fragment is still alive before touching views
-                    if (!isAdded() || getView() == null || getActivity() == null
-                            || flLikerAvatars == null || avatarView == null) return;
-                    String thumbUrl = snap.getValue(String.class);
-                    if (thumbUrl != null && !thumbUrl.isEmpty()) {
-                        try {
-                            com.bumptech.glide.Glide.with(getActivity())
-                                .load(thumbUrl)
-                                .placeholder(R.drawable.ic_person)
-                                .circleCrop()
-                                .into(avatarView);
-                        } catch (Exception ignored) {}
-                    } else {
-                        avatarView.setImageResource(R.drawable.ic_person);
-                    }
-                });
         }
     }
 
@@ -1422,7 +1442,6 @@ public class ReelPlayerFragment extends Fragment {
 
     private void startFirebaseListeners() {
         loadLiveReactionCounts(); // Feature 12
-        loadFollowingLikers();    // Feature: following-likers avatar stack
         String myUid = safeMyUid();
         if (myUid == null || reel == null || reel.reelId == null) return;
 
@@ -1505,12 +1524,6 @@ public class ReelPlayerFragment extends Fragment {
 
     private void removeFirebaseListeners() {
         removeLiveReactionsListener(); // Feature 12
-        // Remove following-likers listener
-        if (likerAvatarsListener != null && reel != null && reel.reelId != null) {
-            com.callx.app.utils.FirebaseUtils.getReelLikesRef(reel.reelId)
-                .removeEventListener(likerAvatarsListener);
-            likerAvatarsListener = null;
-        }
         String myUid = safeMyUid();
         if (reel == null || reel.reelId == null) return;
 
@@ -1528,6 +1541,12 @@ public class ReelPlayerFragment extends Fragment {
             FirebaseUtils.db().getReference("reelReposts")
                 .child(reel.reelId).child(myUid)
                 .removeEventListener(repostListener);
+
+        // Remove likers avatar listener
+        if (likersListener != null)
+            FirebaseUtils.getReelsRef().child(reel.reelId).child("likes")
+                .removeEventListener(likersListener);
+        likersListener = null;
     }
 
     // ── View count ────────────────────────────────────────────────────────

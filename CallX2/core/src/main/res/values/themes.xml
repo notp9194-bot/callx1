@@ -5,18 +5,6 @@
         <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
         <item name="colorSecondary">@color/brand_accent</item>
         <item name="colorOnPrimary">@color/text_on_primary</item>
-
-        <!-- Material3 surface attributes (required for release AAPT) -->
-        <item name="colorSurface">@color/white</item>
-        <item name="colorSurfaceVariant">@color/white</item>
-        <item name="colorSurfaceContainer">@color/white</item>
-        <item name="colorSurfaceContainerHigh">@color/white</item>
-        <item name="colorSurfaceContainerHighest">@color/white</item>
-        <item name="colorSurfaceContainerLow">@color/white</item>
-        <item name="colorSurfaceContainerLowest">@color/white</item>
-        <item name="colorOnSurface">@color/black</item>
-        <item name="colorOnSurfaceVariant">@color/black</item>
-
         <item name="android:windowBackground">@color/surface_bg</item>
         <item name="android:statusBarColor">#FFFFFF</item>
         <item name="android:navigationBarColor">#FFFFFF</item>

@@ -23,7 +23,7 @@
         android:scaleType="centerCrop"
         android:contentDescription="Reel thumbnail"/>
 
-    <!-- Double tap like overlay -->
+    <!-- Double tap like animation -->
     <ImageView
         android:id="@+id/iv_like_anim"
         android:layout_width="100dp"
@@ -34,7 +34,10 @@
         android:alpha="0"
         android:contentDescription="Like animation"/>
 
-    <!-- Play / Pause center overlay — fades in/out on tap -->
+    <!-- ── Play / Pause center overlay ──
+         Shown briefly on tap (animated in/out by ReelPlayerFragment).
+         src is updated in Java to ic_play or ic_pause depending on state.
+    -->
     <ImageView
         android:id="@+id/iv_play_pause_indicator"
         android:layout_width="72dp"
@@ -46,8 +49,9 @@
         android:padding="14dp"
         android:contentDescription="Play/Pause indicator"/>
 
-    <!-- Top row: mute button -->
+    <!-- Top row: mute button — paddingTop absorbs status-bar height (set in code) -->
     <LinearLayout
+        android:id="@+id/top_controls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
@@ -65,7 +69,10 @@
             android:contentDescription="Mute"/>
     </LinearLayout>
 
-    <!-- Right action bar: Avatar · Like · Comment · Share · More -->
+    <!-- Right action bar: Avatar · Like · Comment · Share · More
+         paddingBottom is set in code to bottomNavHeight + navBarHeight so actions
+         stay above the bottom navigation bar on edge-to-edge screens.
+    -->
     <LinearLayout
         android:id="@+id/right_actions"
         android:layout_width="56dp"
@@ -76,20 +83,11 @@
         android:paddingBottom="80dp"
         android:paddingEnd="4dp">
 
-        <!-- Owner avatar with follow badge -->
+        <!-- Owner avatar -->
         <FrameLayout
             android:layout_width="48dp"
             android:layout_height="56dp"
             android:layout_marginBottom="16dp">
-
-            <!-- Story ring around owner avatar -->
-            <ImageView
-                android:id="@+id/iv_owner_story_ring"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:layout_gravity="top|center_horizontal"
-                android:background="@drawable/circle_status_unseen"
-                android:visibility="gone"/>
 
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_owner_avatar"
@@ -100,11 +98,17 @@
                 app:civ_border_width="2dp"
                 app:civ_border_color="@color/white"/>
 
-            <!--
-                CRITICAL: This is a TextView (NOT ImageButton).
-                Any field binding this view MUST use type View or TextView.
-                Using ImageButton causes ClassCastException → crash.
-            -->
+            <!-- Story ring around owner avatar -->
+            <ImageView
+                android:id="@+id/iv_owner_story_ring"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_gravity="top|center_horizontal"
+                android:background="@drawable/circle_status_unseen"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone"/>
+
             <TextView
                 android:id="@+id/btn_follow_overlay"
                 android:layout_width="18dp"
@@ -134,7 +138,14 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="12dp"/>
+            android:layout_marginBottom="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"/>
 
         <!-- Comment -->
         <ImageButton
@@ -170,8 +181,14 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="16dp"/>
-
+            android:layout_marginBottom="16dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"/>
 
         <!-- Repost -->
         <ImageButton
@@ -191,7 +208,7 @@
             android:gravity="center"
             android:layout_marginBottom="16dp"/>
 
-        <!-- 3-dot More — Repost / Save / Speed / Download / Report inside -->
+        <!-- 3-dot More -->
         <ImageButton
             android:id="@+id/btn_more"
             android:layout_width="44dp"
@@ -201,7 +218,9 @@
             android:contentDescription="More"/>
     </LinearLayout>
 
-    <!-- Bottom info strip -->
+    <!-- Bottom info strip
+         paddingBottom is set in code: bottomNavHeight + navBarHeight
+    -->
     <LinearLayout
         android:id="@+id/bottom_info"
         android:layout_width="match_parent"
@@ -210,9 +229,72 @@
         android:orientation="vertical"
         android:paddingStart="12dp"
         android:paddingEnd="72dp"
-        android:paddingBottom="18dp">
+        android:paddingBottom="22dp">
 
-        <!-- Owner name + inline follow button -->
+        <!-- ── Likers Avatar Row (Instagram-style) ──────────────────────────────
+             Shows up to 3 overlapping circular profile pics of recent likers.
+             Visibility=gone until at least 1 liker is loaded.
+             Tapping opens ReelLikesBottomSheet.
+        -->
+        <LinearLayout
+            android:id="@+id/ll_likers_avatar_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:visibility="gone">
+
+            <!-- Liker avatar 1 (front) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_1"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#000000"
+                android:visibility="gone"/>
+
+            <!-- Liker avatar 2 (slightly overlaps 1) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_2"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_marginStart="-8dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#000000"
+                android:visibility="gone"/>
+
+            <!-- Liker avatar 3 (slightly overlaps 2) -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_3"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_marginStart="-8dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#000000"
+                android:visibility="gone"/>
+
+            <!-- "X liked" label -->
+            <TextView
+                android:id="@+id/tv_likers_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="Liked by someone"
+                android:textColor="#DDFFFFFF"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
+
+        <!-- Owner name + follow button -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -254,7 +336,7 @@
             android:maxLines="3"
             android:ellipsize="end"/>
 
-        <!-- Hashtag chips row -->
+        <!-- Hashtag chips -->
         <HorizontalScrollView
             android:id="@+id/scroll_hashtags"
             android:layout_width="match_parent"
@@ -269,29 +351,50 @@
                 android:orientation="horizontal"/>
         </HorizontalScrollView>
 
-        <!-- Music name -->
+        <!-- Animated Music Ticker -->
         <LinearLayout
+            android:id="@+id/layout_music_ticker"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_music_ticker"
+            android:paddingStart="8dp"
+            android:paddingEnd="10dp"
+            android:layout_marginTop="8dp">
+
+            <ImageView
+                android:id="@+id/iv_music_disc"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_music_disc"
+                android:contentDescription="Music disc"/>
+
+            <TextView
+                android:id="@+id/tv_music_name"
+                android:layout_width="140dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="Original Audio"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:singleLine="true"
+                android:ellipsize="marquee"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:scrollHorizontally="true"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:selected="true"/>
+        </LinearLayout>
+
+        <!-- Live Reaction Counts -->
+        <LinearLayout
+            android:id="@+id/layout_live_reactions"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="6dp">
-            <ImageView
-                android:layout_width="14dp"
-                android:layout_height="14dp"
-                android:src="@drawable/ic_music_note"
-                android:contentDescription="Music"/>
-            <TextView
-                android:id="@+id/tv_music_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:text="Original Audio"
-                android:textColor="#CCFFFFFF"
-                android:textSize="12sp"
-                android:singleLine="true"
-                android:ellipsize="end"/>
-        </LinearLayout>
+            android:layout_marginTop="6dp"
+            android:visibility="gone"/>
 
         <!-- Views count -->
         <TextView
@@ -304,7 +407,7 @@
             android:textSize="11sp"/>
     </LinearLayout>
 
-    <!-- Video progress bar -->
+    <!-- Video progress bar — pinned to very bottom of video (0dp margin) -->
     <ProgressBar
         android:id="@+id/progress_video"
         style="@style/Widget.AppCompat.ProgressBar.Horizontal"
@@ -347,6 +450,109 @@
         <TextView android:id="@+id/react_laugh" android:layout_width="40dp" android:layout_height="40dp" android:text="😂" android:textSize="22sp" android:gravity="center"/>
         <TextView android:id="@+id/react_sad"   android:layout_width="40dp" android:layout_height="40dp" android:text="😢" android:textSize="22sp" android:gravity="center"/>
         <TextView android:id="@+id/react_clap"  android:layout_width="40dp" android:layout_height="40dp" android:text="👏" android:textSize="22sp" android:gravity="center"/>
+    </LinearLayout>
+
+
+    <!-- ── REPOST ATTRIBUTION BANNER v4.2.9 ─────────────────────────────────────
+         Shown at the top when viewing a reposted reel.
+         Java: ReelPlayerFragment binds tv_repost_attribution + ll_repost_attribution
+         visibility=gone by default; made VISIBLE only for reposted reels.
+    -->
+    <LinearLayout
+        android:id="@+id/ll_repost_attribution"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginTop="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#CC000000"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="&#x1F501;"
+            android:textSize="14sp"
+            android:layout_marginEnd="8dp"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_repost_attribution"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reposted from @creator"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/tv_repost_caption_preview"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#BBBBBB"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btn_view_original"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="View original"
+            android:textColor="#4CAF50"
+            android:textSize="12sp"
+            android:paddingStart="12dp"
+            android:fontFamily="sans-serif-medium"/>
+    </LinearLayout>
+
+    <!-- ── REPOST COUNT CHIP v4.2.9 ──────────────────────────────────────────────
+         Shows "🔁 N reposts" bottom-left for the reel owner.
+         Tapping opens ReelRepostListActivity to see who reposted.
+    -->
+    <LinearLayout
+        android:id="@+id/ll_repost_count_chip"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="96dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#CC1A1A1A"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="&#x1F501;"
+            android:textSize="13sp"
+            android:layout_marginEnd="4dp"/>
+
+        <TextView
+            android:id="@+id/tv_repost_count_chip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0 reposts"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"/>
     </LinearLayout>
 
 </FrameLayout>
