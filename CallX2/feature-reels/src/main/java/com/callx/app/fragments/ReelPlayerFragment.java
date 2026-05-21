@@ -487,14 +487,12 @@ public class ReelPlayerFragment extends Fragment {
 
         // Remove any previous listener
         if (likersListener != null) {
-            FirebaseUtils.getReelsRef()
-                .child(reel.reelId).child("likes")
+            FirebaseUtils.getReelLikesRef(reel.reelId)
                 .removeEventListener(likersListener);
             likersListener = null;
         }
 
-        DatabaseReference likesRef = FirebaseUtils.getReelsRef()
-            .child(reel.reelId).child("likes");
+        DatabaseReference likesRef = FirebaseUtils.getReelLikesRef(reel.reelId);
 
         likersListener = new ValueEventListener() {
             @Override
@@ -1541,8 +1539,8 @@ public class ReelPlayerFragment extends Fragment {
                 .removeEventListener(repostListener);
 
         // Remove likers avatar listener
-        if (likersListener != null)
-            FirebaseUtils.getReelsRef().child(reel.reelId).child("likes")
+        if (likersListener != null && reel != null && reel.reelId != null)
+            FirebaseUtils.getReelLikesRef(reel.reelId)
                 .removeEventListener(likersListener);
         likersListener = null;
     }
