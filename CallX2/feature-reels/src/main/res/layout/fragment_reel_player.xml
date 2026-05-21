@@ -383,8 +383,7 @@
                 android:marqueeRepeatLimit="marquee_forever"
                 android:scrollHorizontally="true"
                 android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:selected="true"/>
+                android:focusableInTouchMode="true"/>
         </LinearLayout>
 
         <!-- Live Reaction Counts -->
