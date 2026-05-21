@@ -24,7 +24,7 @@
     <color name="chat_time_color">#FFFFFF</color>
     <color name="text_on_primary">#FFFFFF</color>
 
-    <!-- Bubbles — Option 1: Teal Sent + Brand Purple Received -->
+    <!-- Bubbles — Hybrid: Magenta-Orange Sent + Gold-Green Received -->
     <color name="bubble_sent">#FF0080</color>
     <color name="bubble_sent_end">#FF6B00</color>
     <color name="bubble_sent_text">#FFFFFF</color>
