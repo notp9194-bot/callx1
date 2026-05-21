@@ -124,7 +124,9 @@ public class ReelPlayerFragment extends Fragment {
     // ── Floating Liker Avatars ─────────────────────────────────────────────
     private android.widget.FrameLayout llLikersAvatarRow;
     private CircleImageView ivLiker1, ivLiker2, ivLiker3;
-    private TextView        tvHeart1, tvHeart3;
+    private TextView        tvHeart1, tvHeart2, tvHeart3;
+    private View            flLiker1, flLiker2, flLiker3;
+    private String[]        likerUidCache = new String[3]; // for click → UserReelsActivity
     private ValueEventListener likersListener;
     private ObjectAnimator  floatAnim1, floatAnim2, floatAnim3;
 
@@ -314,7 +316,11 @@ public class ReelPlayerFragment extends Fragment {
         ivLiker2          = v.findViewById(R.id.iv_liker_2);
         ivLiker3          = v.findViewById(R.id.iv_liker_3);
         tvHeart1          = v.findViewById(R.id.tv_heart_1);
+        tvHeart2          = v.findViewById(R.id.tv_heart_2);
         tvHeart3          = v.findViewById(R.id.tv_heart_3);
+        flLiker1          = v.findViewById(R.id.fl_liker_1);
+        flLiker2          = v.findViewById(R.id.fl_liker_2);
+        flLiker3          = v.findViewById(R.id.fl_liker_3);
 
         // FIXED: View, not ImageButton
         btnFollowOverlay  = v.findViewById(R.id.btn_follow_overlay);
@@ -525,6 +531,12 @@ public class ReelPlayerFragment extends Fragment {
                     if (av != null) av.setVisibility(View.GONE);
                 }
 
+                // Cache UIDs for click handlers
+                likerUidCache = new String[3];
+                for (int i = 0; i < likerUids.size(); i++) {
+                    likerUidCache[i] = likerUids.get(i);
+                }
+
                 // Fetch each liker's thumbUrl and load into floating avatar views
                 for (int i = 0; i < likerUids.size(); i++) {
                     final CircleImageView targetView = avatarViews[i];
@@ -546,18 +558,22 @@ public class ReelPlayerFragment extends Fragment {
                             } else {
                                 targetView.setImageResource(R.drawable.ic_person);
                             }
-                            // Start float animation once last loaded avatar is visible
                             if (isLast) startLikerFloatAnimations();
                         });
                 }
 
-                // Show heart emojis (only when 2+ likers)
+                // Show hearts on all visible avatars
                 if (tvHeart1 != null) tvHeart1.setVisibility(likerUids.size() >= 1 ? View.VISIBLE : View.GONE);
+                if (tvHeart2 != null) tvHeart2.setVisibility(likerUids.size() >= 2 ? View.VISIBLE : View.GONE);
                 if (tvHeart3 != null) tvHeart3.setVisibility(likerUids.size() >= 3 ? View.VISIBLE : View.GONE);
 
-                // Tap container → open likes sheet
-                if (llLikersAvatarRow != null) {
-                    llLikersAvatarRow.setOnClickListener(v -> openLikesSheet());
+                // Per-avatar click → open that liker's UserReelsActivity
+                View[] flViews = {flLiker1, flLiker2, flLiker3};
+                for (int i = 0; i < flViews.length; i++) {
+                    final int idx = i;
+                    if (flViews[i] != null) {
+                        flViews[i].setOnClickListener(v -> openLikerProfile(idx));
+                    }
                 }
             }
 
@@ -611,6 +627,28 @@ public class ReelPlayerFragment extends Fragment {
             floatAnim3.setStartDelay(600);
             floatAnim3.start();
         }
+    }
+
+    /**
+     * Opens UserReelsActivity for the liker at the given index (0,1,2).
+     * Fetches name + photo from Firebase before launching.
+     */
+    private void openLikerProfile(int idx) {
+        if (!isAdded() || getContext() == null) return;
+        if (likerUidCache == null || idx >= likerUidCache.length || likerUidCache[idx] == null) return;
+        String uid = likerUidCache[idx];
+        FirebaseUtils.getUserRef(uid).get().addOnSuccessListener(ds -> {
+            if (!isAdded() || getContext() == null) return;
+            String name  = ds.child("name").getValue(String.class);
+            String photo = ds.child("thumbUrl").getValue(String.class);
+            if (name == null) name = "";
+            if (photo == null) photo = "";
+            Intent intent = new Intent(getActivity(), UserReelsActivity.class);
+            intent.putExtra(UserReelsActivity.EXTRA_UID,   uid);
+            intent.putExtra(UserReelsActivity.EXTRA_NAME,  name);
+            intent.putExtra(UserReelsActivity.EXTRA_PHOTO, photo);
+            startActivity(intent);
+        });
     }
 
     // ── Click listeners ───────────────────────────────────────────────────
