@@ -95,7 +95,7 @@ public class ReelPlayerFragment extends Fragment {
     private ImageView       ivPlayPauseIndicator;
     private CircleImageView ivOwnerAvatar;
     private ImageView       ivOwnerStoryRing;
-    private TextView        tvOwnerName, tvCaption, tvMusicName, tvViews;
+    private TextView        tvOwnerName, tvCaption, tvMusicName;
     private TextView        tvLikesCount, tvCommentsCount, tvSharesCount;
     private TextView        tvFollowBtn;
     private ImageButton     btnLike, btnComment, btnShare, btnSave, btnMute, btnMore, btnDownload;
@@ -304,7 +304,6 @@ public class ReelPlayerFragment extends Fragment {
         tvOwnerName       = v.findViewById(R.id.tv_owner_name);
         tvCaption         = v.findViewById(R.id.tv_caption);
         tvMusicName       = v.findViewById(R.id.tv_music_name);
-        tvViews           = v.findViewById(R.id.tv_views);
         tvLikesCount      = v.findViewById(R.id.tv_likes_count);
         tvCommentsCount   = v.findViewById(R.id.tv_comments_count);
         tvSharesCount     = v.findViewById(R.id.tv_shares_count);
@@ -382,7 +381,6 @@ public class ReelPlayerFragment extends Fragment {
         tvLikesCount.setText(formatCount(reel.likesCount));
         tvCommentsCount.setText(formatCount(reel.commentsCount));
         tvSharesCount.setText(formatCount(reel.sharesCount));
-        tvViews.setText(formatCount(reel.viewsCount) + " views");
 
         // FIX #5: initial repost count
         if (tvRepostCount != null)
@@ -1583,7 +1581,6 @@ public class ReelPlayerFragment extends Fragment {
                 if (likes    != null) tvLikesCount.setText(formatCount(likes.intValue()));
                 if (comments != null) tvCommentsCount.setText(formatCount(comments.intValue()));
                 if (shares   != null) tvSharesCount.setText(formatCount(shares.intValue()));
-                if (views    != null) tvViews.setText(formatCount(views.intValue()) + " views");
                 if (reposts  != null && tvRepostCount != null)
                     tvRepostCount.setText(formatCount(reposts.intValue()));
             }
