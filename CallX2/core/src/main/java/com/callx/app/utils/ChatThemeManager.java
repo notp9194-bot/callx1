@@ -163,30 +163,63 @@ public class ChatThemeManager {
     }
 
     /**
-     * Returns the chat list background colour for this theme.
+     * Returns true if the system is currently in dark mode.
      */
-    public int getChatBgColor() {
-        switch (currentTheme) {
-            case THEME_OCEAN:     return 0xFFE0F2FE;
-            case THEME_FOREST:   return 0xFFDCFCE7;
-            case THEME_SUNSET:   return 0xFFFFF7ED;
-            case THEME_LAVENDER: return 0xFFF5F3FF;
-            case THEME_MIDNIGHT: return 0xFF0F172A;
-            case THEME_CLASSIC:  return 0xFFECE5DD;
-            case THEME_MONO:     return 0xFFF3F4F6;
-            case THEME_HYBRID:
-            default:             return 0xFFECEEF5;
+    private boolean isDarkMode(android.content.Context ctx) {
+        int flags = ctx.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return flags == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /**
+     * Returns the chat list background colour for this theme, dark-mode aware.
+     */
+    public int getChatBgColor(android.content.Context ctx) {
+        boolean dark = isDarkMode(ctx);
+        if (dark) {
+            switch (currentTheme) {
+                case THEME_OCEAN:     return 0xFF0C1A2E;
+                case THEME_FOREST:   return 0xFF0A1A0F;
+                case THEME_SUNSET:   return 0xFF1A0D00;
+                case THEME_LAVENDER: return 0xFF130A1F;
+                case THEME_MIDNIGHT: return 0xFF050A12;
+                case THEME_CLASSIC:  return 0xFF0A0A0A;
+                case THEME_MONO:     return 0xFF111111;
+                case THEME_HYBRID:
+                default:             return 0xFF0A0A0A;
+            }
+        } else {
+            switch (currentTheme) {
+                case THEME_OCEAN:     return 0xFFE0F2FE;
+                case THEME_FOREST:   return 0xFFDCFCE7;
+                case THEME_SUNSET:   return 0xFFFFF7ED;
+                case THEME_LAVENDER: return 0xFFF5F3FF;
+                case THEME_MIDNIGHT: return 0xFF0F172A;
+                case THEME_CLASSIC:  return 0xFFECE5DD;
+                case THEME_MONO:     return 0xFFF3F4F6;
+                case THEME_HYBRID:
+                default:             return 0xFFECEEF5;
+            }
         }
     }
 
     /**
-     * Returns the input bar background colour for this theme.
+     * Returns the input bar background colour for this theme, dark-mode aware.
      */
-    public int getInputBarColor() {
-        switch (currentTheme) {
-            case THEME_MIDNIGHT: return 0xFF1E293B;
-            case THEME_MONO:     return 0xFFE5E7EB;
-            default:             return 0xFFFFFFFF;
+    public int getInputBarColor(android.content.Context ctx) {
+        boolean dark = isDarkMode(ctx);
+        if (dark) {
+            switch (currentTheme) {
+                case THEME_MIDNIGHT: return 0xFF050A12;
+                case THEME_MONO:     return 0xFF1A1A1A;
+                default:             return 0xFF111111;
+            }
+        } else {
+            switch (currentTheme) {
+                case THEME_MIDNIGHT: return 0xFF1E293B;
+                case THEME_MONO:     return 0xFFE5E7EB;
+                default:             return 0xFFFFFFFF;
+            }
         }
     }
 
@@ -223,11 +256,12 @@ public class ChatThemeManager {
                         new int[]{primary, secondary});
         toolbar.setBackground(toolbarGd);
 
-        // ── Chat background ───────────────────────────────────────────────
-        if (chatRoot != null) chatRoot.setBackgroundColor(getChatBgColor());
+        // ── Chat background (dark-mode aware) ───────────────────────────
+        android.content.Context ctx = toolbar.getContext();
+        if (chatRoot != null) chatRoot.setBackgroundColor(getChatBgColor(ctx));
 
-        // ── Input bar background ──────────────────────────────────────────
-        if (inputBarRoot != null) inputBarRoot.setBackgroundColor(getInputBarColor());
+        // ── Input bar background (dark-mode aware) ────────────────────────
+        if (inputBarRoot != null) inputBarRoot.setBackgroundColor(getInputBarColor(ctx));
 
         // ── Send button ───────────────────────────────────────────────────
         if (btnSend != null) {
