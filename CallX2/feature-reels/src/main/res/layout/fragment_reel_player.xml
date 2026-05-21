@@ -350,21 +350,27 @@
          visibility=gone until at least 1 liker loads.
          Tapping opens ReelLikesBottomSheet.
     -->
+    <!-- outer wrapper: extra padding so float animation + hearts never clip -->
     <FrameLayout
         android:id="@+id/ll_likers_avatar_row"
-        android:layout_width="160dp"
-        android:layout_height="90dp"
+        android:layout_width="180dp"
+        android:layout_height="120dp"
         android:layout_gravity="bottom|start"
-        android:layout_marginStart="12dp"
+        android:layout_marginStart="8dp"
         android:layout_marginBottom="120dp"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:paddingTop="16dp"
         android:visibility="gone">
 
         <!-- Liker avatar 1 — left, bottom -->
         <FrameLayout
             android:id="@+id/fl_liker_1"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:layout_gravity="bottom|start"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless">
@@ -373,6 +379,7 @@
                 android:id="@+id/iv_liker_1"
                 android:layout_width="42dp"
                 android:layout_height="42dp"
+                android:layout_gravity="top|start"
                 android:src="@drawable/ic_person"
                 app:civ_border_width="1.5dp"
                 app:civ_border_color="#FFFFFF"
@@ -384,10 +391,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom|end"
-                android:layout_marginEnd="-4dp"
-                android:layout_marginBottom="-4dp"
                 android:text="&#x2764;&#xFE0F;"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 android:elevation="4dp"
                 android:visibility="gone"/>
         </FrameLayout>
@@ -395,9 +400,11 @@
         <!-- Liker avatar 2 — center, top -->
         <FrameLayout
             android:id="@+id/fl_liker_2"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="58dp"
+            android:layout_height="58dp"
             android:layout_gravity="top|center_horizontal"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless">
@@ -406,6 +413,7 @@
                 android:id="@+id/iv_liker_2"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
+                android:layout_gravity="top|start"
                 android:src="@drawable/ic_person"
                 app:civ_border_width="1.5dp"
                 app:civ_border_color="#FFFFFF"
@@ -417,10 +425,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom|end"
-                android:layout_marginEnd="-4dp"
-                android:layout_marginBottom="-4dp"
                 android:text="&#x2764;&#xFE0F;"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 android:elevation="4dp"
                 android:visibility="gone"/>
         </FrameLayout>
@@ -428,9 +434,11 @@
         <!-- Liker avatar 3 — right, bottom -->
         <FrameLayout
             android:id="@+id/fl_liker_3"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:layout_gravity="bottom|end"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless">
@@ -439,6 +447,7 @@
                 android:id="@+id/iv_liker_3"
                 android:layout_width="42dp"
                 android:layout_height="42dp"
+                android:layout_gravity="top|start"
                 android:src="@drawable/ic_person"
                 app:civ_border_width="1.5dp"
                 app:civ_border_color="#FFFFFF"
@@ -450,10 +459,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom|end"
-                android:layout_marginEnd="-4dp"
-                android:layout_marginBottom="-4dp"
                 android:text="&#x2764;&#xFE0F;"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 android:elevation="4dp"
                 android:visibility="gone"/>
         </FrameLayout>

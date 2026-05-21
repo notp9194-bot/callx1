@@ -598,7 +598,7 @@ public class ReelPlayerFragment extends Fragment {
         if (floatAnim2 != null) floatAnim2.cancel();
         if (floatAnim3 != null) floatAnim3.cancel();
 
-        float amplitude = dpToPx(6); // float up/down by 6dp
+        float amplitude = dpToPx(5); // float up/down by 5dp (container has 16dp top padding buffer)
 
         if (ivLiker1 != null && ivLiker1.getVisibility() == View.VISIBLE) {
             floatAnim1 = ObjectAnimator.ofFloat(ivLiker1, "translationY", 0f, -amplitude, 0f);
