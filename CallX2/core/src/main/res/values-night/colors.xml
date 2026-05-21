@@ -26,11 +26,11 @@
     <color name="text_on_primary">#FFFFFF</color>
 
     <!-- Bubbles — Option 1: Teal Sent + Brand Purple Received -->
-    <color name="bubble_sent">#00BFA5</color>
-    <color name="bubble_sent_end">#1DE9B6</color>
+    <color name="bubble_sent">#a855f7</color>
+    <color name="bubble_sent_end">#ec4899</color>
     <color name="bubble_sent_text">#FFFFFF</color>
-    <color name="bubble_received">#5B5BF6</color>
-    <color name="bubble_received_end">#7F4FFB</color>
+    <color name="bubble_received">#10b981</color>
+    <color name="bubble_received_end">#84cc16</color>
     <color name="bubble_received_text">#FFFFFF</color>
 
     <!-- Status / actions -->
