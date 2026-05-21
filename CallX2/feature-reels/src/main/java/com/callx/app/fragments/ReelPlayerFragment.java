@@ -282,14 +282,13 @@ public class ReelPlayerFragment extends Fragment {
                 return insets;
             });
         }
-        // bottom_info: same treatment — paddingBottom = 22dp base + navBarHeight
+        // bottom_info: paddingBottom = navBarHeight only — strip sits at very bottom of screen
         View bottomInfo = v.findViewById(R.id.bottom_info);
         if (bottomInfo != null) {
             ViewCompat.setOnApplyWindowInsetsListener(bottomInfo, (view, insets) -> {
                 int navBarHeight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-                int basePx = (int)(22 * view.getResources().getDisplayMetrics().density);
                 view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
-                    view.getPaddingRight(), basePx + navBarHeight);
+                    view.getPaddingRight(), navBarHeight);
                 return insets;
             });
         }

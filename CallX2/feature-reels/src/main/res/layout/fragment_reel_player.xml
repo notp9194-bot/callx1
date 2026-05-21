@@ -180,7 +180,7 @@
     </LinearLayout>
 
     <!-- Bottom info strip
-         paddingBottom is set in code: bottomNavHeight + navBarHeight
+         paddingBottom is set in code: navBarHeight only — strip sits at very bottom
     -->
     <LinearLayout
         android:id="@+id/bottom_info"
@@ -190,7 +190,7 @@
         android:orientation="vertical"
         android:paddingStart="12dp"
         android:paddingEnd="72dp"
-        android:paddingBottom="22dp">
+        android:paddingBottom="0dp">
 
         <!-- ── Likers Avatar Row (Instagram-style) ──────────────────────────────
              Shows up to 3 overlapping circular profile pics of recent likers.
