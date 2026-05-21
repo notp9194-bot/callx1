@@ -275,8 +275,8 @@ public class ReelPlayerFragment extends Fragment {
         if (rightActions != null) {
             ViewCompat.setOnApplyWindowInsetsListener(rightActions, (view, insets) -> {
                 int navBarHeight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-                // base 80dp bottom padding + navBarHeight
-                int basePx = (int)(80 * view.getResources().getDisplayMetrics().density);
+                // base 8dp bottom padding + navBarHeight
+                int basePx = (int)(8 * view.getResources().getDisplayMetrics().density);
                 view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
                     view.getPaddingRight(), basePx + navBarHeight);
                 return insets;

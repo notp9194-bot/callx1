@@ -80,7 +80,7 @@
         android:layout_gravity="end|bottom"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:paddingBottom="80dp"
+        android:paddingBottom="8dp"
         android:paddingEnd="4dp">
 
         <!-- Like -->
