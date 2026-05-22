@@ -1,46 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Night theme inherits from day theme — all transitions same -->
     <style name="Theme.CallX" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
         <item name="colorSecondary">@color/brand_accent</item>
         <item name="colorOnPrimary">@color/text_on_primary</item>
-
-        <!-- True Dark palette -->
         <item name="android:windowBackground">@color/surface_bg</item>
-        <item name="colorSurface">@color/surface_bg</item>
-        <item name="colorSurfaceVariant">@color/surface_card</item>
-        <item name="colorSurfaceContainer">@color/surface_card</item>
-        <item name="colorSurfaceContainerHigh">@color/surface_input</item>
-        <item name="colorSurfaceContainerHighest">@color/surface_input</item>
-        <item name="colorSurfaceContainerLow">@color/surface_bg</item>
-        <item name="colorSurfaceContainerLowest">@color/surface_bg</item>
-        <item name="android:colorBackground">@color/surface_bg</item>
-        <item name="colorOnSurface">@color/text_primary</item>
-        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
-
-        <!-- Status bar / nav bar -->
-        <item name="android:statusBarColor">@color/surface_bg</item>
-        <item name="android:navigationBarColor">@color/surface_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
         <item name="android:windowLightStatusBar">false</item>
-        <!-- Global slide transition — dark mode mein bhi same WhatsApp feel -->
         <item name="android:windowAnimationStyle">@style/ActivitySlideTransition</item>
-    </style>
-
-    <style name="Theme.CallX.Fullscreen" parent="Theme.CallX">
-        <item name="android:windowFullscreen">true</item>
-        <item name="android:windowBackground">@color/black</item>
-        <item name="android:statusBarColor">@color/black</item>
-        <item name="android:navigationBarColor">@color/black</item>
-    </style>
-
-    <style name="Theme.CallX.NoActionBar" parent="Theme.CallX" />
-
-    <style name="Theme.CallX.Transparent" parent="Theme.CallX">
-        <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:backgroundDimEnabled">true</item>
-        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
     </style>
 </resources>

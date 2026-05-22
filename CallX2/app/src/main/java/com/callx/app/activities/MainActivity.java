@@ -92,14 +92,20 @@ public class MainActivity extends AppCompatActivity {
 
         setSupportActionBar(binding.toolbar);
 
-        binding.btnSearchToolbar.setOnClickListener(v ->
-            startActivity(new Intent(this, SearchActivity.class)));
+        binding.btnSearchToolbar.setOnClickListener(v -> {
+            startActivity(new Intent(this, SearchActivity.class));
+            overridePendingTransition(0, 0); // Tab switch — instant 0ms
+        });
 
-        binding.btnNotificationsToolbar.setOnClickListener(v ->
-            startActivity(new Intent(this, AllNotificationsActivity.class)));
+        binding.btnNotificationsToolbar.setOnClickListener(v -> {
+            startActivity(new Intent(this, AllNotificationsActivity.class));
+            overridePendingTransition(0, 0); // Tab switch — instant 0ms
+        });
 
-        binding.ivAvatarMenu.setOnClickListener(v ->
-            startActivity(new Intent(this, AccountMenuActivity.class)));
+        binding.ivAvatarMenu.setOnClickListener(v -> {
+            startActivity(new Intent(this, AccountMenuActivity.class));
+            overridePendingTransition(0, 0); // Tab switch — instant 0ms
+        });
 
         binding.viewPager.setAdapter(new ViewPagerAdapter(this));
         // Instagram/WhatsApp style — tabs pre-load karo, swipe smooth rahe
