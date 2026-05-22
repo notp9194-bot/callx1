@@ -36,16 +36,7 @@ public class MessageEntity {
     public Long   fileSize;
     public Long   duration;
     public Long   timestamp;
-    public String status;         // sent | delivered | seen
-
-    // ── Read receipt timestamps ────────────────────────────────────────────
-    /** Epoch ms when message was sent */
-    public Long sentAt;
-    /** Epoch ms when message was delivered to receiver's device */
-    public Long deliveredAt;
-    /** Epoch ms when receiver read the message */
-    public Long seenAt;
-
+    public String status;         // sent | delivered | read
     public String replyToId;
     public String replyToText;
     public String replyToSenderName;
@@ -61,6 +52,7 @@ public class MessageEntity {
 
     /** Last delta sync timestamp — used for incremental sync. */
     public long syncedAt;
+
 
     /** Reel ID — for reel_seen bubble; used to open reel on tap. */
     public String reelId;

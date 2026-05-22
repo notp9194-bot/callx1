@@ -710,8 +710,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 .setSemanticAction(
                     NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
                 .build();
-        // Action: Mark as read — msgId postRichNotification scope mein nahi hai
-        // NotificationActionReceiver chatId se latest unread message fetch karega
+        // Action: Mark as read
         PendingIntent markReadPi = PendingIntent.getBroadcast(this, notifId * 10 + 1,
             buildActionIntent(Constants.ACTION_MARK_READ, fromUid, fromName,
                 fromPhoto, chatId, notifId),
@@ -839,22 +838,13 @@ public class CallxMessagingService extends FirebaseMessagingService {
     }
     private Intent buildActionIntent(String action, String fromUid, String fromName,
                                      String fromPhoto, String chatId, int notifId) {
-        return buildActionIntentWithMsg(action, fromUid, fromName, fromPhoto, chatId, notifId, null);
-    }
-
-    private Intent buildActionIntentWithMsg(String action, String fromUid, String fromName,
-                                            String fromPhoto, String chatId, int notifId,
-                                            String msgId) {
-        Intent i = new Intent(this, NotificationActionReceiver.class)
+        return new Intent(this, NotificationActionReceiver.class)
             .setAction(action)
             .putExtra(Constants.EXTRA_CHAT_ID,       chatId   == null ? "" : chatId)
             .putExtra(Constants.EXTRA_PARTNER_UID,   fromUid)
             .putExtra(Constants.EXTRA_PARTNER_NAME,  fromName)
             .putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto == null ? "" : fromPhoto)
             .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
-        if (msgId != null && !msgId.isEmpty())
-            i.putExtra(Constants.EXTRA_MSG_ID, msgId);
-        return i;
     }
     // ----- Feature 2/3: "Unblock {sender}" prompt notification -----
     private void showBlockedSenderNotification(final String fromUid,
@@ -1638,25 +1628,14 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 entity.mediaUrl   = (mediaUrl != null && !mediaUrl.isEmpty()) ? mediaUrl : null;
                 entity.fileName   = fileName;
                 entity.timestamp  = System.currentTimeMillis();
-                long nowMs        = System.currentTimeMillis();
                 entity.status     = "delivered";
-                entity.sentAt     = entity.timestamp;  // FCM receive time ~ sent time
-                entity.deliveredAt = nowMs;             // App received FCM = delivered
                 entity.deleted    = false;
                 entity.starred    = false;
                 entity.isGroup    = isGroup;
-                entity.syncedAt   = nowMs;
+                entity.syncedAt   = System.currentTimeMillis();
 
                 AppDatabase.getInstance(getApplicationContext())
                     .messageDao().insertMessage(entity);
-
-                // ── PRODUCTION: MessageDeliveryManager — FCM receive = delivered ──
-                // App ne FCM receive kiya chahe background ho ya killed
-                // DeliveryManager status check karke atomic write karega
-                if (chatId != null && !chatId.isEmpty() && msgId != null && !msgId.isEmpty()) {
-                    com.callx.app.delivery.MessageDeliveryManager.get()
-                        .markDeliveredFromFCM(getApplicationContext(), chatId, msgId);
-                }
 
                 // OFFLINE FIX: Media pre-cache — image/audio FCM se aaye to
                 // background mein download karo taaki offline mein bhi dikhe

@@ -28,10 +28,10 @@ import java.util.Locale;
  * via Pager3 + PagingSource. Supports sent/received layout types, text,
  * image, audio, file, and video message rendering identical to MessageAdapter.
  *
- * v22 changes:
- *   - Tick colour logic: single grey ✓ = sent, grey ✓✓ = delivered, BLUE ✓✓ = seen
- *   - onInfo() callback added to ActionListener
- *   - Message Info bottom sheet opens MessageInfoActivity with timestamps
+ * Usage in ChatActivity:
+ *   MessagePagingAdapter pagingAdapter = new MessagePagingAdapter(uid, false);
+ *   binding.rvMessages.setAdapter(pagingAdapter);
+ *   viewModel.getPagedMessages(chatId).observe(this, pagingAdapter::submitData);
  */
 public class MessagePagingAdapter
         extends PagingDataAdapter<Message, MessagePagingAdapter.VH> {
@@ -68,11 +68,6 @@ public class MessagePagingAdapter
     private static final int TYPE_STATUS_SEEN = 3;
     private static final int TYPE_REEL_SEEN   = 4;
 
-    // ── Tick colours ──────────────────────────────────────────────
-    private static final int COLOUR_TICK_SEEN      = 0xFF2196F3; // blue  — seen ✓✓
-    private static final int COLOUR_TICK_GREY      = 0xFF9E9E9E; // grey  — sent ✓ / delivered ✓✓
-    private static final int COLOUR_TICK_WHITE     = 0xCCFFFFFF; // white — sent inside dark bubble
-
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
     private final boolean isGroup;
@@ -92,8 +87,6 @@ public class MessagePagingAdapter
         void onStar(Message m);
         void onCopy(Message m);
         void onForward(Message m);
-        /** Called when user taps "Info" on their own sent message */
-        void onInfo(Message m);
     }
 
     public MessagePagingAdapter(String currentUid, boolean isGroup) {
@@ -132,33 +125,55 @@ public class MessagePagingAdapter
     public void onBindViewHolder(@NonNull VH h, int position) {
         Message m = getItem(position);
         if (m == null) {
+            // Placeholder — show shimmer or empty
             if (h.tvMessage != null) h.tvMessage.setVisibility(View.GONE);
             return;
         }
-        if ("status_seen".equals(m.type)) { bindStatusSeenBubble(h, m); return; }
-        if ("reel_seen".equals(m.type))   { bindReelSeenBubble(h, m);   return; }
+        // ── STATUS SEEN BUBBLE — special system event row ─────────────────
+        if ("status_seen".equals(m.type)) {
+            bindStatusSeenBubble(h, m);
+            return;
+        }
+        // ── REEL SEEN BUBBLE — special system event row ───────────────────
+        if ("reel_seen".equals(m.type)) {
+            bindReelSeenBubble(h, m);
+            return;
+        }
         bindMessage(h, m, position);
     }
 
     // ──────────────────────────────────────────────────────────────
-    // STATUS SEEN BUBBLE
+    // STATUS SEEN BUBBLE — "👁 Seen your status" system event row.
+    // Layout: item_status_seen_bubble.xml
+    //   • iv_status_seen_avatar  → circular avatar (Glide)
+    //   • fl_status_seen_thumb   → thumbnail container (visible for image/video statuses)
+    //   • iv_status_seen_thumb   → status thumbnail (tappable → StatusViewerActivity)
+    //   • iv_status_seen_eye     → eye overlay icon on thumbnail
+    //   • tv_status_seen_label   → "Seen your status" (set in XML)
+    //   • tv_status_seen_name    → sender name (group only)
+    //   • tv_status_seen_time    → formatted timestamp
+    // No long-press / reactions / reply — it's a system event.
     // ──────────────────────────────────────────────────────────────
     private void bindStatusSeenBubble(@NonNull VH h, @NonNull Message m) {
         Context ctx = h.itemView.getContext();
 
+        // Avatar
         de.hdodenhof.circleimageview.CircleImageView ivAvatar =
             h.itemView.findViewById(R.id.iv_status_seen_avatar);
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
-                Glide.with(ctx).load(photo)
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(photo)
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person).into(ivAvatar);
+                    .placeholder(R.drawable.ic_person)
+                    .into(ivAvatar);
             } else {
                 ivAvatar.setImageResource(R.drawable.ic_person);
             }
         }
 
+        // Status thumbnail
         android.view.View flThumb = h.itemView.findViewById(R.id.fl_status_seen_thumb);
         android.widget.ImageView ivThumb = h.itemView.findViewById(R.id.iv_status_seen_thumb);
         android.widget.ImageView ivEye   = h.itemView.findViewById(R.id.iv_status_seen_eye);
@@ -167,19 +182,23 @@ public class MessagePagingAdapter
             if (!thumb.isEmpty()) {
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
-                Glide.with(ctx).load(thumb).centerCrop()
-                    .placeholder(R.drawable.bg_skeleton_rect).into(ivThumb);
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(thumb)
+                    .centerCrop()
+                    .placeholder(R.drawable.bg_skeleton_rect)
+                    .into(ivThumb);
             } else {
                 flThumb.setVisibility(View.GONE);
                 if (ivEye != null) ivEye.setVisibility(View.GONE);
             }
         }
 
+        // Click on whole bubble or thumbnail → open StatusViewerActivity
         final String ownerUid  = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
                                  ? m.statusOwnerUid : m.senderId;
         final String ownerName = m.statusOwnerName != null ? m.statusOwnerName
                                  : (m.senderName != null ? m.senderName : "");
-        View.OnClickListener openStatus = v -> {
+        android.view.View.OnClickListener openStatus = v -> {
             if (ownerUid == null || ownerUid.isEmpty()) return;
             android.content.Intent intent = new android.content.Intent(
                     com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
@@ -188,13 +207,16 @@ public class MessagePagingAdapter
             intent.setPackage(ctx.getPackageName());
             try { ctx.startActivity(intent); }
             catch (android.content.ActivityNotFoundException e) {
-                Toast.makeText(ctx, "Status viewer not available", Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(ctx, "Status viewer not available",
+                        android.widget.Toast.LENGTH_SHORT).show();
             }
         };
         h.itemView.setOnClickListener(openStatus);
         if (flThumb != null) flThumb.setOnClickListener(openStatus);
 
-        android.widget.TextView tvName = h.itemView.findViewById(R.id.tv_status_seen_name);
+        // Sender name (shown in group chat only)
+        android.widget.TextView tvName =
+            h.itemView.findViewById(R.id.tv_status_seen_name);
         if (tvName != null) {
             if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
                 tvName.setText(m.senderName);
@@ -204,33 +226,48 @@ public class MessagePagingAdapter
             }
         }
 
-        android.widget.TextView tvTime = h.itemView.findViewById(R.id.tv_status_seen_time);
+        // Time
+        android.widget.TextView tvTime =
+            h.itemView.findViewById(R.id.tv_status_seen_time);
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
             tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
     }
 
     // ──────────────────────────────────────────────────────────────
-    // REEL SEEN BUBBLE
+    // REEL SEEN BUBBLE — "🎬 Watched your reel" system event row.
+    // Layout: item_reel_seen_bubble.xml
+    //   • iv_reel_seen_avatar   → circular avatar (Glide)
+    //   • fl_reel_seen_thumb    → FrameLayout container (tappable → opens reel)
+    //   • iv_reel_seen_thumb    → reel thumbnail
+    //   • iv_reel_seen_play     → play icon overlay on thumbnail
+    //   • tv_reel_seen_label    → "Watched your reel" (set in XML)
+    //   • tv_reel_seen_name     → sender name (group only)
+    //   • tv_reel_seen_time     → formatted timestamp
+    // No long-press / reactions / reply — system event.
     // ──────────────────────────────────────────────────────────────
     private void bindReelSeenBubble(@NonNull VH h, @NonNull Message m) {
         Context ctx = h.itemView.getContext();
 
+        // Avatar
         de.hdodenhof.circleimageview.CircleImageView ivAvatar =
             h.itemView.findViewById(R.id.iv_reel_seen_avatar);
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
-                Glide.with(ctx).load(photo)
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(photo)
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person).into(ivAvatar);
+                    .placeholder(R.drawable.ic_person)
+                    .into(ivAvatar);
             } else {
                 ivAvatar.setImageResource(R.drawable.ic_person);
             }
         }
 
+        // Click handler — reelId se reel kholo (thumb ho ya na ho, always kaam kare)
         final String reelId = m.reelId;
-        View.OnClickListener openReel = v -> {
+        android.view.View.OnClickListener openReel = v -> {
             if (reelId == null || reelId.isEmpty()) return;
             android.content.Intent intent = new android.content.Intent(
                     com.callx.app.utils.Constants.ACTION_OPEN_REEL);
@@ -239,43 +276,52 @@ public class MessagePagingAdapter
             ctx.startActivity(intent);
         };
 
+        // Reel thumbnail + play icon
         android.view.View flThumb = h.itemView.findViewById(R.id.fl_reel_seen_thumb);
         android.widget.ImageView ivThumb = h.itemView.findViewById(R.id.iv_reel_seen_thumb);
         android.widget.ImageView ivPlay  = h.itemView.findViewById(R.id.iv_reel_seen_play);
         if (ivThumb != null) {
             String thumb = m.reelThumbUrl != null ? m.reelThumbUrl : "";
             if (!thumb.isEmpty()) {
-                ivThumb.setVisibility(View.VISIBLE);
-                if (ivPlay != null) ivPlay.setVisibility(View.VISIBLE);
-                Glide.with(ctx).load(thumb).centerCrop()
-                    .placeholder(R.drawable.bg_skeleton_rect).into(ivThumb);
+                ivThumb.setVisibility(android.view.View.VISIBLE);
+                if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
+                com.bumptech.glide.Glide.with(ctx)
+                    .load(thumb)
+                    .centerCrop()
+                    .placeholder(R.drawable.bg_skeleton_rect)
+                    .into(ivThumb);
             } else {
-                ivThumb.setVisibility(View.GONE);
-                if (ivPlay != null) ivPlay.setVisibility(View.GONE);
+                ivThumb.setVisibility(android.view.View.GONE);
+                if (ivPlay != null) ivPlay.setVisibility(android.view.View.GONE);
             }
         }
+        // Click on FrameLayout container, play icon, AND whole item
         if (flThumb != null) flThumb.setOnClickListener(openReel);
         if (ivPlay  != null) ivPlay.setOnClickListener(openReel);
         h.itemView.setOnClickListener(openReel);
 
-        android.widget.TextView tvName = h.itemView.findViewById(R.id.tv_reel_seen_name);
+        // Sender name (group only)
+        android.widget.TextView tvName =
+            h.itemView.findViewById(R.id.tv_reel_seen_name);
         if (tvName != null) {
             if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
                 tvName.setText(m.senderName);
-                tvName.setVisibility(View.VISIBLE);
+                tvName.setVisibility(android.view.View.VISIBLE);
             } else {
-                tvName.setVisibility(View.GONE);
+                tvName.setVisibility(android.view.View.GONE);
             }
         }
 
-        android.widget.TextView tvTime = h.itemView.findViewById(R.id.tv_reel_seen_time);
+        // Time
+        android.widget.TextView tvTime =
+            h.itemView.findViewById(R.id.tv_reel_seen_time);
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
             tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Core bind logic
+    // Core bind logic (mirrors MessageAdapter)
     // ──────────────────────────────────────────────────────────────
     private void bindMessage(@NonNull VH h, @NonNull Message m, int position) {
         Context ctx = h.itemView.getContext();
@@ -287,7 +333,8 @@ public class MessagePagingAdapter
             if (llBubble != null) {
                 boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
                 String bType = m.type != null ? m.type : "text";
-                com.callx.app.utils.ChatThemeManager.get(ctx)
+                com.callx.app.utils.ChatThemeManager
+                        .get(ctx)
                         .applyBubble(llBubble, sent, bType, hasReply);
             }
         } catch (Exception ignored) {}
@@ -300,31 +347,39 @@ public class MessagePagingAdapter
         if (h.tvTime     != null) h.tvTime.setVisibility(View.VISIBLE);
 
         // Timestamp
-        if (h.tvTime != null && m.timestamp != null && m.timestamp > 0) {
+        if (h.tvTime != null && m.timestamp > 0) {
             h.tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
 
-        // ── REPLY PREVIEW ─────────────────────────────────────────────────
+        // ── REPLY PREVIEW (SwipeReplySystem v1) ─────────────────────────
         if (h.llReplyPreview != null) {
             boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
             h.llReplyPreview.setVisibility(hasReply ? View.VISIBLE : View.GONE);
             if (hasReply) {
                 if (h.tvReplySender != null)
-                    h.tvReplySender.setText(m.replyToSenderName != null ? m.replyToSenderName : "");
+                    h.tvReplySender.setText(
+                            m.replyToSenderName != null ? m.replyToSenderName : "");
                 if (h.tvReplyText != null)
-                    h.tvReplyText.setText(m.replyToText != null ? m.replyToText : "[Original message]");
+                    h.tvReplyText.setText(
+                            m.replyToText != null ? m.replyToText : "[Original message]");
+                // Thumbnail
                 if (h.ivReplyThumb != null) {
                     String thumbUrl = m.replyToMediaUrl;
                     if (thumbUrl != null && !thumbUrl.isEmpty()) {
                         h.ivReplyThumb.setVisibility(View.VISIBLE);
-                        Glide.with(ctx).load(thumbUrl).centerCrop().into(h.ivReplyThumb);
+                        com.bumptech.glide.Glide.with(ctx)
+                                .load(thumbUrl).centerCrop()
+                                .into(h.ivReplyThumb);
                     } else {
                         h.ivReplyThumb.setVisibility(View.GONE);
                     }
                 }
+                // Click → scroll to original message
                 final String replyId = m.replyToId;
                 h.llReplyPreview.setOnClickListener(v -> {
-                    if (actionListener != null) actionListener.onNavigateToOriginal(replyId);
+                    if (actionListener != null) {
+                        actionListener.onNavigateToOriginal(replyId);
+                    }
                 });
             } else {
                 h.llReplyPreview.setOnClickListener(null);
@@ -332,13 +387,12 @@ public class MessagePagingAdapter
         }
 
         // Sender name (group chats)
-        if (h.tvSenderName != null) {
-            if (isGroup && !sent) {
-                h.tvSenderName.setVisibility(View.VISIBLE);
-                h.tvSenderName.setText(m.senderName != null ? m.senderName : "Member");
-            } else {
-                h.tvSenderName.setVisibility(View.GONE);
-            }
+        if (isGroup && !sent && h.tvSenderName != null) {
+            h.tvSenderName.setVisibility(View.VISIBLE);
+            String sn = m.senderName != null ? m.senderName : "Member";
+            h.tvSenderName.setText(sn);
+        } else if (h.tvSenderName != null) {
+            h.tvSenderName.setVisibility(View.GONE);
         }
 
         // Deleted message
@@ -346,8 +400,6 @@ public class MessagePagingAdapter
             h.tvMessage.setVisibility(View.VISIBLE);
             h.tvMessage.setText(sent ? "You deleted this message" : "This message was deleted");
             h.tvMessage.setAlpha(0.6f);
-            bindDeliveryStatus(h, m, sent, ctx);
-            h.itemView.setOnLongClickListener(null);
             return;
         }
 
@@ -361,28 +413,52 @@ public class MessagePagingAdapter
                     String fullUrl  = m.mediaUrl != null ? m.mediaUrl : m.text;
                     String thumbUrl = m.thumbnailUrl;
 
+                    // ── Progressive loading: thumb instantly → full replaces ──
+                    // If thumbnail exists: show it immediately, then full overlays
+                    // If no thumbnail: direct load from cache/network
                     if (thumbUrl != null && !thumbUrl.isEmpty()) {
-                        Glide.with(ctx).load(fullUrl)
+                        // Step 1: Show thumbnail instantly (tiny, ~30KB)
+                        Glide.with(ctx)
+                            .load(thumbUrl)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .thumbnail(Glide.with(ctx).load(thumbUrl).diskCacheStrategy(DiskCacheStrategy.ALL))
-                            .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(400))
+                            .override(200, 200)
+                            .into(h.ivImage);
+
+                        // Step 2: Load full in background — replaces thumb with crossfade
+                        Glide.with(ctx)
+                            .load(fullUrl)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .thumbnail(Glide.with(ctx)
+                                .load(thumbUrl)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL))
+                            .transition(com.bumptech.glide.load.resource.drawable
+                                .DrawableTransitionOptions.withCrossFade(400))
                             .placeholder(R.drawable.ic_file)
                             .error(R.drawable.ic_file)
                             .into(h.ivImage);
                     } else {
+                        // No thumbnail — direct progressive load with cache
                         java.io.File cachedImg = MediaCache.getCached(ctx, fullUrl);
                         if (cachedImg != null) {
-                            Glide.with(ctx).load(cachedImg).diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .placeholder(R.drawable.ic_file).into(h.ivImage);
+                            Glide.with(ctx).load(cachedImg)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .placeholder(R.drawable.ic_file)
+                                .into(h.ivImage);
                         } else {
-                            Glide.with(ctx).load(fullUrl).diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .placeholder(R.drawable.ic_file).error(R.drawable.ic_file).into(h.ivImage);
+                            Glide.with(ctx).load(fullUrl)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .placeholder(R.drawable.ic_file)
+                                .error(R.drawable.ic_file)
+                                .into(h.ivImage);
+                            // Cache in background for next time
                             MediaCache.get(ctx, fullUrl, new MediaCache.Callback() {
                                 @Override public void onReady(java.io.File file) {}
                                 @Override public void onError(String reason) {}
                             });
                         }
                     }
+
+                    // Click → open full-screen viewer
                     h.ivImage.setOnClickListener(v -> {
                         Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url",      fullUrl);
@@ -396,17 +472,29 @@ public class MessagePagingAdapter
                 if (h.ivImage != null) {
                     h.ivImage.setVisibility(View.VISIBLE);
                     String vUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    // FIX v14: Video thumbnail — MediaCache se check karo
                     java.io.File cachedVid = MediaCache.getCached(ctx, vUrl);
                     if (cachedVid != null) {
-                        Glide.with(ctx).load(cachedVid).diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .placeholder(R.drawable.ic_file).into(h.ivImage);
+                        android.util.Log.d("PagingAdapter", "Video cache HIT: " + cachedVid.getName());
+                        Glide.with(ctx).load(cachedVid)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .placeholder(R.drawable.ic_file)
+                            .into(h.ivImage);
                     } else {
-                        Glide.with(ctx).load(vUrl).diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .placeholder(R.drawable.ic_file).into(h.ivImage);
+                        android.util.Log.d("PagingAdapter", "Video cache MISS, downloading: " + vUrl);
+                        Glide.with(ctx).load(vUrl)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .placeholder(R.drawable.ic_file)
+                            .into(h.ivImage);
+                        // FIX v14: Video background mein pre-cache karo (MediaStreamCache se partial)
                         com.callx.app.cache.MediaStreamCache.getInstance(ctx)
                             .preloadPartial(vUrl, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
-                                @Override public void onComplete(java.io.File file) {}
-                                @Override public void onError(String error) {}
+                                @Override public void onComplete(java.io.File file) {
+                                    android.util.Log.d("PagingAdapter", "Video partial cached: " + file.getName());
+                                }
+                                @Override public void onError(String error) {
+                                    android.util.Log.w("PagingAdapter", "Video preload failed: " + error);
+                                }
                                 @Override public void onProgress(int percent) {}
                             });
                     }
@@ -424,18 +512,23 @@ public class MessagePagingAdapter
                     String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     final int pos = position;
                     h.btnPlayPause.setOnClickListener(v -> toggleAudio(h, aUrl, pos));
+                    // FIX v14: Audio preload — MediaStreamCache se pehle 512KB cache karo
+                    // Taaki play button press karne par turant start ho, buffer nahi kare
                     java.io.File cachedAudio = MediaCache.getCached(ctx, aUrl);
                     if (cachedAudio == null && aUrl != null && !aUrl.isEmpty()) {
                         com.callx.app.cache.MediaStreamCache.getInstance(ctx)
                             .preloadPartial(aUrl, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
-                                @Override public void onComplete(java.io.File file) {}
+                                @Override public void onComplete(java.io.File file) {
+                                    android.util.Log.d("PagingAdapter", "Audio preloaded: " + file.getName());
+                                }
                                 @Override public void onError(String error) {}
                                 @Override public void onProgress(int percent) {}
                             });
                     }
                 } else {
+                    // Fallback if no audio layout
                     h.tvMessage.setVisibility(View.VISIBLE);
-                    h.tvMessage.setText("🎤 Voice message");
+                    h.tvMessage.setText("Audio message");
                 }
                 break;
             case "file":
@@ -447,12 +540,13 @@ public class MessagePagingAdapter
                     if (h.btnDownload != null) {
                         String fUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                         h.btnDownload.setOnClickListener(v -> {
+                            // Pehle local cache check karo
                             java.io.File cached = MediaCache.getCached(ctx, fUrl);
                             if (cached != null) {
                                 FileUtils.openOrDownload(ctx, cached.toURI().toString(), fName);
                                 return;
                             }
-                            Toast.makeText(ctx, "Downloading…", Toast.LENGTH_SHORT).show();
+                            android.widget.Toast.makeText(ctx, "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
                             MediaCache.get(ctx, fUrl, new MediaCache.Callback() {
                                 @Override public void onReady(java.io.File file) {
                                     FileUtils.openOrDownload(ctx, file.toURI().toString(), fName);
@@ -465,71 +559,62 @@ public class MessagePagingAdapter
                     }
                 } else {
                     h.tvMessage.setVisibility(View.VISIBLE);
-                    h.tvMessage.setText("📎 " + (m.fileName != null ? m.fileName : "File"));
+                    h.tvMessage.setText(m.fileName != null ? m.fileName : "File");
                 }
                 break;
-            default: // text
+            default: // "text", "emoji", etc.
                 h.tvMessage.setVisibility(View.VISIBLE);
                 String txt = m.text != null ? m.text : "";
                 if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
+                // ── Clickable links: URLs, phone numbers, emails ────────────
                 android.text.SpannableString spanned = new android.text.SpannableString(txt);
                 android.text.util.Linkify.addLinks(spanned,
                     android.text.util.Linkify.WEB_URLS |
                     android.text.util.Linkify.PHONE_NUMBERS |
                     android.text.util.Linkify.EMAIL_ADDRESSES);
                 h.tvMessage.setText(spanned);
-                int linkColor = sent ? 0xFFB3E5FC : 0xFF1565C0;
+                // Link color matching bubble theme
+                boolean isSentMsg = currentUid.equals(m.senderId);
+                int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
                 h.tvMessage.setLinkTextColor(linkColor);
                 h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                 h.tvMessage.setHighlightColor(0x33FFFFFF);
                 h.tvMessage.setAlpha(1f);
                 h.tvMessage.setTextColor(
-                    com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent));
+                    com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
                 break;
         }
 
-        // ── Delivery status tick ──────────────────────────────────
-        bindDeliveryStatus(h, m, sent, ctx);
+        // ── Delivery status (sent messages only) ─────────────────
+        if (sent && h.tvStatus != null) {
+            h.tvStatus.setVisibility(View.VISIBLE);
+            String status = m.status != null ? m.status : "sent";
+            switch (status) {
+                case "seen":
+                    h.tvStatus.setText("✓✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
+                    break;
+                case "delivered":
+                    h.tvStatus.setText("✓✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    break;
+                default:
+                    h.tvStatus.setText("✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    break;
+            }
+        } else if (h.tvStatus != null) {
+            h.tvStatus.setVisibility(View.GONE);
+        }
 
-        // ── Long press ───────────────────────────────────────────
+        // ── Long press — action listener ─────────────────────────
         h.itemView.setOnLongClickListener(v -> {
-            if (actionListener != null) showActionBottomSheet(ctx, m, sent);
+            if (actionListener != null) showActionBottomSheet(ctx, m);
             return true;
         });
-    }
-
-    /**
-     * Binds the delivery status tick (✓ / ✓✓ grey / ✓✓ blue) to tv_status.
-     *
-     * Rules (WhatsApp-style):
-     *   sent      → single grey ✓
-     *   delivered → double grey ✓✓
-     *   seen      → double BLUE ✓✓
-     */
-    private void bindDeliveryStatus(@NonNull VH h, @NonNull Message m,
-                                    boolean sent, Context ctx) {
-        if (h.tvStatus == null) return;
-        if (!sent) {
-            h.tvStatus.setVisibility(View.GONE);
-            return;
-        }
-        h.tvStatus.setVisibility(View.VISIBLE);
-        String status = m.status != null ? m.status : "sent";
-        switch (status) {
-            case "seen":
-            case "read":        // legacy alias
-                h.tvStatus.setText("✓✓");
-                h.tvStatus.setTextColor(COLOUR_TICK_SEEN);   // blue
-                break;
-            case "delivered":
-                h.tvStatus.setText("✓✓");
-                h.tvStatus.setTextColor(COLOUR_TICK_GREY);   // grey double
-                break;
-            default:            // "sent" / "pending"
-                h.tvStatus.setText("✓");
-                h.tvStatus.setTextColor(COLOUR_TICK_GREY);   // grey single
-                break;
-        }
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -548,21 +633,30 @@ public class MessagePagingAdapter
         playingPos = position;
         if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_pause);
 
+        // Pehle local cache check — cached hai to seedha play (zero data use)
         java.io.File cached = MediaCache.getCached(h.itemView.getContext(), url);
         if (cached != null) {
             playAudioFromPath(h, cached.getAbsolutePath(), position);
             return;
         }
 
+        // FIX v14: MediaStreamCache use karo — pehle 512KB stream karo (fast start),
+        // baaki background mein download hota rahe. User ko buffer nahi karega.
         com.callx.app.cache.MediaStreamCache.getInstance(h.itemView.getContext())
             .preloadPartial(url, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
                 @Override public void onComplete(java.io.File file) {
+                    // Partial/full file ready — play from local file (zero buffering)
+                    android.util.Log.d("AudioPlay", "MediaStreamCache ready, playing: " + file.getName());
                     playAudioFromPath(h, file.getAbsolutePath(), position);
                 }
                 @Override public void onError(String error) {
+                    // Fallback: stream directly from URL
+                    android.util.Log.w("AudioPlay", "MediaStreamCache failed, streaming URL: " + error);
                     playAudioFromPath(h, url, position);
                 }
-                @Override public void onProgress(int percent) {}
+                @Override public void onProgress(int percent) {
+                    android.util.Log.v("AudioPlay", "Audio preload: " + percent + "%");
+                }
             });
     }
 
@@ -570,6 +664,9 @@ public class MessagePagingAdapter
         try {
             if (player != null) { try { player.release(); } catch (Exception ignored) {} }
             player = new MediaPlayer();
+            
+            // Agar local file hai to FileDescriptor se set karo (cache files ke liye)
+            // Agar URL hai to directly
             if (path.startsWith("http")) {
                 player.setDataSource(path);
             } else {
@@ -579,9 +676,11 @@ public class MessagePagingAdapter
                         player.setDataSource(fis.getFD());
                     }
                 } else {
+                    // File nahi milti to URL ke bahawe try karo
                     player.setDataSource(path);
                 }
             }
+            
             player.prepareAsync();
             player.setOnPreparedListener(mp -> {
                 mp.start();
@@ -594,118 +693,33 @@ public class MessagePagingAdapter
                 player = null;
             });
             player.setOnErrorListener((mp, what, extra) -> {
+                android.util.Log.e("AudioPlay", "Error: " + what + " extra: " + extra + " path: " + path);
                 playingPos = -1;
                 if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
                 return true;
             });
         } catch (Exception e) {
+            android.util.Log.e("AudioPlay", "playAudioFromPath error: " + e.getMessage() + " path: " + path);
             if (player != null) { try { player.release(); } catch (Exception ignored) {} player = null; }
         }
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Long-press bottom sheet — WhatsApp-style action menu
+    // Long-press bottom sheet actions
     // ──────────────────────────────────────────────────────────────
-    private void showActionBottomSheet(Context ctx, Message m, boolean sent) {
+    private void showActionBottomSheet(Context ctx, Message m) {
         if (actionListener == null) return;
-
-        com.google.android.material.bottomsheet.BottomSheetDialog sheet =
-                new com.google.android.material.bottomsheet.BottomSheetDialog(ctx);
-        android.view.View sv = android.view.LayoutInflater.from(ctx)
-                .inflate(R.layout.bottom_sheet_message_actions, null);
-
-        // Emoji quick-react row
-        String[] emojis  = {"❤️", "👍", "😂", "😮", "😢", "🙏"};
-        int[]    emojiIds = {
-            R.id.emoji_heart, R.id.emoji_thumb, R.id.emoji_laugh,
-            R.id.emoji_wow,   R.id.emoji_sad,   R.id.emoji_pray};
-        for (int i = 0; i < emojiIds.length; i++) {
-            TextView et = sv.findViewById(emojiIds[i]);
-            final String emoji = emojis[i];
-            if (et != null) {
-                boolean already = m.reactions != null &&
-                        emoji.equals(m.reactions.get(currentUid));
-                et.setAlpha(already ? 1.0f : 0.65f);
-                et.setScaleX(already ? 1.2f : 1.0f);
-                et.setScaleY(already ? 1.2f : 1.0f);
-                et.setOnClickListener(v -> {
-                    sheet.dismiss();
-                    actionListener.onReact(m, emoji);
-                });
-            }
-        }
-
-        // Reply
-        View replyBtn = sv.findViewById(R.id.action_reply);
-        if (replyBtn != null) replyBtn.setOnClickListener(v -> {
-            sheet.dismiss(); actionListener.onReply(m);
-        });
-
-        // Edit — sender only, text only
-        View editBtn = sv.findViewById(R.id.action_edit);
-        if (editBtn != null) {
-            boolean canEdit = sent && "text".equals(m.type) && !Boolean.TRUE.equals(m.deleted);
-            editBtn.setVisibility(canEdit ? View.VISIBLE : View.GONE);
-        }
-
-        // Copy — text only
-        View copyBtn = sv.findViewById(R.id.action_copy);
-        if (copyBtn != null) {
-            boolean isText  = "text".equals(m.type) || m.type == null;
-            boolean hasText = m.text != null && !m.text.isEmpty();
-            boolean canCopy = isText && hasText && !Boolean.TRUE.equals(m.deleted);
-            copyBtn.setVisibility(canCopy ? View.VISIBLE : View.GONE);
-            if (canCopy) copyBtn.setOnClickListener(v -> {
-                sheet.dismiss(); actionListener.onCopy(m);
-            });
-        }
-
-        // Forward
-        View fwdBtn = sv.findViewById(R.id.action_forward);
-        if (fwdBtn != null) {
-            if (!Boolean.TRUE.equals(m.deleted)) {
-                fwdBtn.setOnClickListener(v -> { sheet.dismiss(); actionListener.onForward(m); });
-            } else {
-                fwdBtn.setVisibility(View.GONE);
-            }
-        }
-
-        // Star
-        TextView starBtn = sv.findViewById(R.id.action_star);
-        if (starBtn != null) {
-            starBtn.setText(Boolean.TRUE.equals(m.starred) ? "☆  Unstar" : "⭐  Star Message");
-            starBtn.setOnClickListener(v -> { sheet.dismiss(); actionListener.onStar(m); });
-        }
-
-        // Pin
-        View pinBtn = sv.findViewById(R.id.action_pin);
-        if (pinBtn != null) {
-            // Pin handled by ChatActivity if onInfo is extended; keep visible
-            pinBtn.setVisibility(View.VISIBLE);
-        }
-
-        // ── Info — sender only (v22: shows sent/delivered/seen timestamps) ──
-        View infoBtn = sv.findViewById(R.id.action_info);
-        if (infoBtn != null) {
-            if (sent && !Boolean.TRUE.equals(m.deleted)) {
-                infoBtn.setVisibility(View.VISIBLE);
-                infoBtn.setOnClickListener(v -> {
-                    sheet.dismiss();
-                    actionListener.onInfo(m);
-                });
-            } else {
-                infoBtn.setVisibility(View.GONE);
-            }
-        }
-
-        // Delete
-        View deleteBtn = sv.findViewById(R.id.action_delete);
-        if (deleteBtn != null && !Boolean.TRUE.equals(m.deleted)) {
-            deleteBtn.setOnClickListener(v -> { sheet.dismiss(); actionListener.onDelete(m); });
-        }
-
-        sheet.setContentView(sv);
-        sheet.show();
+        String[] options = {"Reply", "Copy", "Star", "Forward", "Delete"};
+        new android.app.AlertDialog.Builder(ctx)
+            .setItems(options, (d, which) -> {
+                switch (which) {
+                    case 0: actionListener.onReply(m);   break;
+                    case 1: actionListener.onCopy(m);    break;
+                    case 2: actionListener.onStar(m);    break;
+                    case 3: actionListener.onForward(m); break;
+                    case 4: actionListener.onDelete(m);  break;
+                }
+            }).show();
     }
 
     @Override
@@ -715,15 +729,16 @@ public class MessagePagingAdapter
     }
 
     // ──────────────────────────────────────────────────────────────
-    // ViewHolder
+    // ViewHolder — covers all view IDs used in both item layouts
     // ──────────────────────────────────────────────────────────────
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
         ImageView    ivImage;
-        TextView     tvStatus;
+        TextView     tvStatus;   // tv_status in both item layouts
         LinearLayout llAudio, llFile;
         ImageButton  btnPlayPause;
         ImageView    btnDownload;
+        // SwipeReplySystem v1: reply preview views
         LinearLayout llReplyPreview;
         TextView     tvReplySender, tvReplyText;
         ImageView    ivReplyThumb;
@@ -740,6 +755,7 @@ public class MessagePagingAdapter
             llFile         = v.findViewById(R.id.ll_file);
             tvFileName     = v.findViewById(R.id.tv_file_name);
             btnDownload    = v.findViewById(R.id.btn_download);
+            // SwipeReplySystem v1
             llReplyPreview = v.findViewById(R.id.ll_reply_preview);
             tvReplySender  = v.findViewById(R.id.tv_reply_sender);
             tvReplyText    = v.findViewById(R.id.tv_reply_text);

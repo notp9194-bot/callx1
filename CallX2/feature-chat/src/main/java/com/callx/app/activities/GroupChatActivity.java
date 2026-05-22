@@ -339,21 +339,6 @@ public class GroupChatActivity extends AppCompatActivity {
                     "Original message not loaded — scroll up to find it",
                     android.widget.Toast.LENGTH_SHORT).show();
             }
-            @Override public void onInfo(Message m) {
-                android.content.Intent i = new android.content.Intent(
-                        GroupChatActivity.this,
-                        com.callx.app.activities.MessageInfoActivity.class);
-                i.putExtra("chatId",      groupId);
-                i.putExtra("messageId",   m.id);
-                i.putExtra("msgText",     m.text);
-                i.putExtra("msgType",     m.type != null ? m.type : "text");
-                i.putExtra("mediaUrl",    m.mediaUrl     != null ? m.mediaUrl     : "");
-                i.putExtra("thumbUrl",    m.thumbnailUrl != null ? m.thumbnailUrl : "");
-                i.putExtra("sentAt",      m.sentAt       != null ? m.sentAt       : (m.timestamp != null ? m.timestamp : 0L));
-                i.putExtra("deliveredAt", m.deliveredAt  != null ? m.deliveredAt  : 0L);
-                i.putExtra("seenAt",      m.seenAt       != null ? m.seenAt       : 0L);
-                startActivity(i);
-            }
         });
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
