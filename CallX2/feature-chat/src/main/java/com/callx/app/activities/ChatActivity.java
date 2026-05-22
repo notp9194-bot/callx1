@@ -120,7 +120,8 @@ public class ChatActivity extends AppCompatActivity {
     private ActivityChatBinding binding;
 
     // ── Chat identifiers ───────────────────────────────────────────────────
-    private String chatId;
+    private String  chatId;
+    private boolean isGroup = false;   // always false for 1-to-1 ChatActivity
     private String partnerUid;
     private String partnerName;
     private String partnerPhoto;
