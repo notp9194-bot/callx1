@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="#222222"
+      android:paddingTop="12dp"
+      android:paddingBottom="24dp">
+
+      <View
+          android:layout_width="40dp"
+          android:layout_height="4dp"
+          android:layout_gravity="center_horizontal"
+          android:background="#555555"
+          android:layout_marginBottom="16dp"/>
+
+      <TextView
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:gravity="center"
+          android:text="Save to Collection"
+          android:textColor="#FFFFFF"
+          android:textSize="16sp"
+          android:fontFamily="sans-serif-medium"
+          android:layout_marginBottom="8dp"/>
+
+      <!-- Quick save (no collection) -->
+      <LinearLayout
+          android:id="@+id/btn_save_quick"
+          android:layout_width="match_parent"
+          android:layout_height="56dp"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:paddingStart="16dp"
+          android:paddingEnd="16dp"
+          android:background="?attr/selectableItemBackground">
+
+          <ImageView
+              android:layout_width="24dp"
+              android:layout_height="24dp"
+              android:src="@drawable/ic_bookmark"
+              android:tint="#FFFFFF"/>
+
+          <TextView
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_marginStart="16dp"
+              android:text="Save"
+              android:textColor="#FFFFFF"
+              android:textSize="15sp"/>
+      </LinearLayout>
+
+      <!-- Save to specific collection -->
+      <LinearLayout
+          android:id="@+id/btn_save_to_collection"
+          android:layout_width="match_parent"
+          android:layout_height="56dp"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:paddingStart="16dp"
+          android:paddingEnd="16dp"
+          android:background="?attr/selectableItemBackground">
+
+          <ImageView
+              android:layout_width="24dp"
+              android:layout_height="24dp"
+              android:src="@drawable/ic_add_reels"
+              android:tint="#FFFFFF"/>
+
+          <TextView
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_marginStart="16dp"
+              android:text="Save to Collection"
+              android:textColor="#FFFFFF"
+              android:textSize="15sp"/>
+      </LinearLayout>
+  </LinearLayout>

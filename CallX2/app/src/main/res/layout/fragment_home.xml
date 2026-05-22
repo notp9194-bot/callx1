@@ -1,391 +1,570 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#0D0D0D">
+  <androidx.coordinatorlayout.widget.CoordinatorLayout
+      xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:app="http://schemas.android.com/apk/res-auto"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:background="#0D0D0D">
 
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipe_refresh_home"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent">
+      <!-- ── [FEATURE 4] "New Posts Available" floating banner ── -->
+      <TextView
+          android:id="@+id/tv_new_posts_banner"
+          android:layout_width="wrap_content"
+          android:layout_height="36dp"
+          android:layout_gravity="top|center_horizontal"
+          android:layout_marginTop="12dp"
+          android:background="#CC1877F2"
+          android:drawablePadding="6dp"
+          android:elevation="10dp"
+          android:gravity="center"
+          android:paddingStart="16dp"
+          android:paddingEnd="16dp"
+          android:text="↑ New posts available"
+          android:textColor="#FFFFFF"
+          android:textSize="13sp"
+          android:fontFamily="sans-serif-medium"
+          android:visibility="gone"
+          app:layout_anchor="@id/app_bar"
+          app:layout_anchorGravity="bottom|center"/>
 
-        <androidx.core.widget.NestedScrollView
-            android:id="@+id/nested_scroll_home"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:fillViewport="true">
+      <!-- ── AppBarLayout for collapsing toolbar ── -->
+      <com.google.android.material.appbar.AppBarLayout
+          android:id="@+id/app_bar"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:background="#0D0D0D"
+          android:elevation="0dp"
+          app:liftOnScroll="true">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingBottom="80dp">
+          <!-- Top toolbar: avatar + title + upload -->
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="52dp"
+              android:orientation="horizontal"
+              android:gravity="center_vertical"
+              android:paddingStart="12dp"
+              android:paddingEnd="12dp"
+              app:layout_scrollFlags="scroll|enterAlways|snap">
 
-                <!-- ── Stories Bar ── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:paddingTop="12dp"
-                    android:paddingBottom="8dp">
+              <de.hdodenhof.circleimageview.CircleImageView
+                  android:id="@+id/iv_my_story_avatar"
+                  android:layout_width="34dp"
+                  android:layout_height="34dp"
+                  android:src="@drawable/ic_person"
+                  app:civ_border_width="2dp"
+                  app:civ_border_color="@color/brand_primary"/>
 
-                    <HorizontalScrollView
-                        android:id="@+id/scroll_stories"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:scrollbars="none"
-                        android:paddingStart="8dp"
-                        android:paddingEnd="8dp">
+              <TextView
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:layout_marginStart="10dp"
+                  android:text="Home"
+                  android:textColor="#FFFFFF"
+                  android:textSize="18sp"
+                  android:fontFamily="sans-serif-black"/>
 
-                        <LinearLayout
-                            android:id="@+id/container_stories"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal">
+              <!-- [FEATURE 5] Notification badge wrapper -->
+              <FrameLayout
+                  android:layout_width="40dp"
+                  android:layout_height="40dp"
+                  android:layout_marginEnd="4dp">
+                  <ImageButton
+                      android:id="@+id/btn_home_notifications"
+                      android:layout_width="match_parent"
+                      android:layout_height="match_parent"
+                      android:src="@drawable/ic_notifications"
+                      android:tint="#FFFFFF"
+                      android:background="?attr/selectableItemBackgroundBorderless"
+                      android:contentDescription="Notifications"/>
+                  <TextView
+                      android:id="@+id/tv_notif_badge"
+                      android:layout_width="16dp"
+                      android:layout_height="16dp"
+                      android:layout_gravity="top|end"
+                      android:background="@drawable/bg_reel_count"
+                      android:gravity="center"
+                      android:text="0"
+                      android:textColor="#FFFFFF"
+                      android:textSize="9sp"
+                      android:visibility="gone"/>
+              </FrameLayout>
 
-                            <!-- Add Story (My story) — always first -->
-                            <LinearLayout
-                                android:id="@+id/btn_add_story"
-                                android:layout_width="72dp"
-                                android:layout_height="wrap_content"
-                                android:orientation="vertical"
-                                android:gravity="center"
-                                android:padding="4dp"
-                                android:clickable="true"
-                                android:focusable="true">
+              <ImageButton
+                  android:id="@+id/btn_home_upload"
+                  android:layout_width="40dp"
+                  android:layout_height="40dp"
+                  android:src="@drawable/ic_add_reels"
+                  android:tint="#FFFFFF"
+                  android:background="?attr/selectableItemBackgroundBorderless"
+                  android:contentDescription="Upload"/>
+          </LinearLayout>
 
-                                <FrameLayout
-                                    android:layout_width="60dp"
-                                    android:layout_height="60dp">
+          <!-- ── [FEATURE 1] Stories RecyclerView (replaces HorizontalScrollView+LinearLayout) ── -->
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:paddingTop="4dp"
+              android:paddingBottom="6dp"
+              app:layout_scrollFlags="scroll|enterAlways">
 
-                                    <de.hdodenhof.circleimageview.CircleImageView
-                                        android:id="@+id/iv_my_story_avatar"
-                                        android:layout_width="56dp"
-                                        android:layout_height="56dp"
-                                        android:layout_gravity="center"
-                                        android:src="@drawable/ic_person"
-                                        app:civ_border_width="1dp"
-                                        app:civ_border_color="#333333"/>
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_stories"
+                  android:layout_width="match_parent"
+                  android:layout_height="100dp"
+                  android:paddingStart="8dp"
+                  android:paddingEnd="8dp"
+                  android:clipToPadding="false"
+                  android:scrollbars="none"/>
+          </LinearLayout>
 
-                                    <!-- "+" overlay -->
-                                    <ImageView
-                                        android:layout_width="22dp"
-                                        android:layout_height="22dp"
-                                        android:layout_gravity="bottom|end"
-                                        android:src="@drawable/ic_status_add"
-                                        android:background="@color/brand_primary"
-                                        android:padding="3dp"
-                                        android:tint="#FFFFFF"/>
-                                </FrameLayout>
+          <!-- Divider -->
+          <View
+              android:layout_width="match_parent"
+              android:layout_height="1dp"
+              android:background="#1F1F1F"/>
 
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="4dp"
-                                    android:text="Add Story"
-                                    android:textColor="#FFFFFF"
-                                    android:textSize="10sp"
-                                    android:gravity="center"/>
-                            </LinearLayout>
+          <!-- ── [FEATURE 3a] Feed toggle (Following / For You) ── -->
+          <FrameLayout
+              android:layout_width="match_parent"
+              android:layout_height="44dp"
+              app:layout_scrollFlags="scroll|enterAlways|snap">
 
-                            <!-- Contact story avatars injected here by HomeFragment -->
-                        </LinearLayout>
-                    </HorizontalScrollView>
-                </LinearLayout>
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical"
+                  android:paddingStart="16dp"
+                  android:paddingEnd="16dp">
 
-                <!-- Divider -->
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#1A1A1A"/>
+                  <TextView
+                      android:id="@+id/btn_home_following"
+                      android:layout_width="wrap_content"
+                      android:layout_height="match_parent"
+                      android:text="Following"
+                      android:textColor="#FFFFFF"
+                      android:textSize="15sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:paddingEnd="20dp"
+                      android:gravity="center_vertical"
+                      android:alpha="1.0"/>
 
-                <!-- ── Feed Toggle ── -->
-                <FrameLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp">
+                  <TextView
+                      android:id="@+id/btn_home_for_you"
+                      android:layout_width="wrap_content"
+                      android:layout_height="match_parent"
+                      android:text="For You"
+                      android:textColor="#FFFFFF"
+                      android:textSize="15sp"
+                      android:fontFamily="sans-serif"
+                      android:paddingEnd="20dp"
+                      android:gravity="center_vertical"
+                      android:alpha="0.55"/>
+              </LinearLayout>
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="16dp">
+              <!-- Animated underline indicator -->
+              <View
+                  android:id="@+id/v_feed_indicator"
+                  android:layout_width="60dp"
+                  android:layout_height="2dp"
+                  android:layout_gravity="bottom|start"
+                  android:layout_marginStart="16dp"
+                  android:background="@color/brand_primary"/>
+          </FrameLayout>
 
-                        <TextView
-                            android:id="@+id/btn_home_following"
-                            android:layout_width="wrap_content"
-                            android:layout_height="match_parent"
-                            android:text="Following"
-                            android:textColor="#FFFFFF"
-                            android:textSize="14sp"
-                            android:fontFamily="sans-serif-medium"
-                            android:paddingEnd="20dp"
-                            android:gravity="center_vertical"
-                            android:alpha="1.0"/>
+          <!-- ── [FEATURE 15] Topic/Hashtag Filter Chips ── -->
+          <HorizontalScrollView
+              android:id="@+id/scroll_topic_chips"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:scrollbars="none"
+              android:paddingStart="8dp"
+              android:paddingEnd="8dp"
+              android:paddingTop="4dp"
+              android:paddingBottom="6dp"
+              app:layout_scrollFlags="scroll|enterAlways">
 
-                        <TextView
-                            android:id="@+id/btn_home_for_you"
-                            android:layout_width="wrap_content"
-                            android:layout_height="match_parent"
-                            android:text="For You"
-                            android:textColor="#FFFFFF"
-                            android:textSize="14sp"
-                            android:paddingEnd="20dp"
-                            android:gravity="center_vertical"
-                            android:alpha="0.55"/>
+              <com.google.android.material.chip.ChipGroup
+                  android:id="@+id/chip_group_topics"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  app:singleSelection="true"
+                  app:selectionRequired="true"/>
+          </HorizontalScrollView>
+      </com.google.android.material.appbar.AppBarLayout>
 
-                        <View
-                            android:layout_width="0dp"
-                            android:layout_height="1dp"
-                            android:layout_weight="1"/>
+      <!-- ── Main scrollable content ── -->
+      <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+          android:id="@+id/swipe_refresh_home"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
-                        <ImageButton
-                            android:id="@+id/btn_home_upload"
-                            android:layout_width="36dp"
-                            android:layout_height="36dp"
-                            android:src="@drawable/ic_add_reels"
-                            android:tint="#FFFFFF"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="Upload Post"/>
-                    </LinearLayout>
+          <androidx.core.widget.NestedScrollView
+              android:id="@+id/nested_scroll_home"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:fillViewport="true">
 
-                    <!-- Active-tab underline indicator -->
-                    <View
-                        android:id="@+id/v_feed_indicator"
-                        android:layout_width="70dp"
-                        android:layout_height="2dp"
-                        android:layout_gravity="bottom|start"
-                        android:layout_marginStart="16dp"
-                        android:background="@color/brand_primary"/>
-                </FrameLayout>
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:paddingBottom="80dp">
 
-                <!-- ── Feed Container ── -->
-                <LinearLayout
-                    android:id="@+id/container_feed"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"/>
+                  <!-- ── [FEATURE 14] Live Now Section ── -->
+                  <LinearLayout
+                      android:id="@+id/section_live_now"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:visibility="gone">
 
-                <!-- Feed loading / empty -->
-                <ProgressBar
-                    android:id="@+id/pb_feed_loading"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:indeterminateTint="@color/brand_primary"
-                    android:visibility="gone"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="8dp"/>
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="horizontal"
+                          android:gravity="center_vertical"
+                          android:paddingStart="16dp"
+                          android:paddingEnd="16dp"
+                          android:paddingTop="12dp"
+                          android:paddingBottom="8dp">
 
-                <TextView
-                    android:id="@+id/tv_feed_empty"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center"
-                    android:padding="24dp"
-                    android:text="Follow creators to see their posts here.\nSwitch to &quot;For You&quot; to explore all reels."
-                    android:textColor="#666666"
-                    android:textSize="13sp"
-                    android:visibility="gone"/>
+                          <TextView
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:text="🔴 Live Now"
+                              android:textColor="#FFFFFF"
+                              android:textSize="15sp"
+                              android:fontFamily="sans-serif-medium"/>
+                      </LinearLayout>
 
-                <!-- ── Trending Section ── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp"
-                    android:paddingTop="16dp"
-                    android:paddingBottom="8dp">
+                      <androidx.recyclerview.widget.RecyclerView
+                          android:id="@+id/rv_live_now"
+                          android:layout_width="match_parent"
+                          android:layout_height="130dp"
+                          android:paddingStart="8dp"
+                          android:paddingEnd="8dp"
+                          android:clipToPadding="false"
+                          android:scrollbars="none"/>
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="🔥 Trending Reels"
-                        android:textColor="#FFFFFF"
-                        android:textSize="15sp"
-                        android:fontFamily="sans-serif-medium"/>
+                      <View
+                          android:layout_width="match_parent"
+                          android:layout_height="1dp"
+                          android:layout_marginTop="12dp"
+                          android:background="#1F1F1F"/>
+                  </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/btn_see_all_trending"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="See All"
-                        android:textColor="@color/brand_primary"
-                        android:textSize="12sp"
-                        android:clickable="true"
-                        android:focusable="true"/>
-                </LinearLayout>
+                  <!-- ── [FEATURE 16] Featured Challenges Row ── -->
+                  <LinearLayout
+                      android:id="@+id/section_challenges"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:visibility="gone">
 
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:scrollbars="none"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp">
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="horizontal"
+                          android:gravity="center_vertical"
+                          android:paddingStart="16dp"
+                          android:paddingEnd="16dp"
+                          android:paddingTop="12dp"
+                          android:paddingBottom="8dp">
 
-                    <LinearLayout
-                        android:id="@+id/container_trending"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:paddingBottom="8dp">
+                          <TextView
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:text="🏆 Trending Challenges"
+                              android:textColor="#FFFFFF"
+                              android:textSize="15sp"
+                              android:fontFamily="sans-serif-medium"/>
 
-                        <ProgressBar
-                            android:id="@+id/pb_trending"
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:indeterminateTint="@color/brand_primary"
-                            android:layout_gravity="center"
-                            android:visibility="visible"/>
-                    </LinearLayout>
-                </HorizontalScrollView>
+                          <TextView
+                              android:id="@+id/btn_see_all_challenges"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:text="See all"
+                              android:textColor="@color/brand_primary"
+                              android:textSize="13sp"/>
+                      </LinearLayout>
 
-                <!-- ── Suggested Creators Section ── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp"
-                    android:paddingTop="16dp"
-                    android:paddingBottom="8dp">
+                      <androidx.recyclerview.widget.RecyclerView
+                          android:id="@+id/rv_challenges"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:paddingStart="8dp"
+                          android:paddingEnd="8dp"
+                          android:clipToPadding="false"
+                          android:scrollbars="none"/>
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="✨ Suggested Creators"
-                        android:textColor="#FFFFFF"
-                        android:textSize="15sp"
-                        android:fontFamily="sans-serif-medium"/>
-                </LinearLayout>
+                      <View
+                          android:layout_width="match_parent"
+                          android:layout_height="1dp"
+                          android:layout_marginTop="12dp"
+                          android:background="#1F1F1F"/>
+                  </LinearLayout>
 
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:scrollbars="none"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp">
+                  <!-- ── [FEATURE 1] Feed — RecyclerView (replaces LinearLayout) ── -->
+                  <!-- Feed empty state -->
+                  <TextView
+                      android:id="@+id/tv_feed_empty"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="40dp"
+                      android:gravity="center"
+                      android:text="No posts yet.\nFollow creators to see their reels here!"
+                      android:textColor="#777777"
+                      android:textSize="14sp"
+                      android:visibility="gone"/>
 
-                    <LinearLayout
-                        android:id="@+id/container_suggested_creators"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:paddingBottom="8dp">
+                  <!-- [FEATURE 2] Skeleton shimmer for feed loading -->
+                  <LinearLayout
+                      android:id="@+id/layout_feed_skeleton"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:visibility="visible">
 
-                        <ProgressBar
-                            android:id="@+id/pb_suggested"
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:indeterminateTint="@color/brand_primary"
-                            android:layout_gravity="center"
-                            android:visibility="visible"/>
-                    </LinearLayout>
-                </HorizontalScrollView>
+                      <include layout="@layout/item_home_skeleton_feed"/>
+                      <include layout="@layout/item_home_skeleton_feed"/>
+                      <include layout="@layout/item_home_skeleton_feed"/>
+                  </LinearLayout>
 
-                <!-- ── Friends Activity Section ── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp"
-                    android:paddingTop="16dp"
-                    android:paddingBottom="8dp">
+                  <!-- Actual feed RecyclerView — NESTED inside NestedScrollView, nestedScrollingEnabled=false -->
+                  <androidx.recyclerview.widget.RecyclerView
+                      android:id="@+id/rv_feed"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:nestedScrollingEnabled="false"
+                      android:scrollbars="none"/>
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="👥 Friends Activity"
-                        android:textColor="#FFFFFF"
-                        android:textSize="15sp"
-                        android:fontFamily="sans-serif-medium"/>
-                </LinearLayout>
+                  <!-- ── Trending Reels ── -->
+                  <LinearLayout
+                      android:id="@+id/section_trending"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:visibility="gone">
 
-                <LinearLayout
-                    android:id="@+id/container_friends_activity"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp">
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="horizontal"
+                          android:gravity="center_vertical"
+                          android:paddingStart="16dp"
+                          android:paddingEnd="16dp"
+                          android:paddingTop="16dp"
+                          android:paddingBottom="8dp">
 
-                    <ProgressBar
-                        android:id="@+id/pb_activity"
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:indeterminateTint="@color/brand_primary"
-                        android:layout_gravity="center"
-                        android:layout_marginBottom="8dp"/>
-                </LinearLayout>
+                          <TextView
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:text="🔥 Trending Reels"
+                              android:textColor="#FFFFFF"
+                              android:textSize="15sp"
+                              android:fontFamily="sans-serif-medium"/>
 
-                <!-- ── Continue Watching Section ── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp"
-                    android:paddingTop="16dp"
-                    android:paddingBottom="8dp">
+                          <TextView
+                              android:id="@+id/btn_see_all_trending"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:text="See all"
+                              android:textColor="@color/brand_primary"
+                              android:textSize="13sp"/>
+                      </LinearLayout>
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="⏱ Continue Watching"
-                        android:textColor="#FFFFFF"
-                        android:textSize="15sp"
-                        android:fontFamily="sans-serif-medium"/>
+                      <!-- [FEATURE 2] Skeleton for trending -->
+                      <LinearLayout
+                          android:id="@+id/skeleton_trending"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="horizontal"
+                          android:paddingStart="8dp"
+                          android:paddingEnd="8dp">
+                          <include layout="@layout/item_home_skeleton_story" android:layout_width="120dp" android:layout_height="180dp" android:layout_marginEnd="8dp"/>
+                          <include layout="@layout/item_home_skeleton_story" android:layout_width="120dp" android:layout_height="180dp" android:layout_marginEnd="8dp"/>
+                          <include layout="@layout/item_home_skeleton_story" android:layout_width="120dp" android:layout_height="180dp"/>
+                      </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/btn_clear_history"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Clear"
-                        android:textColor="#666666"
-                        android:textSize="12sp"
-                        android:clickable="true"
-                        android:focusable="true"/>
-                </LinearLayout>
+                      <HorizontalScrollView
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:scrollbars="none"
+                          android:paddingStart="8dp"
+                          android:paddingEnd="8dp">
 
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:scrollbars="none"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp">
+                          <LinearLayout
+                              android:id="@+id/container_trending"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:orientation="horizontal"/>
+                      </HorizontalScrollView>
 
-                    <LinearLayout
-                        android:id="@+id/container_continue_watching"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:paddingBottom="8dp">
+                      <View
+                          android:layout_width="match_parent"
+                          android:layout_height="1dp"
+                          android:layout_marginTop="12dp"
+                          android:background="#1F1F1F"/>
+                  </LinearLayout>
 
-                        <ProgressBar
-                            android:id="@+id/pb_continue"
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:indeterminateTint="@color/brand_primary"
-                            android:layout_gravity="center"
-                            android:visibility="visible"/>
-                    </LinearLayout>
-                </HorizontalScrollView>
+                  <!-- ── Friends Activity ── -->
+                  <LinearLayout
+                      android:id="@+id/section_friends_activity"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:visibility="gone">
 
-            </LinearLayout>
-        </androidx.core.widget.NestedScrollView>
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+                      <TextView
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:paddingStart="16dp"
+                          android:paddingEnd="16dp"
+                          android:paddingTop="16dp"
+                          android:paddingBottom="8dp"
+                          android:text="👥 Friends Activity"
+                          android:textColor="#FFFFFF"
+                          android:textSize="15sp"
+                          android:fontFamily="sans-serif-medium"/>
 
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+                      <LinearLayout
+                          android:id="@+id/container_friends_activity"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="vertical"/>
+
+                      <ProgressBar
+                          android:id="@+id/pb_activity"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_gravity="center_horizontal"
+                          android:indeterminateTint="@color/brand_primary"
+                          android:visibility="visible"/>
+
+                      <View
+                          android:layout_width="match_parent"
+                          android:layout_height="1dp"
+                          android:layout_marginTop="12dp"
+                          android:background="#1F1F1F"/>
+                  </LinearLayout>
+
+                  <!-- ── Continue Watching ── -->
+                  <LinearLayout
+                      android:id="@+id/section_continue_watching"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:visibility="gone">
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="horizontal"
+                          android:gravity="center_vertical"
+                          android:paddingStart="16dp"
+                          android:paddingEnd="16dp"
+                          android:paddingTop="16dp"
+                          android:paddingBottom="8dp">
+
+                          <TextView
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:text="⏸ Continue Watching"
+                              android:textColor="#FFFFFF"
+                              android:textSize="15sp"
+                              android:fontFamily="sans-serif-medium"/>
+
+                          <TextView
+                              android:id="@+id/btn_clear_history"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:text="Clear"
+                              android:textColor="#777777"
+                              android:textSize="13sp"/>
+                      </LinearLayout>
+
+                      <HorizontalScrollView
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:scrollbars="none"
+                          android:paddingStart="8dp"
+                          android:paddingEnd="8dp">
+
+                          <LinearLayout
+                              android:id="@+id/container_continue_watching"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:orientation="horizontal"/>
+                      </HorizontalScrollView>
+
+                      <ProgressBar
+                          android:id="@+id/pb_continue"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_gravity="center_horizontal"
+                          android:indeterminateTint="@color/brand_primary"
+                          android:visibility="visible"/>
+
+                      <View
+                          android:layout_width="match_parent"
+                          android:layout_height="1dp"
+                          android:layout_marginTop="12dp"
+                          android:background="#1F1F1F"/>
+                  </LinearLayout>
+
+                  <!-- ── Suggested Creators ── -->
+                  <LinearLayout
+                      android:id="@+id/section_suggested_creators"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:visibility="gone">
+
+                      <TextView
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:paddingStart="16dp"
+                          android:paddingEnd="16dp"
+                          android:paddingTop="16dp"
+                          android:paddingBottom="8dp"
+                          android:text="✨ Suggested Creators"
+                          android:textColor="#FFFFFF"
+                          android:textSize="15sp"
+                          android:fontFamily="sans-serif-medium"/>
+
+                      <HorizontalScrollView
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:scrollbars="none"
+                          android:paddingStart="8dp"
+                          android:paddingEnd="8dp">
+
+                          <LinearLayout
+                              android:id="@+id/container_suggested_creators"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:orientation="horizontal"/>
+                      </HorizontalScrollView>
+
+                      <ProgressBar
+                          android:id="@+id/pb_suggested"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_gravity="center_horizontal"
+                          android:indeterminateTint="@color/brand_primary"
+                          android:visibility="visible"/>
+                  </LinearLayout>
+
+              </LinearLayout>
+          </androidx.core.widget.NestedScrollView>
+      </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+  </androidx.coordinatorlayout.widget.CoordinatorLayout>
