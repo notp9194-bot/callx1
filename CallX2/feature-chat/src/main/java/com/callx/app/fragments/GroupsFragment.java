@@ -27,12 +27,20 @@ import java.util.concurrent.Executors;
  * Flow:
  *   1. loadFromRoom() — Room se turant cached groups dikhao
  *   2. load()         — Firebase se sync karo + Room mein save karo
+ *
+ * CRASH FIXES:
+ *   - groupsListener stored + removed in onDestroyView (was never removed → NPE after detach)
+ *   - outer onDataChange: isAdded() check added before every UI/adapter call
+ *   - loadFromRoom: isAdded() check added before runOnUiThread UI calls
  */
 public class GroupsFragment extends Fragment {
 
     private final List<Group> groups = new ArrayList<>();
     private GroupAdapter adapter;
     private View emptyState;
+
+    // CRASH FIX: Store listener so we can remove it in onDestroyView
+    private ValueEventListener groupsListener;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle s) {
@@ -47,10 +55,24 @@ public class GroupsFragment extends Fragment {
         fab.setOnClickListener(x ->
             startActivity(new Intent(getContext(), NewGroupActivity.class)));
 
-        // v16 FIX: Pehle Room se load, phir Firebase sync
         loadFromRoom();
         load();
         return v;
+    }
+
+    @Override
+    public void onDestroyView() {
+        // CRASH FIX: Remove Firebase listener to stop callbacks after view is destroyed
+        if (groupsListener != null) {
+            String uid = FirebaseUtils.getCurrentUid();
+            if (uid != null && !uid.isEmpty()) {
+                FirebaseUtils.getUserGroupsRef(uid).removeEventListener(groupsListener);
+            }
+            groupsListener = null;
+        }
+        adapter = null;
+        emptyState = null;
+        super.onDestroyView();
     }
 
     // ── v16: Room se offline-first load ───────────────────────────
@@ -79,9 +101,11 @@ public class GroupsFragment extends Fragment {
 
             if (getActivity() != null) {
                 getActivity().runOnUiThread(() -> {
+                    // CRASH FIX: isAdded() check before touching adapter/views
+                    if (!isAdded() || adapter == null) return;
                     if (groups.isEmpty()) {
                         groups.addAll(roomGroups);
-                        if (adapter != null) adapter.notifyDataSetChanged();
+                        adapter.notifyDataSetChanged();
                         if (emptyState != null)
                             emptyState.setVisibility(groups.isEmpty() ? View.VISIBLE : View.GONE);
                     }
@@ -93,65 +117,68 @@ public class GroupsFragment extends Fragment {
     // ── Firebase sync + Room save ──────────────────────────────────
     private void load() {
         String uid = FirebaseUtils.getCurrentUid();
-        FirebaseUtils.getUserGroupsRef(uid)
-            .addValueEventListener(new ValueEventListener() {
-                @Override public void onDataChange(DataSnapshot snap) {
-                    groups.clear();
-                    if (!snap.hasChildren()) {
-                        if (adapter != null) adapter.notifyDataSetChanged();
-                        if (emptyState != null) emptyState.setVisibility(View.VISIBLE);
-                        return;
-                    }
-                    if (emptyState != null) emptyState.setVisibility(View.GONE);
-                    final int[] pending = {(int) snap.getChildrenCount()};
-                    final List<GroupEntity> toSave = new ArrayList<>();
+        if (uid == null || uid.isEmpty()) return; // CRASH FIX: guard null uid
 
-                    for (DataSnapshot g : snap.getChildren()) {
-                        String gid = g.getKey();
-                        FirebaseUtils.getGroupsRef().child(gid)
-                            .addListenerForSingleValueEvent(new ValueEventListener() {
-                                @Override public void onDataChange(DataSnapshot ds) {
-                                    Group gr = ds.getValue(Group.class);
-                                    if (gr != null) {
-                                        if (gr.id == null) gr.id = ds.getKey();
-                                        groups.add(gr);
+        groupsListener = new ValueEventListener() {  // CRASH FIX: store listener ref
+            @Override public void onDataChange(DataSnapshot snap) {
+                // CRASH FIX: isAdded() check on every UI operation in outer callback
+                if (!isAdded() || adapter == null) return;
 
-                                        // v16: Room mein save karo
-                                        GroupEntity entity = new GroupEntity();
-                                        entity.id            = gr.id;
-                                        entity.name          = gr.name;
-                                        entity.description   = gr.description;
-                                        entity.iconUrl       = gr.iconUrl;
-                                        entity.createdBy     = gr.createdBy;
-                                        entity.lastMessage   = gr.lastMessage;
-                                        entity.lastSenderName = gr.lastSenderName;
-                                        entity.lastMessageAt = gr.lastMessageAt;
-                                        toSave.add(entity);
-                                    }
-                                    if (--pending[0] == 0) {
-                                        // Sab fetch ho gaye — UI update + Room save
-                                        if (isAdded() && adapter != null) adapter.notifyDataSetChanged();
-                                        if (isAdded() && getContext() != null && !toSave.isEmpty()) {
-                                            AppDatabase db = AppDatabase.getInstance(getContext());
-                                            Executors.newSingleThreadExecutor().execute(() ->
-                                                db.groupDao().insertGroups(toSave));
-                                        }
-                                    }
-                                }
-                                @Override public void onCancelled(DatabaseError e) {
-                                    if (--pending[0] == 0) {
-                                        if (getActivity() != null) {
-                                            getActivity().runOnUiThread(() -> {
-                                                if (isAdded() && adapter != null)
-                                                    adapter.notifyDataSetChanged();
-                                            });
-                                        }
-                                    }
-                                }
-                            });
-                    }
+                groups.clear();
+                if (!snap.hasChildren()) {
+                    adapter.notifyDataSetChanged();
+                    if (emptyState != null) emptyState.setVisibility(View.VISIBLE);
+                    return;
                 }
-                @Override public void onCancelled(DatabaseError e) {}
-            });
+                if (emptyState != null) emptyState.setVisibility(View.GONE);
+                final int[] pending = {(int) snap.getChildrenCount()};
+                final List<GroupEntity> toSave = new ArrayList<>();
+
+                for (DataSnapshot g : snap.getChildren()) {
+                    String gid = g.getKey();
+                    FirebaseUtils.getGroupsRef().child(gid)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot ds) {
+                                Group gr = ds.getValue(Group.class);
+                                if (gr != null) {
+                                    if (gr.id == null) gr.id = ds.getKey();
+                                    groups.add(gr);
+
+                                    GroupEntity entity = new GroupEntity();
+                                    entity.id            = gr.id;
+                                    entity.name          = gr.name;
+                                    entity.description   = gr.description;
+                                    entity.iconUrl       = gr.iconUrl;
+                                    entity.createdBy     = gr.createdBy;
+                                    entity.lastMessage   = gr.lastMessage;
+                                    entity.lastSenderName = gr.lastSenderName;
+                                    entity.lastMessageAt = gr.lastMessageAt;
+                                    toSave.add(entity);
+                                }
+                                if (--pending[0] == 0) {
+                                    if (isAdded() && adapter != null) adapter.notifyDataSetChanged();
+                                    if (isAdded() && getContext() != null && !toSave.isEmpty()) {
+                                        AppDatabase db = AppDatabase.getInstance(getContext());
+                                        Executors.newSingleThreadExecutor().execute(() ->
+                                            db.groupDao().insertGroups(toSave));
+                                    }
+                                }
+                            }
+                            @Override public void onCancelled(DatabaseError e) {
+                                if (--pending[0] == 0) {
+                                    if (getActivity() != null) {
+                                        getActivity().runOnUiThread(() -> {
+                                            if (isAdded() && adapter != null)
+                                                adapter.notifyDataSetChanged();
+                                        });
+                                    }
+                                }
+                            }
+                        });
+                }
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        FirebaseUtils.getUserGroupsRef(uid).addValueEventListener(groupsListener);
     }
 }

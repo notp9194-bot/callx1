@@ -386,6 +386,9 @@ public class ReelsFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
+        // CRASH FIX: Remove Firebase listeners BEFORE destroying view.
+        // Without this, Firebase callbacks fire after vpReels/adapter are null → NPE crash.
+        removeListeners();
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader = null;
         super.onDestroyView();
@@ -563,6 +566,8 @@ public class ReelsFragment extends Fragment {
     // ── Render + paginate ─────────────────────────────────────────────────
 
     private void renderPage(List<ReelModel> source) {
+        // CRASH FIX: Guard against fragment detach before adapter operations
+        if (!isAdded() || getActivity() == null || adapter == null || vpReels == null) return;
         int end = Math.min(PAGE_SIZE, source.size());
         adapter.setReels(source.subList(0, end));
         currentPage   = end;
@@ -570,6 +575,7 @@ public class ReelsFragment extends Fragment {
         if (videoPreloader != null) videoPreloader.preloadFrom(source.subList(0, end), 0);
         if (thumbPreloader != null) thumbPreloader.preloadFrom(source.subList(0, end), 0);
         if (getActivity() != null) getActivity().runOnUiThread(() -> {
+            if (!isAdded() || vpReels == null) return;
             vpReels.setCurrentItem(0, false);
             controlPlayback(0);
         });
@@ -577,6 +583,8 @@ public class ReelsFragment extends Fragment {
 
     private void renderPageAtPosition(List<ReelModel> source, int position) {
         if (source.isEmpty()) return;
+        // CRASH FIX: Guard against fragment detach
+        if (!isAdded() || getActivity() == null || adapter == null || vpReels == null) return;
         int end = Math.max(Math.min(PAGE_SIZE, source.size()),
                            Math.min(position + 1, source.size()));
         if (adapter.getItemCount() == 0) {
@@ -585,6 +593,7 @@ public class ReelsFragment extends Fragment {
         }
         int safePos = Math.min(position, adapter.getItemCount() - 1);
         if (getActivity() != null) getActivity().runOnUiThread(() -> {
+            if (!isAdded() || vpReels == null) return;
             vpReels.setCurrentItem(safePos, false);
             controlPlayback(safePos);
         });
