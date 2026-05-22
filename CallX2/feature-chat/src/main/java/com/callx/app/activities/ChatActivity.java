@@ -576,6 +576,23 @@ public class ChatActivity extends AppCompatActivity {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
+                // v22 FIX: Receiver ka device message load kiya = "delivered"
+                // Sender nahi, receiver likhega deliveredAt
+                if (!currentUid.equals(m.senderId)) {
+                    boolean notYetDelivered = m.deliveredAt == null || m.deliveredAt == 0;
+                    if (notYetDelivered) {
+                        long nowMs = System.currentTimeMillis();
+                        m.deliveredAt = nowMs;
+                        java.util.Map<String, Object> delivUpdate = new java.util.HashMap<>();
+                        delivUpdate.put("deliveredAt", nowMs);
+                        // Status sirf "sent" se "delivered" karo — "seen" ko overwrite mat karo
+                        if ("sent".equals(m.status) || m.status == null) {
+                            delivUpdate.put("status", "delivered");
+                            m.status = "delivered";
+                        }
+                        messagesRef.child(m.id).updateChildren(delivUpdate);
+                    }
+                }
                 saveToRoom(m, false);
                 markRead(m);
             }
@@ -585,13 +602,7 @@ public class ChatActivity extends AppCompatActivity {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                // v22: if status just became "delivered" and deliveredAt not set, write it now
-                if ("delivered".equals(m.status) && (m.deliveredAt == null || m.deliveredAt == 0)) {
-                    long now = System.currentTimeMillis();
-                    m.deliveredAt = now;
-                    messagesRef.child(m.id).child("deliveredAt").setValue(now);
-                }
-                saveToRoom(m, true); // update existing row (REPLACE strategy)
+                saveToRoom(m, true); // update existing row — timestamps already in Firebase
             }
 
             @Override
@@ -1077,11 +1088,16 @@ public class ChatActivity extends AppCompatActivity {
     private void markRead(Message m) {
         if (m == null || m.id == null) return;
         if (!currentUid.equals(m.senderId)) {
+            // Already seen — double write mat karo
+            if ("seen".equals(m.status) && m.seenAt != null && m.seenAt > 0) return;
             long nowMs = System.currentTimeMillis();
-            // Write status "seen" + seenAt timestamp so sender can see when msg was read
             java.util.Map<String, Object> updates = new java.util.HashMap<>();
             updates.put("status", "seen");
             updates.put("seenAt", nowMs);
+            // deliveredAt bhi set karo agar abhi tak nahi tha
+            if (m.deliveredAt == null || m.deliveredAt == 0) {
+                updates.put("deliveredAt", nowMs);
+            }
             messagesRef.child(m.id).updateChildren(updates);
             ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "seen"));
         }
