@@ -464,7 +464,6 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginal(messageId); }
-            @Override public void onInfo(Message m)                { openMessageInfo(m); }
         });
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
@@ -585,12 +584,6 @@ public class ChatActivity extends AppCompatActivity {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                // v22: if status just became "delivered" and deliveredAt not set, write it now
-                if ("delivered".equals(m.status) && (m.deliveredAt == null || m.deliveredAt == 0)) {
-                    long now = System.currentTimeMillis();
-                    m.deliveredAt = now;
-                    messagesRef.child(m.id).child("deliveredAt").setValue(now);
-                }
                 saveToRoom(m, true); // update existing row (REPLACE strategy)
             }
 
@@ -644,9 +637,6 @@ public class ChatActivity extends AppCompatActivity {
         m.duration              = e.duration;
         m.timestamp             = e.timestamp;
         m.status                = e.status;
-        m.sentAt                = e.sentAt;        // v22: message info timestamps
-        m.deliveredAt           = e.deliveredAt;
-        m.seenAt                = e.seenAt;
         m.replyToId             = e.replyToId;
         m.replyToText           = e.replyToText;
         m.replyToSenderName     = e.replyToSenderName;
@@ -678,9 +668,6 @@ public class ChatActivity extends AppCompatActivity {
         e.duration                = m.duration;
         e.timestamp               = m.timestamp;
         e.status                  = m.status;
-        e.sentAt                  = m.sentAt;        // v22: message info timestamps
-        e.deliveredAt             = m.deliveredAt;
-        e.seenAt                  = m.seenAt;
         e.replyToId               = m.replyToId;
         e.replyToText             = m.replyToText;
         e.replyToSenderName       = m.replyToSenderName;
@@ -771,8 +758,6 @@ public class ChatActivity extends AppCompatActivity {
         String key = messagesRef.push().getKey();
         if (key == null) return;
         m.id = key;
-        // v22: sentAt = send time — used in Message Info
-        if (m.sentAt == null || m.sentAt == 0) m.sentAt = m.timestamp;
 
         // Step 1: Room mein turant save karo (status = pending)
         MessageEntity entity = messageToEntity(m, "pending");
@@ -843,9 +828,6 @@ public class ChatActivity extends AppCompatActivity {
         e.duration       = m.duration;
         e.timestamp      = m.timestamp;
         e.status         = status;
-        e.sentAt         = m.sentAt != null ? m.sentAt : m.timestamp;  // v22
-        e.deliveredAt    = m.deliveredAt;
-        e.seenAt         = m.seenAt;
         e.replyToId      = m.replyToId;
         e.replyToText    = m.replyToText;
         e.replyToSenderName = m.replyToSenderName;
@@ -1077,13 +1059,8 @@ public class ChatActivity extends AppCompatActivity {
     private void markRead(Message m) {
         if (m == null || m.id == null) return;
         if (!currentUid.equals(m.senderId)) {
-            long nowMs = System.currentTimeMillis();
-            // Write status "seen" + seenAt timestamp so sender can see when msg was read
-            java.util.Map<String, Object> updates = new java.util.HashMap<>();
-            updates.put("status", "seen");
-            updates.put("seenAt", nowMs);
-            messagesRef.child(m.id).updateChildren(updates);
-            ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "seen"));
+            messagesRef.child(m.id).child("status").setValue("read");
+            ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "read"));
         }
     }
 
@@ -1990,29 +1967,6 @@ public class ChatActivity extends AppCompatActivity {
                 }
             }
         });
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // MESSAGE INFO (v22)
-    // ─────────────────────────────────────────────────────────────────────
-
-    /**
-     * Opens MessageInfoActivity with sent/delivered/seen timestamps for a message.
-     * Only callable on own sent messages (enforced in adapter's showActionBottomSheet).
-     */
-    private void openMessageInfo(Message m) {
-        android.content.Intent i = new android.content.Intent(this,
-                com.callx.app.activities.MessageInfoActivity.class);
-        i.putExtra("chatId",      chatId);
-        i.putExtra("messageId",   m.id);
-        i.putExtra("msgText",     m.text);
-        i.putExtra("msgType",     m.type != null ? m.type : "text");
-        i.putExtra("mediaUrl",    m.mediaUrl != null ? m.mediaUrl : "");
-        i.putExtra("thumbUrl",    m.thumbnailUrl != null ? m.thumbnailUrl : "");
-        i.putExtra("sentAt",      m.sentAt      != null ? m.sentAt      : (m.timestamp != null ? m.timestamp : 0L));
-        i.putExtra("deliveredAt", m.deliveredAt != null ? m.deliveredAt : 0L);
-        i.putExtra("seenAt",      m.seenAt      != null ? m.seenAt      : 0L);
-        startActivity(i);
     }
 
     /**

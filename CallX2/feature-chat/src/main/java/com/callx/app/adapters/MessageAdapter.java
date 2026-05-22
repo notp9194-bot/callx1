@@ -671,21 +671,23 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             if (sent) {
                 h.tvStatus.setVisibility(View.VISIBLE);
                 switch (m.status == null ? "sent" : m.status) {
-                    case "seen":
-                    case "read":        // legacy alias
-                        h.tvStatus.setText("✓✓");
-                        h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(0xFF2196F3); // blue — seen
+                    case "read":
+                        h.tvStatus.setText("\u2713\u2713 ");
+                        h.tvStatus.setTextSize(14f);
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
                         break;
                     case "delivered":
-                        h.tvStatus.setText("✓✓");
+                        h.tvStatus.setText("\u2713\u2713");
                         h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(0xFF9E9E9E); // grey double — delivered
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
                         break;
-                    default: // sent / pending
-                        h.tvStatus.setText("✓");
+                    default:
+                        h.tvStatus.setText("\u2713");
                         h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(0xFF9E9E9E); // grey single — sent
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
                         break;
                 }
             } else {

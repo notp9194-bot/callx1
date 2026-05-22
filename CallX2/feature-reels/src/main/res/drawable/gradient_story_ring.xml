@@ -1,12 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Instagram-style gradient story ring — shown when a contact has a reel_story type status -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <gradient
-        android:type="sweep"
-        android:startColor="#FF6B6B"
-        android:centerColor="#FFA500"
-        android:endColor="#6C5CE7"
-        android:centerX="0.5"
-        android:centerY="0.5"/>
-</shape>
+<!--
+    Instagram-style story ring for unseen stories.
+    layer-list creates 3 layers from back to front:
+      Layer 0 — gradient oval (outermost, full size) — pink → orange → yellow
+      Layer 1 — dark oval inset by 4dp on all sides (creates the gap ring)
+    The CircleImageView photo sits on top of this in the FrameLayout.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Gradient ring (outermost) -->
+    <item>
+        <shape android:shape="oval">
+            <gradient
+                android:type="sweep"
+                android:startColor="#FF3CAC"
+                android:centerColor="#FF8B00"
+                android:endColor="#FBDB61"
+                android:centerX="0.5"
+                android:centerY="0.5"/>
+        </shape>
+    </item>
+
+    <!-- Dark gap — inset to create visible space between gradient and photo -->
+    <item
+        android:left="4dp"
+        android:top="4dp"
+        android:right="4dp"
+        android:bottom="4dp">
+        <shape android:shape="oval">
+            <solid android:color="#0D0D0D"/>
+        </shape>
+    </item>
+
+</layer-list>
