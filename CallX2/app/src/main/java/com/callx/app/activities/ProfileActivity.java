@@ -207,6 +207,7 @@ public class ProfileActivity extends AppCompatActivity {
         }
         Map<String, Object> updates = new HashMap<>();
         updates.put("name",      name);
+        updates.put("nameLower", name.toLowerCase(java.util.Locale.getDefault()));
         updates.put("about",     about);
         updates.put("bio",       bio);
         updates.put("phone",     phone);

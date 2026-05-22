@@ -94,6 +94,7 @@ public class ProfileSetupActivity extends AppCompatActivity {
                                 String about, String photoUrl) {
         java.util.Map<String, Object> updates = new java.util.HashMap<>();
         updates.put("name", name);
+        updates.put("nameLower", name.toLowerCase(java.util.Locale.getDefault()));
         if (!mobile.isEmpty()) {
             updates.put("mobile", mobile);
             updates.put("callxId", mobile);
