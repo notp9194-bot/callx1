@@ -23,6 +23,8 @@
         <item name="android:statusBarColor">@color/surface_bg</item>
         <item name="android:navigationBarColor">@color/surface_bg</item>
         <item name="android:windowLightStatusBar">false</item>
+        <!-- Global slide transition — dark mode mein bhi same WhatsApp feel -->
+        <item name="android:windowAnimationStyle">@style/ActivitySlideTransition</item>
     </style>
 
     <style name="Theme.CallX.Fullscreen" parent="Theme.CallX">

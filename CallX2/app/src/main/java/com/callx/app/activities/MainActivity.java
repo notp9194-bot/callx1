@@ -102,6 +102,10 @@ public class MainActivity extends AppCompatActivity {
             startActivity(new Intent(this, AccountMenuActivity.class)));
 
         binding.viewPager.setAdapter(new ViewPagerAdapter(this));
+        // Instagram/WhatsApp style — tabs pre-load karo, swipe smooth rahe
+        binding.viewPager.setOffscreenPageLimit(2);
+        // Bottom nav tap par instant switch (no scroll animation) — WhatsApp jaisa
+        binding.viewPager.setUserInputEnabled(true);
         binding.viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int position) {
                 int[] ids = {
@@ -123,24 +127,25 @@ public class MainActivity extends AppCompatActivity {
 
         binding.bottomNav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
-            if      (id == R.id.nav_chats)  { binding.viewPager.setCurrentItem(TAB_CHATS); }
+            // false = instant switch (no scroll animation) — WhatsApp/Instagram jaisa snap
+            if      (id == R.id.nav_chats)  { binding.viewPager.setCurrentItem(TAB_CHATS, false); }
             else if (id == R.id.nav_status) {
-                binding.viewPager.setCurrentItem(TAB_STATUS);
+                binding.viewPager.setCurrentItem(TAB_STATUS, false);
                 clearBadge(R.id.nav_status);
                 // Also clear status contribution from header notification ball
                 notifStatusUnread = 0;
                 updateNotifBadge();
             }
             else if (id == R.id.nav_groups) {
-                binding.viewPager.setCurrentItem(TAB_GROUPS);
+                binding.viewPager.setCurrentItem(TAB_GROUPS, false);
                 clearBadge(R.id.nav_groups);
             }
             else if (id == R.id.nav_reels)  {
-                binding.viewPager.setCurrentItem(TAB_REELS);
+                binding.viewPager.setCurrentItem(TAB_REELS, false);
                 clearBadge(R.id.nav_reels);
             }
             else if (id == R.id.nav_calls)  {
-                binding.viewPager.setCurrentItem(TAB_CALLS);
+                binding.viewPager.setCurrentItem(TAB_CALLS, false);
                 // Mark missed calls as seen
                 getSharedPreferences("callx_prefs", MODE_PRIVATE).edit()
                     .putLong("last_seen_calls_ts", System.currentTimeMillis()).apply();
