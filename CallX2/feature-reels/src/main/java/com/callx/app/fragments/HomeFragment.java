@@ -359,15 +359,19 @@ public class HomeFragment extends Fragment {
 
             tvName.setText(entry.name != null ? entry.name : "User");
 
-            // ★ Gradient ring (pink → orange → yellow) for ALL unseen stories.
-            //   Gap between ring and photo is baked into gradient_story_ring drawable (layer-list).
+            // ★ Gradient ring for reel_story type (Instagram-style)
             ImageView ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
 
-            if (entry.hasUnseen || entry.hasReelStory) {
-                // Show gradient ring — gap is built into the drawable, no extra view needed
+            if (entry.hasReelStory) {
+                // Show gradient sweep ring — hides the plain border
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
-                // Remove CircleImageView plain border — gradient ring takes over
                 avatar.setBorderWidth(0);
+                if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
+            } else if (entry.hasUnseen) {
+                // Brand color ring for unseen WhatsApp-style status
+                if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
+                avatar.setBorderColor(getResources().getColor(R.color.brand_primary, null));
+                avatar.setBorderWidth(dpToPx(3));
                 if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
             } else {
                 // Gray ring for all-seen status

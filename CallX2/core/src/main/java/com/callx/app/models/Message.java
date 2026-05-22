@@ -30,8 +30,16 @@ public class Message {
     public String imageUrl;
 
     // ── Feature 1: Read Receipts ──────────────────────────
-    /** sent | delivered | read */
+    /** sent | delivered | seen */
     public String status;
+
+    // ── Feature 1b: Read Receipt Timestamps ──────────────
+    /** Epoch ms when message was sent (server timestamp) */
+    public Long sentAt;
+    /** Epoch ms when message was delivered to receiver's device */
+    public Long deliveredAt;
+    /** Epoch ms when receiver opened/read the message */
+    public Long seenAt;
 
     // ── Feature 2: Reply / Quote ──────────────────────────
     public String replyToId;
@@ -60,7 +68,6 @@ public class Message {
 
     // ── Feature 8: Pinned ────────────────────────────────
     public Boolean pinned;
-
 
     // ── Feature 9: Reel Seen Bubble ──────────────────────────────
     /** Reel ID — set when type = "reel_seen". Used to open reel on tap. */

@@ -140,59 +140,42 @@ public class ReelsFragment extends Fragment {
         // top_bar: statusBarHeight padding so buttons sit BELOW the status bar.
         // Video extends behind the transparent status bar (Instagram Reels style).
         topBar = v.findViewById(R.id.top_bar);
-        // Null-guarded: topBar/reelBottomNav could theoretically be absent
-        // on custom ROM layouts — avoid NPE crash on Reels tab open.
-        if (topBar != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(topBar, (view, insets) -> {
-                int statusBarHeight = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
-                view.setPadding(
-                    view.getPaddingLeft(),
-                    statusBarHeight,
-                    view.getPaddingRight(),
-                    view.getPaddingBottom());
-                return insets;
-            });
-        }
+        ViewCompat.setOnApplyWindowInsetsListener(topBar, (view, insets) -> {
+            int statusBarHeight = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
+            view.setPadding(
+                view.getPaddingLeft(),
+                statusBarHeight,
+                view.getPaddingRight(),
+                view.getPaddingBottom());
+            return insets;
+        });
 
         // reel_bottom_nav: navigationBarHeight padding keeps nav items above
         // the gesture bar / 3-button nav on edge-to-edge screens.
-        if (reelBottomNav != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(reelBottomNav, (view, insets) -> {
-                int navBarHeight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-                view.setPadding(
-                    view.getPaddingLeft(), view.getPaddingTop(),
-                    view.getPaddingRight(), navBarHeight);
-                return insets;
-            });
-        }
+        ViewCompat.setOnApplyWindowInsetsListener(reelBottomNav, (view, insets) -> {
+            int navBarHeight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            view.setPadding(
+                view.getPaddingLeft(), view.getPaddingTop(),
+                view.getPaddingRight(), navBarHeight);
+            return insets;
+        });
 
         adapter = new ReelsAdapter(this);
         vpReels.setAdapter(adapter);
         vpReels.setOffscreenPageLimit(2);
 
-        // Defensive: ExoPlayer SimpleCache can throw on some devices/ROMs
-        try {
-            ReelCacheManager.init(requireContext());
-            videoPreloader = new ReelVideoPreloader(requireContext());
-            thumbPreloader = new ReelThumbnailPreloader(requireContext());
-        } catch (Exception e) {
-            android.util.Log.e("ReelsFragment", "Cache/preloader init failed — continuing without cache", e);
-            videoPreloader = null;
-            thumbPreloader = null;
-        }
+        ReelCacheManager.init(requireContext());
+        videoPreloader = new ReelVideoPreloader(requireContext());
+        thumbPreloader = new ReelThumbnailPreloader(requireContext());
 
         vpReels.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
             public void onPageSelected(int position) {
-                try {
-                    controlPlayback(position);
-                    if (position >= adapter.getItemCount() - 3) loadMoreReels();
-                    List<ReelModel> cur = isFypMode ? allReels : followingReels;
-                    if (videoPreloader != null) videoPreloader.preloadFrom(cur, position);
-                    if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, position);
-                } catch (Exception e) {
-                    android.util.Log.e("ReelsFragment", "onPageSelected error", e);
-                }
+                controlPlayback(position);
+                if (position >= adapter.getItemCount() - 3) loadMoreReels();
+                List<ReelModel> cur = isFypMode ? allReels : followingReels;
+                if (videoPreloader != null) videoPreloader.preloadFrom(cur, position);
+                if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, position);
             }
         });
 
@@ -265,15 +248,15 @@ public class ReelsFragment extends Fragment {
 
         // Start on the Reels feed tab (suppressed so it doesn't scroll to top on init)
         suppressNavScrollToTop = true;
-        if (reelBottomNav != null) {
-            reelBottomNav.setSelectedItemId(R.id.reel_nav_feed);
-            // Since itemIconTint="@null" in XML (needed so creator avatar isn't tinted white),
-            // manually apply white tint to all non-creator menu items here.
-            applyWhiteTintToNavIcons();
-            // FIX #3: Load current user's avatar and set it as the Creator tab icon
-            // post() defers until after the view is fully laid out so menu items are ready
-            reelBottomNav.post(() -> loadCreatorAvatar());
-        }
+        reelBottomNav.setSelectedItemId(R.id.reel_nav_feed);
+
+        // Since itemIconTint="@null" in XML (needed so creator avatar isn't tinted white),
+        // manually apply white tint to all non-creator menu items here.
+        applyWhiteTintToNavIcons();
+
+        // FIX #3: Load current user's avatar and set it as the Creator tab icon
+        // post() defers until after the view is fully laid out so menu items are ready
+        reelBottomNav.post(() -> loadCreatorAvatar());
 
         return v;
     }
@@ -411,22 +394,17 @@ public class ReelsFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
-        try {
-            // Refresh icon tints (white for all, null for creator) then reload avatar
-            applyWhiteTintToNavIcons();
-            // Refresh creator avatar whenever fragment comes to foreground
-            loadCreatorAvatar();
+        // Refresh icon tints (white for all, null for creator) then reload avatar
+        applyWhiteTintToNavIcons();
+        // Refresh creator avatar whenever fragment comes to foreground
+        loadCreatorAvatar();
 
-            if (allReels.isEmpty()) {
-                loadFypReels();
-            } else if (isFypMode) {
-                renderPageAtPosition(allReels, savedPosition);
-            } else {
-                renderPageAtPosition(followingReels, savedPosition);
-            }
-        } catch (Exception e) {
-            android.util.Log.e("ReelsFragment", "onStart error — attempting FYP load", e);
-            try { loadFypReels(); } catch (Exception e2) { /* silent */ }
+        if (allReels.isEmpty()) {
+            loadFypReels();
+        } else if (isFypMode) {
+            renderPageAtPosition(allReels, savedPosition);
+        } else {
+            renderPageAtPosition(followingReels, savedPosition);
         }
     }
 
