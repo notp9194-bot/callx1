@@ -710,10 +710,11 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 .setSemanticAction(
                     NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
                 .build();
-        // Action: Mark as read — pass msgId so receiver can write seenAt
+        // Action: Mark as read — msgId postRichNotification scope mein nahi hai
+        // NotificationActionReceiver chatId se latest unread message fetch karega
         PendingIntent markReadPi = PendingIntent.getBroadcast(this, notifId * 10 + 1,
-            buildActionIntentWithMsg(Constants.ACTION_MARK_READ, fromUid, fromName,
-                fromPhoto, chatId, notifId, msgId),
+            buildActionIntent(Constants.ACTION_MARK_READ, fromUid, fromName,
+                fromPhoto, chatId, notifId),
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         NotificationCompat.Action markReadAction =
             new NotificationCompat.Action.Builder(

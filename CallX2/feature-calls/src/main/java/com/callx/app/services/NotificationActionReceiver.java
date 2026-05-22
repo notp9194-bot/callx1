@@ -41,29 +41,69 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                 FirebaseUtils.getContactsRef(myUid).child(partnerUid)
                     .child("unread").setValue(0);
             }
+            if (nm != null) nm.cancel(notifId);
 
-            // ── PRODUCTION: Mark message as seen (blue ✓✓) ───────────────────
-            // Notification shade se "Mark as read" press kiya = message dekh liya
-            // chatId + msgId se Firebase pe seenAt + status="seen" atomic write
+            // ── PRODUCTION: chatId ke saare unread messages mark seen karo ────
+            // msgId scope issue ke wajah se seedha chatId se latest messages fetch
+            // karo aur unhe sab "seen" karo — multiple bundled messages bhi handle
             final String markChatId = chatId;
-            final String markMsgId  = intent.getStringExtra(Constants.EXTRA_MSG_ID);
-
-            if (markChatId != null && !markChatId.isEmpty()
-                    && markMsgId != null && !markMsgId.isEmpty()) {
-                // DeliveryManager — handles Firebase + Room atomically
-                // goAsync() already called above so BroadcastReceiver stays alive
-                com.callx.app.delivery.MessageDeliveryManager.get()
-                    .markSeenFromNotification(context, markChatId, markMsgId);
-                // Small delay taaki Firebase write complete ho sake before finish
+            if (markChatId != null && !markChatId.isEmpty()) {
                 new Thread(() -> {
-                    try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
-                    pendingResult.finish();
+                    try {
+                        long nowMs = System.currentTimeMillis();
+                        // Firebase: chatId ke messages fetch karo (last 20)
+                        // Jo bhi "sent" ya "delivered" hain unhe "seen" karo
+                        com.google.firebase.database.DatabaseReference msgsRef =
+                            FirebaseUtils.getMessagesRef(markChatId);
+                        msgsRef.orderByChild("timestamp")
+                            .limitToLast(20)
+                            .addListenerForSingleValueEvent(
+                                new com.google.firebase.database.ValueEventListener() {
+                                    @Override
+                                    public void onDataChange(
+                                            @androidx.annotation.NonNull
+                                            com.google.firebase.database.DataSnapshot snap) {
+                                        for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                                            String senderId = child.child("senderId").getValue(String.class);
+                                            String status   = child.child("status").getValue(String.class);
+                                            String msgKey   = child.getKey();
+                                            // Sirf receiver ke received messages ko mark karo
+                                            if (msgKey == null) continue;
+                                            if (myUid.equals(senderId)) continue; // apna message nahi
+                                            if ("seen".equals(status)) continue;  // already seen
+                                            // Atomic write
+                                            java.util.Map<String, Object> upd = new java.util.HashMap<>();
+                                            upd.put("status",      "seen");
+                                            upd.put("seenAt",      nowMs);
+                                            upd.put("deliveredAt", nowMs);
+                                            msgsRef.child(msgKey).updateChildren(upd);
+                                            // Room update
+                                            try {
+                                                com.callx.app.db.AppDatabase
+                                                    .getInstance(context)
+                                                    .messageDao()
+                                                    .updateStatusSeen(msgKey, "seen", nowMs);
+                                            } catch (Exception ignored) {}
+                                        }
+                                        pendingResult.finish();
+                                    }
+                                    @Override
+                                    public void onCancelled(
+                                            @androidx.annotation.NonNull
+                                            com.google.firebase.database.DatabaseError e) {
+                                        android.util.Log.w("NotifAction", "mark read cancelled: " + e.getMessage());
+                                        pendingResult.finish();
+                                    }
+                                });
+                    } catch (Exception e) {
+                        android.util.Log.w("NotifAction", "mark read error: " + e.getMessage());
+                        pendingResult.finish();
+                    }
                 }).start();
             } else {
-                android.util.Log.w("NotifAction", "Mark read: msgId missing");
+                android.util.Log.w("NotifAction", "Mark read: chatId missing");
                 pendingResult.finish();
             }
-            if (nm != null) nm.cancel(notifId);
             return;
         }
         // (Feature 1) Mute — sound off. Future notifications silent show honge.
