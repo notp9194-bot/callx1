@@ -24,7 +24,6 @@
               app:civ_border_width="2dp"
               app:civ_border_color="@color/brand_primary"/>
 
-          <!-- Add-story "+" overlay (only visible on the first Add Story item) -->
           <ImageView
               android:id="@+id/iv_story_add_overlay"
               android:layout_width="22dp"

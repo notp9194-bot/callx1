@@ -40,14 +40,15 @@
           android:textColor="#AAAAAA"
           android:textSize="11sp"/>
 
-      <com.google.android.material.button.MaterialButton
+      <TextView
           android:id="@+id/btn_join_challenge"
-          style="@style/Widget.Material3.Button.OutlinedButton"
           android:layout_width="match_parent"
           android:layout_height="32dp"
           android:layout_marginTop="6dp"
+          android:gravity="center"
           android:text="Join"
           android:textSize="12sp"
-          app:strokeColor="@color/brand_primary"
-          android:textColor="@color/brand_primary"/>
+          android:textColor="@color/brand_primary"
+          android:background="@drawable/border_reel_button"/>
+
   </LinearLayout>

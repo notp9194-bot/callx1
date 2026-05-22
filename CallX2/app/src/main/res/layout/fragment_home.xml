@@ -6,7 +6,6 @@
       android:layout_height="match_parent"
       android:background="#0D0D0D">
 
-      <!-- ── [FEATURE 4] "New Posts Available" floating banner ── -->
       <TextView
           android:id="@+id/tv_new_posts_banner"
           android:layout_width="wrap_content"
@@ -19,7 +18,7 @@
           android:gravity="center"
           android:paddingStart="16dp"
           android:paddingEnd="16dp"
-          android:text="↑ New posts available"
+          android:text="&#8593; New posts available"
           android:textColor="#FFFFFF"
           android:textSize="13sp"
           android:fontFamily="sans-serif-medium"
@@ -27,7 +26,6 @@
           app:layout_anchor="@id/app_bar"
           app:layout_anchorGravity="bottom|center"/>
 
-      <!-- ── AppBarLayout for collapsing toolbar ── -->
       <com.google.android.material.appbar.AppBarLayout
           android:id="@+id/app_bar"
           android:layout_width="match_parent"
@@ -36,7 +34,6 @@
           android:elevation="0dp"
           app:liftOnScroll="true">
 
-          <!-- Top toolbar: avatar + title + upload -->
           <LinearLayout
               android:layout_width="match_parent"
               android:layout_height="52dp"
@@ -64,11 +61,11 @@
                   android:textSize="18sp"
                   android:fontFamily="sans-serif-black"/>
 
-              <!-- [FEATURE 5] Notification badge wrapper -->
               <FrameLayout
                   android:layout_width="40dp"
                   android:layout_height="40dp"
                   android:layout_marginEnd="4dp">
+
                   <ImageButton
                       android:id="@+id/btn_home_notifications"
                       android:layout_width="match_parent"
@@ -77,6 +74,7 @@
                       android:tint="#FFFFFF"
                       android:background="?attr/selectableItemBackgroundBorderless"
                       android:contentDescription="Notifications"/>
+
                   <TextView
                       android:id="@+id/tv_notif_badge"
                       android:layout_width="16dp"
@@ -100,7 +98,6 @@
                   android:contentDescription="Upload"/>
           </LinearLayout>
 
-          <!-- ── [FEATURE 1] Stories RecyclerView (replaces HorizontalScrollView+LinearLayout) ── -->
           <LinearLayout
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
@@ -119,13 +116,11 @@
                   android:scrollbars="none"/>
           </LinearLayout>
 
-          <!-- Divider -->
           <View
               android:layout_width="match_parent"
               android:layout_height="1dp"
               android:background="#1F1F1F"/>
 
-          <!-- ── [FEATURE 3a] Feed toggle (Following / For You) ── -->
           <FrameLayout
               android:layout_width="match_parent"
               android:layout_height="44dp"
@@ -164,7 +159,6 @@
                       android:alpha="0.55"/>
               </LinearLayout>
 
-              <!-- Animated underline indicator -->
               <View
                   android:id="@+id/v_feed_indicator"
                   android:layout_width="60dp"
@@ -174,7 +168,6 @@
                   android:background="@color/brand_primary"/>
           </FrameLayout>
 
-          <!-- ── [FEATURE 15] Topic/Hashtag Filter Chips ── -->
           <HorizontalScrollView
               android:id="@+id/scroll_topic_chips"
               android:layout_width="match_parent"
@@ -195,7 +188,6 @@
           </HorizontalScrollView>
       </com.google.android.material.appbar.AppBarLayout>
 
-      <!-- ── Main scrollable content ── -->
       <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
           android:id="@+id/swipe_refresh_home"
           android:layout_width="match_parent"
@@ -214,7 +206,6 @@
                   android:orientation="vertical"
                   android:paddingBottom="80dp">
 
-                  <!-- ── [FEATURE 14] Live Now Section ── -->
                   <LinearLayout
                       android:id="@+id/section_live_now"
                       android:layout_width="match_parent"
@@ -236,7 +227,7 @@
                               android:layout_width="0dp"
                               android:layout_height="wrap_content"
                               android:layout_weight="1"
-                              android:text="🔴 Live Now"
+                              android:text="&#128308; Live Now"
                               android:textColor="#FFFFFF"
                               android:textSize="15sp"
                               android:fontFamily="sans-serif-medium"/>
@@ -258,7 +249,6 @@
                           android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <!-- ── [FEATURE 16] Featured Challenges Row ── -->
                   <LinearLayout
                       android:id="@+id/section_challenges"
                       android:layout_width="match_parent"
@@ -280,7 +270,7 @@
                               android:layout_width="0dp"
                               android:layout_height="wrap_content"
                               android:layout_weight="1"
-                              android:text="🏆 Trending Challenges"
+                              android:text="&#127942; Trending Challenges"
                               android:textColor="#FFFFFF"
                               android:textSize="15sp"
                               android:fontFamily="sans-serif-medium"/>
@@ -310,20 +300,18 @@
                           android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <!-- ── [FEATURE 1] Feed — RecyclerView (replaces LinearLayout) ── -->
-                  <!-- Feed empty state -->
                   <TextView
                       android:id="@+id/tv_feed_empty"
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
                       android:layout_marginTop="40dp"
                       android:gravity="center"
-                      android:text="No posts yet.\nFollow creators to see their reels here!"
+                      android:text="No posts yet.
+Follow creators to see their reels here!"
                       android:textColor="#777777"
                       android:textSize="14sp"
                       android:visibility="gone"/>
 
-                  <!-- [FEATURE 2] Skeleton shimmer for feed loading -->
                   <LinearLayout
                       android:id="@+id/layout_feed_skeleton"
                       android:layout_width="match_parent"
@@ -336,7 +324,6 @@
                       <include layout="@layout/item_home_skeleton_feed"/>
                   </LinearLayout>
 
-                  <!-- Actual feed RecyclerView — NESTED inside NestedScrollView, nestedScrollingEnabled=false -->
                   <androidx.recyclerview.widget.RecyclerView
                       android:id="@+id/rv_feed"
                       android:layout_width="match_parent"
@@ -344,7 +331,6 @@
                       android:nestedScrollingEnabled="false"
                       android:scrollbars="none"/>
 
-                  <!-- ── Trending Reels ── -->
                   <LinearLayout
                       android:id="@+id/section_trending"
                       android:layout_width="match_parent"
@@ -366,7 +352,7 @@
                               android:layout_width="0dp"
                               android:layout_height="wrap_content"
                               android:layout_weight="1"
-                              android:text="🔥 Trending Reels"
+                              android:text="&#128293; Trending Reels"
                               android:textColor="#FFFFFF"
                               android:textSize="15sp"
                               android:fontFamily="sans-serif-medium"/>
@@ -380,7 +366,6 @@
                               android:textSize="13sp"/>
                       </LinearLayout>
 
-                      <!-- [FEATURE 2] Skeleton for trending -->
                       <LinearLayout
                           android:id="@+id/skeleton_trending"
                           android:layout_width="match_parent"
@@ -388,9 +373,10 @@
                           android:orientation="horizontal"
                           android:paddingStart="8dp"
                           android:paddingEnd="8dp">
-                          <include layout="@layout/item_home_skeleton_story" android:layout_width="120dp" android:layout_height="180dp" android:layout_marginEnd="8dp"/>
-                          <include layout="@layout/item_home_skeleton_story" android:layout_width="120dp" android:layout_height="180dp" android:layout_marginEnd="8dp"/>
-                          <include layout="@layout/item_home_skeleton_story" android:layout_width="120dp" android:layout_height="180dp"/>
+
+                          <include layout="@layout/item_home_skeleton_story"/>
+                          <include layout="@layout/item_home_skeleton_story"/>
+                          <include layout="@layout/item_home_skeleton_story"/>
                       </LinearLayout>
 
                       <HorizontalScrollView
@@ -414,7 +400,6 @@
                           android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <!-- ── Friends Activity ── -->
                   <LinearLayout
                       android:id="@+id/section_friends_activity"
                       android:layout_width="match_parent"
@@ -429,7 +414,7 @@
                           android:paddingEnd="16dp"
                           android:paddingTop="16dp"
                           android:paddingBottom="8dp"
-                          android:text="👥 Friends Activity"
+                          android:text="&#128101; Friends Activity"
                           android:textColor="#FFFFFF"
                           android:textSize="15sp"
                           android:fontFamily="sans-serif-medium"/>
@@ -455,7 +440,6 @@
                           android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <!-- ── Continue Watching ── -->
                   <LinearLayout
                       android:id="@+id/section_continue_watching"
                       android:layout_width="match_parent"
@@ -477,7 +461,7 @@
                               android:layout_width="0dp"
                               android:layout_height="wrap_content"
                               android:layout_weight="1"
-                              android:text="⏸ Continue Watching"
+                              android:text="&#9208; Continue Watching"
                               android:textColor="#FFFFFF"
                               android:textSize="15sp"
                               android:fontFamily="sans-serif-medium"/>
@@ -520,7 +504,6 @@
                           android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <!-- ── Suggested Creators ── -->
                   <LinearLayout
                       android:id="@+id/section_suggested_creators"
                       android:layout_width="match_parent"
@@ -535,7 +518,7 @@
                           android:paddingEnd="16dp"
                           android:paddingTop="16dp"
                           android:paddingBottom="8dp"
-                          android:text="✨ Suggested Creators"
+                          android:text="&#10024; Suggested Creators"
                           android:textColor="#FFFFFF"
                           android:textSize="15sp"
                           android:fontFamily="sans-serif-medium"/>

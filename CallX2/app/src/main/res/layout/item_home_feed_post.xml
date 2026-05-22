@@ -7,7 +7,6 @@
       android:background="#1A1A1A"
       android:layout_marginBottom="8dp">
 
-      <!-- ── Header ── -->
       <LinearLayout
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
@@ -28,7 +27,6 @@
                   app:civ_border_width="1.5dp"
                   app:civ_border_color="@color/brand_primary"/>
 
-              <!-- [FEATURE 12] Close Friends badge -->
               <TextView
                   android:id="@+id/badge_close_friends"
                   android:layout_width="14dp"
@@ -36,7 +34,7 @@
                   android:layout_gravity="bottom|end"
                   android:background="#FF2EA354"
                   android:gravity="center"
-                  android:text="★"
+                  android:text="&#9733;"
                   android:textColor="#FFFFFF"
                   android:textSize="8sp"
                   android:visibility="gone"/>
@@ -49,7 +47,6 @@
               android:orientation="vertical"
               android:layout_marginStart="10dp">
 
-              <!-- [FEATURE 13] Collab indicator "with @user" -->
               <LinearLayout
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
@@ -90,14 +87,11 @@
                       android:textColor="#AAAAAA"
                       android:textSize="11sp"/>
 
-                  <!-- [FEATURE 11] Location tag -->
                   <TextView
                       android:id="@+id/tv_post_location"
                       android:layout_width="wrap_content"
                       android:layout_height="wrap_content"
                       android:layout_marginStart="6dp"
-                      android:drawablePadding="2dp"
-                      android:drawableStart="@drawable/ic_location_on"
                       android:text="Location"
                       android:textColor="#AAAAAA"
                       android:textSize="11sp"
@@ -105,7 +99,6 @@
               </LinearLayout>
           </LinearLayout>
 
-          <!-- [FEATURE 19] Creator view count chip (own posts) -->
           <TextView
               android:id="@+id/tv_creator_views"
               android:layout_width="wrap_content"
@@ -130,13 +123,11 @@
               android:contentDescription="More"/>
       </LinearLayout>
 
-      <!-- ── Media area (thumbnail + inline video + double-tap) ── -->
       <FrameLayout
           android:id="@+id/frame_media"
           android:layout_width="match_parent"
           android:layout_height="280dp">
 
-          <!-- Thumbnail -->
           <ImageView
               android:id="@+id/iv_post_thumb"
               android:layout_width="match_parent"
@@ -144,7 +135,6 @@
               android:scaleType="centerCrop"
               android:background="#222222"/>
 
-          <!-- [FEATURE 3] Inline ExoPlayer for video autoplay -->
           <androidx.media3.ui.PlayerView
               android:id="@+id/player_view_feed"
               android:layout_width="match_parent"
@@ -153,7 +143,6 @@
               app:resize_mode="zoom"
               android:visibility="gone"/>
 
-          <!-- Mute/Unmute overlay -->
           <ImageView
               android:id="@+id/btn_feed_mute"
               android:layout_width="32dp"
@@ -166,7 +155,6 @@
               android:padding="6dp"
               android:visibility="gone"/>
 
-          <!-- Buffering indicator -->
           <ProgressBar
               android:id="@+id/pb_video_buffer"
               android:layout_width="36dp"
@@ -175,7 +163,6 @@
               android:indeterminateTint="#FFFFFF"
               android:visibility="gone"/>
 
-          <!-- Play icon for non-autoplaying video posts -->
           <ImageView
               android:id="@+id/iv_video_badge"
               android:layout_width="44dp"
@@ -185,7 +172,6 @@
               android:tint="#CCFFFFFF"
               android:visibility="gone"/>
 
-          <!-- [FEATURE 6] Double-tap like heart animation -->
           <ImageView
               android:id="@+id/iv_like_anim"
               android:layout_width="80dp"
@@ -198,7 +184,6 @@
               android:scaleY="0.5"
               android:visibility="gone"/>
 
-          <!-- Repost badge -->
           <LinearLayout
               android:id="@+id/layout_repost_badge"
               android:layout_width="wrap_content"
@@ -230,7 +215,6 @@
                   android:textSize="10sp"/>
           </LinearLayout>
 
-          <!-- [FEATURE 20] Seen bubble (bottom-start) -->
           <TextView
               android:id="@+id/tv_seen_count"
               android:layout_width="wrap_content"
@@ -243,15 +227,12 @@
               android:paddingEnd="6dp"
               android:paddingTop="2dp"
               android:paddingBottom="2dp"
-              android:drawableStart="@drawable/ic_eye"
-              android:drawablePadding="4dp"
               android:text="0"
               android:textColor="#CCFFFFFF"
               android:textSize="11sp"
               android:visibility="gone"/>
       </FrameLayout>
 
-      <!-- ── Actions row ── -->
       <LinearLayout
           android:layout_width="match_parent"
           android:layout_height="48dp"
@@ -260,7 +241,6 @@
           android:paddingStart="4dp"
           android:paddingEnd="4dp">
 
-          <!-- [FEATURE 6,7] Like button — double tap + long press reactions -->
           <ImageButton
               android:id="@+id/btn_post_like"
               android:layout_width="40dp"
@@ -312,9 +292,11 @@
               android:textSize="12sp"
               android:layout_marginEnd="6dp"/>
 
-          <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+          <Space
+              android:layout_width="0dp"
+              android:layout_height="1dp"
+              android:layout_weight="1"/>
 
-          <!-- [FEATURE 17] Save / Bookmark — opens collection sheet -->
           <ImageButton
               android:id="@+id/btn_post_save"
               android:layout_width="40dp"
@@ -324,7 +306,6 @@
               android:contentDescription="Save"/>
       </LinearLayout>
 
-      <!-- [FEATURE 7] Reaction display (shows chosen emoji) -->
       <LinearLayout
           android:id="@+id/layout_reactions_display"
           android:layout_width="match_parent"
@@ -338,7 +319,7 @@
               android:id="@+id/tv_reaction_emoji"
               android:layout_width="wrap_content"
               android:layout_height="wrap_content"
-              android:text="❤️"
+              android:text="&#10084;&#65039;"
               android:textSize="16sp"/>
 
           <TextView
@@ -351,7 +332,6 @@
               android:textSize="12sp"/>
       </LinearLayout>
 
-      <!-- ── Caption area ── -->
       <LinearLayout
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
@@ -360,7 +340,6 @@
           android:paddingEnd="12dp"
           android:paddingBottom="10dp">
 
-          <!-- [FEATURES 8,9,10] Caption with hashtags/mentions, see more -->
           <TextView
               android:id="@+id/tv_post_caption"
               android:layout_width="match_parent"
