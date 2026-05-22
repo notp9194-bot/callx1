@@ -1,32 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-  <com.facebook.shimmer.ShimmerFrameLayout
-      xmlns:android="http://schemas.android.com/apk/res/android"
+  <com.facebook.shimmer.ShimmerFrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
       xmlns:app="http://schemas.android.com/apk/res-auto"
-      android:layout_width="wrap_content"
-      android:layout_height="wrap_content"
+      android:layout_width="wrap_content" android:layout_height="wrap_content"
       android:layout_marginEnd="8dp"
-      app:shimmer_colored="true"
-      app:shimmer_base_color="#252525"
-      app:shimmer_highlight_color="#3A3A3A"
-      app:shimmer_duration="1000"
-      app:shimmer_auto_start="true">
-
-      <LinearLayout
-          android:layout_width="72dp"
-          android:layout_height="wrap_content"
-          android:orientation="vertical"
-          android:gravity="center"
-          android:padding="4dp">
-
-          <View
-              android:layout_width="60dp"
-              android:layout_height="60dp"
-              android:background="#2A2A2A"/>
-
-          <View
-              android:layout_width="50dp"
-              android:layout_height="10dp"
-              android:layout_marginTop="6dp"
-              android:background="#2A2A2A"/>
+      app:shimmer_colored="true" app:shimmer_base_color="#252525"
+      app:shimmer_highlight_color="#3A3A3A" app:shimmer_duration="1000" app:shimmer_auto_start="true">
+      <LinearLayout android:layout_width="72dp" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="center" android:padding="4dp">
+          <View android:layout_width="60dp" android:layout_height="60dp" android:background="#2A2A2A"/>
+          <View android:layout_width="50dp" android:layout_height="10dp" android:layout_marginTop="6dp" android:background="#2A2A2A"/>
       </LinearLayout>
   </com.facebook.shimmer.ShimmerFrameLayout>

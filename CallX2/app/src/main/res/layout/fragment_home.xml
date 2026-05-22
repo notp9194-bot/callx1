@@ -1,549 +1,278 @@
 <?xml version="1.0" encoding="utf-8"?>
-  <androidx.coordinatorlayout.widget.CoordinatorLayout
-      xmlns:android="http://schemas.android.com/apk/res/android"
+  <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
       xmlns:app="http://schemas.android.com/apk/res-auto"
-      android:layout_width="match_parent"
-      android:layout_height="match_parent"
+      android:layout_width="match_parent" android:layout_height="match_parent"
       android:background="#0D0D0D">
 
-      <TextView
-          android:id="@+id/tv_new_posts_banner"
-          android:layout_width="wrap_content"
-          android:layout_height="36dp"
-          android:layout_gravity="top|center_horizontal"
-          android:layout_marginTop="12dp"
-          android:background="#CC1877F2"
-          android:drawablePadding="6dp"
-          android:elevation="10dp"
-          android:gravity="center"
-          android:paddingStart="16dp"
-          android:paddingEnd="16dp"
+      <TextView android:id="@+id/tv_new_posts_banner"
+          android:layout_width="wrap_content" android:layout_height="36dp"
+          android:layout_gravity="top|center_horizontal" android:layout_marginTop="12dp"
+          android:background="#CC1877F2" android:elevation="10dp" android:gravity="center"
+          android:paddingStart="16dp" android:paddingEnd="16dp"
           android:text="&#8593; New posts available"
-          android:textColor="#FFFFFF"
-          android:textSize="13sp"
-          android:fontFamily="sans-serif-medium"
+          android:textColor="#FFFFFF" android:textSize="13sp" android:fontFamily="sans-serif-medium"
           android:visibility="gone"
-          app:layout_anchor="@id/app_bar"
-          app:layout_anchorGravity="bottom|center"/>
+          app:layout_anchor="@id/app_bar" app:layout_anchorGravity="bottom|center"/>
 
-      <com.google.android.material.appbar.AppBarLayout
-          android:id="@+id/app_bar"
-          android:layout_width="match_parent"
-          android:layout_height="wrap_content"
-          android:background="#0D0D0D"
-          android:elevation="0dp"
-          app:liftOnScroll="true">
+      <com.google.android.material.appbar.AppBarLayout android:id="@+id/app_bar"
+          android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:background="#0D0D0D" android:elevation="0dp" app:liftOnScroll="true">
 
-          <LinearLayout
-              android:layout_width="match_parent"
-              android:layout_height="52dp"
-              android:orientation="horizontal"
-              android:gravity="center_vertical"
-              android:paddingStart="12dp"
-              android:paddingEnd="12dp"
+          <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+              android:orientation="horizontal" android:gravity="center_vertical"
+              android:paddingStart="12dp" android:paddingEnd="12dp"
               app:layout_scrollFlags="scroll|enterAlways|snap">
 
-              <de.hdodenhof.circleimageview.CircleImageView
-                  android:id="@+id/iv_my_story_avatar"
-                  android:layout_width="34dp"
-                  android:layout_height="34dp"
+              <de.hdodenhof.circleimageview.CircleImageView android:id="@+id/iv_my_story_avatar"
+                  android:layout_width="34dp" android:layout_height="34dp"
                   android:src="@drawable/ic_person"
-                  app:civ_border_width="2dp"
-                  app:civ_border_color="@color/brand_primary"/>
+                  app:civ_border_width="2dp" app:civ_border_color="@color/brand_primary"/>
 
-              <TextView
-                  android:layout_width="0dp"
-                  android:layout_height="wrap_content"
-                  android:layout_weight="1"
-                  android:layout_marginStart="10dp"
-                  android:text="Home"
-                  android:textColor="#FFFFFF"
-                  android:textSize="18sp"
+              <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                  android:layout_weight="1" android:layout_marginStart="10dp"
+                  android:text="Home" android:textColor="#FFFFFF" android:textSize="18sp"
                   android:fontFamily="sans-serif-black"/>
 
-              <FrameLayout
-                  android:layout_width="40dp"
-                  android:layout_height="40dp"
-                  android:layout_marginEnd="4dp">
-
-                  <ImageButton
-                      android:id="@+id/btn_home_notifications"
-                      android:layout_width="match_parent"
-                      android:layout_height="match_parent"
-                      android:src="@drawable/ic_notifications"
-                      android:tint="#FFFFFF"
+              <FrameLayout android:layout_width="40dp" android:layout_height="40dp" android:layout_marginEnd="4dp">
+                  <ImageButton android:id="@+id/btn_home_notifications"
+                      android:layout_width="match_parent" android:layout_height="match_parent"
+                      android:src="@drawable/ic_notifications" android:tint="#FFFFFF"
                       android:background="?attr/selectableItemBackgroundBorderless"
                       android:contentDescription="Notifications"/>
-
-                  <TextView
-                      android:id="@+id/tv_notif_badge"
-                      android:layout_width="16dp"
-                      android:layout_height="16dp"
+                  <TextView android:id="@+id/tv_notif_badge"
+                      android:layout_width="16dp" android:layout_height="16dp"
                       android:layout_gravity="top|end"
                       android:background="@drawable/bg_reel_count"
-                      android:gravity="center"
-                      android:text="0"
-                      android:textColor="#FFFFFF"
-                      android:textSize="9sp"
-                      android:visibility="gone"/>
+                      android:gravity="center" android:text="0"
+                      android:textColor="#FFFFFF" android:textSize="9sp" android:visibility="gone"/>
               </FrameLayout>
 
-              <ImageButton
-                  android:id="@+id/btn_home_upload"
-                  android:layout_width="40dp"
-                  android:layout_height="40dp"
-                  android:src="@drawable/ic_add_reels"
-                  android:tint="#FFFFFF"
+              <ImageButton android:id="@+id/btn_home_upload"
+                  android:layout_width="40dp" android:layout_height="40dp"
+                  android:src="@drawable/ic_add_reels" android:tint="#FFFFFF"
                   android:background="?attr/selectableItemBackgroundBorderless"
                   android:contentDescription="Upload"/>
           </LinearLayout>
 
-          <LinearLayout
-              android:layout_width="match_parent"
-              android:layout_height="wrap_content"
-              android:orientation="vertical"
-              android:paddingTop="4dp"
-              android:paddingBottom="6dp"
+          <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+              android:orientation="vertical" android:paddingTop="4dp" android:paddingBottom="6dp"
               app:layout_scrollFlags="scroll|enterAlways">
-
-              <androidx.recyclerview.widget.RecyclerView
-                  android:id="@+id/rv_stories"
-                  android:layout_width="match_parent"
-                  android:layout_height="100dp"
-                  android:paddingStart="8dp"
-                  android:paddingEnd="8dp"
-                  android:clipToPadding="false"
-                  android:scrollbars="none"/>
+              <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_stories"
+                  android:layout_width="match_parent" android:layout_height="100dp"
+                  android:paddingStart="8dp" android:paddingEnd="8dp"
+                  android:clipToPadding="false" android:scrollbars="none"/>
           </LinearLayout>
 
-          <View
-              android:layout_width="match_parent"
-              android:layout_height="1dp"
-              android:background="#1F1F1F"/>
+          <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1F1F1F"/>
 
-          <FrameLayout
-              android:layout_width="match_parent"
-              android:layout_height="44dp"
+          <FrameLayout android:layout_width="match_parent" android:layout_height="44dp"
               app:layout_scrollFlags="scroll|enterAlways|snap">
-
-              <LinearLayout
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent"
-                  android:orientation="horizontal"
-                  android:gravity="center_vertical"
-                  android:paddingStart="16dp"
-                  android:paddingEnd="16dp">
-
-                  <TextView
-                      android:id="@+id/btn_home_following"
-                      android:layout_width="wrap_content"
-                      android:layout_height="match_parent"
-                      android:text="Following"
-                      android:textColor="#FFFFFF"
-                      android:textSize="15sp"
-                      android:fontFamily="sans-serif-medium"
-                      android:paddingEnd="20dp"
-                      android:gravity="center_vertical"
-                      android:alpha="1.0"/>
-
-                  <TextView
-                      android:id="@+id/btn_home_for_you"
-                      android:layout_width="wrap_content"
-                      android:layout_height="match_parent"
-                      android:text="For You"
-                      android:textColor="#FFFFFF"
-                      android:textSize="15sp"
-                      android:fontFamily="sans-serif"
-                      android:paddingEnd="20dp"
-                      android:gravity="center_vertical"
-                      android:alpha="0.55"/>
+              <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+                  android:orientation="horizontal" android:gravity="center_vertical"
+                  android:paddingStart="16dp" android:paddingEnd="16dp">
+                  <TextView android:id="@+id/btn_home_following"
+                      android:layout_width="wrap_content" android:layout_height="match_parent"
+                      android:text="Following" android:textColor="#FFFFFF" android:textSize="15sp"
+                      android:fontFamily="sans-serif-medium" android:paddingEnd="20dp"
+                      android:gravity="center_vertical" android:alpha="1.0"/>
+                  <TextView android:id="@+id/btn_home_for_you"
+                      android:layout_width="wrap_content" android:layout_height="match_parent"
+                      android:text="For You" android:textColor="#FFFFFF" android:textSize="15sp"
+                      android:fontFamily="sans-serif" android:paddingEnd="20dp"
+                      android:gravity="center_vertical" android:alpha="0.55"/>
               </LinearLayout>
-
-              <View
-                  android:id="@+id/v_feed_indicator"
-                  android:layout_width="60dp"
-                  android:layout_height="2dp"
-                  android:layout_gravity="bottom|start"
-                  android:layout_marginStart="16dp"
+              <View android:id="@+id/v_feed_indicator"
+                  android:layout_width="60dp" android:layout_height="2dp"
+                  android:layout_gravity="bottom|start" android:layout_marginStart="16dp"
                   android:background="@color/brand_primary"/>
           </FrameLayout>
 
-          <HorizontalScrollView
-              android:id="@+id/scroll_topic_chips"
-              android:layout_width="match_parent"
-              android:layout_height="wrap_content"
+          <HorizontalScrollView android:id="@+id/scroll_topic_chips"
+              android:layout_width="match_parent" android:layout_height="wrap_content"
               android:scrollbars="none"
-              android:paddingStart="8dp"
-              android:paddingEnd="8dp"
-              android:paddingTop="4dp"
-              android:paddingBottom="6dp"
+              android:paddingStart="8dp" android:paddingEnd="8dp"
+              android:paddingTop="4dp" android:paddingBottom="6dp"
               app:layout_scrollFlags="scroll|enterAlways">
-
-              <com.google.android.material.chip.ChipGroup
-                  android:id="@+id/chip_group_topics"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  app:singleSelection="true"
-                  app:selectionRequired="true"/>
+              <com.google.android.material.chip.ChipGroup android:id="@+id/chip_group_topics"
+                  android:layout_width="wrap_content" android:layout_height="wrap_content"
+                  app:singleSelection="true" app:selectionRequired="true"/>
           </HorizontalScrollView>
+
       </com.google.android.material.appbar.AppBarLayout>
 
-      <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-          android:id="@+id/swipe_refresh_home"
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
+      <androidx.swiperefreshlayout.widget.SwipeRefreshLayout android:id="@+id/swipe_refresh_home"
+          android:layout_width="match_parent" android:layout_height="match_parent"
           app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
-          <androidx.core.widget.NestedScrollView
-              android:id="@+id/nested_scroll_home"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
+          <androidx.core.widget.NestedScrollView android:id="@+id/nested_scroll_home"
+              android:layout_width="match_parent" android:layout_height="match_parent"
               android:fillViewport="true">
 
-              <LinearLayout
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:orientation="vertical"
-                  android:paddingBottom="80dp">
+              <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                  android:orientation="vertical" android:paddingBottom="80dp">
 
-                  <LinearLayout
-                      android:id="@+id/section_live_now"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:orientation="vertical"
-                      android:visibility="gone">
-
-                      <LinearLayout
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:orientation="horizontal"
-                          android:gravity="center_vertical"
-                          android:paddingStart="16dp"
-                          android:paddingEnd="16dp"
-                          android:paddingTop="12dp"
-                          android:paddingBottom="8dp">
-
-                          <TextView
-                              android:layout_width="0dp"
-                              android:layout_height="wrap_content"
-                              android:layout_weight="1"
-                              android:text="&#128308; Live Now"
-                              android:textColor="#FFFFFF"
-                              android:textSize="15sp"
-                              android:fontFamily="sans-serif-medium"/>
-                      </LinearLayout>
-
-                      <androidx.recyclerview.widget.RecyclerView
-                          android:id="@+id/rv_live_now"
-                          android:layout_width="match_parent"
-                          android:layout_height="130dp"
-                          android:paddingStart="8dp"
-                          android:paddingEnd="8dp"
-                          android:clipToPadding="false"
-                          android:scrollbars="none"/>
-
-                      <View
-                          android:layout_width="match_parent"
-                          android:layout_height="1dp"
-                          android:layout_marginTop="12dp"
-                          android:background="#1F1F1F"/>
+                  <!-- Live Now [F14] -->
+                  <LinearLayout android:id="@+id/section_live_now"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:orientation="vertical" android:visibility="gone">
+                      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:paddingStart="16dp" android:paddingEnd="16dp"
+                          android:paddingTop="12dp" android:paddingBottom="8dp"
+                          android:text="Live Now" android:textColor="#FFFFFF"
+                          android:textSize="15sp" android:fontFamily="sans-serif-medium"/>
+                      <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_live_now"
+                          android:layout_width="match_parent" android:layout_height="130dp"
+                          android:paddingStart="8dp" android:paddingEnd="8dp"
+                          android:clipToPadding="false" android:scrollbars="none"/>
+                      <View android:layout_width="match_parent" android:layout_height="1dp"
+                          android:layout_marginTop="12dp" android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <LinearLayout
-                      android:id="@+id/section_challenges"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:orientation="vertical"
-                      android:visibility="gone">
-
-                      <LinearLayout
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:orientation="horizontal"
-                          android:gravity="center_vertical"
-                          android:paddingStart="16dp"
-                          android:paddingEnd="16dp"
-                          android:paddingTop="12dp"
-                          android:paddingBottom="8dp">
-
-                          <TextView
-                              android:layout_width="0dp"
-                              android:layout_height="wrap_content"
-                              android:layout_weight="1"
-                              android:text="&#127942; Trending Challenges"
-                              android:textColor="#FFFFFF"
-                              android:textSize="15sp"
-                              android:fontFamily="sans-serif-medium"/>
-
-                          <TextView
-                              android:id="@+id/btn_see_all_challenges"
-                              android:layout_width="wrap_content"
-                              android:layout_height="wrap_content"
-                              android:text="See all"
-                              android:textColor="@color/brand_primary"
-                              android:textSize="13sp"/>
+                  <!-- Challenges [F16] -->
+                  <LinearLayout android:id="@+id/section_challenges"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:orientation="vertical" android:visibility="gone">
+                      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:orientation="horizontal" android:gravity="center_vertical"
+                          android:paddingStart="16dp" android:paddingEnd="16dp"
+                          android:paddingTop="12dp" android:paddingBottom="8dp">
+                          <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                              android:layout_weight="1" android:text="Trending Challenges"
+                              android:textColor="#FFFFFF" android:textSize="15sp" android:fontFamily="sans-serif-medium"/>
+                          <TextView android:id="@+id/btn_see_all_challenges"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
+                              android:text="See all" android:textColor="@color/brand_primary" android:textSize="13sp"/>
                       </LinearLayout>
-
-                      <androidx.recyclerview.widget.RecyclerView
-                          android:id="@+id/rv_challenges"
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:paddingStart="8dp"
-                          android:paddingEnd="8dp"
-                          android:clipToPadding="false"
-                          android:scrollbars="none"/>
-
-                      <View
-                          android:layout_width="match_parent"
-                          android:layout_height="1dp"
-                          android:layout_marginTop="12dp"
-                          android:background="#1F1F1F"/>
+                      <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_challenges"
+                          android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:paddingStart="8dp" android:paddingEnd="8dp"
+                          android:clipToPadding="false" android:scrollbars="none"/>
+                      <View android:layout_width="match_parent" android:layout_height="1dp"
+                          android:layout_marginTop="12dp" android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <TextView
-                      android:id="@+id/tv_feed_empty"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:layout_marginTop="40dp"
-                      android:gravity="center"
+                  <!-- Feed empty state -->
+                  <TextView android:id="@+id/tv_feed_empty"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:layout_marginTop="40dp" android:gravity="center"
                       android:text="No posts yet.
 Follow creators to see their reels here!"
-                      android:textColor="#777777"
-                      android:textSize="14sp"
-                      android:visibility="gone"/>
+                      android:textColor="#777777" android:textSize="14sp" android:visibility="gone"/>
 
-                  <LinearLayout
-                      android:id="@+id/layout_feed_skeleton"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:orientation="vertical"
-                      android:visibility="visible">
-
+                  <!-- Skeleton [F2] -->
+                  <LinearLayout android:id="@+id/layout_feed_skeleton"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:orientation="vertical" android:visibility="visible">
                       <include layout="@layout/item_home_skeleton_feed"/>
                       <include layout="@layout/item_home_skeleton_feed"/>
                       <include layout="@layout/item_home_skeleton_feed"/>
                   </LinearLayout>
 
-                  <androidx.recyclerview.widget.RecyclerView
-                      android:id="@+id/rv_feed"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:nestedScrollingEnabled="false"
-                      android:scrollbars="none"/>
+                  <!-- Feed RecyclerView [F1] -->
+                  <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_feed"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:nestedScrollingEnabled="false" android:scrollbars="none"/>
 
-                  <LinearLayout
-                      android:id="@+id/section_trending"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:orientation="vertical"
-                      android:visibility="gone">
-
-                      <LinearLayout
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:orientation="horizontal"
-                          android:gravity="center_vertical"
-                          android:paddingStart="16dp"
-                          android:paddingEnd="16dp"
-                          android:paddingTop="16dp"
-                          android:paddingBottom="8dp">
-
-                          <TextView
-                              android:layout_width="0dp"
-                              android:layout_height="wrap_content"
-                              android:layout_weight="1"
-                              android:text="&#128293; Trending Reels"
-                              android:textColor="#FFFFFF"
-                              android:textSize="15sp"
-                              android:fontFamily="sans-serif-medium"/>
-
-                          <TextView
-                              android:id="@+id/btn_see_all_trending"
-                              android:layout_width="wrap_content"
-                              android:layout_height="wrap_content"
-                              android:text="See all"
-                              android:textColor="@color/brand_primary"
-                              android:textSize="13sp"/>
+                  <!-- Trending -->
+                  <LinearLayout android:id="@+id/section_trending"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:orientation="vertical" android:visibility="gone">
+                      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:orientation="horizontal" android:gravity="center_vertical"
+                          android:paddingStart="16dp" android:paddingEnd="16dp"
+                          android:paddingTop="16dp" android:paddingBottom="8dp">
+                          <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                              android:layout_weight="1" android:text="Trending Reels"
+                              android:textColor="#FFFFFF" android:textSize="15sp" android:fontFamily="sans-serif-medium"/>
+                          <TextView android:id="@+id/btn_see_all_trending"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
+                              android:text="See all" android:textColor="@color/brand_primary" android:textSize="13sp"/>
                       </LinearLayout>
-
-                      <LinearLayout
-                          android:id="@+id/skeleton_trending"
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:orientation="horizontal"
-                          android:paddingStart="8dp"
-                          android:paddingEnd="8dp">
-
+                      <LinearLayout android:id="@+id/skeleton_trending"
+                          android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:orientation="horizontal" android:paddingStart="8dp" android:paddingEnd="8dp">
                           <include layout="@layout/item_home_skeleton_story"/>
                           <include layout="@layout/item_home_skeleton_story"/>
                           <include layout="@layout/item_home_skeleton_story"/>
                       </LinearLayout>
-
-                      <HorizontalScrollView
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:scrollbars="none"
-                          android:paddingStart="8dp"
-                          android:paddingEnd="8dp">
-
-                          <LinearLayout
-                              android:id="@+id/container_trending"
-                              android:layout_width="wrap_content"
-                              android:layout_height="wrap_content"
+                      <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:scrollbars="none" android:paddingStart="8dp" android:paddingEnd="8dp">
+                          <LinearLayout android:id="@+id/container_trending"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
                               android:orientation="horizontal"/>
                       </HorizontalScrollView>
-
-                      <View
-                          android:layout_width="match_parent"
-                          android:layout_height="1dp"
-                          android:layout_marginTop="12dp"
-                          android:background="#1F1F1F"/>
+                      <View android:layout_width="match_parent" android:layout_height="1dp"
+                          android:layout_marginTop="12dp" android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <LinearLayout
-                      android:id="@+id/section_friends_activity"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:orientation="vertical"
-                      android:visibility="gone">
-
-                      <TextView
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:paddingStart="16dp"
-                          android:paddingEnd="16dp"
-                          android:paddingTop="16dp"
-                          android:paddingBottom="8dp"
-                          android:text="&#128101; Friends Activity"
-                          android:textColor="#FFFFFF"
-                          android:textSize="15sp"
-                          android:fontFamily="sans-serif-medium"/>
-
-                      <LinearLayout
-                          android:id="@+id/container_friends_activity"
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
+                  <!-- Friends Activity -->
+                  <LinearLayout android:id="@+id/section_friends_activity"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:orientation="vertical" android:visibility="gone">
+                      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:paddingStart="16dp" android:paddingEnd="16dp"
+                          android:paddingTop="16dp" android:paddingBottom="8dp"
+                          android:text="Friends Activity" android:textColor="#FFFFFF"
+                          android:textSize="15sp" android:fontFamily="sans-serif-medium"/>
+                      <LinearLayout android:id="@+id/container_friends_activity"
+                          android:layout_width="match_parent" android:layout_height="wrap_content"
                           android:orientation="vertical"/>
-
-                      <ProgressBar
-                          android:id="@+id/pb_activity"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
+                      <ProgressBar android:id="@+id/pb_activity"
+                          android:layout_width="wrap_content" android:layout_height="wrap_content"
                           android:layout_gravity="center_horizontal"
-                          android:indeterminateTint="@color/brand_primary"
-                          android:visibility="visible"/>
-
-                      <View
-                          android:layout_width="match_parent"
-                          android:layout_height="1dp"
-                          android:layout_marginTop="12dp"
-                          android:background="#1F1F1F"/>
+                          android:indeterminateTint="@color/brand_primary" android:visibility="visible"/>
+                      <View android:layout_width="match_parent" android:layout_height="1dp"
+                          android:layout_marginTop="12dp" android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <LinearLayout
-                      android:id="@+id/section_continue_watching"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:orientation="vertical"
-                      android:visibility="gone">
-
-                      <LinearLayout
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:orientation="horizontal"
-                          android:gravity="center_vertical"
-                          android:paddingStart="16dp"
-                          android:paddingEnd="16dp"
-                          android:paddingTop="16dp"
-                          android:paddingBottom="8dp">
-
-                          <TextView
-                              android:layout_width="0dp"
-                              android:layout_height="wrap_content"
-                              android:layout_weight="1"
-                              android:text="&#9208; Continue Watching"
-                              android:textColor="#FFFFFF"
-                              android:textSize="15sp"
-                              android:fontFamily="sans-serif-medium"/>
-
-                          <TextView
-                              android:id="@+id/btn_clear_history"
-                              android:layout_width="wrap_content"
-                              android:layout_height="wrap_content"
-                              android:text="Clear"
-                              android:textColor="#777777"
-                              android:textSize="13sp"/>
+                  <!-- Continue Watching -->
+                  <LinearLayout android:id="@+id/section_continue_watching"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:orientation="vertical" android:visibility="gone">
+                      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:orientation="horizontal" android:gravity="center_vertical"
+                          android:paddingStart="16dp" android:paddingEnd="16dp"
+                          android:paddingTop="16dp" android:paddingBottom="8dp">
+                          <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                              android:layout_weight="1" android:text="Continue Watching"
+                              android:textColor="#FFFFFF" android:textSize="15sp" android:fontFamily="sans-serif-medium"/>
+                          <TextView android:id="@+id/btn_clear_history"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
+                              android:text="Clear" android:textColor="#777777" android:textSize="13sp"/>
                       </LinearLayout>
-
-                      <HorizontalScrollView
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:scrollbars="none"
-                          android:paddingStart="8dp"
-                          android:paddingEnd="8dp">
-
-                          <LinearLayout
-                              android:id="@+id/container_continue_watching"
-                              android:layout_width="wrap_content"
-                              android:layout_height="wrap_content"
+                      <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:scrollbars="none" android:paddingStart="8dp" android:paddingEnd="8dp">
+                          <LinearLayout android:id="@+id/container_continue_watching"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
                               android:orientation="horizontal"/>
                       </HorizontalScrollView>
-
-                      <ProgressBar
-                          android:id="@+id/pb_continue"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
+                      <ProgressBar android:id="@+id/pb_continue"
+                          android:layout_width="wrap_content" android:layout_height="wrap_content"
                           android:layout_gravity="center_horizontal"
-                          android:indeterminateTint="@color/brand_primary"
-                          android:visibility="visible"/>
-
-                      <View
-                          android:layout_width="match_parent"
-                          android:layout_height="1dp"
-                          android:layout_marginTop="12dp"
-                          android:background="#1F1F1F"/>
+                          android:indeterminateTint="@color/brand_primary" android:visibility="visible"/>
+                      <View android:layout_width="match_parent" android:layout_height="1dp"
+                          android:layout_marginTop="12dp" android:background="#1F1F1F"/>
                   </LinearLayout>
 
-                  <LinearLayout
-                      android:id="@+id/section_suggested_creators"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:orientation="vertical"
-                      android:visibility="gone">
-
-                      <TextView
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:paddingStart="16dp"
-                          android:paddingEnd="16dp"
-                          android:paddingTop="16dp"
-                          android:paddingBottom="8dp"
-                          android:text="&#10024; Suggested Creators"
-                          android:textColor="#FFFFFF"
-                          android:textSize="15sp"
-                          android:fontFamily="sans-serif-medium"/>
-
-                      <HorizontalScrollView
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:scrollbars="none"
-                          android:paddingStart="8dp"
-                          android:paddingEnd="8dp">
-
-                          <LinearLayout
-                              android:id="@+id/container_suggested_creators"
-                              android:layout_width="wrap_content"
-                              android:layout_height="wrap_content"
+                  <!-- Suggested Creators -->
+                  <LinearLayout android:id="@+id/section_suggested_creators"
+                      android:layout_width="match_parent" android:layout_height="wrap_content"
+                      android:orientation="vertical" android:visibility="gone">
+                      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:paddingStart="16dp" android:paddingEnd="16dp"
+                          android:paddingTop="16dp" android:paddingBottom="8dp"
+                          android:text="Suggested Creators" android:textColor="#FFFFFF"
+                          android:textSize="15sp" android:fontFamily="sans-serif-medium"/>
+                      <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:scrollbars="none" android:paddingStart="8dp" android:paddingEnd="8dp">
+                          <LinearLayout android:id="@+id/container_suggested_creators"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
                               android:orientation="horizontal"/>
                       </HorizontalScrollView>
-
-                      <ProgressBar
-                          android:id="@+id/pb_suggested"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
+                      <ProgressBar android:id="@+id/pb_suggested"
+                          android:layout_width="wrap_content" android:layout_height="wrap_content"
                           android:layout_gravity="center_horizontal"
-                          android:indeterminateTint="@color/brand_primary"
-                          android:visibility="visible"/>
+                          android:indeterminateTint="@color/brand_primary" android:visibility="visible"/>
                   </LinearLayout>
 
               </LinearLayout>

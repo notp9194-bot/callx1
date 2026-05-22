@@ -58,19 +58,22 @@ package com.callx.app.adapters;
 
       private static final int TYPE_SKELETON = 0;
       private static final int TYPE_FEED     = 1;
-      private static final String[] REACTION_EMOJIS = {"\u2764\uFE0F","\uD83D\uDE02","\uD83D\uDE2E","\uD83D\uDE22","\uD83D\uDE21","\uD83D\uDD25"};
+      private static final String[] REACTION_EMOJIS = {
+          "\u2764\uFE0F","\uD83D\uDE02","\uD83D\uDE2E",
+          "\uD83D\uDE22","\uD83D\uDE21","\uD83D\uDD25"
+      };
 
-      private final Context        ctx;
+      private final Context         ctx;
       private final List<ReelModel> items;
-      private final String         myUid;
-      private       boolean        isLoading;
+      private final String          myUid;
+      private       boolean         isLoading;
       private final Map<Integer, ExoPlayer> playerMap = new HashMap<>();
 
       public HomeFeedAdapter(Context ctx, List<ReelModel> items, String myUid) {
           this.ctx = ctx; this.items = items; this.myUid = myUid; this.isLoading = true;
       }
 
-      public void setLoading(boolean loading) { this.isLoading = loading; notifyDataSetChanged(); }
+      public void setLoading(boolean loading) { isLoading = loading; notifyDataSetChanged(); }
 
       public void replaceItems(List<ReelModel> newItems) {
           items.clear(); items.addAll(newItems); notifyDataSetChanged();
@@ -82,19 +85,23 @@ package com.callx.app.adapters;
       @NonNull @Override
       public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
           LayoutInflater inf = LayoutInflater.from(ctx);
-          if (viewType == TYPE_SKELETON) return new SkeletonVH(inf.inflate(R.layout.item_home_skeleton_feed, parent, false));
+          if (viewType == TYPE_SKELETON)
+              return new SkeletonVH(inf.inflate(R.layout.item_home_skeleton_feed, parent, false));
           return new FeedVH(inf.inflate(R.layout.item_home_feed_post, parent, false));
       }
 
-      @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int pos) {
+      @Override
+      public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int pos) {
           if (holder instanceof FeedVH) bindFeed((FeedVH) holder, pos);
       }
 
-      @Override public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
+      @Override
+      public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
           super.onViewRecycled(holder);
-          if (holder instanceof FeedVH) { releasePlayer(holder.getAdapterPosition(), ((FeedVH)holder).playerView); }
+          if (holder instanceof FeedVH) releasePlayer(holder.getAdapterPosition(), ((FeedVH) holder).playerView);
       }
 
+      // ── Bind ─────────────────────────────────────────────────────────────────
       private void bindFeed(FeedVH h, int pos) {
           if (pos >= items.size()) return;
           ReelModel reel = items.get(pos);
@@ -113,7 +120,7 @@ package com.callx.app.adapters;
               h.tvCollabWith.setVisibility(View.VISIBLE);
           } else { h.tvCollabWith.setVisibility(View.GONE); }
 
-          h.tvTime.setText(formatTimeAgo(reel.timestamp));
+          h.tvTime.setText(fmtTime(reel.timestamp));
 
           // [F11] Location
           if (reel.location != null && !reel.location.isEmpty()) {
@@ -121,23 +128,23 @@ package com.callx.app.adapters;
               h.tvLocation.setVisibility(View.VISIBLE);
           } else { h.tvLocation.setVisibility(View.GONE); }
 
-          // [F19] Creator views
+          // [F19] Creator views chip
           if (myUid != null && myUid.equals(reel.ownerUid)) {
-              h.tvCreatorViews.setText(formatCount(reel.viewCount) + " views");
+              h.tvCreatorViews.setText(fmt(reel.viewCount) + " views");
               h.tvCreatorViews.setVisibility(View.VISIBLE);
           } else { h.tvCreatorViews.setVisibility(View.GONE); }
 
           Glide.with(ctx).load(reel.thumbnailUrl != null ? reel.thumbnailUrl : reel.videoUrl)
               .placeholder(R.drawable.ic_reels).into(h.ivThumb);
 
-          // [F3] Inline video
+          // [F3] Inline video autoplay
           boolean isVideo = reel.videoUrl != null && !reel.videoUrl.isEmpty();
           h.ivVideoBadge.setVisibility(isVideo ? View.VISIBLE : View.GONE);
           if (isVideo) setupInlinePlayer(h, pos, reel.videoUrl);
 
           // [F20] Seen count
           h.tvSeenCount.setVisibility(reel.viewCount > 0 ? View.VISIBLE : View.GONE);
-          if (reel.viewCount > 0) h.tvSeenCount.setText(formatCount(reel.viewCount));
+          if (reel.viewCount > 0) h.tvSeenCount.setText(fmt(reel.viewCount));
 
           // Repost badge
           if (reel.repostedFromName != null && !reel.repostedFromName.isEmpty()) {
@@ -146,41 +153,32 @@ package com.callx.app.adapters;
           } else { h.layoutRepostBadge.setVisibility(View.GONE); }
 
           checkLikeState(h, reel);
-          h.tvLikes.setText(formatCount(reel.likeCount));
-          h.tvComments.setText(formatCount(reel.commentCount));
-          h.tvShares.setText(formatCount(reel.repostCount));
+          h.tvLikes.setText(fmt(reel.likeCount));
+          h.tvComments.setText(fmt(reel.commentCount));
+          h.tvShares.setText(fmt(reel.repostCount));
 
-          // [F6] Double-tap + [F7] long-press
-          setupMediaGestures(h, reel);
+          setupMediaGestures(h, reel); // [F6] + [F7]
+          setupCaption(h, reel);       // [F8] + [F9] + [F10]
 
-          // [F8,F9,F10] Caption
-          setupCaption(h, reel);
-
-          // Comment
           h.btnComment.setOnClickListener(v -> {
               Intent i = new Intent(ctx, ReelCommentActivity.class);
               i.putExtra("reelId", reel.reelId); ctx.startActivity(i);
           });
-
-          // [F17] Save sheet
-          h.btnSave.setOnClickListener(v -> showSaveSheet(reel));
+          h.btnSave.setOnClickListener(v -> showSaveSheet(reel)); // [F17]
           checkSaveState(h, reel);
-
-          // Share
           h.btnShare.setOnClickListener(v -> {
               Intent i = new Intent(ctx, ReelShareSheetActivity.class);
               i.putExtra("reelId", reel.reelId); i.putExtra("videoUrl", reel.videoUrl); ctx.startActivity(i);
           });
-
           h.btnMore.setOnClickListener(v -> { /* popup menu */ });
           h.ivThumb.setOnClickListener(v -> openReel(reel, pos));
       }
 
-      // [F3] Inline ExoPlayer
-      private void setupInlinePlayer(FeedVH h, int pos, String videoUrl) {
+      // [F3] ExoPlayer
+      private void setupInlinePlayer(FeedVH h, int pos, String url) {
           releasePlayer(pos, h.playerView);
           ExoPlayer player = new ExoPlayer.Builder(ctx).build();
-          player.setMediaItem(MediaItem.fromUri(videoUrl));
+          player.setMediaItem(MediaItem.fromUri(url));
           player.setVolume(0f);
           player.setRepeatMode(Player.REPEAT_MODE_ONE);
           player.prepare(); player.setPlayWhenReady(true);
@@ -191,7 +189,10 @@ package com.callx.app.adapters;
               @Override public void onPlaybackStateChanged(int state) {
                   if (!h.itemView.isAttachedToWindow()) return;
                   h.pbVideoBuffer.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
-                  if (state == Player.STATE_READY) { h.ivThumb.setVisibility(View.GONE); h.btnFeedMute.setVisibility(View.VISIBLE); }
+                  if (state == Player.STATE_READY) {
+                      h.ivThumb.setVisibility(View.GONE);
+                      h.btnFeedMute.setVisibility(View.VISIBLE);
+                  }
               }
           });
           h.btnFeedMute.setOnClickListener(v -> {
@@ -213,7 +214,7 @@ package com.callx.app.adapters;
           playerMap.clear();
       }
 
-      // [F6] + [F7]
+      // [F6] Double-tap + [F7] Long-press
       private void setupMediaGestures(FeedVH h, ReelModel reel) {
           GestureDetector gd = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
               @Override public boolean onDoubleTap(MotionEvent e) { performLike(h, reel); showLikeAnim(h); return true; }
@@ -227,21 +228,30 @@ package com.callx.app.adapters;
       private void performLike(FeedVH h, ReelModel reel) {
           if (myUid == null) return;
           String ref = "reelLikes/" + reel.reelId + "/" + myUid;
-          FirebaseDatabase.getInstance().getReference(ref).addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                  boolean liked = snap.exists();
-                  if (liked) {
-                      FirebaseDatabase.getInstance().getReference(ref).removeValue();
-                      reel.likeCount = Math.max(0, reel.likeCount - 1);
-                      if (h.itemView.isAttachedToWindow()) { h.btnLike.setImageResource(R.drawable.ic_heart); h.btnLike.clearColorFilter(); h.tvLikes.setText(formatCount(reel.likeCount)); }
-                  } else {
-                      FirebaseDatabase.getInstance().getReference(ref).setValue(true);
-                      reel.likeCount++;
-                      if (h.itemView.isAttachedToWindow()) { h.btnLike.setImageResource(R.drawable.ic_heart_filled); h.btnLike.setColorFilter(ContextCompat.getColor(ctx, R.color.brand_primary)); h.tvLikes.setText(formatCount(reel.likeCount)); }
+          FirebaseDatabase.getInstance().getReference(ref)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                      boolean liked = snap.exists();
+                      if (liked) {
+                          FirebaseDatabase.getInstance().getReference(ref).removeValue();
+                          reel.likeCount = Math.max(0, reel.likeCount - 1);
+                          if (h.itemView.isAttachedToWindow()) {
+                              h.btnLike.setImageResource(R.drawable.ic_heart);
+                              h.btnLike.clearColorFilter();
+                              h.tvLikes.setText(fmt(reel.likeCount));
+                          }
+                      } else {
+                          FirebaseDatabase.getInstance().getReference(ref).setValue(true);
+                          reel.likeCount++;
+                          if (h.itemView.isAttachedToWindow()) {
+                              h.btnLike.setImageResource(R.drawable.ic_heart_filled);
+                              h.btnLike.setColorFilter(ContextCompat.getColor(ctx, R.color.brand_primary));
+                              h.tvLikes.setText(fmt(reel.likeCount));
+                          }
+                      }
                   }
-              }
-              @Override public void onCancelled(@NonNull DatabaseError e) {}
-          });
+                  @Override public void onCancelled(@NonNull DatabaseError e) {}
+              });
       }
 
       private void showLikeAnim(FeedVH h) {
@@ -255,7 +265,8 @@ package com.callx.app.adapters;
               ObjectAnimator.ofFloat(h.ivLikeAnim, "scaleY", 0.5f,1.4f,1.1f,1.4f)
           );
           set.setDuration(700); set.start();
-          new Handler(Looper.getMainLooper()).postDelayed(() -> { if (h.itemView.isAttachedToWindow()) h.ivLikeAnim.setVisibility(View.GONE); }, 750);
+          new Handler(Looper.getMainLooper()).postDelayed(
+              () -> { if (h.itemView.isAttachedToWindow()) h.ivLikeAnim.setVisibility(View.GONE); }, 750);
       }
 
       // [F7] Reaction sheet
@@ -263,28 +274,33 @@ package com.callx.app.adapters;
           BottomSheetDialog d = new BottomSheetDialog(ctx, R.style.ThemeOverlay_App_BottomSheetDialog);
           View sheet = LayoutInflater.from(ctx).inflate(R.layout.bottom_sheet_post_reactions, null);
           d.setContentView(sheet);
-          int[] ids = {R.id.btn_react_heart,R.id.btn_react_laugh,R.id.btn_react_wow,R.id.btn_react_sad,R.id.btn_react_angry,R.id.btn_react_fire};
+          int[] ids = { R.id.btn_react_heart, R.id.btn_react_laugh, R.id.btn_react_wow,
+                        R.id.btn_react_sad,   R.id.btn_react_angry, R.id.btn_react_fire };
           for (int i = 0; i < ids.length; i++) {
               final String emoji = REACTION_EMOJIS[i];
               TextView btn = sheet.findViewById(ids[i]);
-              if (btn != null) btn.setOnClickListener(v -> {
+              if (btn == null) continue;
+              btn.setOnClickListener(v -> {
                   if (myUid != null) {
-                      Map<String,Object> m = new HashMap<>(); m.put("emoji", emoji); m.put("ts", System.currentTimeMillis());
+                      Map<String,Object> m = new HashMap<>();
+                      m.put("emoji", emoji); m.put("ts", System.currentTimeMillis());
                       FirebaseDatabase.getInstance().getReference("reelReactions/" + reel.reelId + "/" + myUid).setValue(m);
                   }
-                  if (h.itemView.isAttachedToWindow()) { h.layoutReactionsDisplay.setVisibility(View.VISIBLE); h.tvReactionEmoji.setText(emoji); h.tvReactionCount.setText("1"); }
+                  if (h.itemView.isAttachedToWindow()) {
+                      h.layoutReactionsDisplay.setVisibility(View.VISIBLE);
+                      h.tvReactionEmoji.setText(emoji); h.tvReactionCount.setText("1");
+                  }
                   d.dismiss();
               });
           }
           d.show();
       }
 
-      // [F8,F9,F10] Caption with hashtags, mentions, see more
+      // [F8,F9,F10] Caption
       private void setupCaption(FeedVH h, ReelModel reel) {
           String caption = reel.caption != null ? reel.caption : "";
           if (caption.isEmpty()) { h.tvCaption.setVisibility(View.GONE); h.btnSeeMore.setVisibility(View.GONE); return; }
           h.tvCaption.setVisibility(View.VISIBLE);
-
           SpannableStringBuilder ssb = new SpannableStringBuilder(caption);
           int color = ContextCompat.getColor(ctx, R.color.brand_primary);
 
@@ -293,7 +309,9 @@ package com.callx.app.adapters;
           while (hm.find()) {
               final String tag = hm.group(1);
               ssb.setSpan(new ClickableSpan() {
-                  @Override public void onClick(@NonNull View v) { Intent i = new Intent(ctx, HashtagReelsActivity.class); i.putExtra("hashtag", tag); ctx.startActivity(i); }
+                  @Override public void onClick(@NonNull View v) {
+                      Intent i = new Intent(ctx, HashtagReelsActivity.class); i.putExtra("hashtag", tag); ctx.startActivity(i);
+                  }
                   @Override public void updateDrawState(@NonNull TextPaint ds) { ds.setColor(color); ds.setUnderlineText(false); }
               }, hm.start(), hm.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
           }
@@ -303,7 +321,9 @@ package com.callx.app.adapters;
           while (mm.find()) {
               final String uname = mm.group(1);
               ssb.setSpan(new ClickableSpan() {
-                  @Override public void onClick(@NonNull View v) { Intent i = new Intent(ctx, UserReelsActivity.class); i.putExtra("name", uname); ctx.startActivity(i); }
+                  @Override public void onClick(@NonNull View v) {
+                      Intent i = new Intent(ctx, UserReelsActivity.class); i.putExtra("name", uname); ctx.startActivity(i);
+                  }
                   @Override public void updateDrawState(@NonNull TextPaint ds) { ds.setColor(color); ds.setUnderlineText(false); }
               }, mm.start(), mm.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
           }
@@ -312,7 +332,7 @@ package com.callx.app.adapters;
           h.tvCaption.setMovementMethod(LinkMovementMethod.getInstance());
           h.tvCaption.setHighlightColor(Color.TRANSPARENT);
 
-          // [F10] Expand/collapse
+          // [F10] See more / less
           h.tvCaption.setMaxLines(2);
           h.tvCaption.setEllipsize(TextUtils.TruncateAt.END);
           h.tvCaption.post(() -> {
@@ -343,7 +363,8 @@ package com.callx.app.adapters;
               d.dismiss();
           });
           if (btnC != null) btnC.setOnClickListener(v -> {
-              Intent i = new Intent(ctx, ReelBookmarkCollectionsActivity.class); i.putExtra("reelId", reel.reelId); ctx.startActivity(i); d.dismiss();
+              Intent i = new Intent(ctx, ReelBookmarkCollectionsActivity.class);
+              i.putExtra("reelId", reel.reelId); ctx.startActivity(i); d.dismiss();
           });
           d.show();
       }
@@ -353,7 +374,10 @@ package com.callx.app.adapters;
           FirebaseDatabase.getInstance().getReference("reelSaves/" + reel.reelId + "/" + myUid)
               .addListenerForSingleValueEvent(new ValueEventListener() {
                   @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                      if (snap.exists() && h.itemView.isAttachedToWindow()) { h.btnSave.setImageResource(R.drawable.ic_bookmark_filled); h.btnSave.setColorFilter(ContextCompat.getColor(ctx, R.color.brand_primary)); }
+                      if (snap.exists() && h.itemView.isAttachedToWindow()) {
+                          h.btnSave.setImageResource(R.drawable.ic_bookmark_filled);
+                          h.btnSave.setColorFilter(ContextCompat.getColor(ctx, R.color.brand_primary));
+                      }
                   }
                   @Override public void onCancelled(@NonNull DatabaseError e) {}
               });
@@ -364,7 +388,10 @@ package com.callx.app.adapters;
           FirebaseDatabase.getInstance().getReference("reelLikes/" + reel.reelId + "/" + myUid)
               .addListenerForSingleValueEvent(new ValueEventListener() {
                   @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                      if (snap.exists() && h.itemView.isAttachedToWindow()) { h.btnLike.setImageResource(R.drawable.ic_heart_filled); h.btnLike.setColorFilter(ContextCompat.getColor(ctx, R.color.brand_primary)); }
+                      if (snap.exists() && h.itemView.isAttachedToWindow()) {
+                          h.btnLike.setImageResource(R.drawable.ic_heart_filled);
+                          h.btnLike.setColorFilter(ContextCompat.getColor(ctx, R.color.brand_primary));
+                      }
                   }
                   @Override public void onCancelled(@NonNull DatabaseError e) {}
               });
@@ -377,16 +404,20 @@ package com.callx.app.adapters;
           Intent i = new Intent(ctx, UserReelsActivity.class); i.putExtra("uid", reel.ownerUid); i.putExtra("name", reel.ownerName); ctx.startActivity(i);
       }
 
-      private String formatCount(long n) {
+      private String fmt(long n) {
           if (n < 1000) return String.valueOf(n);
-          if (n < 1_000_000) return String.format("%.1fK", n/1000.0);
-          return String.format("%.1fM", n/1_000_000.0);
+          if (n < 1_000_000) return String.format("%.1fK", n / 1000.0);
+          return String.format("%.1fM", n / 1_000_000.0);
       }
-      private String formatTimeAgo(long ts) {
-          long s = (System.currentTimeMillis()-ts)/1000;
-          if (s<60) return "just now"; long m=s/60; if (m<60) return m+"m ago"; long hr=m/60; if (hr<24) return hr+"h ago"; return (hr/24)+"d ago";
+      private String fmtTime(long ts) {
+          long s = (System.currentTimeMillis() - ts) / 1000;
+          if (s < 60) return "just now";
+          long m = s / 60; if (m < 60) return m + "m ago";
+          long h = m / 60; if (h < 24) return h + "h ago";
+          return (h / 24) + "d ago";
       }
 
+      // ── ViewHolders ───────────────────────────────────────────────────────────
       static class SkeletonVH extends RecyclerView.ViewHolder { SkeletonVH(@NonNull View v){super(v);} }
 
       static class FeedVH extends RecyclerView.ViewHolder {

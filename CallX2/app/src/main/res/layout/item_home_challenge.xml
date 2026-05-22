@@ -6,49 +6,10 @@
       android:layout_marginEnd="10dp"
       android:background="#252525"
       android:padding="8dp">
-
-      <FrameLayout
-          android:layout_width="match_parent"
-          android:layout_height="100dp">
-
-          <ImageView
-              android:id="@+id/iv_challenge_thumb"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:scaleType="centerCrop"
-              android:background="#333333"/>
-
-          <TextView
-              android:id="@+id/tv_challenge_tag"
-              android:layout_width="match_parent"
-              android:layout_height="wrap_content"
-              android:layout_gravity="bottom"
-              android:background="#88000000"
-              android:padding="4dp"
-              android:text="#Challenge"
-              android:textColor="#FFFFFF"
-              android:textSize="12sp"
-              android:fontFamily="sans-serif-medium"/>
+      <FrameLayout android:layout_width="match_parent" android:layout_height="100dp">
+          <ImageView android:id="@+id/iv_challenge_thumb" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" android:background="#333333"/>
+          <TextView android:id="@+id/tv_challenge_tag" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:background="#88000000" android:padding="4dp" android:text="#Challenge" android:textColor="#FFFFFF" android:textSize="12sp" android:fontFamily="sans-serif-medium"/>
       </FrameLayout>
-
-      <TextView
-          android:id="@+id/tv_challenge_count"
-          android:layout_width="wrap_content"
-          android:layout_height="wrap_content"
-          android:layout_marginTop="6dp"
-          android:text="1.2M videos"
-          android:textColor="#AAAAAA"
-          android:textSize="11sp"/>
-
-      <TextView
-          android:id="@+id/btn_join_challenge"
-          android:layout_width="match_parent"
-          android:layout_height="32dp"
-          android:layout_marginTop="6dp"
-          android:gravity="center"
-          android:text="Join"
-          android:textSize="12sp"
-          android:textColor="@color/brand_primary"
-          android:background="@drawable/border_reel_button"/>
-
+      <TextView android:id="@+id/tv_challenge_count" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="1.2M videos" android:textColor="#AAAAAA" android:textSize="11sp"/>
+      <TextView android:id="@+id/btn_join_challenge" android:layout_width="match_parent" android:layout_height="32dp" android:layout_marginTop="6dp" android:gravity="center" android:text="Join" android:textSize="12sp" android:textColor="@color/brand_primary" android:background="@drawable/border_reel_button"/>
   </LinearLayout>

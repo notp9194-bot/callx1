@@ -1,50 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
   <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
       xmlns:app="http://schemas.android.com/apk/res-auto"
-      android:layout_width="72dp"
-      android:layout_height="wrap_content"
-      android:orientation="vertical"
-      android:gravity="center"
-      android:padding="4dp"
-      android:layout_marginEnd="2dp"
-      android:clickable="true"
-      android:focusable="true"
+      android:layout_width="72dp" android:layout_height="wrap_content"
+      android:orientation="vertical" android:gravity="center"
+      android:padding="4dp" android:layout_marginEnd="2dp"
+      android:clickable="true" android:focusable="true"
       android:background="?attr/selectableItemBackgroundBorderless">
-
-      <FrameLayout
-          android:layout_width="64dp"
-          android:layout_height="64dp">
-
-          <de.hdodenhof.circleimageview.CircleImageView
-              android:id="@+id/iv_story_avatar"
-              android:layout_width="60dp"
-              android:layout_height="60dp"
-              android:layout_gravity="center"
-              android:src="@drawable/ic_person"
-              app:civ_border_width="2dp"
-              app:civ_border_color="@color/brand_primary"/>
-
-          <ImageView
-              android:id="@+id/iv_story_add_overlay"
-              android:layout_width="22dp"
-              android:layout_height="22dp"
-              android:layout_gravity="bottom|end"
-              android:src="@drawable/ic_status_add"
-              android:background="@color/brand_primary"
-              android:padding="3dp"
-              android:tint="#FFFFFF"
-              android:visibility="gone"/>
+      <FrameLayout android:layout_width="64dp" android:layout_height="64dp">
+          <de.hdodenhof.circleimageview.CircleImageView android:id="@+id/iv_story_avatar" android:layout_width="60dp" android:layout_height="60dp" android:layout_gravity="center" android:src="@drawable/ic_person" app:civ_border_width="2dp" app:civ_border_color="@color/brand_primary"/>
+          <ImageView android:id="@+id/iv_story_add_overlay" android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="bottom|end" android:src="@drawable/ic_status_add" android:background="@color/brand_primary" android:padding="3dp" android:tint="#FFFFFF" android:visibility="gone"/>
       </FrameLayout>
-
-      <TextView
-          android:id="@+id/tv_story_name"
-          android:layout_width="match_parent"
-          android:layout_height="wrap_content"
-          android:layout_marginTop="4dp"
-          android:text="Story"
-          android:textColor="#FFFFFF"
-          android:textSize="10sp"
-          android:gravity="center"
-          android:singleLine="true"
-          android:ellipsize="end"/>
+      <TextView android:id="@+id/tv_story_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Story" android:textColor="#FFFFFF" android:textSize="10sp" android:gravity="center" android:singleLine="true" android:ellipsize="end"/>
   </LinearLayout>
