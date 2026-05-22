@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- item_message_sent.xml — v22: proper ImageView tick (pending/sent/delivered/read/failed) -->
+<!-- item_message_sent.xml — SwipeReplySystem v1: translationX-safe wrapper -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -92,7 +92,7 @@
                     android:ellipsize="end"/>
             </LinearLayout>
 
-            <!-- Reply media thumbnail (image/video replies) -->
+            <!-- Reply media thumbnail -->
             <ImageView
                 android:id="@+id/iv_reply_thumb"
                 android:layout_width="44dp"
@@ -283,7 +283,7 @@
                 android:textSize="14sp"/>
         </LinearLayout>
 
-        <!-- Footer: star + time + tick icon -->
+        <!-- Footer: star + time + status -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -292,7 +292,6 @@
             android:paddingStart="10dp"
             android:paddingBottom="4dp"
             android:paddingEnd="8dp">
-
             <TextView
                 android:id="@+id/tv_starred_icon"
                 android:layout_width="wrap_content"
@@ -301,33 +300,12 @@
                 android:textSize="10sp"
                 android:layout_marginEnd="3dp"
                 android:visibility="gone"/>
-
             <TextView
                 android:id="@+id/tv_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="@color/chat_time_color"
                 android:textSize="10sp"/>
-
-            <!--
-                iv_tick: Production-level tick ImageView.
-                States (set by MessageAdapter.bindFooter):
-                  pending   → ic_clock       (grey clock — sending)
-                  sent      → ic_single_tick (single grey ✓)
-                  delivered → ic_double_tick (double grey ✓✓)
-                  read      → ic_double_tick_blue (double blue ✓✓)
-                  failed    → ic_tick_failed  (red error !)
-            -->
-            <ImageView
-                android:id="@+id/iv_tick"
-                android:layout_width="20dp"
-                android:layout_height="14dp"
-                android:layout_marginStart="4dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_single_tick"
-                android:visibility="gone"/>
-
-            <!-- Keep tv_status for backwards compat — always GONE at runtime -->
             <TextView
                 android:id="@+id/tv_status"
                 android:layout_width="wrap_content"
@@ -335,7 +313,6 @@
                 android:textSize="10sp"
                 android:paddingStart="3dp"
                 android:visibility="gone"/>
-
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

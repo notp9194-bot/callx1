@@ -325,7 +325,6 @@ public class GroupChatActivity extends AppCompatActivity {
             @Override public void onStar(Message m)                { toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
-            @Override public void onInfo(Message m)                { launchMessageInfo(m); }
             @Override public void onNavigateToOriginal(String messageId) {
                 if (messageId == null || messageId.isEmpty()) return;
                 for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
@@ -1149,28 +1148,5 @@ public class GroupChatActivity extends AppCompatActivity {
 
     private int dp(int dp) {
         return (int) (dp * getResources().getDisplayMetrics().density);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // v22: Launch MessageInfoActivity for a sent group message
-    // ─────────────────────────────────────────────────────────────────────
-    private void launchMessageInfo(com.callx.app.models.Message m) {
-        if (m == null) return;
-        String msgId = m.id != null ? m.id : m.messageId;
-        if (msgId == null) return;
-        Intent i = new Intent(this, com.callx.app.activities.MessageInfoActivity.class);
-        i.putExtra("messageId",     msgId);
-        i.putExtra("chatId",        groupId);
-        i.putExtra("isGroup",       true);
-        i.putExtra("messageText",   m.text);
-        i.putExtra("messageType",   m.type    != null ? m.type    : "text");
-        i.putExtra("messageStatus", m.status  != null ? m.status  : "sent");
-        if (m.timestamp    != null) i.putExtra("timestamp",    m.timestamp);
-        if (m.mediaUrl     != null) i.putExtra("mediaUrl",     m.mediaUrl);
-        if (m.thumbnailUrl != null) i.putExtra("thumbnailUrl", m.thumbnailUrl);
-        if (m.fileName     != null) i.putExtra("fileName",     m.fileName);
-        if (m.deliveredAt  != null) i.putExtra("deliveredAt",  m.deliveredAt);
-        if (m.readAt       != null) i.putExtra("readAt",       m.readAt);
-        startActivity(i);
     }
 }

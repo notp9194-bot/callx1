@@ -1,52 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- item_member_read_receipt.xml — one row in Message Info read-by / delivered-to list -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="56dp"
+    android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:paddingStart="16dp"
     android:paddingEnd="16dp"
-    android:background="@color/surface_card">
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true">
 
     <de.hdodenhof.circleimageview.CircleImageView
         android:id="@+id/iv_avatar"
-        android:layout_width="38dp"
-        android:layout_height="38dp"
-        android:src="@drawable/ic_person"/>
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:src="@drawable/ic_person"
+        android:background="@color/surface_input"/>
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:layout_marginStart="12dp">
+        android:layout_marginStart="14dp">
 
         <TextView
             android:id="@+id/tv_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
-            android:textColor="@color/text_primary"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end"/>
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold"/>
 
         <TextView
-            android:id="@+id/tv_time"
+            android:id="@+id/tv_callx_id"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
             android:textColor="@color/text_secondary"
+            android:textSize="12sp"
             android:layout_marginTop="2dp"/>
     </LinearLayout>
 
-    <!-- Read = blue tick, Delivered = grey tick -->
     <ImageView
-        android:id="@+id/iv_tick"
+        android:id="@+id/iv_arrow"
         android:layout_width="20dp"
-        android:layout_height="14dp"
-        android:scaleType="fitCenter"
-        android:src="@drawable/ic_double_tick_blue"/>
+        android:layout_height="20dp"
+        android:src="@drawable/ic_arrow_forward"
+        android:alpha="0.4"/>
 
 </LinearLayout>

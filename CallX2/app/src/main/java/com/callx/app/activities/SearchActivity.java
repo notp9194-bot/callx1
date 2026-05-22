@@ -1,4 +1,5 @@
 package com.callx.app.activities;
+
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
@@ -7,22 +8,32 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
-import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import com.bumptech.glide.Glide;
+import com.callx.app.adapters.SearchResultAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.databinding.ActivitySearchBinding;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
-import java.util.HashMap;
+
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Executors;
 
+/**
+ * v18: Search by CallX ID  -or-  name.
+ * Shows multi-result list (like Instagram search).
+ * Tap a result → profile card with Chat / Audio / Video actions.
+ */
 public class SearchActivity extends AppCompatActivity {
+
     private ActivitySearchBinding binding;
+    private SearchResultAdapter adapter;
+
+    // selected user (for action buttons in detail card)
     private String foundUid, foundName, foundPhoto, foundThumb;
 
     @Override
@@ -30,16 +41,36 @@ public class SearchActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivitySearchBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
         binding.toolbar.setNavigationOnClickListener(v -> finish());
+
+        // RecyclerView setup
+        adapter = new SearchResultAdapter();
+        binding.rvResults.setLayoutManager(new LinearLayoutManager(this));
+        binding.rvResults.setAdapter(adapter);
+        adapter.setListener((uid, name, photo, thumb, callxId) -> {
+            // Save selection and show detail card
+            foundUid   = uid;
+            foundName  = name;
+            foundPhoto = photo;
+            foundThumb = thumb;
+            showDetail(name, callxId, photo);
+        });
+
+        // Search button
         binding.btnSearch.setOnClickListener(v -> search());
+
+        // Keyboard search action
         binding.etSearchId.setOnEditorActionListener((v, actionId, e) -> {
-            if (actionId == EditorInfo.IME_ACTION_DONE
-                    || actionId == EditorInfo.IME_ACTION_SEARCH
+            if (actionId == EditorInfo.IME_ACTION_SEARCH
+                    || actionId == EditorInfo.IME_ACTION_DONE
                     || actionId == EditorInfo.IME_ACTION_GO) {
                 search(); return true;
             }
             return false;
         });
+
+        // Auto-search as user types (debounced 350ms)
         binding.etSearchId.addTextChangedListener(new TextWatcher() {
             private final android.os.Handler h =
                 new android.os.Handler(android.os.Looper.getMainLooper());
@@ -47,11 +78,18 @@ public class SearchActivity extends AppCompatActivity {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
                 h.removeCallbacks(r);
-                if (s.toString().trim().length() >= 3) h.postDelayed(r, 300);
-                else binding.llResult.setVisibility(View.GONE);
+                binding.llResult.setVisibility(View.GONE);
+                if (s.toString().trim().length() >= 2) {
+                    h.postDelayed(r, 350);
+                } else {
+                    binding.rvResults.setVisibility(View.GONE);
+                    binding.tvStatus.setVisibility(View.GONE);
+                }
             }
             @Override public void afterTextChanged(Editable s) {}
         });
+
+        // Detail card action buttons
         binding.btnOpenChat.setOnClickListener(v -> openChat());
         binding.btnAudioCall.setOnClickListener(v -> startCall(false));
         binding.btnVideoCall.setOnClickListener(v -> startCall(true));
@@ -67,82 +105,118 @@ public class SearchActivity extends AppCompatActivity {
     }
 
     private void search() {
-        String id = binding.etSearchId.getText().toString().trim().toLowerCase();
-        if (id.isEmpty()) {
-            Toast.makeText(this, "ID daalo", Toast.LENGTH_SHORT).show(); return;
-        }
-        binding.tvStatus.setVisibility(View.VISIBLE);
+        String query = binding.etSearchId.getText().toString().trim().toLowerCase();
+        if (query.isEmpty()) return;
+
         binding.llResult.setVisibility(View.GONE);
+        binding.tvStatus.setVisibility(View.VISIBLE);
+        binding.rvResults.setVisibility(View.GONE);
 
         if (!isOnline()) {
-            // v17: Offline — Room UserDao se dhundho
             binding.tvStatus.setText("Offline — local cache mein dhundh raha hoon...");
-            searchInRoom(id);
+            searchInRoom(query);
             return;
         }
 
         binding.tvStatus.setText("Dhundh raha hoon...");
-        FirebaseUtils.db().getReference("users").orderByChild("callxId").equalTo(id)
+
+        // 1. Search by callxId (exact)
+        // 2. Search by name (startsWith — Firebase doesn't support LIKE, so use range trick)
+        // We run both queries and merge results
+        List<SearchResultAdapter.UserResult> merged = new ArrayList<>();
+        String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
+            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+
+        DatabaseReference usersRef = FirebaseUtils.db().getReference("users");
+
+        // Query 1: by callxId exact match
+        usersRef.orderByChild("callxId").equalTo(query)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot snap) {
-                    if (!snap.exists()) {
-                        binding.tvStatus.setText("Koi user nahi mila");
-                        return;
-                    }
                     for (DataSnapshot c : snap.getChildren()) {
-                        foundUid   = c.child("uid").getValue(String.class);
-                        foundName  = c.child("name").getValue(String.class);
-                        foundPhoto = c.child("photoUrl").getValue(String.class);
-                        foundThumb = c.child("thumbUrl").getValue(String.class);
-                        String foundId = c.child("callxId").getValue(String.class);
-                        String myUid = FirebaseAuth.getInstance()
-                            .getCurrentUser().getUid();
-                        if (myUid.equals(foundUid)) {
-                            binding.tvStatus.setText("Ye to aapki hi ID hai 🙂");
-                            return;
-                        }
-                        showResult(foundName, foundId, foundPhoto);
-                        break;
+                        SearchResultAdapter.UserResult r = snapToResult(c);
+                        if (r != null && !r.uid.equals(myUid) && !containsUid(merged, r.uid))
+                            merged.add(r);
                     }
+                    // Query 2: by name prefix
+                    String nameEnd = query.substring(0, query.length() - 1)
+                        + (char)(query.charAt(query.length() - 1) + 1);
+                    usersRef.orderByChild("nameLower").startAt(query).endAt(nameEnd + "\uf8ff")
+                        .limitToFirst(20)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot snap2) {
+                                for (DataSnapshot c : snap2.getChildren()) {
+                                    SearchResultAdapter.UserResult r = snapToResult(c);
+                                    if (r != null && !r.uid.equals(myUid) && !containsUid(merged, r.uid))
+                                        merged.add(r);
+                                }
+                                showResults(merged);
+                            }
+                            @Override public void onCancelled(DatabaseError e) {
+                                // nameLower index might not exist yet — just show what we have
+                                showResults(merged);
+                            }
+                        });
                 }
                 @Override public void onCancelled(DatabaseError e) {
-                    // Firebase fail hua — Room fallback
-                    searchInRoom(id);
+                    searchInRoom(query);
                 }
             });
     }
 
-    // v17: Room UserDao se search karo (offline fallback)
-    private void searchInRoom(String callxId) {
+    private SearchResultAdapter.UserResult snapToResult(DataSnapshot c) {
+        String uid   = c.child("uid").getValue(String.class);
+        String name  = c.child("name").getValue(String.class);
+        String cxId  = c.child("callxId").getValue(String.class);
+        String photo = c.child("photoUrl").getValue(String.class);
+        String thumb = c.child("thumbUrl").getValue(String.class);
+        if (uid == null) return null;
+        return new SearchResultAdapter.UserResult(uid, name, cxId, photo, thumb);
+    }
+
+    private boolean containsUid(List<SearchResultAdapter.UserResult> list, String uid) {
+        for (SearchResultAdapter.UserResult r : list) if (r.uid.equals(uid)) return true;
+        return false;
+    }
+
+    private void showResults(List<SearchResultAdapter.UserResult> results) {
+        binding.tvStatus.setVisibility(View.GONE);
+        if (results == null || results.isEmpty()) {
+            binding.tvStatus.setText("Koi user nahi mila");
+            binding.tvStatus.setVisibility(View.VISIBLE);
+            binding.rvResults.setVisibility(View.GONE);
+            return;
+        }
+        adapter.setResults(results);
+        binding.rvResults.setVisibility(View.VISIBLE);
+    }
+
+    // Offline fallback using Room
+    private void searchInRoom(String query) {
         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
         Executors.newSingleThreadExecutor().execute(() -> {
-            List<UserEntity> results = db.userDao().searchByCallxId(callxId);
-            runOnUiThread(() -> {
-                if (results == null || results.isEmpty()) {
-                    binding.tvStatus.setText("Nahi mila — online hoke try karo");
-                    return;
+            List<UserEntity> entities = db.userDao().searchByIdOrName(query);
+            String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
+                ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            List<SearchResultAdapter.UserResult> results = new ArrayList<>();
+            if (entities != null) {
+                for (UserEntity u : entities) {
+                    if (!u.uid.equals(myUid))
+                        results.add(new SearchResultAdapter.UserResult(
+                            u.uid, u.name, u.callxId, u.photoUrl, u.thumbUrl));
                 }
-                UserEntity u = results.get(0);
-                foundUid   = u.uid;
-                foundName  = u.name;
-                foundPhoto = u.photoUrl;
-                String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-                    ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
-                if (myUid.equals(foundUid)) {
-                    binding.tvStatus.setText("Ye to aapki hi ID hai 🙂");
-                    return;
-                }
-                showResult(u.name, u.callxId, u.photoUrl);
-            });
+            }
+            runOnUiThread(() -> showResults(results));
         });
     }
 
-    private void showResult(String name, String id, String photo) {
-        binding.tvResultName.setText(name == null ? "User" : name);
-        binding.tvResultId.setText(id == null ? "" : id);
+    private void showDetail(String name, String id, String photo) {
+        binding.tvResultName.setText(name != null ? name : "User");
+        binding.tvResultId.setText(id != null ? id : "");
         if (photo != null && !photo.isEmpty()) {
-            Glide.with(SearchActivity.this).load(photo).into(binding.ivResultAvatar);
+            Glide.with(this).load(photo).into(binding.ivResultAvatar);
         }
+        binding.rvResults.setVisibility(View.GONE);
         binding.llResult.setVisibility(View.VISIBLE);
         binding.tvStatus.setVisibility(View.GONE);
     }
@@ -151,14 +225,14 @@ public class SearchActivity extends AppCompatActivity {
         if (foundUid == null) return;
         String myUid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
         String myName = FirebaseUtils.getCurrentName();
-        Map<String, Object> them = new HashMap<>();
+        java.util.Map<String, Object> them = new java.util.HashMap<>();
         them.put("uid", foundUid);
-        them.put("name", foundName == null ? "User" : foundName);
+        them.put("name", foundName != null ? foundName : "User");
         if (foundPhoto != null) them.put("photoUrl", foundPhoto);
         if (foundThumb != null) them.put("thumbUrl", foundThumb);
         them.put("at", System.currentTimeMillis());
         FirebaseUtils.getContactsRef(myUid).child(foundUid).updateChildren(them);
-        Map<String, Object> me = new HashMap<>();
+        java.util.Map<String, Object> me = new java.util.HashMap<>();
         me.put("uid", myUid);
         me.put("name", myName);
         me.put("at", System.currentTimeMillis());
@@ -181,10 +255,10 @@ public class SearchActivity extends AppCompatActivity {
         if (foundUid == null) return;
         if (isOnline()) linkContacts();
         Intent i = new Intent(this, CallActivity.class);
-        i.putExtra("partnerUid", foundUid);
+        i.putExtra("partnerUid",  foundUid);
         i.putExtra("partnerName", foundName);
-        i.putExtra("isCaller", true);
-        i.putExtra("video", video);
+        i.putExtra("isCaller",    true);
+        i.putExtra("video",       video);
         startActivity(i);
         finish();
     }

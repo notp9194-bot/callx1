@@ -87,8 +87,6 @@ public class MessagePagingAdapter
         void onStar(Message m);
         void onCopy(Message m);
         void onForward(Message m);
-        /** v22: launch MessageInfoActivity for sent message */
-        void onInfo(Message m);
     }
 
     public MessagePagingAdapter(String currentUid, boolean isGroup) {
@@ -587,48 +585,30 @@ public class MessagePagingAdapter
                 break;
         }
 
-        // ── Delivery status (sent messages only) — v22: ImageView iv_tick ──
-        if (h.ivTick != null) {
-            if (sent) {
-                h.ivTick.setVisibility(android.view.View.VISIBLE);
-                String status = m.status != null ? m.status : "sent";
-                int prevTag = h.ivTick.getTag() instanceof Integer ? (int) h.ivTick.getTag() : -1;
-                int newRes;
-                switch (status) {
-                    case "read":
-                    case "seen":
-                        newRes = R.drawable.ic_double_tick_blue;
-                        break;
-                    case "delivered":
-                        newRes = R.drawable.ic_double_tick;
-                        break;
-                    case "pending":
-                        newRes = R.drawable.ic_clock;
-                        break;
-                    case "failed":
-                        newRes = R.drawable.ic_tick_failed;
-                        break;
-                    default: // "sent"
-                        newRes = R.drawable.ic_single_tick;
-                        break;
-                }
-                if (prevTag != newRes) {
-                    h.ivTick.setTag(newRes);
-                    h.ivTick.setImageResource(newRes);
-                    // Smooth fade-in on grey→blue transition (read receipt pop)
-                    if (prevTag == R.drawable.ic_double_tick && newRes == R.drawable.ic_double_tick_blue) {
-                        h.ivTick.setAlpha(0.3f);
-                        h.ivTick.animate().alpha(1.0f).setDuration(300).start();
-                    } else {
-                        h.ivTick.setAlpha(1.0f);
-                    }
-                }
-            } else {
-                h.ivTick.setVisibility(android.view.View.GONE);
+        // ── Delivery status (sent messages only) ─────────────────
+        if (sent && h.tvStatus != null) {
+            h.tvStatus.setVisibility(View.VISIBLE);
+            String status = m.status != null ? m.status : "sent";
+            switch (status) {
+                case "seen":
+                    h.tvStatus.setText("✓✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
+                    break;
+                case "delivered":
+                    h.tvStatus.setText("✓✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    break;
+                default:
+                    h.tvStatus.setText("✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    break;
             }
+        } else if (h.tvStatus != null) {
+            h.tvStatus.setVisibility(View.GONE);
         }
-        // Legacy tv_status — always hidden (replaced by iv_tick)
-        if (h.tvStatus != null) h.tvStatus.setVisibility(android.view.View.GONE);
 
         // ── Long press — action listener ─────────────────────────
         h.itemView.setOnLongClickListener(v -> {
@@ -729,28 +709,17 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     private void showActionBottomSheet(Context ctx, Message m) {
         if (actionListener == null) return;
-        boolean sent = currentUid.equals(m.senderId);
-        boolean canInfo = sent
-                && !Boolean.TRUE.equals(m.deleted)
-                && !"pending".equals(m.status)
-                && !"failed".equals(m.status);
-
-        // Build dynamic options list
-        java.util.List<String> optLabels  = new java.util.ArrayList<>();
-        java.util.List<Runnable> optActions = new java.util.ArrayList<>();
-        optLabels.add("Reply");         optActions.add(() -> actionListener.onReply(m));
-        optLabels.add("Copy");          optActions.add(() -> actionListener.onCopy(m));
-        optLabels.add("Star");          optActions.add(() -> actionListener.onStar(m));
-        optLabels.add("Forward");       optActions.add(() -> actionListener.onForward(m));
-        if (canInfo) {
-            optLabels.add("Message Info"); optActions.add(() -> actionListener.onInfo(m));
-        }
-        optLabels.add("Delete");        optActions.add(() -> actionListener.onDelete(m));
-
-        String[] labels = optLabels.toArray(new String[0]);
+        String[] options = {"Reply", "Copy", "Star", "Forward", "Delete"};
         new android.app.AlertDialog.Builder(ctx)
-            .setItems(labels, (d, which) -> optActions.get(which).run())
-            .show();
+            .setItems(options, (d, which) -> {
+                switch (which) {
+                    case 0: actionListener.onReply(m);   break;
+                    case 1: actionListener.onCopy(m);    break;
+                    case 2: actionListener.onStar(m);    break;
+                    case 3: actionListener.onForward(m); break;
+                    case 4: actionListener.onDelete(m);  break;
+                }
+            }).show();
     }
 
     @Override
@@ -765,10 +734,7 @@ public class MessagePagingAdapter
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
         ImageView    ivImage;
-        /** v22: ImageView tick (pending/sent/delivered/read/failed). Replaces tvStatus. */
-        ImageView    ivTick;
-        /** Legacy — always GONE at runtime; replaced by ivTick. */
-        TextView     tvStatus;
+        TextView     tvStatus;   // tv_status in both item layouts
         LinearLayout llAudio, llFile;
         ImageButton  btnPlayPause;
         ImageView    btnDownload;
@@ -783,8 +749,7 @@ public class MessagePagingAdapter
             tvTime         = v.findViewById(R.id.tv_time);
             tvSenderName   = v.findViewById(R.id.tv_sender_name);
             ivImage        = v.findViewById(R.id.iv_image);
-            ivTick         = v.findViewById(R.id.iv_tick);   // v22: proper vector tick
-            tvStatus       = v.findViewById(R.id.tv_status); // legacy — always GONE
+            tvStatus       = v.findViewById(R.id.tv_status);
             llAudio        = v.findViewById(R.id.ll_audio);
             btnPlayPause   = v.findViewById(R.id.btn_play_pause);
             llFile         = v.findViewById(R.id.ll_file);

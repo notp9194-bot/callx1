@@ -30,47 +30,8 @@ public class Message {
     public String imageUrl;
 
     // ── Feature 1: Read Receipts ──────────────────────────
-    /**
-     * Message delivery status.
-     * Values: "pending" | "sent" | "delivered" | "read" | "failed"
-     *
-     * "pending"   — Message queued locally, not yet sent to Firebase.
-     * "sent"      — Successfully written to Firebase (single grey tick ✓).
-     * "delivered" — Other device received it (double grey tick ✓✓).
-     * "read"      — Other party opened the chat and saw it (double blue tick ✓✓).
-     * "failed"    — Permanent send failure (red error icon).
-     *
-     * For group chats, this top-level status reflects the worst-case member state:
-     *   pending → sent → delivered (any member) → read (ALL members).
-     * Per-member details are in readBy / deliveredTo maps.
-     */
+    /** sent | delivered | read */
     public String status;
-
-    /**
-     * Group read receipts — uid → timestamp (epoch ms) when each member READ the message.
-     * Firebase path: chats/{chatId}/messages/{msgId}/readBy/{uid} = timestamp
-     * Only meaningful when isGroup = true.
-     */
-    public Map<String, Long> readBy;
-
-    /**
-     * Group delivery receipts — uid → epoch ms when each member's device RECEIVED the message.
-     * Firebase path: chats/{chatId}/messages/{msgId}/deliveredTo/{uid} = timestamp
-     * Only meaningful when isGroup = true.
-     */
-    public Map<String, Long> deliveredTo;
-
-    /**
-     * For 1:1: timestamp when the other party's device received (delivered) this message.
-     * For group: timestamp when the FIRST member received it.
-     */
-    public Long deliveredAt;
-
-    /**
-     * For 1:1: timestamp when the other party READ this message.
-     * For group: timestamp when the LAST member read it (i.e., all-read time).
-     */
-    public Long readAt;
 
     // ── Feature 2: Reply / Quote ──────────────────────────
     public String replyToId;
@@ -100,6 +61,7 @@ public class Message {
     // ── Feature 8: Pinned ────────────────────────────────
     public Boolean pinned;
 
+
     // ── Feature 9: Reel Seen Bubble ──────────────────────────────
     /** Reel ID — set when type = "reel_seen". Used to open reel on tap. */
     public String reelId;
@@ -119,23 +81,4 @@ public class Message {
     public boolean isGroup;
 
     public Message() {}
-
-    /**
-     * Returns the effective display status for tick rendering.
-     * Never returns null — defaults to "sent".
-     */
-    public String getEffectiveStatus() {
-        if (status == null) return "sent";
-        return status;
-    }
-
-    /** For group messages: how many members have read this message. */
-    public int getReadCount() {
-        return readBy == null ? 0 : readBy.size();
-    }
-
-    /** For group messages: how many members have received this message. */
-    public int getDeliveredCount() {
-        return deliveredTo == null ? 0 : deliveredTo.size();
-    }
 }

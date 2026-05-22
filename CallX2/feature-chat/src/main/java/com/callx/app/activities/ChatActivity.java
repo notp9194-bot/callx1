@@ -120,8 +120,7 @@ public class ChatActivity extends AppCompatActivity {
     private ActivityChatBinding binding;
 
     // ── Chat identifiers ───────────────────────────────────────────────────
-    private String  chatId;
-    private boolean isGroup = false;   // always false for 1-to-1 ChatActivity
+    private String chatId;
     private String partnerUid;
     private String partnerName;
     private String partnerPhoto;
@@ -465,7 +464,6 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginal(messageId); }
-            @Override public void onInfo(Message m)                      { launchMessageInfo(m); }
         });
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
@@ -1030,31 +1028,6 @@ public class ChatActivity extends AppCompatActivity {
         i.putExtra("forwardType",     m.type != null ? m.type : "text");
         i.putExtra("forwardMedia",    m.mediaUrl);
         i.putExtra("forwardFileName", m.fileName);
-        startActivity(i);
-    }
-
-    /**
-     * v22: Launch MessageInfoActivity for a sent message.
-     * Passes all available data as extras so the screen renders instantly offline;
-     * it fetches live Firebase data on its own for readBy/deliveredTo group receipts.
-     */
-    private void launchMessageInfo(Message m) {
-        if (m == null) return;
-        String msgId = m.id != null ? m.id : m.messageId;
-        if (msgId == null) return;
-        Intent i = new Intent(this, com.callx.app.activities.MessageInfoActivity.class);
-        i.putExtra("messageId",    msgId);
-        i.putExtra("chatId",       chatId);
-        i.putExtra("isGroup",      isGroup);
-        i.putExtra("messageText",  m.text);
-        i.putExtra("messageType",  m.type != null ? m.type : "text");
-        i.putExtra("messageStatus", m.status != null ? m.status : "sent");
-        if (m.timestamp   != null) i.putExtra("timestamp",    m.timestamp);
-        if (m.mediaUrl    != null) i.putExtra("mediaUrl",     m.mediaUrl);
-        if (m.thumbnailUrl != null) i.putExtra("thumbnailUrl", m.thumbnailUrl);
-        if (m.fileName    != null) i.putExtra("fileName",     m.fileName);
-        if (m.deliveredAt != null) i.putExtra("deliveredAt",  m.deliveredAt);
-        if (m.readAt      != null) i.putExtra("readAt",       m.readAt);
         startActivity(i);
     }
 

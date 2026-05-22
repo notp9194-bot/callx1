@@ -66,7 +66,7 @@ import net.sqlcipher.database.SupportFactory;
         GroupEntity.class,
         StatusEntity.class     // v17: status cache
     },
-    version = 9,
+    version = 8,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -85,23 +85,6 @@ public abstract class AppDatabase extends RoomDatabase {
     // ──────────────────────────────────────────────────────────────
     // MIGRATIONS
     // ──────────────────────────────────────────────────────────────
-
-    /**
-     * v8 → v9: Group read receipt columns — readByJson, deliveredToJson, deliveredAt, readAt.
-     * Required for MessageInfoActivity and per-member tick tracking in group chats.
-     * "status" column also bumped to support "pending" and "failed" states.
-     */
-    static final Migration MIGRATION_8_9 = new Migration(8, 9) {
-        @Override
-        public void migrate(@NonNull SupportSQLiteDatabase db) {
-            // JSON-serialised Map<uid,timestamp> for group read/delivered tracking
-            db.execSQL("ALTER TABLE messages ADD COLUMN readByJson TEXT DEFAULT NULL");
-            db.execSQL("ALTER TABLE messages ADD COLUMN deliveredToJson TEXT DEFAULT NULL");
-            // Epoch-ms timestamps for 1:1 delivered/read (and group first/last)
-            db.execSQL("ALTER TABLE messages ADD COLUMN deliveredAt INTEGER DEFAULT NULL");
-            db.execSQL("ALTER TABLE messages ADD COLUMN readAt INTEGER DEFAULT NULL");
-        }
-    };
 
     /** v7 → v8: reelId + reelThumbUrl — reel_seen bubble in chat. */
     static final Migration MIGRATION_7_8 = new Migration(7, 8) {
@@ -280,7 +263,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)  // v22: group read receipts
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)  // v16…v21(senderPhoto) v22(reelSeen)
                 .fallbackToDestructiveMigration()
                 .build();
 
