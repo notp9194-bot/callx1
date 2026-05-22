@@ -130,8 +130,8 @@ public class GroupsFragment extends Fragment {
                                     }
                                     if (--pending[0] == 0) {
                                         // Sab fetch ho gaye — UI update + Room save
-                                        if (adapter != null) adapter.notifyDataSetChanged();
-                                        if (getContext() != null && !toSave.isEmpty()) {
+                                        if (isAdded() && adapter != null) adapter.notifyDataSetChanged();
+                                        if (isAdded() && getContext() != null && !toSave.isEmpty()) {
                                             AppDatabase db = AppDatabase.getInstance(getContext());
                                             Executors.newSingleThreadExecutor().execute(() ->
                                                 db.groupDao().insertGroups(toSave));
@@ -139,8 +139,14 @@ public class GroupsFragment extends Fragment {
                                     }
                                 }
                                 @Override public void onCancelled(DatabaseError e) {
-                                    if (--pending[0] == 0 && adapter != null)
-                                        adapter.notifyDataSetChanged();
+                                    if (--pending[0] == 0) {
+                                        if (getActivity() != null) {
+                                            getActivity().runOnUiThread(() -> {
+                                                if (isAdded() && adapter != null)
+                                                    adapter.notifyDataSetChanged();
+                                            });
+                                        }
+                                    }
                                 }
                             });
                     }

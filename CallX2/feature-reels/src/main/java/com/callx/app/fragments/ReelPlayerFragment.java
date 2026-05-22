@@ -711,6 +711,9 @@ public class ReelPlayerFragment extends Fragment {
     private void startPlayback() {
         if (!isAdded() || getContext() == null) return;
         if (reel == null || reel.videoUrl == null || reel.videoUrl.isEmpty()) return;
+        // CRASH FIX: playerView is null if view hasn't been created yet
+        // (setUserVisibleHint can fire before onCreateView in ViewPager2)
+        if (playerView == null) return;
 
         if (player == null) {
             player = new ExoPlayer.Builder(requireContext()).build();
