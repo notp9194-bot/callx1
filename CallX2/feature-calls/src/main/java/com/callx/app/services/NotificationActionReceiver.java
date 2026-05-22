@@ -36,12 +36,34 @@ public class NotificationActionReceiver extends BroadcastReceiver {
         NotificationManager nm = (NotificationManager)
             context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (Constants.ACTION_MARK_READ.equals(action)) {
+            // ── Unread counter reset ──────────────────────────────────────────
             if (partnerUid != null) {
                 FirebaseUtils.getContactsRef(myUid).child(partnerUid)
                     .child("unread").setValue(0);
             }
+
+            // ── PRODUCTION: Mark message as seen (blue ✓✓) ───────────────────
+            // Notification shade se "Mark as read" press kiya = message dekh liya
+            // chatId + msgId se Firebase pe seenAt + status="seen" atomic write
+            final String markChatId = chatId;
+            final String markMsgId  = intent.getStringExtra(Constants.EXTRA_MSG_ID);
+
+            if (markChatId != null && !markChatId.isEmpty()
+                    && markMsgId != null && !markMsgId.isEmpty()) {
+                // DeliveryManager — handles Firebase + Room atomically
+                // goAsync() already called above so BroadcastReceiver stays alive
+                com.callx.app.delivery.MessageDeliveryManager.get()
+                    .markSeenFromNotification(context, markChatId, markMsgId);
+                // Small delay taaki Firebase write complete ho sake before finish
+                new Thread(() -> {
+                    try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
+                    pendingResult.finish();
+                }).start();
+            } else {
+                android.util.Log.w("NotifAction", "Mark read: msgId missing");
+                pendingResult.finish();
+            }
             if (nm != null) nm.cancel(notifId);
-            pendingResult.finish();
             return;
         }
         // (Feature 1) Mute — sound off. Future notifications silent show honge.

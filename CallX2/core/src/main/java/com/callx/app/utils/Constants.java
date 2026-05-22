@@ -63,6 +63,7 @@ public class Constants {
     // ── Notification action intents ──────────────────────────────────────
     public static final String ACTION_REPLY            = "com.callx.app.ACTION_REPLY";
     public static final String ACTION_MARK_READ        = "com.callx.app.ACTION_MARK_READ";
+    public static final String EXTRA_MSG_ID             = "extra_msg_id";
     public static final String ACTION_MUTE             = "com.callx.app.ACTION_MUTE";
     public static final String ACTION_BLOCK            = "com.callx.app.ACTION_BLOCK";
     public static final String ACTION_UNBLOCK          = "com.callx.app.ACTION_UNBLOCK";

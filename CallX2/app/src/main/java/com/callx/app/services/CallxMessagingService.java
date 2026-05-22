@@ -710,10 +710,10 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 .setSemanticAction(
                     NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
                 .build();
-        // Action: Mark as read
+        // Action: Mark as read — pass msgId so receiver can write seenAt
         PendingIntent markReadPi = PendingIntent.getBroadcast(this, notifId * 10 + 1,
-            buildActionIntent(Constants.ACTION_MARK_READ, fromUid, fromName,
-                fromPhoto, chatId, notifId),
+            buildActionIntentWithMsg(Constants.ACTION_MARK_READ, fromUid, fromName,
+                fromPhoto, chatId, notifId, msgId),
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         NotificationCompat.Action markReadAction =
             new NotificationCompat.Action.Builder(
@@ -838,13 +838,22 @@ public class CallxMessagingService extends FirebaseMessagingService {
     }
     private Intent buildActionIntent(String action, String fromUid, String fromName,
                                      String fromPhoto, String chatId, int notifId) {
-        return new Intent(this, NotificationActionReceiver.class)
+        return buildActionIntentWithMsg(action, fromUid, fromName, fromPhoto, chatId, notifId, null);
+    }
+
+    private Intent buildActionIntentWithMsg(String action, String fromUid, String fromName,
+                                            String fromPhoto, String chatId, int notifId,
+                                            String msgId) {
+        Intent i = new Intent(this, NotificationActionReceiver.class)
             .setAction(action)
             .putExtra(Constants.EXTRA_CHAT_ID,       chatId   == null ? "" : chatId)
             .putExtra(Constants.EXTRA_PARTNER_UID,   fromUid)
             .putExtra(Constants.EXTRA_PARTNER_NAME,  fromName)
             .putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto == null ? "" : fromPhoto)
             .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+        if (msgId != null && !msgId.isEmpty())
+            i.putExtra(Constants.EXTRA_MSG_ID, msgId);
+        return i;
     }
     // ----- Feature 2/3: "Unblock {sender}" prompt notification -----
     private void showBlockedSenderNotification(final String fromUid,
@@ -1645,7 +1654,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 // DeliveryManager status check karke atomic write karega
                 if (chatId != null && !chatId.isEmpty() && msgId != null && !msgId.isEmpty()) {
                     com.callx.app.delivery.MessageDeliveryManager.get()
-                        .markDeliveredFromFCM(chatId, msgId);
+                        .markDeliveredFromFCM(getApplicationContext(), chatId, msgId);
                 }
 
                 // OFFLINE FIX: Media pre-cache — image/audio FCM se aaye to

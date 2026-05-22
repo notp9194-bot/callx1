@@ -585,7 +585,7 @@ public class ChatActivity extends AppCompatActivity {
                     long seenAt  = m.seenAt      != null ? m.seenAt      : 0L;
                     // markSeen internally sets deliveredAt bhi agar missing tha
                     com.callx.app.delivery.MessageDeliveryManager.get()
-                        .markSeen(chatId, m.id, delivAt, seenAt);
+                        .markSeen(ChatActivity.this, chatId, m.id, delivAt, seenAt);
                     // Local model update for immediate Room save
                     if (seenAt <= 0) {
                         long nowMs = System.currentTimeMillis();
@@ -602,7 +602,13 @@ public class ChatActivity extends AppCompatActivity {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                saveToRoom(m, true); // update existing row — timestamps already in Firebase
+                // ── PRODUCTION: Receiver ne status/seenAt/deliveredAt update kiya ──
+                // Sender ka adapter Room ke through instantly refresh hoga
+                // (PagingSource Room change detect karta hai — UI auto update)
+                long delivAt = m.deliveredAt != null ? m.deliveredAt : 0L;
+                long seenAt  = m.seenAt      != null ? m.seenAt      : 0L;
+                // Receiver ki taraf se aya update — local model mein bhi set karo
+                saveToRoom(m, true);
             }
 
             @Override

@@ -17,26 +17,26 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * MessageDeliveryManager — Production-grade delivery status manager.
+ * MessageDeliveryManager — Production delivery status manager.
  *
- * Responsibilities:
- *   1. markDelivered() — call karo jab message pehli baar device pe aaye
- *      (FCM background ya onChildAdded foreground dono mein)
- *   2. markSeen()     — call karo jab chat screen open ho aur message dikh jaaye
- *   3. writeSentAt()  — call karo jab sender message push kare
+ * State machine (WhatsApp-identical):
+ *
+ *   sent → delivered → seen
+ *
+ *   - sent:      Sender ne Firebase pe push kiya
+ *   - delivered: Receiver ka device ne FCM receive kiya (app open/closed dono)
+ *   - seen:      Receiver ne chat screen kholi ya notification se "Mark as read" kiya
  *
  * Rules:
- *   - Sirf receiver likhega deliveredAt aur seenAt (never sender)
- *   - Sirf sender likhega sentAt
- *   - Ek baar seen ho gaya toh dobara delivered mat likho
- *   - Atomic updateChildren — partial writes nahi
- *   - Background thread pe Firebase write — UI block nahi hoga
- *   - Idempotent — baar baar call karo, Firebase mein sirf zaroori update jayega
+ *   1. Sirf receiver likhega deliveredAt + seenAt
+ *   2. Sirf sender likhega sentAt
+ *   3. seen → delivered downgrade kabhi nahi
+ *   4. Atomic Firebase updateChildren — partial writes nahi
+ *   5. Idempotent — baar baar call safe hai
  */
 public class MessageDeliveryManager {
 
     private static final String TAG = "DeliveryMgr";
-
     private static volatile MessageDeliveryManager sInstance;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
@@ -51,138 +51,118 @@ public class MessageDeliveryManager {
         return sInstance;
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // PUBLIC API
-    // ──────────────────────────────────────────────────────────────────────
-
-    /**
-     * markDelivered — jab message device pe pahunche (FCM ya Firebase listener).
-     *
-     * Sirf receiver call kare. Sender ka message toh "sent" status se start karta hai.
-     * Agar already "seen" hai toh yeh call no-op hoga.
-     *
-     * @param chatId     Firebase path ke liye
-     * @param messageId  message ka key
-     * @param currentStatus current status Firebase mein (agar pata ho)
-     * @param currentDeliveredAt existing deliveredAt value (0 agar pata nahi)
-     */
-    public void markDelivered(String chatId, String messageId,
-                              String currentStatus, long currentDeliveredAt) {
-        if (chatId == null || chatId.isEmpty()) return;
-        if (messageId == null || messageId.isEmpty()) return;
-
-        // Already seen — downgrade mat karo
-        if ("seen".equals(currentStatus)) return;
-        // Already delivered with timestamp — idempotent
-        if ("delivered".equals(currentStatus) && currentDeliveredAt > 0) return;
-
+    // ── 1. FCM receive = delivered (background / killed / foreground) ─────
+    public void markDeliveredFromFCM(Context ctx, String chatId, String messageId) {
+        if (empty(chatId) || empty(messageId)) return;
         executor.execute(() -> {
-            long nowMs = System.currentTimeMillis();
-            Map<String, Object> updates = new HashMap<>();
-            updates.put("status",      "delivered");
-            updates.put("deliveredAt", nowMs);
-
-            FirebaseUtils.getMessagesRef(chatId)
-                .child(messageId)
-                .updateChildren(updates)
-                .addOnSuccessListener(v ->
-                    Log.d(TAG, "deliveredAt written: " + messageId))
-                .addOnFailureListener(e ->
-                    Log.w(TAG, "deliveredAt write failed: " + e.getMessage()));
-        });
-    }
-
-    /**
-     * markSeen — jab receiver chat screen pe message dekhe.
-     *
-     * Atomic write: status="seen" + seenAt + deliveredAt (agar missing tha).
-     * Idempotent — already seen messages pe no-op.
-     *
-     * @param chatId      Firebase path
-     * @param messageId   message key
-     * @param deliveredAt existing deliveredAt (0 agar nahi tha — tab bhi set karega)
-     * @param seenAt      existing seenAt (0 agar nahi tha)
-     */
-    public void markSeen(String chatId, String messageId,
-                         long deliveredAt, long seenAt) {
-        if (chatId == null || chatId.isEmpty()) return;
-        if (messageId == null || messageId.isEmpty()) return;
-
-        // Already fully seen — no-op
-        if (seenAt > 0) return;
-
-        executor.execute(() -> {
-            long nowMs = System.currentTimeMillis();
-            Map<String, Object> updates = new HashMap<>();
-            updates.put("status",  "seen");
-            updates.put("seenAt",  nowMs);
-            // deliveredAt bhi set karo agar missing tha
-            if (deliveredAt <= 0) {
-                updates.put("deliveredAt", nowMs);
-            }
-
-            FirebaseUtils.getMessagesRef(chatId)
-                .child(messageId)
-                .updateChildren(updates)
-                .addOnSuccessListener(v ->
-                    Log.d(TAG, "seenAt written: " + messageId))
-                .addOnFailureListener(e ->
-                    Log.w(TAG, "seenAt write failed — will retry on next open: " + e.getMessage()));
-        });
-    }
-
-    /**
-     * writeSentAt — sirf sender call kare jab message push kare.
-     * sentAt = server timestamp ke badle local timestamp (offline mein bhi kaam kare).
-     */
-    public void writeSentAt(String chatId, String messageId, long sentAt) {
-        if (chatId == null || chatId.isEmpty()) return;
-        if (messageId == null || messageId.isEmpty()) return;
-
-        executor.execute(() ->
-            FirebaseUtils.getMessagesRef(chatId)
-                .child(messageId)
-                .child("sentAt")
-                .setValue(sentAt)
-        );
-    }
-
-    /**
-     * markDeliveredFromFCM — FCM background/killed state mein call karo.
-     *
-     * App foreground mein nahi hai — sirf delivery mark karo, seen nahi.
-     * Firebase read nahi karta (zero latency) — seedha write.
-     */
-    public void markDeliveredFromFCM(String chatId, String messageId) {
-        if (chatId == null || chatId.isEmpty()) return;
-        if (messageId == null || messageId.isEmpty()) return;
-
-        executor.execute(() -> {
-            long nowMs = System.currentTimeMillis();
-            Map<String, Object> updates = new HashMap<>();
-            updates.put("status",      "delivered");
-            updates.put("deliveredAt", nowMs);
-
-            // Conditional write — agar already "seen" hai toh overwrite mat karo
-            // Firebase Security Rules se bhi enforce hona chahiye production mein
             DatabaseReference ref = FirebaseUtils.getMessagesRef(chatId).child(messageId);
+            // Read current status first — never downgrade from "seen"
             ref.child("status").addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override
-                public void onDataChange(@NonNull DataSnapshot snapshot) {
-                    String existingStatus = snapshot.getValue(String.class);
-                    if ("seen".equals(existingStatus)) {
-                        Log.d(TAG, "FCM: already seen, skip delivered write: " + messageId);
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String existing = snap.getValue(String.class);
+                    if ("seen".equals(existing)) {
+                        Log.d(TAG, "FCM: already seen, skip: " + messageId);
                         return;
                     }
-                    ref.updateChildren(updates)
-                        .addOnSuccessListener(v -> Log.d(TAG, "FCM deliveredAt: " + messageId))
-                        .addOnFailureListener(e -> Log.w(TAG, "FCM delivered fail: " + e.getMessage()));
+                    long nowMs = System.currentTimeMillis();
+                    Map<String, Object> upd = new HashMap<>();
+                    upd.put("status",      "delivered");
+                    upd.put("deliveredAt", nowMs);
+                    ref.updateChildren(upd)
+                       .addOnSuccessListener(v -> {
+                           Log.d(TAG, "FCM deliveredAt OK: " + messageId);
+                           // Room update
+                           if (ctx != null) {
+                               try {
+                                   com.callx.app.db.AppDatabase.getInstance(ctx)
+                                       .messageDao()
+                                       .updateStatusDelivered(messageId, "delivered", nowMs);
+                               } catch (Exception e) {
+                                   Log.w(TAG, "Room delivered update: " + e.getMessage());
+                               }
+                           }
+                       })
+                       .addOnFailureListener(e -> Log.w(TAG, "FCM delivered fail: " + e.getMessage()));
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    // Offline — retry on next open via onChildAdded
-                    Log.w(TAG, "FCM delivered check cancelled: " + e.getMessage());
+                    Log.w(TAG, "FCM status check cancelled: " + e.getMessage());
                 }
             });
         });
+    }
+
+    // ── 2. Chat screen open = seen ────────────────────────────────────────
+    public void markSeen(Context ctx, String chatId, String messageId,
+                         long existingDeliveredAt, long existingSeenAt) {
+        if (empty(chatId) || empty(messageId)) return;
+        // Already seen — idempotent
+        if (existingSeenAt > 0) return;
+
+        executor.execute(() -> {
+            long nowMs = System.currentTimeMillis();
+            Map<String, Object> upd = new HashMap<>();
+            upd.put("status",  "seen");
+            upd.put("seenAt",  nowMs);
+            // deliveredAt bhi set karo agar FCM miss ho gaya tha
+            if (existingDeliveredAt <= 0) upd.put("deliveredAt", nowMs);
+
+            FirebaseUtils.getMessagesRef(chatId).child(messageId)
+                .updateChildren(upd)
+                .addOnSuccessListener(v -> {
+                    Log.d(TAG, "seenAt OK: " + messageId);
+                    if (ctx != null) {
+                        try {
+                            com.callx.app.db.AppDatabase.getInstance(ctx)
+                                .messageDao()
+                                .updateStatusSeen(messageId, "seen", nowMs);
+                        } catch (Exception e) {
+                            Log.w(TAG, "Room seen update: " + e.getMessage());
+                        }
+                    }
+                })
+                .addOnFailureListener(e -> Log.w(TAG, "seenAt fail: " + e.getMessage()));
+        });
+    }
+
+    // ── 3. Notification "Mark as read" = seen (killed/background) ────────
+    public void markSeenFromNotification(Context ctx, String chatId, String messageId) {
+        if (empty(chatId) || empty(messageId)) return;
+        // Same as markSeen but without existing timestamps check (we don't have them)
+        executor.execute(() -> {
+            long nowMs = System.currentTimeMillis();
+            Map<String, Object> upd = new HashMap<>();
+            upd.put("status",      "seen");
+            upd.put("seenAt",      nowMs);
+            upd.put("deliveredAt", nowMs); // set both in case FCM was missed
+
+            FirebaseUtils.getMessagesRef(chatId).child(messageId)
+                .updateChildren(upd)
+                .addOnSuccessListener(v -> {
+                    Log.d(TAG, "Notif markSeen OK: " + messageId);
+                    if (ctx != null) {
+                        try {
+                            com.callx.app.db.AppDatabase.getInstance(ctx)
+                                .messageDao()
+                                .updateStatusSeen(messageId, "seen", nowMs);
+                        } catch (Exception e) {
+                            Log.w(TAG, "Room notif seen: " + e.getMessage());
+                        }
+                    }
+                })
+                .addOnFailureListener(e -> Log.w(TAG, "Notif seen fail: " + e.getMessage()));
+        });
+    }
+
+    // ── 4. Sender push = sentAt ───────────────────────────────────────────
+    public void writeSentAt(String chatId, String messageId, long sentAt) {
+        if (empty(chatId) || empty(messageId)) return;
+        executor.execute(() ->
+            FirebaseUtils.getMessagesRef(chatId).child(messageId)
+                .child("sentAt").setValue(sentAt)
+        );
+    }
+
+    private static boolean empty(String s) {
+        return s == null || s.isEmpty();
     }
 }

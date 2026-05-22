@@ -138,6 +138,14 @@ public interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE id = :messageId")
     void updateStatus(String messageId, String status);
 
+    /** Update status + seenAt atomically — used by NotificationActionReceiver + markSeen */
+    @Query("UPDATE messages SET status = :status, seenAt = :seenAt, deliveredAt = CASE WHEN deliveredAt IS NULL OR deliveredAt = 0 THEN :seenAt ELSE deliveredAt END WHERE id = :messageId")
+    void updateStatusSeen(String messageId, String status, long seenAt);
+
+    /** Update status + deliveredAt — used by FCM markDelivered */
+    @Query("UPDATE messages SET status = CASE WHEN status = 'seen' THEN status ELSE :status END, deliveredAt = CASE WHEN deliveredAt IS NULL OR deliveredAt = 0 THEN :deliveredAt ELSE deliveredAt END WHERE id = :messageId")
+    void updateStatusDelivered(String messageId, String status, long deliveredAt);
+
     @WorkerThread
     @Query("UPDATE messages SET starred = :starred WHERE id = :messageId")
     void updateStarred(String messageId, boolean starred);
