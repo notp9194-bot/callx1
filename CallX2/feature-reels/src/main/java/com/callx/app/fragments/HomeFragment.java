@@ -359,21 +359,23 @@ public class HomeFragment extends Fragment {
 
             tvName.setText(entry.name != null ? entry.name : "User");
 
-            // ★ Gradient ring (pink → orange → yellow) for ALL unseen stories in the Reels home header
+            // ★ Gradient ring for reel_story type (Instagram-style)
             ImageView ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
-            android.view.View ivGapRing = storyView.findViewById(R.id.iv_story_gap);
 
-            if (entry.hasUnseen || entry.hasReelStory) {
-                // Show gradient sweep ring + dark gap ring for unseen / reel_story
+            if (entry.hasReelStory) {
+                // Show gradient sweep ring — hides the plain border
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
-                if (ivGapRing != null)      ivGapRing.setVisibility(View.VISIBLE);
-                // Remove plain CircleImageView border — gradient ring takes over
                 avatar.setBorderWidth(0);
+                if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
+            } else if (entry.hasUnseen) {
+                // Brand color ring for unseen WhatsApp-style status
+                if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
+                avatar.setBorderColor(getResources().getColor(R.color.brand_primary, null));
+                avatar.setBorderWidth(dpToPx(3));
                 if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
             } else {
                 // Gray ring for all-seen status
                 if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
-                if (ivGapRing != null)      ivGapRing.setVisibility(View.GONE);
                 avatar.setBorderColor(0xFF666666);
                 avatar.setBorderWidth(dpToPx(2));
                 if (ivSeenRing != null) {
