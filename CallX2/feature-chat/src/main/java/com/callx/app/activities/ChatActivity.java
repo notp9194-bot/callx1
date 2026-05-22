@@ -576,25 +576,25 @@ public class ChatActivity extends AppCompatActivity {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                // v22 FIX: Receiver ka device message load kiya = "delivered"
-                // Sender nahi, receiver likhega deliveredAt
+
+                // ── PRODUCTION: MessageDeliveryManager handles all state transitions ──
+                // Chat screen khuli hai = message seen ho gaya
+                // Receiver sirf likhega — sender kabhi nahi
                 if (!currentUid.equals(m.senderId)) {
-                    boolean notYetDelivered = m.deliveredAt == null || m.deliveredAt == 0;
-                    if (notYetDelivered) {
+                    long delivAt = m.deliveredAt != null ? m.deliveredAt : 0L;
+                    long seenAt  = m.seenAt      != null ? m.seenAt      : 0L;
+                    // markSeen internally sets deliveredAt bhi agar missing tha
+                    com.callx.app.delivery.MessageDeliveryManager.get()
+                        .markSeen(chatId, m.id, delivAt, seenAt);
+                    // Local model update for immediate Room save
+                    if (seenAt <= 0) {
                         long nowMs = System.currentTimeMillis();
-                        m.deliveredAt = nowMs;
-                        java.util.Map<String, Object> delivUpdate = new java.util.HashMap<>();
-                        delivUpdate.put("deliveredAt", nowMs);
-                        // Status sirf "sent" se "delivered" karo — "seen" ko overwrite mat karo
-                        if ("sent".equals(m.status) || m.status == null) {
-                            delivUpdate.put("status", "delivered");
-                            m.status = "delivered";
-                        }
-                        messagesRef.child(m.id).updateChildren(delivUpdate);
+                        m.seenAt  = nowMs;
+                        m.status  = "seen";
+                        if (delivAt <= 0) m.deliveredAt = nowMs;
                     }
                 }
                 saveToRoom(m, false);
-                markRead(m);
             }
 
             @Override
@@ -784,6 +784,13 @@ public class ChatActivity extends AppCompatActivity {
         m.id = key;
         // v22: sentAt = send time — used in Message Info
         if (m.sentAt == null || m.sentAt == 0) m.sentAt = m.timestamp;
+        // Write sentAt to Firebase via DeliveryManager (background thread)
+        final long finalSentAt = m.sentAt;
+        final String finalKey  = key;
+        ioExecutor.execute(() ->
+            com.callx.app.delivery.MessageDeliveryManager.get()
+                .writeSentAt(chatId, finalKey, finalSentAt)
+        );
 
         // Step 1: Room mein turant save karo (status = pending)
         MessageEntity entity = messageToEntity(m, "pending");
@@ -1086,21 +1093,9 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void markRead(Message m) {
-        if (m == null || m.id == null) return;
-        if (!currentUid.equals(m.senderId)) {
-            // Already seen — double write mat karo
-            if ("seen".equals(m.status) && m.seenAt != null && m.seenAt > 0) return;
-            long nowMs = System.currentTimeMillis();
-            java.util.Map<String, Object> updates = new java.util.HashMap<>();
-            updates.put("status", "seen");
-            updates.put("seenAt", nowMs);
-            // deliveredAt bhi set karo agar abhi tak nahi tha
-            if (m.deliveredAt == null || m.deliveredAt == 0) {
-                updates.put("deliveredAt", nowMs);
-            }
-            messagesRef.child(m.id).updateChildren(updates);
-            ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "seen"));
-        }
+        // onChildAdded already handles seen+delivered in one atomic write
+        // markRead is now a no-op — kept for API compatibility
+        // (status is set inside onChildAdded when chat is open)
     }
 
     // ─────────────────────────────────────────────────────────────────────

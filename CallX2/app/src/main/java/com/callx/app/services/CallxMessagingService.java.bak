@@ -1628,25 +1628,14 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 entity.mediaUrl   = (mediaUrl != null && !mediaUrl.isEmpty()) ? mediaUrl : null;
                 entity.fileName   = fileName;
                 entity.timestamp  = System.currentTimeMillis();
-                long nowMs        = System.currentTimeMillis();
                 entity.status     = "delivered";
-                entity.sentAt     = entity.timestamp;  // FCM receive time ~ sent time
-                entity.deliveredAt = nowMs;             // App received FCM = delivered
                 entity.deleted    = false;
                 entity.starred    = false;
                 entity.isGroup    = isGroup;
-                entity.syncedAt   = nowMs;
+                entity.syncedAt   = System.currentTimeMillis();
 
                 AppDatabase.getInstance(getApplicationContext())
                     .messageDao().insertMessage(entity);
-
-                // ── PRODUCTION: MessageDeliveryManager — FCM receive = delivered ──
-                // App ne FCM receive kiya chahe background ho ya killed
-                // DeliveryManager status check karke atomic write karega
-                if (chatId != null && !chatId.isEmpty() && msgId != null && !msgId.isEmpty()) {
-                    com.callx.app.delivery.MessageDeliveryManager.get()
-                        .markDeliveredFromFCM(chatId, msgId);
-                }
 
                 // OFFLINE FIX: Media pre-cache — image/audio FCM se aaye to
                 // background mein download karo taaki offline mein bhi dikhe
