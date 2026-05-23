@@ -15,6 +15,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.adapters.XTweetAdapter;
 import com.callx.app.models.XNotification;
 import com.callx.app.models.XTweet;
@@ -149,10 +151,13 @@ public class XProfileActivity extends AppCompatActivity {
         MaterialButton btnFollow = findViewById(R.id.btn_x_follow);
 
         if (xUser.bannerUrl != null && !xUser.bannerUrl.isEmpty())
-            Glide.with(this).load(xUser.bannerUrl).centerCrop().into(ivBanner);
+            Glide.with(this).load(xUser.bannerUrl)
+                .apply(new RequestOptions().centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
+                .into(ivBanner);
         Glide.with(this).load(
             (xUser.thumbUrl != null && !xUser.thumbUrl.isEmpty()) ? xUser.thumbUrl : xUser.photoUrl
-        ).circleCrop().into(ivAvatar);
+        ).apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
+         .into(ivAvatar);
         tvName.setText(xUser.name);
         tvHandle.setText("@" + xUser.handle);
         tvBio.setText(xUser.bio != null ? xUser.bio : "");

@@ -20,6 +20,8 @@ import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.activities.XHashtagActivity;
 import com.callx.app.activities.XImageViewerActivity;
 import com.callx.app.activities.XProfileActivity;
@@ -139,7 +141,11 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
             String tweetAvatarUrl = (tweet.authorThumbUrl != null && !tweet.authorThumbUrl.isEmpty())
                 ? tweet.authorThumbUrl : tweet.authorPhotoUrl;
             Glide.with(ctx).load(tweetAvatarUrl)
-                .circleCrop().placeholder(R.drawable.ic_person).into(ivAvatar);
+                .apply(new RequestOptions()
+                    .circleCrop()
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .placeholder(R.drawable.ic_person))
+                .into(ivAvatar);
             ivAvatar.setOnClickListener(v -> ctx.startActivity(
                 new Intent(ctx, XProfileActivity.class).putExtra("uid", tweet.authorUid)));
 
@@ -202,7 +208,12 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                 ivMedia.setVisibility(View.VISIBLE);
                 boolean isVideo = "video".equals(tweet.mediaType);
                 String thumb = isVideo && tweet.thumbnailUrl != null ? tweet.thumbnailUrl : tweet.mediaUrl;
-                Glide.with(ctx).load(thumb).centerCrop().into(ivMedia);
+                Glide.with(ctx)
+                    .load(thumb)
+                    .apply(new RequestOptions()
+                        .centerCrop()
+                        .diskCacheStrategy(DiskCacheStrategy.ALL))
+                    .into(ivMedia);
                 ivMedia.setOnClickListener(v -> {
                     if (isVideo) {
                         ctx.startActivity(new Intent(ctx, XVideoPlayerActivity.class)

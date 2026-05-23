@@ -64,7 +64,8 @@ plugins {
       // JSON (for Cloudinary HTTP upload)
       implementation 'org.json:json:20231013'
 
-      // ExoPlayer / Media3 — XTweetCacheManager & XTweetMediaPreloader ke liye
+      // ExoPlayer / Media3 — XTweetCacheManager, XTweetMediaPreloader & XVideoPlayerActivity ke liye
       implementation 'androidx.media3:media3-exoplayer:1.2.1'
+      implementation 'androidx.media3:media3-ui:1.2.1'
       implementation 'androidx.media3:media3-datasource:1.2.1'
   }
