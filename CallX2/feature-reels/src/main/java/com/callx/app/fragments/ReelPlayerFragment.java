@@ -1669,41 +1669,47 @@ public class ReelPlayerFragment extends Fragment {
     }
 
     /**
-     * Safe show for BottomSheetDialogFragment — guards against:
-     *  1. isStateSaved() → "Can not perform this action after onSaveInstanceState"
-     *  2. Fragment already added with same tag → silent duplicate
-     *  3. Activity finishing/destroyed
+     * Safe show for BottomSheetDialogFragment.
      *
-     *  FIX: SingleReelPlayerActivity mein ViewPager2 ke andar ReelPlayerFragment
-     *  directly Activity se hosted hota hai. Isme sheet.show() kabhi kabhi
-     *  isStateSaved() ke wajah se silently fail hoti thi. Ab hum hamesha
-     *  commitAllowingStateLoss() wala approach use karte hain.
+     * CRITICAL: DialogFragment MUST be shown via sheet.show(fm, tag) — NOT via
+     * beginTransaction().add(sheet, tag). The show() method sets internal flags
+     * (mDismissed=false, mShownByMe=true) that make the dialog window actually appear.
+     * Using raw beginTransaction().add() skips these flags — dialog never shows.
+     *
+     * We post onto the main thread Handler so we are never inside a layout/draw pass
+     * where isStateSaved() might be true (common in ViewPager2-hosted fragments
+     * like SingleReelPlayerActivity).
      */
     private void showBottomSheet(androidx.fragment.app.DialogFragment sheet, String tag) {
         if (!isAdded() || getActivity() == null) return;
         if (getActivity().isFinishing() || getActivity().isDestroyed()) return;
-        androidx.fragment.app.FragmentManager fm = safeFragmentManager();
-        if (fm.isDestroyed()) return;
-        // Remove any existing instance with same tag first
-        androidx.fragment.app.Fragment existing = fm.findFragmentByTag(tag);
-        if (existing != null) {
-            try {
-                fm.beginTransaction().remove(existing).commitAllowingStateLoss();
-                fm.executePendingTransactions();
-            } catch (Exception ignored) {}
-        }
-        // Always use commitAllowingStateLoss — safe even when state may be saved
-        // (common in ViewPager2 nested fragments like SingleReelPlayerActivity)
-        try {
-            fm.beginTransaction()
-                .add(sheet, tag)
-                .commitAllowingStateLoss();
-        } catch (Exception e) {
-            // Last resort fallback
+
+        // Post to next looper tick — avoids IllegalStateException in ViewPager2
+        uiHandler.post(() -> {
+            if (!isAdded() || getActivity() == null) return;
+            if (getActivity().isFinishing() || getActivity().isDestroyed()) return;
+
+            androidx.fragment.app.FragmentManager fm = safeFragmentManager();
+            if (fm.isDestroyed()) return;
+
+            // Remove stale instance with same tag
+            androidx.fragment.app.Fragment existing = fm.findFragmentByTag(tag);
+            if (existing != null) {
+                try {
+                    fm.beginTransaction().remove(existing).commitAllowingStateLoss();
+                    fm.executePendingTransactions();
+                } catch (Exception ignored) {}
+            }
+
+            // MUST use sheet.show() — not beginTransaction().add()
             try {
                 sheet.show(fm, tag);
+            } catch (IllegalStateException e) {
+                try {
+                    sheet.showNow(fm, tag);
+                } catch (Exception ignored) {}
             } catch (Exception ignored) {}
-        }
+        });
     }
 
     private String formatCount(int n) {
