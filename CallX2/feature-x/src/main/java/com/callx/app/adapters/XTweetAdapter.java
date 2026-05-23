@@ -73,6 +73,14 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
         tweets.add(0, tweet); notifyItemInserted(0);
     }
 
+    /**
+     * Scroll listener ke liye current list return karta hai.
+     * XHomeFragment ka preloader is list se preload karta hai.
+     */
+    public List<XTweet> getTweets() {
+        return tweets;
+    }
+
     public void removeTweet(String id) {
         for (int i = 0; i < tweets.size(); i++) {
             if (id.equals(tweets.get(i).id)) { tweets.remove(i); notifyItemRemoved(i); return; }

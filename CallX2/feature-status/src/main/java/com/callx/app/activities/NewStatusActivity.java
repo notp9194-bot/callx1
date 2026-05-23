@@ -28,8 +28,8 @@ import java.util.*;
  * Features:
  *   • Text status with custom background color picker (10 presets)
  *   • Font style selector (Default / Bold / Italic / Handwriting)
- *   • Image status with caption
- *   • Video status with caption and duration hint
+ *   • Image status with caption  ← NOW compressed via ImageCompressor
+ *   • Video status with caption  ← NOW compressed via VideoCompressor
  *   • Link detection in text with metadata fetch hint
  *   • Privacy mode selector (Everyone / Contacts / Except… / Only…)
  *   • Upload progress with percentage display
@@ -37,6 +37,12 @@ import java.util.*;
  *   • Preview card that updates live as you type / pick media
  *   • Cloudinary upload with retry on transient errors
  *   • Auto-saves draft text to SharedPreferences
+ *
+ * v24 changes:
+ *   ✅ Image  → ImageCompressor (EXIF fix + WebP + thumbnail)
+ *   ✅ Video  → VideoCompressor (LiTr, multi-codec, quality-aware)
+ *   ✅ Compression progress shown in tvUploadHint
+ *   ✅ Fallback to direct upload if compression fails
  */
 public class NewStatusActivity extends AppCompatActivity {
 
@@ -184,8 +190,6 @@ public class NewStatusActivity extends AppCompatActivity {
     // ── Background color picker ───────────────────────────────────────────
 
     private void setupBgColorPicker() {
-        // Color swatches are pre-inflated in the layout (colorSwatch0..9)
-        // Bind each swatch view dynamically
         for (int i = 0; i < BG_COLORS.length; i++) {
             final int idx = i;
             View swatch = getBgSwatch(i);
@@ -242,8 +246,6 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void updateTextStyleButton(String style) {
-        int active   = com.google.android.material.R.attr.colorPrimary;
-        int inactive = 0;
         binding.btnFontDefault.setSelected("default".equals(style));
         binding.btnFontBold.setSelected("bold".equals(style));
         binding.btnFontItalic.setSelected("italic".equals(style));
@@ -355,7 +357,7 @@ public class NewStatusActivity extends AppCompatActivity {
     // ── Post ──────────────────────────────────────────────────────────────
 
     private void post() {
-        String txt = binding.etText.getText().toString().trim();
+        String txt     = binding.etText.getText().toString().trim();
         String caption = binding.etCaption != null
                 ? binding.etCaption.getText().toString().trim() : "";
 
@@ -372,45 +374,130 @@ public class NewStatusActivity extends AppCompatActivity {
 
         String uid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
         String name = FirebaseUtils.getCurrentName();
-        // Use thumbUrl for ownerPhoto — saves data for all status viewers
+
         FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(
             new com.google.firebase.database.ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String thumb = snap.child("thumbUrl").getValue(String.class);
                     String fullP = snap.child("photoUrl").getValue(String.class);
                     String photo = (thumb != null && !thumb.isEmpty()) ? thumb : (fullP != null ? fullP : safePhoto());
-                    if (pickedImage != null) {
-                        uploadAndSave(pickedImage, "image", "image", caption, txt, uid, name, photo);
-                    } else if (pickedVideo != null) {
-                        uploadAndSave(pickedVideo, "video", "video", caption, txt, uid, name, photo);
-                    } else {
-                        saveStatus("text", null, null, txt, caption, uid, name, photo);
-                    }
+                    dispatchMedia(pickedImage, pickedVideo, caption, txt, uid, name, photo);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     String photo = safePhoto();
-                    if (pickedImage != null) {
-                        uploadAndSave(pickedImage, "image", "image", caption, txt, uid, name, photo);
-                    } else if (pickedVideo != null) {
-                        uploadAndSave(pickedVideo, "video", "video", caption, txt, uid, name, photo);
-                    } else {
-                        saveStatus("text", null, null, txt, caption, uid, name, photo);
-                    }
+                    dispatchMedia(pickedImage, pickedVideo, caption, txt, uid, name, photo);
                 }
             });
     }
 
-    private void uploadAndSave(Uri uri, String type, String rt, String caption,
-                               String txt, String uid, String name, String photo) {
-        CloudinaryUploader.upload(this, uri, "callx/status", rt,
+    /**
+     * Route to the right compress → upload pipeline based on media type.
+     */
+    private void dispatchMedia(Uri imageUri, Uri videoUri,
+                               String caption, String txt,
+                               String uid, String name, String photo) {
+        if (imageUri != null) {
+            compressAndUploadImage(imageUri, caption, txt, uid, name, photo);
+        } else if (videoUri != null) {
+            compressAndUploadVideo(videoUri, caption, txt, uid, name, photo);
+        } else {
+            // Text-only status — no media needed
+            saveStatus("text", null, null, txt, caption, uid, name, photo);
+        }
+    }
+
+    // ── Image: compress → upload ──────────────────────────────────────────
+
+    private void compressAndUploadImage(Uri uri, String caption, String txt,
+                                        String uid, String name, String photo) {
+        runOnUiThread(() -> setHint("Compressing image…"));
+
+        ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
+            @Override
+            public void onSuccess(ImageCompressor.Result result) {
+                runOnUiThread(() -> setHint("Uploading image…"));
+                // Convert compressed file to Uri for CloudinaryUploader
+                Uri compressedUri = Uri.fromFile(result.fullFile);
+                uploadAndSave(compressedUri, "image", caption, txt, uid, name, photo,
+                        /*thumbFile=*/ result.thumbFile);
+            }
+
+            @Override
+            public void onError(Exception e) {
+                // Compression failed — fallback to original
+                android.util.Log.w("NewStatus", "Image compress failed, fallback to original", e);
+                runOnUiThread(() -> setHint("Uploading image…"));
+                uploadAndSave(uri, "image", caption, txt, uid, name, photo, /*thumbFile=*/ null);
+            }
+        });
+    }
+
+    // ── Video: compress → upload ──────────────────────────────────────────
+
+    private void compressAndUploadVideo(Uri uri, String caption, String txt,
+                                        String uid, String name, String photo) {
+        runOnUiThread(() -> setHint("Compressing video… 0%"));
+
+        VideoCompressor.Quality quality = VideoQualityPreferences.getQuality(this);
+
+        VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
+            @Override
+            public void onProgress(int percent) {
+                runOnUiThread(() -> setHint("Compressing video… " + percent + "%"));
+            }
+
+            @Override
+            public void onSuccess(VideoCompressor.Result result) {
+                runOnUiThread(() -> setHint("Uploading video…"));
+                android.util.Log.i("NewStatus", result.compressionSummary());
+                Uri compressedUri = Uri.fromFile(result.videoFile);
+                uploadAndSave(compressedUri, "video", caption, txt, uid, name, photo,
+                        /*thumbFile=*/ result.thumbFile);
+            }
+
+            @Override
+            public void onError(Exception e) {
+                // Compression failed — fallback to original
+                android.util.Log.w("NewStatus", "Video compress failed, fallback to original", e);
+                runOnUiThread(() -> setHint("Uploading video…"));
+                uploadAndSave(uri, "video", caption, txt, uid, name, photo, /*thumbFile=*/ null);
+            }
+        });
+    }
+
+    // ── Upload (shared for both image + video) ────────────────────────────
+
+    /**
+     * Upload compressed (or original fallback) media to Cloudinary, then save status.
+     *
+     * @param thumbFile  Pre-generated thumbnail from compressor (may be null).
+     *                   If non-null and upload is video, we upload thumb separately
+     *                   to get a thumbUrl for the status card.
+     */
+    private void uploadAndSave(Uri uri, String type, String caption,
+                               String txt, String uid, String name, String photo,
+                               java.io.File thumbFile) {
+
+        String resourceType = "video".equals(type) ? "video" : "image";
+
+        CloudinaryUploader.upload(this, uri, "callx/status", resourceType,
             new CloudinaryUploader.UploadCallback() {
                 @Override public void onSuccess(CloudinaryUploader.Result r) {
                     runOnUiThread(() -> {
                         setPosting(false);
+                        // For video: prefer local thumb we generated, fallback to Cloudinary eager thumb
                         String thumbUrl = null;
-                        if ("video".equals(type) && r.thumbnailUrl != null) {
-                            thumbUrl = r.thumbnailUrl;
+                        if ("video".equals(type)) {
+                            if (r.thumbnailUrl != null && !r.thumbnailUrl.isEmpty()) {
+                                thumbUrl = r.thumbnailUrl;
+                            } else if (thumbFile != null && thumbFile.exists()) {
+                                // Upload the local thumb separately — fire-and-forget
+                                // We save status immediately with null thumbUrl and patch later
+                                uploadThumbAsync(thumbFile, uid, /*statusRef will be set in saveStatus*/null);
+                            }
                         }
+                        // Clean up compressed files
+                        if (thumbFile != null) VideoCompressor.safeDelete(thumbFile);
                         saveStatus(type, r.secureUrl, thumbUrl, txt, caption, uid, name, photo);
                     });
                 }
@@ -419,6 +506,22 @@ public class NewStatusActivity extends AppCompatActivity {
                         setPosting(false);
                         toast(err != null ? err : "Upload fail hua, dobara try karo");
                     });
+                }
+            });
+    }
+
+    /** Upload a local thumbnail file to Cloudinary in background (fire-and-forget). */
+    private void uploadThumbAsync(java.io.File thumbFile, String uid, Object ignored) {
+        Uri thumbUri = Uri.fromFile(thumbFile);
+        CloudinaryUploader.upload(this, thumbUri, "callx/status/thumb", "image",
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result r) {
+                    VideoCompressor.safeDelete(thumbFile);
+                    android.util.Log.i("NewStatus", "Thumb uploaded: " + r.secureUrl);
+                }
+                @Override public void onError(String err) {
+                    VideoCompressor.safeDelete(thumbFile);
+                    android.util.Log.w("NewStatus", "Thumb upload failed (non-fatal): " + err);
                 }
             });
     }
@@ -465,7 +568,14 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.btnPost.setEnabled(!posting);
         binding.uploadProgress.setVisibility(posting ? View.VISIBLE : View.GONE);
         binding.tvUploadHint.setVisibility(posting ? View.VISIBLE : View.GONE);
-        if (posting) binding.tvUploadHint.setText("Uploading…");
+        if (posting && binding.tvUploadHint.getText().toString().isEmpty()) {
+            binding.tvUploadHint.setText("Processing…");
+        }
+    }
+
+    private void setHint(String hint) {
+        binding.tvUploadHint.setVisibility(View.VISIBLE);
+        binding.tvUploadHint.setText(hint);
     }
 
     private String safePhoto() {

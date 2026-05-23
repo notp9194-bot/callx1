@@ -8,6 +8,10 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+
+import com.callx.app.cache.XTweetCacheManager;
+import com.callx.app.cache.XTweetMediaPreloader;
+import com.callx.app.cache.XTweetImagePreloader;
 import android.widget.PopupMenu;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -40,6 +44,10 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
     private String myUid;
     private int activeTab = 0;
 
+    // ── Cache / Preloaders (Reels jaisa system) ─────────────────────────────
+    private XTweetMediaPreloader mediaPreloader;
+    private XTweetImagePreloader imagePreloader;
+
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
@@ -63,6 +71,26 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         swipeRefresh.setOnRefreshListener(this::loadFeed);
         fabCompose.setOnClickListener(v ->
             startActivity(new Intent(requireContext(), XComposeActivity.class)));
+
+        // ── Cache init (Reels jaisa) ─────────────────────────────────────
+        XTweetCacheManager.init(requireContext());
+        mediaPreloader = new XTweetMediaPreloader(requireContext());
+        imagePreloader = new XTweetImagePreloader(requireContext());
+
+        // Scroll listener: jab user scroll kare tab agle tweets preload karo
+        recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (dy <= 0) return; // Sirf neeche scroll hone par preload karo
+                androidx.recyclerview.widget.LinearLayoutManager lm =
+                    (androidx.recyclerview.widget.LinearLayoutManager) rv.getLayoutManager();
+                if (lm == null) return;
+                int firstVisible = lm.findFirstVisibleItemPosition();
+                if (firstVisible < 0) return;
+                mediaPreloader.preloadFrom(adapter.getTweets(), firstVisible);
+                imagePreloader.preloadFrom(adapter.getTweets(), firstVisible);
+            }
+        });
 
         view.findViewById(R.id.tab_x_for_you).setOnClickListener(v -> {
             activeTab = 0; updateTabUI(view); loadFeed();
@@ -269,5 +297,7 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         super.onDestroyView();
         if (feedListener != null && currentFeedRef != null)
             currentFeedRef.removeEventListener(feedListener);
+        // Cache preloaders cleanup (Reels jaisa)
+        if (mediaPreloader != null) mediaPreloader.shutdown();
     }
 }

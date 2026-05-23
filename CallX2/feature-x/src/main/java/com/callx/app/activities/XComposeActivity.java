@@ -21,6 +21,9 @@ import com.callx.app.models.XTweet;
 import com.callx.app.utils.XCloudinaryUtils;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.ImageCompressor;
+import com.callx.app.utils.VideoCompressor;
+import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.x.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
@@ -31,6 +34,15 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * XComposeActivity — Tweet / post composer for the X module.
+ *
+ * v24 changes:
+ *   ✅ Image → ImageCompressor (EXIF fix + WebP) before Cloudinary upload
+ *   ✅ Video → VideoCompressor (LiTr, multi-codec) before Cloudinary upload
+ *   ✅ Progress label updated during compress + upload phases
+ *   ✅ Fallback to direct upload if compression fails
+ */
 public class XComposeActivity extends AppCompatActivity {
 
     private static final int MAX_CHARS = 280;
@@ -40,6 +52,7 @@ public class XComposeActivity extends AppCompatActivity {
     private TextView tvCharCount;
     private ImageView ivPreviewMedia;
     private ProgressBar pbUpload;
+    private TextView tvCompressHint; // optional — may be null if layout doesn't have it
     private View btnPost;
 
     // Quote tweet preview
@@ -56,14 +69,14 @@ public class XComposeActivity extends AppCompatActivity {
     private String uploadedMediaUrl, uploadedMediaType;
     private String myUid, myName, myHandle, myPhotoUrl, myThumbUrl;
     private boolean isPosting;
-    private long scheduledAt = 0; // 0 = post now
+    private long scheduledAt = 0;
     private boolean pollEnabled = false;
 
     private final ActivityResultLauncher<Intent> mediaPicker =
         registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == RESULT_OK && result.getData() != null) {
                 Uri uri = result.getData().getData();
-                if (uri != null) uploadMedia(uri);
+                if (uri != null) compressAndUploadMedia(uri);
             }
         });
 
@@ -91,6 +104,8 @@ public class XComposeActivity extends AppCompatActivity {
         etPollOpt3      = findViewById(R.id.et_poll_opt3);
         etPollOpt4      = findViewById(R.id.et_poll_opt4);
         btnRemovePoll   = findViewById(R.id.btn_remove_poll);
+        // Optional compress hint label (gracefully absent)
+        tvCompressHint  = findViewById(R.id.tv_compose_compress_hint);
 
         // Pre-fill reply handle
         if (replyToHandle != null) {
@@ -156,7 +171,6 @@ public class XComposeActivity extends AppCompatActivity {
         pollEnabled = !pollEnabled;
         if (llPollEditor != null)
             llPollEditor.setVisibility(pollEnabled ? View.VISIBLE : View.GONE);
-        // Disable media when poll is active
         if (pollEnabled) {
             uploadedMediaUrl = null;
             if (ivPreviewMedia != null) ivPreviewMedia.setVisibility(View.GONE);
@@ -190,7 +204,6 @@ public class XComposeActivity extends AppCompatActivity {
                 String avatarUrl = (myThumbUrl != null && !myThumbUrl.isEmpty()) ? myThumbUrl : myPhotoUrl;
                 if (avatarUrl != null && !avatarUrl.isEmpty())
                     Glide.with(XComposeActivity.this).load(avatarUrl).circleCrop().into(ivMyAvatar);
-                // Also ensure xUser record exists
                 XFirebaseUtils.xUserRef(myUid).get().addOnSuccessListener(ds -> {
                     if (!ds.exists()) {
                         com.callx.app.models.XUser u = new com.callx.app.models.XUser();
@@ -228,35 +241,111 @@ public class XComposeActivity extends AppCompatActivity {
         mediaPicker.launch(intent);
     }
 
-    private void uploadMedia(Uri uri) {
-        pbUpload.setVisibility(View.VISIBLE);
-        String type = getContentResolver().getType(uri);
-        boolean isVideo = type != null && type.startsWith("video");
+    // ── Compress → Upload pipeline ────────────────────────────────────────
+
+    /**
+     * Entry point after media is picked.
+     * Detects image vs video and routes to the right compressor.
+     */
+    private void compressAndUploadMedia(Uri uri) {
+        String mimeType = getContentResolver().getType(uri);
+        boolean isVideo = mimeType != null && mimeType.startsWith("video");
+
+        setUploading(true);
+
+        if (isVideo) {
+            compressVideo(uri);
+        } else {
+            compressImage(uri);
+        }
+    }
+
+    /** Compress image via ImageCompressor, then upload. */
+    private void compressImage(Uri uri) {
+        setCompressHint("Compressing image…");
+
+        ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
+            @Override
+            public void onSuccess(ImageCompressor.Result result) {
+                setCompressHint("Uploading image…");
+                Uri compressedUri = Uri.fromFile(result.fullFile);
+                doUpload(compressedUri, false, /*thumbFile=*/ result.thumbFile);
+            }
+
+            @Override
+            public void onError(Exception e) {
+                android.util.Log.w("XCompose", "Image compress failed, fallback", e);
+                setCompressHint("Uploading image…");
+                doUpload(uri, false, /*thumbFile=*/ null);
+            }
+        });
+    }
+
+    /** Compress video via VideoCompressor, then upload. */
+    private void compressVideo(Uri uri) {
+        setCompressHint("Compressing video… 0%");
+
+        VideoCompressor.Quality quality = VideoQualityPreferences.getQuality(this);
+
+        VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
+            @Override
+            public void onProgress(int percent) {
+                setCompressHint("Compressing video… " + percent + "%");
+            }
+
+            @Override
+            public void onSuccess(VideoCompressor.Result result) {
+                setCompressHint("Uploading video…");
+                android.util.Log.i("XCompose", result.compressionSummary());
+                Uri compressedUri = Uri.fromFile(result.videoFile);
+                doUpload(compressedUri, true, result.thumbFile);
+            }
+
+            @Override
+            public void onError(Exception e) {
+                android.util.Log.w("XCompose", "Video compress failed, fallback", e);
+                setCompressHint("Uploading video…");
+                doUpload(uri, true, /*thumbFile=*/ null);
+            }
+        });
+    }
+
+    /** Upload (compressed or original fallback) to Cloudinary via XCloudinaryUtils. */
+    private void doUpload(Uri uri, boolean isVideo, java.io.File thumbFile) {
         XCloudinaryUtils.XUploadListener cb = new XCloudinaryUtils.XUploadListener() {
             @Override public void onSuccess(String publicId, String secureUrl) {
                 runOnUiThread(() -> {
                     uploadedMediaUrl  = secureUrl;
                     uploadedMediaType = isVideo ? "video" : "image";
-                    pbUpload.setVisibility(View.GONE);
+                    setUploading(false);
+                    clearCompressHint();
                     if (ivPreviewMedia != null) {
                         ivPreviewMedia.setVisibility(View.VISIBLE);
                         Glide.with(XComposeActivity.this).load(secureUrl).centerCrop().into(ivPreviewMedia);
                     }
+                    // Clean up temp files
+                    if (thumbFile != null) VideoCompressor.safeDelete(thumbFile);
                 });
             }
             @Override public void onError(String msg) {
                 runOnUiThread(() -> {
-                    pbUpload.setVisibility(View.GONE);
+                    setUploading(false);
+                    clearCompressHint();
                     Toast.makeText(XComposeActivity.this, "Upload failed: " + msg, Toast.LENGTH_SHORT).show();
                 });
             }
             @Override public void onProgress(int pct) {
-                runOnUiThread(() -> { if (pbUpload instanceof ProgressBar) pbUpload.setProgress(pct); });
+                runOnUiThread(() -> {
+                    if (pbUpload instanceof ProgressBar) pbUpload.setProgress(pct);
+                });
             }
         };
+
         if (isVideo) XCloudinaryUtils.uploadTweetVideo(this, uri, cb);
         else         XCloudinaryUtils.uploadTweetImage(this, uri, cb);
     }
+
+    // ── Post tweet ────────────────────────────────────────────────────────
 
     private void postTweet() {
         String text = etTweetText.getText().toString().trim();
@@ -281,7 +370,6 @@ public class XComposeActivity extends AppCompatActivity {
         tweet.hashtags       = extractHashtags(text);
         tweet.mentions       = extractMentions(text);
 
-        // Build poll if enabled
         XPoll poll = null;
         if (pollEnabled) {
             poll = buildPoll();
@@ -308,14 +396,11 @@ public class XComposeActivity extends AppCompatActivity {
                 if (replyToId != null)
                     XFirebaseUtils.tweetRepliesRef(replyToId).child(key).setValue(true);
                 if (scheduledAt <= 0) fanOutToFollowers(key, tweet);
-                // Index hashtags + update trending counters
                 long nowTs = System.currentTimeMillis();
                 for (String tag : tweet.hashtags != null ? tweet.hashtags : new java.util.ArrayList<String>()) {
                     String clean = tag.replace("#","").toLowerCase(Locale.US);
                     String display = tag.startsWith("#") ? tag : "#" + tag;
-                    // Write to hashtag feed index
                     XFirebaseUtils.hashtagFeedRef(clean).child(key).setValue(nowTs);
-                    // Atomically increment trending counter
                     XFirebaseUtils.trendingTagRef(clean).get().addOnSuccessListener(tSnap -> {
                         long curCount = tSnap.child("countAll").getValue(Long.class) != null
                             ? tSnap.child("countAll").getValue(Long.class) : 0L;
@@ -341,6 +426,31 @@ public class XComposeActivity extends AppCompatActivity {
         });
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private void setUploading(boolean uploading) {
+        isPosting = uploading;
+        if (pbUpload != null)
+            pbUpload.setVisibility(uploading ? View.VISIBLE : View.GONE);
+        btnPost.setEnabled(!uploading
+            && etTweetText.getText().length() > 0
+            && etTweetText.getText().length() <= MAX_CHARS);
+    }
+
+    private void setCompressHint(String hint) {
+        if (tvCompressHint != null) {
+            tvCompressHint.setVisibility(View.VISIBLE);
+            tvCompressHint.setText(hint);
+        }
+    }
+
+    private void clearCompressHint() {
+        if (tvCompressHint != null) {
+            tvCompressHint.setVisibility(View.GONE);
+            tvCompressHint.setText("");
+        }
+    }
+
     private XPoll buildPoll() {
         List<String> opts = new ArrayList<>();
         if (etPollOpt1 != null && !etPollOpt1.getText().toString().trim().isEmpty())
@@ -354,7 +464,7 @@ public class XComposeActivity extends AppCompatActivity {
         if (opts.size() < 2) return null;
         XPoll p = new XPoll();
         p.options    = opts;
-        p.expiresAt  = System.currentTimeMillis() + 24 * 3600_000L; // 24h default
+        p.expiresAt  = System.currentTimeMillis() + 24 * 3600_000L;
         p.expired    = false;
         return p;
     }
