@@ -13,6 +13,7 @@ import com.callx.app.models.XUser;
 import com.callx.app.utils.XCloudinaryUtils;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.x.R;
+import com.google.android.material.textfield.TextInputEditText;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -23,7 +24,10 @@ public class XEditProfileActivity extends AppCompatActivity {
     private XUser xUser;
     private CircleImageView ivAvatar;
     private ImageView ivBanner;
-    private EditText etName, etBio, etWebsite, etLocation;
+
+    // BUG FIX #1: Layout mein TextInputEditText hai, EditText nahi.
+    // EditText se findViewById karne par ClassCastException crash hota tha.
+    private TextInputEditText etName, etBio, etWebsite, etLocation;
     private ProgressBar pbSave;
     private boolean pickingAvatar;
 
@@ -40,8 +44,14 @@ public class XEditProfileActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_x_edit_profile);
 
-        myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+        // BUG FIX #2: myUid empty string hone par Firebase path invalid banta tha → crash.
+        // Ab pehle check karo — user null ho to activity band karo.
+        if (FirebaseAuth.getInstance().getCurrentUser() == null) {
+            Toast.makeText(this, "Please login first", Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+        myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
 
         ivAvatar   = findViewById(R.id.iv_edit_avatar);
         ivBanner   = findViewById(R.id.iv_edit_banner);
@@ -116,16 +126,18 @@ public class XEditProfileActivity extends AppCompatActivity {
     }
 
     private void saveProfile() {
-        String name = etName.getText().toString().trim();
+        // BUG FIX #3: TextInputEditText.getText() null return kar sakta hai — NPE crash hota tha.
+        // Ab null-safe helper use karo.
+        String name = getText(etName);
         if (name.isEmpty()) {
             etName.setError("Name required"); return;
         }
         pbSave.setVisibility(android.view.View.VISIBLE);
         java.util.Map<String, Object> updates = new java.util.HashMap<>();
         updates.put("name", name);
-        updates.put("bio", etBio.getText().toString().trim());
-        updates.put("website", etWebsite.getText().toString().trim());
-        updates.put("location", etLocation.getText().toString().trim());
+        updates.put("bio", getText(etBio));
+        updates.put("website", getText(etWebsite));
+        updates.put("location", getText(etLocation));
         XFirebaseUtils.xUserRef(myUid).updateChildren(updates).addOnCompleteListener(t -> {
             pbSave.setVisibility(android.view.View.GONE);
             if (t.isSuccessful()) {
@@ -135,5 +147,10 @@ public class XEditProfileActivity extends AppCompatActivity {
                 Toast.makeText(this, "Save failed", Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    // BUG FIX #3 helper: TextInputEditText.getText() null-safe wrapper
+    private String getText(TextInputEditText field) {
+        return field.getText() != null ? field.getText().toString().trim() : "";
     }
 }
