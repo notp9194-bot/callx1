@@ -1,5 +1,6 @@
 package com.callx.app.utils;
 
+  import com.callx.app.utils.Constants;
   import com.google.firebase.database.DatabaseReference;
   import com.google.firebase.database.FirebaseDatabase;
 
@@ -30,11 +31,10 @@ package com.callx.app.utils;
    */
   public class XFirebaseUtils {
 
-      private static final String DB_URL = "https://callx-app-default-rtdb.firebaseio.com/";
       private static final String X_ROOT = "x";
 
       private static DatabaseReference root() {
-          return FirebaseDatabase.getInstance(DB_URL).getReference(X_ROOT);
+          return FirebaseDatabase.getInstance(Constants.DB_URL).getReference(X_ROOT);
       }
 
       // ── Tweets ───────────────────────────────────────────────────────────────
