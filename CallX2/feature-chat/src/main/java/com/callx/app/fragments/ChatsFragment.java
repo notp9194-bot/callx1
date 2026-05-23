@@ -42,13 +42,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private final Set<String> specialRequestUids = new HashSet<>();
 
-    // FIX #MEM-3C: Listener references store karo taaki onDestroyView mein detach kar sakein.
-    // Pehle anonymous listeners the — unhe remove karna impossible tha → memory leak.
-    private DatabaseReference contactsRef;
-    private ValueEventListener contactsListener;
-    private DatabaseReference specialRequestsRef;
-    private ValueEventListener specialRequestsListener;
-
     // v15: track online state for UI
     private boolean isOnline = true;
 
@@ -137,53 +130,51 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
         String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
 
-        // FIX #MEM-3C: Ref + listener fields mein store karo — onDestroyView mein remove honge
-        contactsListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                contacts.clear();
-                List<ChatEntity> toSave = new ArrayList<>();
+        FirebaseUtils.getContactsRef(uid)
+            .addValueEventListener(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    contacts.clear();
+                    List<ChatEntity> toSave = new ArrayList<>();
 
-                for (DataSnapshot c : snap.getChildren()) {
-                    User u = c.getValue(User.class);
-                    if (u != null) {
-                        if (u.uid == null) u.uid = c.getKey();
-                        if ((u.name == null || u.name.isEmpty()
-                                || u.photoUrl == null) && u.uid != null) {
-                            enrichContactFromUsers(u, uid);
+                    for (DataSnapshot c : snap.getChildren()) {
+                        User u = c.getValue(User.class);
+                        if (u != null) {
+                            if (u.uid == null) u.uid = c.getKey();
+                            if ((u.name == null || u.name.isEmpty()
+                                    || u.photoUrl == null) && u.uid != null) {
+                                enrichContactFromUsers(u, uid);
+                            }
+                            contacts.add(u);
+
+                            // v15 FIX 1b: Firebase se aaya → Room mein save karo
+                            ChatEntity entity = new ChatEntity();
+                            entity.chatId       = uid + "_contact_" + (u.uid != null ? u.uid : "");
+                            entity.type         = "private";
+                            entity.partnerUid   = u.uid;
+                            entity.partnerName  = u.name;
+                            entity.partnerPhoto = u.photoUrl;
+                            entity.partnerThumb = u.thumbUrl;
+                            entity.lastMessageAt = u.lastMessageAt;
+                            entity.unread       = u.unread;  // v18 IMPROVEMENT 6: unread badge Room mein store karo
+                            entity.syncedAt     = System.currentTimeMillis();
+                            toSave.add(entity);
                         }
-                        contacts.add(u);
-
-                        // v15 FIX 1b: Firebase se aaya → Room mein save karo
-                        ChatEntity entity = new ChatEntity();
-                        entity.chatId       = uid + "_contact_" + (u.uid != null ? u.uid : "");
-                        entity.type         = "private";
-                        entity.partnerUid   = u.uid;
-                        entity.partnerName  = u.name;
-                        entity.partnerPhoto = u.photoUrl;
-                        entity.partnerThumb = u.thumbUrl;
-                        entity.lastMessageAt = u.lastMessageAt;
-                        entity.unread       = u.unread;
-                        entity.syncedAt     = System.currentTimeMillis();
-                        toSave.add(entity);
                     }
-                }
 
-                // Room mein background save karo
-                if (getContext() != null && !toSave.isEmpty()) {
-                    AppDatabase db = AppDatabase.getInstance(getContext());
-                    Executors.newSingleThreadExecutor().execute(() ->
-                        db.chatDao().insertChats(toSave));
-                }
+                    // Room mein background save karo
+                    if (getContext() != null && !toSave.isEmpty()) {
+                        AppDatabase db = AppDatabase.getInstance(getContext());
+                        Executors.newSingleThreadExecutor().execute(() ->
+                            db.chatDao().insertChats(toSave));
+                    }
 
-                sortByLatestMessage();
-                if (adapter != null) adapter.notifyDataSetChanged();
-                if (emptyState != null)
-                    emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        contactsRef = FirebaseUtils.getContactsRef(uid);
-        contactsRef.addValueEventListener(contactsListener);
+                    sortByLatestMessage();
+                    if (adapter != null) adapter.notifyDataSetChanged();
+                    if (emptyState != null)
+                        emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
     }
 
     // Change 5: fetch full user details when contact entry is incomplete
@@ -220,40 +211,20 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private void loadSpecialRequests() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
         String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
-
-        // FIX #MEM-3C: Field mein store karo — onDestroyView mein remove hoga
-        specialRequestsListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                specialRequestUids.clear();
-                for (DataSnapshot c : snap.getChildren())
-                    if (c.getKey() != null) specialRequestUids.add(c.getKey());
-                if (adapter != null) {
-                    adapter.setSpecialRequestSenders(specialRequestUids);
-                    sortByLatestMessage();
-                    adapter.notifyDataSetChanged();
+        FirebaseUtils.db().getReference("specialRequests").child(uid)
+            .addValueEventListener(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    specialRequestUids.clear();
+                    for (DataSnapshot c : snap.getChildren())
+                        if (c.getKey() != null) specialRequestUids.add(c.getKey());
+                    if (adapter != null) {
+                        adapter.setSpecialRequestSenders(specialRequestUids);
+                        sortByLatestMessage();
+                        adapter.notifyDataSetChanged();
+                    }
                 }
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        specialRequestsRef = FirebaseUtils.db().getReference("specialRequests").child(uid);
-        specialRequestsRef.addValueEventListener(specialRequestsListener);
-    }
-
-    // FIX #MEM-3C: onDestroyView mein saare Firebase listeners detach karo.
-    // Bina iske Firebase background mein data push karta rehta tha — memory + battery waste.
-    @Override
-    public void onDestroyView() {
-        if (contactsRef != null && contactsListener != null) {
-            contactsRef.removeEventListener(contactsListener);
-            contactsRef = null;
-            contactsListener = null;
-        }
-        if (specialRequestsRef != null && specialRequestsListener != null) {
-            specialRequestsRef.removeEventListener(specialRequestsListener);
-            specialRequestsRef = null;
-            specialRequestsListener = null;
-        }
-        super.onDestroyView();
+                @Override public void onCancelled(DatabaseError e) {}
+            });
     }
 
     // Change 10: sort contacts so latest message is always at top

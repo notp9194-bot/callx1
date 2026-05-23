@@ -1195,9 +1195,9 @@ public class ReelPlayerFragment extends Fragment {
                 reel.videoUrl,
                 reel.thumbUrl,
                 reel.caption,
-                reel.uid,
+                reel.uid,          // ownerUid = uid in ReelModel
                 reel.allowReposts
-        ).show(safeFragmentManager(), "share_sheet");
+        ).show(getChildFragmentManager(), "share_sheet");
     }
 
     // ── Download ──────────────────────────────────────────────────────────
@@ -1233,7 +1233,7 @@ public class ReelPlayerFragment extends Fragment {
                             reel.reelId,
                             reel.likesCount,
                             reel.viewsCount);
-            sheet.show(safeFragmentManager(), com.callx.app.ui.ReelLikesBottomSheet.TAG);
+            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelLikesBottomSheet.TAG);
         } catch (Exception ignored) {}
     }
 
@@ -1247,7 +1247,7 @@ public class ReelPlayerFragment extends Fragment {
                             reel.reelId,
                             reel.sharesCount,
                             reel.repostCount);
-            sheet.show(safeFragmentManager(), com.callx.app.ui.ReelSharesBottomSheet.TAG);
+            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelSharesBottomSheet.TAG);
         } catch (Exception ignored) {}
     }
 
@@ -1261,7 +1261,7 @@ public class ReelPlayerFragment extends Fragment {
                             reel.reelId,
                             reel.uid != null ? reel.uid : "",
                             reel.commentsCount);
-            sheet.show(safeFragmentManager(), com.callx.app.ui.ReelCommentsBottomSheet.TAG);
+            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelCommentsBottomSheet.TAG);
         } catch (Exception ignored) {}
     }
 
@@ -1661,20 +1661,6 @@ public class ReelPlayerFragment extends Fragment {
     private String safeMyUid() {
         try { return FirebaseUtils.getCurrentUid(); }
         catch (Exception e) { return null; }
-    }
-
-    /**
-     * Returns Activity-level FragmentManager — safe for bottom sheets in ALL contexts:
-     *  - SingleReelPlayerActivity (chat bubble): ViewPager2 nested fragment
-     *  - ReelsFragment (main feed): double-nested fragment
-     *
-     * getParentFragment() is unreliable here because ViewPager2's FragmentStateAdapter
-     * always creates an internal host fragment, so getParentFragment() is NEVER null
-     * even in SingleReelPlayerActivity. requireActivity().getSupportFragmentManager()
-     * is the only guaranteed-correct manager in both scenarios.
-     */
-    private androidx.fragment.app.FragmentManager safeFragmentManager() {
-        return requireActivity().getSupportFragmentManager();
     }
 
     private String formatCount(int n) {

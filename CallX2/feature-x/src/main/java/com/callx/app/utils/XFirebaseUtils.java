@@ -50,9 +50,6 @@ public class XFirebaseUtils {
     public static DatabaseReference xDmConversationsRef(String uid)  { return root().child("dm_conversations").child(uid); }
     public static DatabaseReference xDmMessagesRef(String convId)    { return root().child("dm_messages").child(convId); }
 
-    // handle → uid index for uniqueness check
-    public static DatabaseReference xHandlesRef()                    { return root().child("x_handles"); }
-
     public static String dmConversationId(String uid1, String uid2) {
         if (uid1.compareTo(uid2) < 0) return uid1 + "_" + uid2;
         return uid2 + "_" + uid1;

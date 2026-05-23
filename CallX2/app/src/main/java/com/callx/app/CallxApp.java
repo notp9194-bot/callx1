@@ -44,76 +44,41 @@ public class CallxApp extends Application {
     public static String  getMyPhotoUrlCached() { return sMyPhotoUrl; }
 
     // ──────────────────────────────────────────────────────────────
-    // FIX #STARTUP: Heavy init ko background thread pe daala gaya hai.
-    //
-    // MAIN THREAD (instant, blocking nahi):
-    //   - Notification channels register
-    //   - WorkManager workers schedule
-    //   - Activity lifecycle callbacks register
-    //
-    // BACKGROUND THREAD (app-init-bg):
-    //   - Firebase persistence config
-    //   - Photo URL cache
-    //   - Cache system + SyncWorker
-    //   - ExoPlayer disk cache (200MB)
-    //   - ReelCacheManager (500MB)
-    //   - XTweetCacheManager
-    //   - StatusVideoCacheManager (200MB)
-    //
-    // Faida: ~300-600ms startup improvement on mid/low-end devices.
-    // ──────────────────────────────────────────────────────────────
     @Override
     public void onCreate() {
         super.onCreate();
-
-        // ── MAIN THREAD: sirf lightweight kaam ────────────────────────
-
-        // Notification channels — Android OS call hai, fast hai
-        createChannels();
-
-        // Reel notification channels (39 channels register)
-        com.callx.app.notifications.ReelNotificationChannelManager.ensureChannels(this);
-
-        // WorkManager workers schedule — sirf enqueue karta hai, heavy nahi
+        // Schedule X background notification polling
         XNotificationWorker.schedule(this);
+
+        // ── Reel Notification System (v5) ─────────────────────────────
+        // Register all 39 reel notification channels at startup
+        com.callx.app.notifications.ReelNotificationChannelManager.ensureChannels(this);
+        // Schedule periodic background polling worker (every 15 min, survives kill)
         com.callx.app.notifications.ReelNotificationWorker.schedule(this);
+        // ──────────────────────────────────────────────────────────────
 
-        // Activity lifecycle + AppLock wiring — must be main thread
-        registerForegroundTracking();
+        try {
+            FirebaseDatabase.getInstance(Constants.DB_URL)
+                .setPersistenceEnabled(false); // disabled: we use our own 3-tier cache
+        } catch (Exception e) {
+            Log.w(TAG, "Firebase persistence set: " + e.getMessage());
+        }
 
-        // Domain verification check — async internally, safe on main thread
-        checkAndRequestDomainVerification();
+        createChannels();
+        checkAndRequestDomainVerification(); // Auto App Links verify
+        registerForegroundTracking();   // FIX #5 + FIX #6 wiring is here
+        cacheMyPhotoUrl();
+        initCacheSystem();
 
-        // ── BACKGROUND THREAD: heavy init ─────────────────────────────
-        new Thread(() -> {
-            // Firebase persistence config
-            try {
-                FirebaseDatabase.getInstance(Constants.DB_URL)
-                    .setPersistenceEnabled(false); // disabled: we use our own 3-tier cache
-            } catch (Exception e) {
-                Log.w(TAG, "Firebase persistence set: " + e.getMessage());
-            }
+        // v21 Video System: init ExoPlayer 200MB disk cache
+        com.callx.app.utils.ExoPlayerManager.init(this);
 
-            // User photo URL Firebase listener
-            cacheMyPhotoUrl();
+        // Reels: 500MB dedicated cache for Instagram-like instant playback
+        ReelCacheManager.init(this);
+        XTweetCacheManager.init(this); // X tweet video cache
 
-            // Cache system: CacheManager, SyncWorker, StatusCacheManager, StatusBackgroundService
-            initCacheSystem();
-
-            // v21 Video System: init ExoPlayer 200MB disk cache
-            com.callx.app.utils.ExoPlayerManager.init(CallxApp.this);
-
-            // Reels: 500MB dedicated cache for Instagram-like instant playback
-            ReelCacheManager.init(CallxApp.this);
-
-            // X tweet video cache
-            XTweetCacheManager.init(CallxApp.this);
-
-            // Status: 200MB dedicated cache — same pattern as Reels
-            StatusVideoCacheManager.init(CallxApp.this);
-
-            Log.d(TAG, "Background init complete");
-        }, "app-init-bg").start();
+        // Status: 200MB dedicated cache — same pattern as Reels
+        StatusVideoCacheManager.init(this);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -131,25 +96,20 @@ public class CallxApp extends Application {
 
             if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
                 cache.clearMemoryCache();
-                // FIX #MEM-3B: Reel + ExoPlayer video cache bhi trim karo — OOM se bachao
-                ReelCacheManager.trimMemory();
-                com.callx.app.utils.ExoPlayerManager.trimMemory();
-                Log.w(TAG, "onTrimMemory CRITICAL — full memory cache + video caches cleared");
+                Log.w(TAG, "onTrimMemory CRITICAL — full memory cache cleared");
 
             } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
                 cache.evictLowPriority();
-                // FIX #MEM-3B: Moderate signal pe bhi Reel cache trim karo
-                ReelCacheManager.trimMemory();
-                Log.d(TAG, "onTrimMemory MODERATE — low priority + reel cache trimmed");
+                Log.d(TAG, "onTrimMemory MODERATE — low priority items evicted");
 
             } else if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
                 // App fully backgrounded
                 cache.evictLowPriority();
+
                 // FIX #6: close idle OkHttp connections — frees OS sockets
                 NetworkCacheHelper.evictConnectionPool(this);
-                // FIX #MEM-3B: Background mein jao to Reel cache bhi thoda release karo
-                ReelCacheManager.trimMemory();
-                Log.d(TAG, "onTrimMemory UI_HIDDEN — evicted + connections closed + reels trimmed");
+
+                Log.d(TAG, "onTrimMemory UI_HIDDEN — evicted + connections closed");
             }
         } catch (Exception e) {
             Log.w(TAG, "onTrimMemory error: " + e.getMessage());
