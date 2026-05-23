@@ -628,7 +628,6 @@ public class XComposeActivity extends AppCompatActivity {
         Map<String, Long> voteCounts = new HashMap<>();
         for (String opt : options) voteCounts.put(opt, 0L);
         poll.voteCounts = voteCounts;
-        poll.totalVotes = 0L;
 
         String pollKey = XFirebaseUtils.tweetPollRef(tweet.id + "_poll").getKey();
         if (pollKey == null) pollKey = tweet.id + "_poll";
