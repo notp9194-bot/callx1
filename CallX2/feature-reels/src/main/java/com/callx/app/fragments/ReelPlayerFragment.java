@@ -1664,28 +1664,17 @@ public class ReelPlayerFragment extends Fragment {
     }
 
     /**
-     * Returns the correct FragmentManager for showing bottom sheets.
+     * Returns Activity-level FragmentManager — safe for bottom sheets in ALL contexts:
+     *  - SingleReelPlayerActivity (chat bubble): ViewPager2 nested fragment
+     *  - ReelsFragment (main feed): double-nested fragment
      *
-     * TWO cases:
-     *  1. SingleReelPlayerActivity — ReelPlayerFragment is a DIRECT child of the Activity.
-     *     getParentFragment() == null → use Activity's getSupportFragmentManager().
-     *
-     *  2. ReelsFragment (main feed) — ReelPlayerFragment is NESTED inside ViewPager2
-     *     which is inside ReelsFragment.
-     *     getParentFragment() != null → use getParentFragmentManager() which bubbles up
-     *     to the Activity's fragment manager.
-     *
-     * Both cases resolve to the Activity-level FragmentManager, which is always alive
-     * and can safely host BottomSheetDialogFragments.
+     * getParentFragment() is unreliable here because ViewPager2's FragmentStateAdapter
+     * always creates an internal host fragment, so getParentFragment() is NEVER null
+     * even in SingleReelPlayerActivity. requireActivity().getSupportFragmentManager()
+     * is the only guaranteed-correct manager in both scenarios.
      */
     private androidx.fragment.app.FragmentManager safeFragmentManager() {
-        if (getParentFragment() == null) {
-            // Direct child of Activity (SingleReelPlayerActivity)
-            return requireActivity().getSupportFragmentManager();
-        } else {
-            // Nested inside ReelsFragment — bubble up to Activity
-            return getParentFragmentManager();
-        }
+        return requireActivity().getSupportFragmentManager();
     }
 
     private String formatCount(int n) {
