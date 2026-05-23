@@ -214,14 +214,14 @@ package com.callx.app.activities;
 
       private List<String> extractHashtags(String text) {
           List<String> tags = new ArrayList<>();
-          Matcher m = Pattern.compile("#\w+").matcher(text);
+          Matcher m = Pattern.compile("#\\w+").matcher(text);
           while (m.find()) tags.add(m.group().toLowerCase());
           return tags;
       }
 
       private List<String> extractMentions(String text) {
           List<String> mentions = new ArrayList<>();
-          Matcher m = Pattern.compile("@\w+").matcher(text);
+          Matcher m = Pattern.compile("@\\w+").matcher(text);
           while (m.find()) mentions.add(m.group().substring(1).toLowerCase());
           return mentions;
       }

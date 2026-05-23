@@ -214,7 +214,7 @@ package com.callx.app.adapters;
               SpannableString ss = new SpannableString(text);
               int accentColor = ContextCompat.getColor(ctx, R.color.x_accent);
               // Hashtags
-              Pattern hashPat = Pattern.compile("#\w+");
+              Pattern hashPat = Pattern.compile("#\\w+");
               Matcher hm = hashPat.matcher(text);
               while (hm.find()) {
                   final String tag = hm.group();
@@ -230,7 +230,7 @@ package com.callx.app.adapters;
                   }, hm.start(), hm.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
               }
               // Mentions
-              Pattern mentionPat = Pattern.compile("@\w+");
+              Pattern mentionPat = Pattern.compile("@\\w+");
               Matcher mm = mentionPat.matcher(text);
               while (mm.find()) {
                   final String mention = mm.group();
