@@ -46,4 +46,8 @@
     <!-- Entry button (in CallX header) -->
     <color name="x_entry_stripe_bg">#000000</color>
     <color name="x_entry_badge_bg">#F91880</color>
+
+    <!-- Common colors referenced from layouts -->
+    <color name="white">#FFFFFF</color>
+    <color name="brand_primary">#5B5BF6</color>
 </resources>
