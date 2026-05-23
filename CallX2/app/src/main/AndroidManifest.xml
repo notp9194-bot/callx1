@@ -275,8 +275,8 @@
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.SingleReelPlayerActivity"
             android:exported="true"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
-            tools:replace="android:exported">
+            android:theme="@style/Theme.CallX.Fullscreen"
+            tools:replace="android:exported,android:theme">
             <intent-filter>
                 <action android:name="com.callx.app.ACTION_OPEN_REEL"/>
                 <category android:name="android.intent.category.DEFAULT"/>
