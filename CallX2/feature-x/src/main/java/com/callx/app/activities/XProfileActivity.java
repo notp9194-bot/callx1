@@ -79,13 +79,11 @@ public class XProfileActivity extends AppCompatActivity {
         View tvFollowers = findViewById(R.id.tv_x_profile_followers);
         View tvFollowing = findViewById(R.id.tv_x_profile_following);
         if (tvFollowers != null)
-            tvFollowers.setOnClickListener(v -> startActivity(
-                new Intent(this, com.callx.app.activities.FollowersListActivity.class)
-                    .putExtra("uid", targetUid).putExtra("mode", "followers")));
+            tvFollowers.setOnClickListener(v ->
+                Toast.makeText(this, "Followers list coming soon", Toast.LENGTH_SHORT).show());
         if (tvFollowing != null)
-            tvFollowing.setOnClickListener(v -> startActivity(
-                new Intent(this, com.callx.app.activities.FollowingListActivity.class)
-                    .putExtra("uid", targetUid).putExtra("mode", "following")));
+            tvFollowing.setOnClickListener(v ->
+                Toast.makeText(this, "Following list coming soon", Toast.LENGTH_SHORT).show());
 
         // Share profile
         View btnShare = findViewById(R.id.btn_x_profile_share);

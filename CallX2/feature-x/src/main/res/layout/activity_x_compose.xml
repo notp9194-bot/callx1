@@ -5,7 +5,7 @@
     android:orientation="vertical"
     android:background="@color/x_bg">
 
-    <!-- Header: Close | Post -->
+    <!-- Header -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
@@ -15,7 +15,7 @@
         android:paddingEnd="8dp">
 
         <ImageButton
-            android:id="@+id/btn_compose_close"
+            android:id="@+id/btn_x_compose_close"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_close"
@@ -23,10 +23,25 @@
             android:tint="@color/x_text_primary"
             android:contentDescription="Close"/>
 
+        <!-- Audience selector -->
+        <TextView
+            android:id="@+id/tv_x_audience_label"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="Everyone"
+            android:textColor="@color/x_accent"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-bold"
+            android:background="@drawable/bg_x_bubble_sent"/>
+
         <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
 
         <Button
-            android:id="@+id/btn_x_post"
+            android:id="@+id/btn_x_compose_post"
             android:layout_width="80dp"
             android:layout_height="36dp"
             android:text="Post"
@@ -39,6 +54,24 @@
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/x_divider"/>
+
+    <!-- Upload / compress progress -->
+    <ProgressBar
+        android:id="@+id/pb_x_compose"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+        android:progressTint="@color/x_accent"
+        android:max="100"
+        android:visibility="gone"/>
+
+    <!-- Audience row (expanded panel) -->
+    <LinearLayout
+        android:id="@+id/ll_x_audience"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"/>
 
     <!-- Compose area -->
     <ScrollView
@@ -59,7 +92,7 @@
                 android:orientation="horizontal">
 
                 <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_compose_avatar"
+                    android:id="@+id/iv_x_compose_avatar"
                     android:layout_width="44dp"
                     android:layout_height="44dp"
                     android:src="@drawable/ic_person"
@@ -72,10 +105,10 @@
                     android:orientation="vertical">
 
                     <EditText
-                        android:id="@+id/et_compose_text"
+                        android:id="@+id/et_x_compose_text"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="What’s happening?"
+                        android:hint="What's happening?"
                         android:textColor="@color/x_text_primary"
                         android:textColorHint="@color/x_text_muted"
                         android:textSize="18sp"
@@ -84,6 +117,24 @@
                         android:maxLines="12"
                         android:inputType="textMultiLine|textCapSentences"
                         android:gravity="top"/>
+
+                    <!-- Multi-image preview grid -->
+                    <LinearLayout
+                        android:id="@+id/ll_x_media_previews"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"/>
+
+                    <!-- Thread entries container -->
+                    <LinearLayout
+                        android:id="@+id/ll_x_thread_entries"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"/>
 
                     <!-- Quote tweet preview -->
                     <LinearLayout
@@ -115,7 +166,7 @@
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
-                    <!-- Media preview -->
+                    <!-- Single media preview -->
                     <ImageView
                         android:id="@+id/iv_compose_media_preview"
                         android:layout_width="match_parent"
@@ -127,7 +178,16 @@
                         android:visibility="gone"
                         android:contentDescription="Media preview"/>
 
-                    <!-- Poll editor -->
+                    <!-- Poll options container -->
+                    <LinearLayout
+                        android:id="@+id/ll_x_poll_options"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"/>
+
+                    <!-- Poll editor (full) -->
                     <LinearLayout
                         android:id="@+id/ll_compose_poll_editor"
                         android:layout_width="match_parent"
@@ -182,17 +242,18 @@
         </LinearLayout>
     </ScrollView>
 
-    <!-- Upload progress -->
-    <ProgressBar
-        android:id="@+id/pb_compose_upload"
+    <!-- Compress hint -->
+    <TextView
+        android:id="@+id/tv_compose_compress_hint"
         android:layout_width="match_parent"
-        android:layout_height="3dp"
-        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-        android:progressTint="@color/x_accent"
-        android:max="100"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:textSize="12sp"
+        android:textColor="@color/x_text_secondary"
+        android:gravity="center"
         android:visibility="gone"/>
 
-    <!-- Char count + action bar -->
+    <!-- Bottom bar: tools + char count -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="52dp"
@@ -235,7 +296,7 @@
         <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
 
         <TextView
-            android:id="@+id/tv_char_count"
+            android:id="@+id/tv_x_compose_char_count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="280"
@@ -243,15 +304,4 @@
             android:textSize="14sp"
             android:layout_marginEnd="8dp"/>
     </LinearLayout>
-
-    <!-- Compression progress hint (shown during video compress, hidden otherwise) -->
-    <TextView
-        android:id="@+id/tv_compose_compress_hint"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="8dp"
-        android:textSize="12sp"
-        android:textColor="@color/x_text_secondary"
-        android:gravity="center"
-        android:visibility="gone"/>
 </LinearLayout>

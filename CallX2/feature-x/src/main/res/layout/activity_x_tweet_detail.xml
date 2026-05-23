@@ -35,6 +35,15 @@
             android:layout_marginStart="8dp"/>
 
         <ImageButton
+            android:id="@+id/btn_x_detail_bookmark"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_x_bookmark"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_text_primary"
+            android:contentDescription="Bookmark"/>
+
+        <ImageButton
             android:id="@+id/btn_x_detail_share"
             android:layout_width="40dp"
             android:layout_height="40dp"
@@ -46,6 +55,14 @@
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/x_divider"/>
+
+    <!-- Loading indicator -->
+    <ProgressBar
+        android:id="@+id/pb_x_detail"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:visibility="gone"/>
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
@@ -83,13 +100,29 @@
                         android:layout_weight="1"
                         android:orientation="vertical">
 
-                        <TextView
-                            android:id="@+id/tv_x_detail_name"
+                        <LinearLayout
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textColor="@color/x_text_primary"
-                            android:textSize="16sp"
-                            android:fontFamily="sans-serif-bold"/>
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <TextView
+                                android:id="@+id/tv_x_detail_name"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/x_text_primary"
+                                android:textSize="16sp"
+                                android:fontFamily="sans-serif-bold"/>
+
+                            <ImageView
+                                android:id="@+id/iv_x_detail_verified"
+                                android:layout_width="15dp"
+                                android:layout_height="15dp"
+                                android:layout_marginStart="4dp"
+                                android:src="@drawable/ic_x_verified"
+                                android:visibility="gone"
+                                android:contentDescription="Verified"/>
+                        </LinearLayout>
 
                         <TextView
                             android:id="@+id/tv_x_detail_handle"
@@ -109,12 +142,33 @@
                     android:layout_marginTop="12dp"
                     android:lineSpacingExtra="3dp"/>
 
+                <!-- Media -->
+                <ImageView
+                    android:id="@+id/iv_x_detail_media"
+                    android:layout_width="match_parent"
+                    android:layout_height="240dp"
+                    android:layout_marginTop="10dp"
+                    android:scaleType="centerCrop"
+                    android:background="@drawable/bg_x_media_rounded"
+                    android:clipToOutline="true"
+                    android:visibility="gone"
+                    android:contentDescription="Media"/>
+
+                <!-- Timestamp -->
+                <TextView
+                    android:id="@+id/tv_x_detail_time"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:textColor="@color/x_text_secondary"
+                    android:textSize="14sp"/>
+
                 <!-- Stats row -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:layout_marginTop="16dp"
                     android:paddingTop="12dp"
                     android:paddingBottom="12dp">
 
@@ -167,7 +221,6 @@
                         android:textSize="15sp"/>
                 </LinearLayout>
 
-                <!-- Hidden replies count label (used in code) -->
                 <TextView
                     android:id="@+id/tv_x_detail_replies"
                     android:layout_width="wrap_content"
@@ -186,11 +239,24 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
 
+                    <LinearLayout android:id="@+id/btn_x_detail_reply"
+                        android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+                        android:gravity="center" android:orientation="horizontal"
+                        android:background="?attr/selectableItemBackground">
+                        <ImageView android:id="@+id/ic_x_detail_reply_icon"
+                            android:layout_width="22dp" android:layout_height="22dp"
+                            android:src="@drawable/ic_x_reply" android:tint="@color/x_icon_default"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp" android:text="Reply"
+                            android:textColor="@color/x_icon_default" android:textSize="13sp"/>
+                    </LinearLayout>
+
                     <LinearLayout android:id="@+id/btn_x_detail_like"
                         android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
                         android:gravity="center" android:orientation="horizontal"
                         android:background="?attr/selectableItemBackground">
-                        <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                        <ImageView android:id="@+id/ic_x_detail_like"
+                            android:layout_width="22dp" android:layout_height="22dp"
                             android:src="@drawable/ic_x_heart_outline" android:tint="@color/x_icon_default"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_marginStart="4dp" android:text="Like"
@@ -201,7 +267,8 @@
                         android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
                         android:gravity="center" android:orientation="horizontal"
                         android:background="?attr/selectableItemBackground">
-                        <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                        <ImageView android:id="@+id/ic_x_detail_retweet"
+                            android:layout_width="22dp" android:layout_height="22dp"
                             android:src="@drawable/ic_x_retweet" android:tint="@color/x_icon_default"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_marginStart="4dp" android:text="Repost"
@@ -209,12 +276,11 @@
                     </LinearLayout>
 
                     <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
-                        android:gravity="center" android:orientation="horizontal">
-                        <ImageView android:layout_width="22dp" android:layout_height="22dp"
-                            android:src="@drawable/ic_x_reply" android:tint="@color/x_icon_default"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:layout_marginStart="4dp" android:text="Reply"
-                            android:textColor="@color/x_icon_default" android:textSize="13sp"/>
+                        android:gravity="center" android:orientation="horizontal"
+                        android:background="?attr/selectableItemBackground">
+                        <ImageView android:id="@+id/ic_x_detail_bookmark"
+                            android:layout_width="22dp" android:layout_height="22dp"
+                            android:src="@drawable/ic_x_bookmark" android:tint="@color/x_icon_default"/>
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
@@ -263,7 +329,7 @@
 
             <!-- Replies list -->
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_x_replies"
+                android:id="@+id/rv_x_detail_replies"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:nestedScrollingEnabled="false"/>
