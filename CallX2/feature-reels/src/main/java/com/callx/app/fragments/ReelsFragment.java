@@ -402,6 +402,13 @@ public class ReelsFragment extends Fragment {
         // Refresh creator avatar whenever fragment comes to foreground
         loadCreatorAvatar();
 
+        // FIX #LAZY-REELS: isTabActive guard — agar user ne Reels tab abhi nahi khola
+        // (offscreenPageLimit ki wajah se fragment create hua lekin visible nahi hai)
+        // to Firebase fetch aur video preload bilkul nahi hoga.
+        // Jab user pehli baar Reels tab tap karega, onTabResumed() → onStart() dobara
+        // call hoga aur tab isTabActive = true hoga — tab fetch hoga.
+        if (!isTabActive) return;
+
         if (allReels.isEmpty()) {
             loadFypReels();
         } else if (isFypMode) {
@@ -656,10 +663,21 @@ public class ReelsFragment extends Fragment {
     /**
      * Called by MainActivity when the user switches TO the Reels tab.
      * Resumes playback of the currently visible reel.
+     *
+     * FIX #LAZY-REELS: Agar reels abhi tak load nahi hue (pehli baar tab khula),
+     * to yahan se loadFypReels() trigger karo. offscreenPageLimit=1 ki wajah se
+     * onStart() mein isTabActive=false tha, isliye fetch nahi hua tha.
      */
     public void onTabResumed() {
         isTabActive = true;
-        // Only play if the Home overlay is not covering the reel feed
+
+        // Pehli baar tab khula — ab fetch karo (lazy load trigger)
+        if (allReels.isEmpty()) {
+            loadFypReels();
+            return;
+        }
+
+        // Already loaded — sirf playback resume karo
         boolean homeVisible = homeContainer != null
                 && homeContainer.getVisibility() == android.view.View.VISIBLE;
         if (!homeVisible && vpReels != null) {

@@ -1,5 +1,6 @@
 package com.callx.app.utils;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
@@ -50,8 +51,19 @@ import java.io.File;
  */
 public class ExoPlayerManager {
 
-    private static final String TAG         = "ExoPlayerManager";
-    private static final long   CACHE_SIZE  = 200 * 1024 * 1024L; // 200MB
+    private static final String TAG = "ExoPlayerManager";
+
+    // FIX #MEM-3A: Adaptive cache size — device ki RAM dekh ke decide karo.
+    // Low-end (isLowRamDevice): 50MB  — crash risk kam, phone comfortable rahe
+    // Normal devices:           150MB — pehle 200MB tha, 50MB bachaya
+    private static final long CACHE_SIZE_LOW  =  50L * 1024 * 1024; //  50MB
+    private static final long CACHE_SIZE_NORM = 150L * 1024 * 1024; // 150MB
+
+    /** Device ki RAM check karo — ActivityManager.isLowRamDevice() Android ka official flag hai */
+    private static boolean isLowMemoryDevice(Context ctx) {
+        ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+        return am != null && am.isLowRamDevice();
+    }
 
     // ── Singleton cache (shared across all players) ───────────────────────
     private static SimpleCache    videoCache;
@@ -65,10 +77,12 @@ public class ExoPlayerManager {
 
     public static void init(Context ctx) {
         if (videoCache != null) return; // already initialized
+        long cacheSize = isLowMemoryDevice(ctx) ? CACHE_SIZE_LOW : CACHE_SIZE_NORM;
         cacheDir   = new File(ctx.getCacheDir(), "exo_video_cache");
         videoCache = new SimpleCache(cacheDir,
-            new LeastRecentlyUsedCacheEvictor(CACHE_SIZE));
-        Log.i(TAG, "ExoPlayer cache initialized: " + CACHE_SIZE / (1024 * 1024) + "MB");
+            new LeastRecentlyUsedCacheEvictor(cacheSize));
+        Log.i(TAG, "ExoPlayer cache initialized: " + cacheSize / (1024 * 1024) + "MB"
+            + (isLowMemoryDevice(ctx) ? " [low-ram device]" : ""));
     }
 
     // ── Play ──────────────────────────────────────────────────────────────
@@ -225,6 +239,26 @@ public class ExoPlayerManager {
     @OptIn(markerClass = UnstableApi.class)
     public static long getCacheSizeBytes() {
         return videoCache != null ? videoCache.getCacheSpace() : 0;
+    }
+
+    // FIX #MEM-3B: trimMemory — CallxApp.onTrimMemory() se call hoga.
+    // CRITICAL ya UI_HIDDEN signal aane par cached videos ka 50% evict karo.
+    // Isse OS ko memory milti hai aur OOM kill ka chance kam hota hai.
+    @OptIn(markerClass = UnstableApi.class)
+    public static void trimMemory() {
+        if (videoCache == null) return;
+        try {
+            long currentSize = videoCache.getCacheSpace();
+            long trimTarget  = currentSize / 2; // 50% release karo
+            for (String key : videoCache.getKeys()) {
+                if (videoCache.getCacheSpace() <= trimTarget) break;
+                videoCache.removeResource(key);
+            }
+            Log.d(TAG, "trimMemory: " + currentSize/(1024*1024) + "MB → "
+                + videoCache.getCacheSpace()/(1024*1024) + "MB");
+        } catch (Exception e) {
+            Log.w(TAG, "trimMemory error: " + e.getMessage());
+        }
     }
 
     @OptIn(markerClass = UnstableApi.class)
