@@ -64,8 +64,10 @@ public class XNotificationAdapter extends RecyclerView.Adapter<XNotificationAdap
                     : android.graphics.Color.TRANSPARENT);
             }
 
-            // Avatar
-            Glide.with(ctx).load(n.fromPhotoUrl).circleCrop()
+            // Avatar — prefer thumb for small circular avatars
+            String avatarUrl = (n.fromThumbUrl != null && !n.fromThumbUrl.isEmpty())
+                ? n.fromThumbUrl : n.fromPhotoUrl;
+            Glide.with(ctx).load(avatarUrl).circleCrop()
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
 
             // Type icon + tint

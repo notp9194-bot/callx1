@@ -9,6 +9,7 @@ public class XUser {
     public String handle;
     public String bio;
     public String photoUrl;
+    public String thumbUrl;
     public String bannerUrl;
     public String website;
     public String location;

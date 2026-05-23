@@ -244,6 +244,7 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                     n.fromUid      = myUid;
                     n.fromName     = snap.child("name").getValue(String.class);
                     n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
+                    n.fromThumbUrl = snap.child("thumbUrl").getValue(String.class);
                     if (n.fromName == null) n.fromName = "Someone";
                     if (n.fromPhotoUrl == null) n.fromPhotoUrl = "";
                     n.tweetId      = tweet.id;

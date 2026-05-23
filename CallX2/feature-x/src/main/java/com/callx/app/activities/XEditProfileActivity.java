@@ -74,9 +74,12 @@ public class XEditProfileActivity extends AppCompatActivity {
                 etBio.setText(xUser.bio != null ? xUser.bio : "");
                 etWebsite.setText(xUser.website != null ? xUser.website : "");
                 etLocation.setText(xUser.location != null ? xUser.location : "");
-                if (xUser.photoUrl != null && !xUser.photoUrl.isEmpty())
-                    Glide.with(XEditProfileActivity.this).load(xUser.photoUrl)
+                if (xUser.photoUrl != null && !xUser.photoUrl.isEmpty()) {
+                    String displayUrl = (xUser.thumbUrl != null && !xUser.thumbUrl.isEmpty())
+                        ? xUser.thumbUrl : xUser.photoUrl;
+                    Glide.with(XEditProfileActivity.this).load(displayUrl)
                         .circleCrop().into(ivAvatar);
+                }
                 if (xUser.bannerUrl != null && !xUser.bannerUrl.isEmpty())
                     Glide.with(XEditProfileActivity.this).load(xUser.bannerUrl)
                         .centerCrop().into(ivBanner);

@@ -74,6 +74,7 @@ package com.callx.app.fragments;
                       p.otherName      = ds.child("otherName").getValue(String.class);
                       p.otherHandle    = ds.child("otherHandle").getValue(String.class);
                       p.otherPhotoUrl  = ds.child("otherPhoto").getValue(String.class);
+                      p.otherThumbUrl  = ds.child("otherThumb").getValue(String.class);
                       p.lastMessage    = ds.child("lastMessage").getValue(String.class);
                       Long ts = ds.child("lastMessageTs").getValue(Long.class);
                       p.lastTs         = ts != null ? ts : 0;

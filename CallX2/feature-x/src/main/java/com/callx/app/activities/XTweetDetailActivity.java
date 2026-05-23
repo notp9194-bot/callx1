@@ -144,7 +144,9 @@ public class XTweetDetailActivity extends AppCompatActivity {
                 TextView tvReplies = findViewById(R.id.tv_x_detail_replies);
 
                 if (ivAvatar != null)
-                    Glide.with(XTweetDetailActivity.this).load(rootTweet.authorPhotoUrl)
+                    String detailAvatarUrl = (rootTweet.authorThumbUrl != null && !rootTweet.authorThumbUrl.isEmpty())
+                        ? rootTweet.authorThumbUrl : rootTweet.authorPhotoUrl;
+                    Glide.with(XTweetDetailActivity.this).load(detailAvatarUrl)
                         .circleCrop().into(ivAvatar);
                 if (tvName != null)   tvName.setText(rootTweet.authorName);
                 if (tvHandle != null) tvHandle.setText("@" + rootTweet.authorHandle);
@@ -240,6 +242,7 @@ public class XTweetDetailActivity extends AppCompatActivity {
                     n.fromUid      = myUid;
                     n.fromName     = snap.child("name").getValue(String.class);
                     n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
+                    n.fromThumbUrl = snap.child("thumbUrl").getValue(String.class);
                     if (n.fromName == null) n.fromName = "Someone";
                     n.tweetId      = tweet.id;
                     n.tweetSnippet = tweet.text != null

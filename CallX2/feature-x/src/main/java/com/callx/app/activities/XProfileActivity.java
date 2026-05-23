@@ -150,7 +150,9 @@ public class XProfileActivity extends AppCompatActivity {
 
         if (xUser.bannerUrl != null && !xUser.bannerUrl.isEmpty())
             Glide.with(this).load(xUser.bannerUrl).centerCrop().into(ivBanner);
-        Glide.with(this).load(xUser.photoUrl).circleCrop().into(ivAvatar);
+        Glide.with(this).load(
+            (xUser.thumbUrl != null && !xUser.thumbUrl.isEmpty()) ? xUser.thumbUrl : xUser.photoUrl
+        ).circleCrop().into(ivAvatar);
         tvName.setText(xUser.name);
         tvHandle.setText("@" + xUser.handle);
         tvBio.setText(xUser.bio != null ? xUser.bio : "");
@@ -202,6 +204,7 @@ public class XProfileActivity extends AppCompatActivity {
                         n.fromUid      = myUid;
                         n.fromName     = snap.child("name").getValue(String.class);
                         n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
+                        n.fromThumbUrl = snap.child("thumbUrl").getValue(String.class);
                         if (n.fromName == null) n.fromName = "Someone";
                         n.timestamp    = System.currentTimeMillis();
                         n.read         = false;

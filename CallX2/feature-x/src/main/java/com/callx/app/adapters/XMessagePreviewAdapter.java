@@ -18,7 +18,7 @@ package com.callx.app.adapters;
   public class XMessagePreviewAdapter extends RecyclerView.Adapter<XMessagePreviewAdapter.VH> {
 
       public static class ConversationPreview {
-          public String conversationId, otherUid, otherName, otherHandle, otherPhotoUrl;
+          public String conversationId, otherUid, otherName, otherHandle, otherPhotoUrl, otherThumbUrl;
           public String lastMessage;
           public long lastTs;
           public boolean unread;
@@ -63,7 +63,9 @@ package com.callx.app.adapters;
           }
 
           void bind(ConversationPreview p) {
-              Glide.with(ctx).load(p.otherPhotoUrl).circleCrop()
+              Glide.with(ctx).load(
+                  (p.otherThumbUrl != null && !p.otherThumbUrl.isEmpty()) ? p.otherThumbUrl : p.otherPhotoUrl
+              ).circleCrop()
                   .placeholder(R.drawable.ic_person).into(ivAvatar);
               tvName.setText(p.otherName);
               tvHandle.setText("@" + p.otherHandle);

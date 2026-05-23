@@ -9,6 +9,7 @@ public class XTweet {
     public String authorName;
     public String authorHandle;
     public String authorPhotoUrl;
+    public String authorThumbUrl;
     public boolean authorVerified;
     public String text;
     public long   timestamp;

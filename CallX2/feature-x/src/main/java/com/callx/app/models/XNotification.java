@@ -6,6 +6,7 @@ public class XNotification {
     public String  fromUid;
     public String  fromName;
     public String  fromPhotoUrl;
+    public String  fromThumbUrl;
     public String  tweetId;
     public String  tweetSnippet;
     public long    timestamp;

@@ -90,9 +90,11 @@ public class XActivity extends AppCompatActivity {
         if (myUid.isEmpty()) return;
         xProfileListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                String thumbUrl = snap.child("thumbUrl").getValue(String.class);
                 String photoUrl = snap.child("photoUrl").getValue(String.class);
-                if (photoUrl != null && !photoUrl.isEmpty()) {
-                    Glide.with(XActivity.this).load(photoUrl).circleCrop()
+                String avatarUrl = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
+                if (avatarUrl != null && !avatarUrl.isEmpty()) {
+                    Glide.with(XActivity.this).load(avatarUrl).circleCrop()
                         .placeholder(R.drawable.ic_person).into(iv);
                 }
             }

@@ -22,7 +22,7 @@ import java.util.*;
 
 public class XDMConversationActivity extends AppCompatActivity {
 
-    private String myUid, otherUid, convId, otherName, otherHandle, otherPhoto;
+    private String myUid, otherUid, convId, otherName, otherHandle, otherPhoto, otherThumb;
     private RecyclerView rvMessages;
     private com.callx.app.adapters.XDMAdapter adapter;
     private EditText etMessage;
@@ -49,6 +49,7 @@ public class XDMConversationActivity extends AppCompatActivity {
         otherName   = getIntent().getStringExtra("other_name");
         otherHandle = getIntent().getStringExtra("other_handle");
         otherPhoto  = getIntent().getStringExtra("other_photo");
+        otherThumb  = getIntent().getStringExtra("other_thumb");
 
         if (convId == null && otherUid != null)
             convId = XFirebaseUtils.dmConversationId(myUid, otherUid);
@@ -59,8 +60,10 @@ public class XDMConversationActivity extends AppCompatActivity {
         ImageView ivAvatar= findViewById(R.id.iv_dm_conv_avatar);
         if (tvTitle  != null && otherName   != null) tvTitle.setText(otherName);
         if (tvHandle != null && otherHandle != null) tvHandle.setText("@" + otherHandle);
-        if (ivAvatar != null && otherPhoto  != null)
-            Glide.with(this).load(otherPhoto).circleCrop().into(ivAvatar);
+        if (ivAvatar != null) {
+            String displayUrl = (otherThumb != null && !otherThumb.isEmpty()) ? otherThumb : otherPhoto;
+            if (displayUrl != null) Glide.with(this).load(displayUrl).circleCrop().into(ivAvatar);
+        }
 
         // Profile tap
         if (ivAvatar != null && otherUid != null) {
@@ -155,6 +158,7 @@ public class XDMConversationActivity extends AppCompatActivity {
         preview.put("otherName", otherName);
         preview.put("otherHandle", otherHandle);
         preview.put("otherPhoto", otherPhoto);
+        preview.put("otherThumb", otherThumb != null ? otherThumb : "");
         preview.put("myUid", myUid);
         XFirebaseUtils.xDmConversationsRef(myUid).child(convId).updateChildren(preview);
 
@@ -166,9 +170,11 @@ public class XDMConversationActivity extends AppCompatActivity {
                 @Override public void onDataChange(DataSnapshot snap) {
                     String myName  = snap.child("name").getValue(String.class);
                     String myPhoto = snap.child("photoUrl").getValue(String.class);
+                    String myThumb = snap.child("thumbUrl").getValue(String.class);
                     recipientPreview.put("otherUid", myUid);
                     recipientPreview.put("otherName", myName != null ? myName : "User");
                     recipientPreview.put("otherPhoto", myPhoto != null ? myPhoto : "");
+                    recipientPreview.put("otherThumb", myThumb != null ? myThumb : "");
                     recipientPreview.put("otherHandle", myUid);  // fallback
                     recipientPreview.put("myUid", otherUid);
                     recipientPreview.put("unread", true);

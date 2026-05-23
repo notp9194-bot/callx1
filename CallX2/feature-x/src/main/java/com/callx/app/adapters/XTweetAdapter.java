@@ -128,7 +128,9 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
 
         void bind(XTweet tweet) {
             // Avatar + profile tap
-            Glide.with(ctx).load(tweet.authorPhotoUrl)
+            String tweetAvatarUrl = (tweet.authorThumbUrl != null && !tweet.authorThumbUrl.isEmpty())
+                ? tweet.authorThumbUrl : tweet.authorPhotoUrl;
+            Glide.with(ctx).load(tweetAvatarUrl)
                 .circleCrop().placeholder(R.drawable.ic_person).into(ivAvatar);
             ivAvatar.setOnClickListener(v -> ctx.startActivity(
                 new Intent(ctx, XProfileActivity.class).putExtra("uid", tweet.authorUid)));
