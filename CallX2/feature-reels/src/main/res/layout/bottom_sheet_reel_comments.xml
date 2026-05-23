@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- bottom_sheet_reel_comments.xml — Advanced v2 with sticky add-comment bar -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -32,7 +33,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center"
-        android:paddingBottom="16dp">
+        android:paddingBottom="14dp">
 
         <ImageView
             android:layout_width="20dp"
@@ -56,20 +57,19 @@
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/divider"/>
 
-    <!-- "All comments" section header -->
+    <!-- Section header + search -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:paddingTop="14dp"
-        android:paddingBottom="8dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="6dp"
         android:text="All comments"
         android:textSize="15sp"
         android:fontFamily="sans-serif-medium"
         android:textColor="?attr/colorOnSurface"/>
 
-    <!-- Search bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="44dp"
@@ -83,7 +83,7 @@
             android:id="@+id/et_search"
             android:layout_width="match_parent"
             android:layout_height="36dp"
-            android:hint="Search"
+            android:hint="Search comments"
             android:textSize="14sp"
             android:background="@drawable/bg_search_field"
             android:paddingStart="14dp"
@@ -99,14 +99,14 @@
     <!-- Comments list -->
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="420dp">
+        android:layout_height="360dp">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_comments"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipToPadding="false"
-            android:paddingBottom="24dp"
+            android:paddingBottom="8dp"
             android:overScrollMode="never"/>
 
         <ProgressBar
@@ -127,5 +127,57 @@
             android:textColor="?attr/colorOnSurfaceVariant"
             android:visibility="gone"/>
     </FrameLayout>
+
+    <!-- Divider above add-comment bar -->
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/divider"/>
+
+    <!-- ── Sticky Add-Comment Bar ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <!-- My avatar -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_my_avatar"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_person"
+            android:layout_marginEnd="8dp"/>
+
+        <!-- Comment input -->
+        <EditText
+            android:id="@+id/et_add_comment"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:hint="Add a comment…"
+            android:textSize="14sp"
+            android:background="@drawable/bg_search_field"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:singleLine="true"
+            android:inputType="textMultiLine|textCapSentences"
+            android:imeOptions="actionSend"/>
+
+        <!-- Send button -->
+        <ImageButton
+            android:id="@+id/btn_send_comment"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="8dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_send"
+            android:background="@drawable/bg_btn_primary_circle"
+            android:contentDescription="Send comment"
+            android:tint="@android:color/white"/>
+
+    </LinearLayout>
 
 </LinearLayout>

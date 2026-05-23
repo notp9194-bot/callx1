@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- item_reel_commenter.xml — Advanced v2 with in-sheet like, verified badge, long-press -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -14,8 +15,8 @@
     <!-- Avatar -->
     <de.hdodenhof.circleimageview.CircleImageView
         android:id="@+id/iv_avatar"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
         android:src="@drawable/ic_person"/>
 
     <!-- Name + comment text column -->
@@ -24,10 +25,10 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="8dp">
+        android:paddingStart="10dp"
+        android:paddingEnd="6dp">
 
-        <!-- Name row with optional pinned badge -->
+        <!-- Name row: name + verified + pinned -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -44,16 +45,34 @@
                 android:maxLines="1"
                 android:ellipsize="end"/>
 
+            <ImageView
+                android:id="@+id/iv_verified"
+                android:layout_width="13dp"
+                android:layout_height="13dp"
+                android:layout_marginStart="3dp"
+                android:src="@drawable/ic_verified"
+                android:visibility="gone"
+                android:contentDescription="Verified"/>
+
             <TextView
                 android:id="@+id/tv_pinned"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="5dp"
                 android:text="📌"
                 android:textSize="11sp"
                 android:visibility="gone"/>
 
         </LinearLayout>
+
+        <!-- @username sub-label -->
+        <TextView
+            android:id="@+id/tv_username"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:visibility="gone"/>
 
         <!-- Comment text -->
         <TextView
@@ -63,28 +82,42 @@
             android:layout_marginTop="2dp"
             android:textSize="13sp"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:maxLines="2"
+            android:maxLines="3"
             android:ellipsize="end"/>
 
-        <!-- Comment likes (optional) -->
+        <!-- Edited label -->
+        <TextView
+            android:id="@+id/tv_edited"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="(edited)"
+            android:textSize="10sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:visibility="gone"/>
+
+        <!-- Comment likes row -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="2dp">
+            android:layout_marginTop="3dp">
 
-            <ImageView
-                android:layout_width="12dp"
-                android:layout_height="12dp"
-                android:src="@drawable/ic_heart_filled"
-                android:layout_marginEnd="3dp"
-                android:contentDescription="Likes"/>
+            <!-- Tappable heart icon for in-sheet like -->
+            <ImageButton
+                android:id="@+id/btn_like_comment"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:padding="0dp"
+                android:src="@drawable/ic_heart"
+                android:background="@null"
+                android:contentDescription="Like comment"/>
 
             <TextView
                 android:id="@+id/tv_likes"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="3dp"
                 android:textSize="11sp"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:visibility="gone"/>
@@ -97,11 +130,11 @@
     <Button
         android:id="@+id/btn_reply"
         android:layout_width="wrap_content"
-        android:layout_height="34dp"
+        android:layout_height="32dp"
         android:text="Reply"
-        android:textSize="13sp"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:textSize="12sp"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
         android:background="@drawable/bg_btn_secondary"
         android:textColor="?attr/colorOnSurface"/>
 
