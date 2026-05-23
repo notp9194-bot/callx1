@@ -20,6 +20,9 @@ public class XUser {
     public long   followingCount;
     public long   tweetCount;
     public String pinnedTweetId;
+    public String birthday;        // "DD/MM/YYYY"
+    public String gender;          // "Male" / "Female" / "Other" / "Prefer not to say"
+    public boolean privateAccount; // protected tweets
 
     public Map<String, Boolean> followers  = new HashMap<>();
     public Map<String, Boolean> muted      = new HashMap<>();
