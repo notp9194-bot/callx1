@@ -174,9 +174,9 @@
             android:layout_marginStart="8dp"
             android:padding="8dp"
             android:src="@drawable/ic_send"
-            android:background="@drawable/bg_btn_primary_circle"
+            android:background="@drawable/bg_circle_action"
             android:contentDescription="Send comment"
-            android:tint="@android:color/white"/>
+            android:tint="@color/brand_primary"/>
 
     </LinearLayout>
 
