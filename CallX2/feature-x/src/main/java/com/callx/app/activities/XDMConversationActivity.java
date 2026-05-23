@@ -165,10 +165,12 @@ public class XDMConversationActivity extends AppCompatActivity {
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot snap) {
                     String myName  = snap.child("name").getValue(String.class);
+                    String myThumb = snap.child("thumbUrl").getValue(String.class);
                     String myPhoto = snap.child("photoUrl").getValue(String.class);
+                    String myAvatar = (myThumb != null && !myThumb.isEmpty()) ? myThumb : myPhoto;
                     recipientPreview.put("otherUid", myUid);
                     recipientPreview.put("otherName", myName != null ? myName : "User");
-                    recipientPreview.put("otherPhoto", myPhoto != null ? myPhoto : "");
+                    recipientPreview.put("otherPhoto", myAvatar != null ? myAvatar : "");
                     recipientPreview.put("otherHandle", myUid);  // fallback
                     recipientPreview.put("myUid", otherUid);
                     recipientPreview.put("unread", true);

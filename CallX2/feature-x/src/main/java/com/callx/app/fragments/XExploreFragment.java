@@ -144,7 +144,7 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
             Button   btnFollow= card.findViewById(R.id.btn_suggestion_follow);
 
             Glide.with(requireContext())
-                .load(su.user.photoUrl)
+                .load(su.user.avatarUrl())
                 .circleCrop()
                 .placeholder(R.drawable.ic_person)
                 .into(ivAvatar);
@@ -361,9 +361,10 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                     XUser u = ds.getValue(XUser.class);
                     if (u == null) continue;
                     u.uid = ds.getKey();
+                    u.ensureMapsNotNull();
                     View row = LayoutInflater.from(requireContext())
                         .inflate(R.layout.item_x_user_row, llUserResults, false);
-                    Glide.with(requireContext()).load(u.photoUrl).circleCrop()
+                    Glide.with(requireContext()).load(u.avatarUrl()).circleCrop()
                         .placeholder(R.drawable.ic_person)
                         .into((android.widget.ImageView) row.findViewById(R.id.iv_x_user_avatar));
                     ((TextView) row.findViewById(R.id.tv_x_user_name)).setText(u.name);

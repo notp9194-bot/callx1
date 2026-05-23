@@ -20,6 +20,7 @@ import com.google.android.material.badge.BadgeDrawable;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
+import com.callx.app.utils.FirebaseUtils;
 import de.hdodenhof.circleimageview.CircleImageView;
 
 public class XActivity extends AppCompatActivity {
@@ -90,16 +91,33 @@ public class XActivity extends AppCompatActivity {
         if (myUid.isEmpty()) return;
         xProfileListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                // Prefer thumbUrl (100×100 WebP) for fast avatar loading
+                String thumbUrl = snap.child("thumbUrl").getValue(String.class);
                 String photoUrl = snap.child("photoUrl").getValue(String.class);
-                if (photoUrl != null && !photoUrl.isEmpty()) {
-                    Glide.with(XActivity.this).load(photoUrl).circleCrop()
+                String avatarUrl = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
+                if (avatarUrl != null && !avatarUrl.isEmpty()) {
+                    Glide.with(XActivity.this).load(avatarUrl).circleCrop()
                         .placeholder(R.drawable.ic_person).into(iv);
+                } else {
+                    // Fallback: load from main /users node (for users who haven't used X yet)
+                    com.callx.app.utils.FirebaseUtils.getUserRef(myUid).get()
+                        .addOnSuccessListener(ds -> {
+                            String mainThumb = ds.child("thumbUrl").getValue(String.class);
+                            String mainPhoto = ds.child("photoUrl").getValue(String.class);
+                            String mainAvatar = (mainThumb != null && !mainThumb.isEmpty())
+                                ? mainThumb : mainPhoto;
+                            Glide.with(XActivity.this)
+                                .load(mainAvatar != null ? mainAvatar : R.drawable.ic_person)
+                                .circleCrop()
+                                .placeholder(R.drawable.ic_person).into(iv);
+                        });
                 }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         XFirebaseUtils.xUserRef(myUid).addValueEventListener(xProfileListener);
     }
+
 
     private void switchFragment(Fragment target) {
         if (target == activeFragment) return;

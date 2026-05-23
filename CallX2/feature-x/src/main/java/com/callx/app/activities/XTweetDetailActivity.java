@@ -239,7 +239,9 @@ public class XTweetDetailActivity extends AppCompatActivity {
                     n.type         = type;
                     n.fromUid      = myUid;
                     n.fromName     = snap.child("name").getValue(String.class);
-                    n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
+                    n.fromPhotoUrl = snap.child("thumbUrl").getValue(String.class);
+                    if (n.fromPhotoUrl == null || n.fromPhotoUrl.isEmpty())
+                        n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
                     if (n.fromName == null) n.fromName = "Someone";
                     n.tweetId      = tweet.id;
                     n.tweetSnippet = tweet.text != null

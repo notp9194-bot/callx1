@@ -100,6 +100,7 @@ public class XWhoToFollowManager {
                 XUser u = snap.getValue(XUser.class);
                 if (u != null) {
                     u.uid = snap.getKey();
+                    u.ensureMapsNotNull();
                     int mc = mutualCount.getOrDefault(uid, 0);
                     results.add(new SuggestedUser(u, mc));
                 }
@@ -129,6 +130,7 @@ public class XWhoToFollowManager {
                 XUser u = ds.getValue(XUser.class);
                 if (u == null || myUid.equals(ds.getKey())) continue;
                 u.uid = ds.getKey();
+                u.ensureMapsNotNull();
                 results.add(new SuggestedUser(u, 0));
             }
             // Sort by follower count descending

@@ -10,6 +10,8 @@ import android.widget.ImageView;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -19,6 +21,7 @@ import com.callx.app.adapters.XTweetAdapter;
 import com.callx.app.models.XNotification;
 import com.callx.app.models.XTweet;
 import com.callx.app.models.XUser;
+import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.x.R;
 import com.google.android.material.button.MaterialButton;
@@ -35,6 +38,15 @@ public class XProfileActivity extends AppCompatActivity {
     private boolean isFollowing;
     private ValueEventListener userListener, tweetsListener;
     private XTweetAdapter adapter;
+
+    // Launches XEditProfileActivity and refreshes profile on RESULT_OK
+    private final ActivityResultLauncher<Intent> editProfileLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (result.getResultCode() == RESULT_OK) {
+                // Re-fetch updated profile from Firebase
+                loadProfile();
+            }
+        });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -130,6 +142,7 @@ public class XProfileActivity extends AppCompatActivity {
                 xUser = snap.getValue(XUser.class);
                 if (xUser == null) return;
                 xUser.uid = snap.getKey();
+                xUser.ensureMapsNotNull();
                 bindProfile();
             }
             @Override public void onCancelled(DatabaseError e) {}
@@ -150,7 +163,7 @@ public class XProfileActivity extends AppCompatActivity {
 
         if (xUser.bannerUrl != null && !xUser.bannerUrl.isEmpty())
             Glide.with(this).load(xUser.bannerUrl).centerCrop().into(ivBanner);
-        Glide.with(this).load(xUser.photoUrl).circleCrop().into(ivAvatar);
+        Glide.with(this).load(xUser.avatarUrl()).circleCrop().into(ivAvatar);
         tvName.setText(xUser.name);
         tvHandle.setText("@" + xUser.handle);
         tvBio.setText(xUser.bio != null ? xUser.bio : "");
@@ -161,7 +174,7 @@ public class XProfileActivity extends AppCompatActivity {
         if (targetUid.equals(myUid)) {
             btnFollow.setText("Edit profile");
             btnFollow.setOnClickListener(v ->
-                startActivity(new Intent(this, XEditProfileActivity.class)));
+                editProfileLauncher.launch(new Intent(this, XEditProfileActivity.class)));
         } else {
             // Check follow status from followers map
             XFirebaseUtils.userFollowersRef(targetUid).child(myUid).get()
@@ -194,14 +207,16 @@ public class XProfileActivity extends AppCompatActivity {
 
         if (isFollowing) {
             // Push follow notification with my profile data
-            com.callx.app.utils.FirebaseUtils.getUserRef(myUid)
+            FirebaseUtils.getUserRef(myUid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
                         XNotification n = new XNotification();
                         n.type         = "follow";
                         n.fromUid      = myUid;
                         n.fromName     = snap.child("name").getValue(String.class);
-                        n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
+                        n.fromPhotoUrl = snap.child("thumbUrl").getValue(String.class);
+                        if (n.fromPhotoUrl == null || n.fromPhotoUrl.isEmpty())
+                            n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
                         if (n.fromName == null) n.fromName = "Someone";
                         n.timestamp    = System.currentTimeMillis();
                         n.read         = false;
