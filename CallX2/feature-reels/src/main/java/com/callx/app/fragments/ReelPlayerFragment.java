@@ -1658,9 +1658,6 @@ public class ReelPlayerFragment extends Fragment {
      */
     private void showBottomSheet(androidx.fragment.app.DialogFragment sheet, String tag) {
         if (!isAdded()) return;
-        // Use getChildFragmentManager() — works correctly whether ReelPlayerFragment
-        // is hosted inside ReelsFragment (MainActivity) or directly in
-        // SingleReelPlayerActivity. Never causes "Activity is finished" crashes.
         androidx.fragment.app.FragmentManager fm = getChildFragmentManager();
         if (fm.isDestroyed()) return;
         androidx.fragment.app.Fragment existing = fm.findFragmentByTag(tag);
@@ -1673,7 +1670,7 @@ public class ReelPlayerFragment extends Fragment {
         try {
             sheet.show(fm, tag);
         } catch (Exception e) {
-            try { sheet.showNow(fm, tag); } catch (Exception ignored) {}
+            android.widget.Toast.makeText(requireContext(), "ERR: " + e.getClass().getSimpleName() + ": " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
         }
     }
 
