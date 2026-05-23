@@ -38,6 +38,24 @@
             android:fontFamily="sans-serif-bold"
             android:background="@drawable/bg_x_bubble_sent"/>
 
+        
+        <ImageButton android:id="@+id/btn_x_compose_video"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_x_share"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Video"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_thread"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_at"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Thread"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_audience"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_person"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Audience"/>
         <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
 
         <Button
@@ -187,6 +205,52 @@
                         android:layout_marginTop="8dp"
                         android:visibility="gone"/>
 
+
+                    <!-- Link preview card (shown when URL detected in text) -->
+                    <LinearLayout
+                        android:id="@+id/card_x_compose_link_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_x_quote_card"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:id="@+id/iv_link_preview_thumb"
+                            android:layout_width="match_parent"
+                            android:layout_height="100dp"
+                            android:scaleType="centerCrop"
+                            android:visibility="gone"
+                            android:contentDescription="Link thumbnail"/>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="10dp">
+
+                            <TextView
+                                android:id="@+id/tv_link_preview_title"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/x_text_primary"
+                                android:textSize="14sp"
+                                android:fontFamily="sans-serif-bold"
+                                android:maxLines="2"
+                                android:ellipsize="end"/>
+
+                            <TextView
+                                android:id="@+id/tv_link_preview_desc"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/x_text_secondary"
+                                android:textSize="12sp"
+                                android:maxLines="2"
+                                android:ellipsize="end"
+                                android:layout_marginTop="2dp"/>
+                        </LinearLayout>
+                    </LinearLayout>
                     <!-- Poll editor (full) -->
                     <LinearLayout
                         android:id="@+id/ll_compose_poll_editor"
@@ -263,36 +327,54 @@
         android:paddingEnd="8dp"
         android:background="@color/x_bg">
 
-        <ImageButton android:id="@+id/btn_compose_media"
+        <ImageButton android:id="@+id/btn_x_compose_image"
             android:layout_width="40dp" android:layout_height="40dp"
             android:src="@drawable/ic_image"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/x_accent" android:contentDescription="Media"/>
 
-        <ImageButton android:id="@+id/btn_compose_gif"
+        <ImageButton android:id="@+id/btn_x_compose_gif"
             android:layout_width="40dp" android:layout_height="40dp"
             android:src="@drawable/ic_gif"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/x_accent" android:contentDescription="GIF"/>
 
-        <ImageButton android:id="@+id/btn_compose_poll"
+        <ImageButton android:id="@+id/btn_x_compose_poll"
             android:layout_width="40dp" android:layout_height="40dp"
             android:src="@drawable/ic_x_poll"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/x_accent" android:contentDescription="Poll"/>
 
-        <ImageButton android:id="@+id/btn_compose_emoji"
+        <ImageButton android:id="@+id/btn_x_compose_emoji"
             android:layout_width="40dp" android:layout_height="40dp"
             android:src="@drawable/ic_emoji"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/x_accent" android:contentDescription="Emoji"/>
 
-        <ImageButton android:id="@+id/btn_compose_schedule"
+        <ImageButton android:id="@+id/btn_x_compose_schedule"
             android:layout_width="40dp" android:layout_height="40dp"
             android:src="@drawable/ic_schedule"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/x_accent" android:contentDescription="Schedule"/>
 
+        
+        <ImageButton android:id="@+id/btn_x_compose_video"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_x_share"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Video"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_thread"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_at"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Thread"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_audience"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_person"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Audience"/>
         <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
 
         <TextView

@@ -13,14 +13,16 @@ public class XPoll {
     public long                expiresAt;
     public boolean             expired;
 
-    public long totalVotes() {
+    public long totalVotes;  // serialized field for Firebase
+
+    public long totalVotesSum() {
         long sum = 0;
         if (voteCounts != null) for (Long c : voteCounts.values()) if (c != null) sum += c;
         return sum;
     }
 
     public int percentFor(String option) {
-        long total = totalVotes();
+        long total = totalVotesSum();
         if (total == 0 || voteCounts == null) return 0;
         Long c = voteCounts.get(option);
         return (int) Math.round((c != null ? c : 0) * 100.0 / total);
