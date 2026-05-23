@@ -107,7 +107,7 @@ public class XDMConversationActivity extends AppCompatActivity {
                     rvMessages.scrollToPosition(list.size() - 1);
                 markSeen();
             }
-            @Override public void onCancelled(DataSnapshot e) {}
+            @Override public void onCancelled(DatabaseError e) {}
         };
         XFirebaseUtils.xDmMessagesRef(convId).limitToLast(100).addValueEventListener(msgListener);
     }
@@ -175,7 +175,7 @@ public class XDMConversationActivity extends AppCompatActivity {
                     XFirebaseUtils.xDmConversationsRef(otherUid).child(convId)
                         .updateChildren(recipientPreview);
                 }
-                @Override public void onCancelled(DataSnapshot e) {}
+                @Override public void onCancelled(DatabaseError e) {}
             });
     }
 
@@ -193,7 +193,7 @@ public class XDMConversationActivity extends AppCompatActivity {
                             ds.getRef().child("seen").setValue(true);
                     }
                 }
-                @Override public void onCancelled(DataSnapshot e) {}
+                @Override public void onCancelled(DatabaseError e) {}
             });
     }
 

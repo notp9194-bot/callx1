@@ -56,10 +56,6 @@ public class XActivity extends AppCompatActivity {
             loadMyAvatar(ivMyAvatar);
         }
 
-        // Back to CallX (fallback if avatar not in layout)
-        View btnBack = findViewById(R.id.btn_x_back);
-        if (btnBack != null) btnBack.setOnClickListener(v -> finish());
-
         // Compose button in header
         View btnCompose = findViewById(R.id.btn_x_header_compose);
         if (btnCompose != null)

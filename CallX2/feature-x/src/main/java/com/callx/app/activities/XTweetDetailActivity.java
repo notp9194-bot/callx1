@@ -193,7 +193,7 @@ public class XTweetDetailActivity extends AppCompatActivity {
                 XFirebaseUtils.tweetRef(tweetId).child("viewCount")
                     .setValue(rootTweet.viewCount + 1);
             }
-            @Override public void onCancelled(DataSnapshot e) {}
+            @Override public void onCancelled(DatabaseError e) {}
         };
         XFirebaseUtils.tweetRef(tweetId).addValueEventListener(tweetListener);
     }
@@ -226,7 +226,7 @@ public class XTweetDetailActivity extends AppCompatActivity {
                         });
                 }
             }
-            @Override public void onCancelled(DataSnapshot e) {}
+            @Override public void onCancelled(DatabaseError e) {}
         };
         XFirebaseUtils.tweetRepliesRef(tweetId).addValueEventListener(repliesListener);
     }
