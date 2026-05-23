@@ -91,23 +91,17 @@ public class XActivity extends AppCompatActivity {
         if (myUid.isEmpty()) return;
         xProfileListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                // Prefer thumbUrl (100×100 WebP) for fast avatar loading
-                String thumbUrl = snap.child("thumbUrl").getValue(String.class);
                 String photoUrl = snap.child("photoUrl").getValue(String.class);
-                String avatarUrl = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
-                if (avatarUrl != null && !avatarUrl.isEmpty()) {
-                    Glide.with(XActivity.this).load(avatarUrl).circleCrop()
+                if (photoUrl != null && !photoUrl.isEmpty()) {
+                    Glide.with(XActivity.this).load(photoUrl).circleCrop()
                         .placeholder(R.drawable.ic_person).into(iv);
                 } else {
                     // Fallback: load from main /users node (for users who haven't used X yet)
-                    com.callx.app.utils.FirebaseUtils.getUserRef(myUid).get()
-                        .addOnSuccessListener(ds -> {
-                            String mainThumb = ds.child("thumbUrl").getValue(String.class);
-                            String mainPhoto = ds.child("photoUrl").getValue(String.class);
-                            String mainAvatar = (mainThumb != null && !mainThumb.isEmpty())
-                                ? mainThumb : mainPhoto;
+                    com.callx.app.utils.FirebaseUtils.getUserRef(myUid)
+                        .child("photoUrl").get().addOnSuccessListener(ds -> {
+                            String mainPhoto = ds.getValue(String.class);
                             Glide.with(XActivity.this)
-                                .load(mainAvatar != null ? mainAvatar : R.drawable.ic_person)
+                                .load(mainPhoto != null ? mainPhoto : R.drawable.ic_person)
                                 .circleCrop()
                                 .placeholder(R.drawable.ic_person).into(iv);
                         });
@@ -117,7 +111,6 @@ public class XActivity extends AppCompatActivity {
         };
         XFirebaseUtils.xUserRef(myUid).addValueEventListener(xProfileListener);
     }
-
 
     private void switchFragment(Fragment target) {
         if (target == activeFragment) return;

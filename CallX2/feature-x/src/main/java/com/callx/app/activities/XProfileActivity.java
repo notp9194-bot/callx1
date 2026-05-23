@@ -163,7 +163,7 @@ public class XProfileActivity extends AppCompatActivity {
 
         if (xUser.bannerUrl != null && !xUser.bannerUrl.isEmpty())
             Glide.with(this).load(xUser.bannerUrl).centerCrop().into(ivBanner);
-        Glide.with(this).load(xUser.avatarUrl()).circleCrop().into(ivAvatar);
+        Glide.with(this).load(xUser.photoUrl).circleCrop().into(ivAvatar);
         tvName.setText(xUser.name);
         tvHandle.setText("@" + xUser.handle);
         tvBio.setText(xUser.bio != null ? xUser.bio : "");
@@ -214,9 +214,7 @@ public class XProfileActivity extends AppCompatActivity {
                         n.type         = "follow";
                         n.fromUid      = myUid;
                         n.fromName     = snap.child("name").getValue(String.class);
-                        n.fromPhotoUrl = snap.child("thumbUrl").getValue(String.class);
-                        if (n.fromPhotoUrl == null || n.fromPhotoUrl.isEmpty())
-                            n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
+                        n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
                         if (n.fromName == null) n.fromName = "Someone";
                         n.timestamp    = System.currentTimeMillis();
                         n.read         = false;

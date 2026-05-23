@@ -9,8 +9,7 @@ public class XUser {
     public String  name;
     public String  handle;
     public String  bio;
-    public String  photoUrl;     // full-res photo (800×800 JPEG)
-    public String  thumbUrl;     // thumbnail (100×100 WebP) — prefer this for avatars
+    public String  photoUrl;
     public String  bannerUrl;
     public String  website;
     public String  location;
@@ -28,13 +27,6 @@ public class XUser {
     public Map<String, Boolean> followers;
     public Map<String, Boolean> muted;
     public Map<String, Boolean> blocked;
-
-    /** Returns thumbUrl if available, else falls back to photoUrl. */
-    @Exclude
-    public String avatarUrl() {
-        if (thumbUrl != null && !thumbUrl.isEmpty()) return thumbUrl;
-        return photoUrl;
-    }
 
     /** Safe null-guarded helpers — never crash even if maps weren't in DB */
     @Exclude

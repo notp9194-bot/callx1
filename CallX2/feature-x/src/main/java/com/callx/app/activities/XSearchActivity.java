@@ -135,7 +135,7 @@ public class XSearchActivity extends AppCompatActivity {
                     ImageView iv = row.findViewById(R.id.iv_x_user_avatar);
                     TextView tvName   = row.findViewById(R.id.tv_x_user_name);
                     TextView tvHandle = row.findViewById(R.id.tv_x_user_handle);
-                    Glide.with(this).load(u.avatarUrl()).circleCrop()
+                    Glide.with(this).load(u.photoUrl).circleCrop()
                         .placeholder(R.drawable.ic_person).into(iv);
                     tvName.setText(u.name);
                     tvHandle.setText("@" + u.handle);
@@ -149,7 +149,7 @@ public class XSearchActivity extends AppCompatActivity {
                                 .putExtra("other_uid", uid)
                                 .putExtra("other_name", u.name)
                                 .putExtra("other_handle", u.handle)
-                                .putExtra("other_photo", u.avatarUrl()));
+                                .putExtra("other_photo", u.photoUrl));
                         } else {
                             startActivity(new Intent(this, XProfileActivity.class)
                                 .putExtra("uid", uid));

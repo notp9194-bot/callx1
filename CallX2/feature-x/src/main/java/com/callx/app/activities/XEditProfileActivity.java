@@ -116,7 +116,6 @@ public class XEditProfileActivity extends AppCompatActivity {
                     xUser.uid      = myUid;
                     xUser.name     = snap.child("name").getValue(String.class);
                     xUser.photoUrl = snap.child("photoUrl").getValue(String.class);
-                    xUser.thumbUrl = snap.child("thumbUrl").getValue(String.class);
                     xUser.bio      = snap.child("about").getValue(String.class);
                     // Derive handle from callxId/mobile, else uid prefix
                     String callxId = snap.child("callxId").getValue(String.class);
@@ -154,7 +153,7 @@ public class XEditProfileActivity extends AppCompatActivity {
         etLocation.setText(xUser.location != null ? xUser.location : "");
 
         if (xUser.photoUrl != null && !xUser.photoUrl.isEmpty())
-            Glide.with(this).load(xUser.avatarUrl()).circleCrop()
+            Glide.with(this).load(xUser.photoUrl).circleCrop()
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
         if (xUser.bannerUrl != null && !xUser.bannerUrl.isEmpty())
             Glide.with(this).load(xUser.bannerUrl).centerCrop().into(ivBanner);
@@ -175,17 +174,14 @@ public class XEditProfileActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     pbSave.setVisibility(android.view.View.GONE);
                     if (isAvatar) {
-                        // Derive thumbnail URL by inserting Cloudinary transformation
-                        String thumbUrl = toCloudinaryThumbUrl(url);
-                        Glide.with(XEditProfileActivity.this).load(thumbUrl)
+                        Glide.with(XEditProfileActivity.this).load(url)
                             .circleCrop().into(ivAvatar);
-                        // Sync photoUrl + thumbUrl to X users node
+                        // Sync to X users node
                         XFirebaseUtils.xUserRef(myUid).child("photoUrl").setValue(url);
-                        XFirebaseUtils.xUserRef(myUid).child("thumbUrl").setValue(thumbUrl);
                         // FIX 3: sync to main /users node so chat & reels see the new photo
-                        FirebaseUtils.getUserRef(myUid).child("photoUrl").setValue(url);
-                        FirebaseUtils.getUserRef(myUid).child("thumbUrl").setValue(thumbUrl);
-                        if (xUser != null) { xUser.photoUrl = url; xUser.thumbUrl = thumbUrl; }
+                        FirebaseUtils.getUserRef(myUid)
+                            .child("photoUrl").setValue(url);
+                        if (xUser != null) xUser.photoUrl = url;
                     } else {
                         Glide.with(XEditProfileActivity.this).load(url)
                             .centerCrop().into(ivBanner);
@@ -257,22 +253,5 @@ public class XEditProfileActivity extends AppCompatActivity {
                 Toast.makeText(this, "Save failed: " + e.getMessage(),
                     Toast.LENGTH_SHORT).show();
             });
-    }
-
-    /**
-     * Derives a thumbnail URL from a Cloudinary full-photo URL by inserting
-     * transformation parameters (100×100, crop to thumb, WebP, 60% quality).
-     * E.g.: .../upload/v123/folder/file.jpg
-     *     → .../upload/w_100,h_100,c_thumb,q_60,f_webp/v123/folder/file.jpg
-     * Falls back to the original url if it's not a recognisable Cloudinary URL.
-     */
-    private static String toCloudinaryThumbUrl(String url) {
-        if (url == null || url.isEmpty()) return url;
-        final String marker = "/upload/";
-        int idx = url.indexOf(marker);
-        if (idx < 0) return url; // not a Cloudinary URL, return as-is
-        return url.substring(0, idx + marker.length())
-            + "w_100,h_100,c_thumb,q_60,f_webp/"
-            + url.substring(idx + marker.length());
     }
 }

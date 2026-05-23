@@ -54,7 +54,7 @@ public class XComposeActivity extends AppCompatActivity {
     private String replyToId, replyToHandle;
     private String quotedTweetId;
     private String uploadedMediaUrl, uploadedMediaType;
-    private String myUid, myName, myHandle, myPhotoUrl, myThumbUrl;
+    private String myUid, myName, myHandle, myPhotoUrl;
     private boolean isPosting;
     private long scheduledAt = 0; // 0 = post now
     private boolean pollEnabled = false;
@@ -186,10 +186,8 @@ public class XComposeActivity extends AppCompatActivity {
                 String mobile = snap.child("mobile").getValue(String.class);
                 myHandle   = (mobile != null && !mobile.isEmpty()) ? mobile : "user";
                 myPhotoUrl = snap.child("photoUrl").getValue(String.class);
-                myThumbUrl = snap.child("thumbUrl").getValue(String.class);
-                String avatarUrl = (myThumbUrl != null && !myThumbUrl.isEmpty()) ? myThumbUrl : myPhotoUrl;
-                if (avatarUrl != null && !avatarUrl.isEmpty())
-                    Glide.with(XComposeActivity.this).load(avatarUrl).circleCrop().into(ivMyAvatar);
+                if (myPhotoUrl != null && !myPhotoUrl.isEmpty())
+                    Glide.with(XComposeActivity.this).load(myPhotoUrl).circleCrop().into(ivMyAvatar);
                 // Also ensure xUser record exists
                 XFirebaseUtils.xUserRef(myUid).get().addOnSuccessListener(ds -> {
                     if (!ds.exists()) {
@@ -198,7 +196,6 @@ public class XComposeActivity extends AppCompatActivity {
                         u.name    = myName != null ? myName : "User";
                         u.handle  = myHandle;
                         u.photoUrl= myPhotoUrl != null ? myPhotoUrl : "";
-                        u.thumbUrl= myThumbUrl != null ? myThumbUrl : "";
                         u.joinedTs= System.currentTimeMillis();
                         XFirebaseUtils.xUserRef(myUid).setValue(u);
                     }
@@ -269,8 +266,7 @@ public class XComposeActivity extends AppCompatActivity {
         tweet.authorUid      = myUid;
         tweet.authorName     = myName != null ? myName : "User";
         tweet.authorHandle   = myHandle != null ? myHandle : "user";
-        tweet.authorPhotoUrl = (myThumbUrl != null && !myThumbUrl.isEmpty()) ? myThumbUrl
-                             : (myPhotoUrl != null ? myPhotoUrl : "");
+        tweet.authorPhotoUrl = myPhotoUrl != null ? myPhotoUrl : "";
         tweet.text           = text;
         tweet.timestamp      = System.currentTimeMillis();
         tweet.scheduledAt    = scheduledAt;
