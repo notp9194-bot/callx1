@@ -17,6 +17,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.status.databinding.ActivityNewStatusBinding;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.*;
+import androidx.annotation.NonNull;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import java.util.*;
@@ -374,7 +375,7 @@ public class NewStatusActivity extends AppCompatActivity {
         // Use thumbUrl for ownerPhoto — saves data for all status viewers
         FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(
             new com.google.firebase.database.ValueEventListener() {
-                @Override public void onDataChange(@com.google.firebase.database.DataSnapshot snap) {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String thumb = snap.child("thumbUrl").getValue(String.class);
                     String fullP = snap.child("photoUrl").getValue(String.class);
                     String photo = (thumb != null && !thumb.isEmpty()) ? thumb : (fullP != null ? fullP : safePhoto());
@@ -386,7 +387,7 @@ public class NewStatusActivity extends AppCompatActivity {
                         saveStatus("text", null, null, txt, caption, uid, name, photo);
                     }
                 }
-                @Override public void onCancelled(@com.google.firebase.database.DatabaseError e) {
+                @Override public void onCancelled(@NonNull DatabaseError e) {
                     String photo = safePhoto();
                     if (pickedImage != null) {
                         uploadAndSave(pickedImage, "image", "image", caption, txt, uid, name, photo);
