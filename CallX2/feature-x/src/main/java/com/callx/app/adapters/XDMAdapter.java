@@ -1,61 +1,82 @@
 package com.callx.app.adapters;
 
-  import android.content.Context;
-  import android.view.Gravity;
-  import android.view.LayoutInflater;
-  import android.view.View;
-  import android.view.ViewGroup;
-  import android.widget.LinearLayout;
-  import android.widget.TextView;
-  import androidx.annotation.NonNull;
-  import androidx.recyclerview.widget.RecyclerView;
-  import com.callx.app.models.XMessage;
-  import com.callx.app.x.R;
-  import java.text.SimpleDateFormat;
-  import java.util.ArrayList;
-  import java.util.Date;
-  import java.util.List;
-  import java.util.Locale;
+import android.content.Context;
+import android.content.Intent;
+import android.view.*;
+import android.widget.*;
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.RecyclerView;
+import com.bumptech.glide.Glide;
+import com.callx.app.activities.XImageViewerActivity;
+import com.callx.app.models.XDMMessage;
+import com.callx.app.x.R;
+import java.text.SimpleDateFormat;
+import java.util.*;
 
-  public class XDMAdapter extends RecyclerView.Adapter<XDMAdapter.VH> {
+public class XDMAdapter extends RecyclerView.Adapter<XDMAdapter.MsgVH> {
 
-      private final Context ctx;
-      private final String myUid;
-      private final List<XMessage> msgs = new ArrayList<>();
+    private static final int VT_SENT = 0, VT_RECV = 1;
+    private final Context ctx;
+    private final String myUid;
+    private final List<XDMMessage> msgs = new ArrayList<>();
 
-      public XDMAdapter(Context ctx, String myUid) { this.ctx = ctx; this.myUid = myUid; }
+    public XDMAdapter(Context ctx, String myUid) {
+        this.ctx = ctx; this.myUid = myUid;
+    }
 
-      public void setMessages(List<XMessage> list) {
-          msgs.clear(); msgs.addAll(list); notifyDataSetChanged();
-      }
+    public void setMessages(List<XDMMessage> list) {
+        msgs.clear(); msgs.addAll(list); notifyDataSetChanged();
+    }
 
-      @NonNull @Override
-      public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-          return new VH(LayoutInflater.from(ctx).inflate(R.layout.item_x_dm_message, parent, false));
-      }
+    @Override public int getItemViewType(int pos) {
+        return myUid.equals(msgs.get(pos).senderUid) ? VT_SENT : VT_RECV;
+    }
 
-      @Override public void onBindViewHolder(@NonNull VH h, int pos) { h.bind(msgs.get(pos)); }
-      @Override public int getItemCount() { return msgs.size(); }
+    @NonNull @Override
+    public MsgVH onCreateViewHolder(@NonNull ViewGroup p, int vt) {
+        int layout = vt == VT_SENT ? R.layout.item_x_dm_sent : R.layout.item_x_dm_recv;
+        return new MsgVH(LayoutInflater.from(ctx).inflate(layout, p, false));
+    }
 
-      class VH extends RecyclerView.ViewHolder {
-          TextView tvText, tvTime;
-          LinearLayout llBubble;
+    @Override public void onBindViewHolder(@NonNull MsgVH h, int pos) { h.bind(msgs.get(pos)); }
+    @Override public int getItemCount() { return msgs.size(); }
 
-          VH(View v) {
-              super(v);
-              tvText   = v.findViewById(R.id.tv_xdm_text);
-              tvTime   = v.findViewById(R.id.tv_xdm_msg_time);
-              llBubble = v.findViewById(R.id.ll_xdm_bubble);
-          }
+    class MsgVH extends RecyclerView.ViewHolder {
+        TextView tvText, tvTime, tvSeen;
+        ImageView ivMedia;
 
-          void bind(XMessage m) {
-              boolean mine = myUid.equals(m.senderId);
-              tvText.setText(m.text);
-              tvTime.setText(new SimpleDateFormat("HH:mm", Locale.US).format(new Date(m.timestamp)));
-              // Align: mine=right, other=left
-              LinearLayout root = (LinearLayout) itemView;
-              root.setGravity(mine ? Gravity.END : Gravity.START);
-              llBubble.setBackgroundResource(mine ? R.drawable.bg_x_bubble_sent : R.drawable.bg_x_bubble_recv);
-          }
-      }
-  }
+        MsgVH(View v) {
+            super(v);
+            tvText  = v.findViewById(R.id.tv_dm_text);
+            tvTime  = v.findViewById(R.id.tv_dm_time);
+            tvSeen  = v.findViewById(R.id.tv_dm_seen);
+            ivMedia = v.findViewById(R.id.iv_dm_media);
+        }
+
+        void bind(XDMMessage m) {
+            if (tvText != null) {
+                tvText.setVisibility(m.text != null && !m.text.isEmpty() ? View.VISIBLE : View.GONE);
+                if (m.text != null) tvText.setText(m.text);
+            }
+            if (ivMedia != null) {
+                if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
+                    ivMedia.setVisibility(View.VISIBLE);
+                    Glide.with(ctx).load(m.mediaUrl).centerCrop().into(ivMedia);
+                    ivMedia.setOnClickListener(v ->
+                        ctx.startActivity(new Intent(ctx, XImageViewerActivity.class)
+                            .putExtra("image_url", m.mediaUrl)));
+                } else {
+                    ivMedia.setVisibility(View.GONE);
+                }
+            }
+            if (tvTime != null)
+                tvTime.setText(new SimpleDateFormat("HH:mm", Locale.US).format(new Date(m.timestamp)));
+            if (tvSeen != null) {
+                // Show read receipt on sent messages
+                tvSeen.setVisibility(myUid.equals(m.senderUid) ? View.VISIBLE : View.GONE);
+                if (tvSeen.getVisibility() == View.VISIBLE)
+                    tvSeen.setText(m.seen ? "Seen" : "Sent");
+            }
+        }
+    }
+}
