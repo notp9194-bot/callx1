@@ -1,0 +1,312 @@
+{
+  "rules": {
+    "x": {
+      "tweets": {
+        "$tweetId": {
+          ".read": "auth != null",
+          ".write": "auth != null && (!data.exists() || data.child('authorUid').val() === auth.uid)",
+          ".validate": "newData.hasChildren(['authorUid','text','timestamp'])",
+
+          "isDeleted": {
+            ".write": "auth != null && (data.parent().child('authorUid').val() === auth.uid)"
+          },
+          "likeCount": {
+            ".write": "auth != null"
+          },
+          "retweetCount": {
+            ".write": "auth != null"
+          },
+          "replyCount": {
+            ".write": "auth != null"
+          },
+          "viewCount": {
+            ".write": "auth != null"
+          },
+          "bookmarkCount": {
+            ".write": "auth != null"
+          },
+          "isPinned": {
+            ".write": "auth != null && data.parent().child('authorUid').val() === auth.uid"
+          },
+          "editedAt": {
+            ".write": "auth != null && data.parent().child('authorUid').val() === auth.uid"
+          },
+          "editedText": {
+            ".write": "auth != null && data.parent().child('authorUid').val() === auth.uid"
+          }
+        }
+      },
+
+      "global_feed": {
+        ".read": "auth != null",
+        "$tweetId": {
+          ".write": "auth != null"
+        }
+      },
+
+      "user_feeds": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null"
+        }
+      },
+
+      "user_tweets": {
+        "$uid": {
+          ".read": "auth != null",
+          "$tweetId": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "user_replies": {
+        "$uid": {
+          ".read": "auth != null",
+          "$tweetId": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "user_media_tweets": {
+        "$uid": {
+          ".read": "auth != null",
+          "$tweetId": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "tweet_likes": {
+        "$tweetId": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "tweet_retweets": {
+        "$tweetId": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "tweet_replies": {
+        "$tweetId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      },
+
+      "user_likes": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$tweetId": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "user_retweets": {
+        "$uid": {
+          ".read": "auth != null",
+          "$tweetId": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "user_bookmarks": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      },
+
+      "user_followers": {
+        "$uid": {
+          ".read": "auth != null",
+          "$followerId": {
+            ".write": "auth != null && auth.uid === $followerId"
+          }
+        }
+      },
+
+      "user_following": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$followingId": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "user_muted": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      },
+
+      "user_blocked": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$blockedId": {
+            ".write": "auth != null && (auth.uid === $uid || auth.uid === $blockedId)"
+          }
+        }
+      },
+
+      "users": {
+        "$uid": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid === $uid",
+
+          "followerCount": {
+            ".write": "auth != null"
+          },
+          "followingCount": {
+            ".write": "auth != null && auth.uid === $uid"
+          },
+          "tweetCount": {
+            ".write": "auth != null && auth.uid === $uid"
+          },
+          "profileViews": {
+            ".write": "auth != null"
+          }
+        }
+      },
+
+      "notifications": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$notifId": {
+            ".write": "auth != null",
+            "read": {
+              ".write": "auth != null && auth.uid === $uid"
+            }
+          }
+        }
+      },
+
+      "unread_notif_count": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null"
+        }
+      },
+
+      "dm_conversations": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null"
+        }
+      },
+
+      "dm_messages": {
+        "$convId": {
+          ".read": "auth != null && ($convId.contains(auth.uid))",
+          ".write": "auth != null && ($convId.contains(auth.uid))",
+          "$msgId": {
+            "seen": {
+              ".write": "auth != null && ($convId.contains(auth.uid))"
+            }
+          }
+        }
+      },
+
+      "dm_typing": {
+        "$convId": {
+          ".read": "auth != null && ($convId.contains(auth.uid))",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "dm_reactions": {
+        "$convId": {
+          "$msgId": {
+            "$emoji": {
+              "$uid": {
+                ".read": "auth != null && ($convId.contains(auth.uid))",
+                ".write": "auth != null && auth.uid === $uid && ($convId.contains(auth.uid))"
+              }
+            }
+          }
+        }
+      },
+
+      "polls": {
+        "$pollId": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          "voteCounts": {
+            "$option": {
+              ".write": "auth != null"
+            }
+          },
+          "userVotes": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid"
+            }
+          }
+        }
+      },
+
+      "trending": {
+        ".read": "auth != null",
+        "$tag": {
+          ".write": "auth != null"
+        }
+      },
+
+      "hashtag_feeds": {
+        "$tag": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      },
+
+      "reports": {
+        "$tweetId": {
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+
+      "scheduled_posts": {
+        "$tweetId": {
+          ".read": "auth != null && data.child('authorUid').val() === auth.uid",
+          ".write": "auth != null && (!data.exists() || data.child('authorUid').val() === auth.uid)"
+        }
+      },
+
+      "link_previews": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+
+      "tweet_edits": {
+        "$tweetId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      },
+
+      "x_handles": {
+        ".read": "auth != null",
+        "$handle": {
+          ".write": "auth != null && (!data.exists() || data.val() === auth.uid)"
+        }
+      }
+    }
+  }
+}

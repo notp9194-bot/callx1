@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
 
     <application>
 
@@ -74,6 +75,36 @@
             android:name="com.callx.app.activities.XVideoPlayerActivity"
             android:theme="@style/XActivity.Theme"
             android:exported="false"/>
+
+
+        <!-- v10: Block / Mute Screens -->
+        <activity
+            android:name="com.callx.app.activities.XBlockedUsersActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Blocked Accounts"/>
+
+        <activity
+            android:name="com.callx.app.activities.XMutedUsersActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Muted Accounts"/>
+
+        <!-- v10: GIF Picker (Tenor) -->
+        <activity
+            android:name="com.callx.app.activities.XGifPickerActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Choose GIF"/>
+
+        <!-- v10: Thread Composer -->
+        <activity
+            android:name="com.callx.app.activities.XThreadComposerActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Compose Thread"/>
 
     </application>
 

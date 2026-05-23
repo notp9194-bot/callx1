@@ -5,15 +5,8 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-
-import com.callx.app.cache.XTweetCacheManager;
-import com.callx.app.cache.XTweetMediaPreloader;
-import com.callx.app.cache.XTweetImagePreloader;
-import android.widget.PopupMenu;
-import android.widget.Toast;
+import android.view.*;
+import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -22,6 +15,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import com.callx.app.activities.XComposeActivity;
 import com.callx.app.adapters.XTweetAdapter;
+import com.callx.app.cache.XTweetCacheManager;
+import com.callx.app.cache.XTweetImagePreloader;
+import com.callx.app.cache.XTweetMediaPreloader;
 import com.callx.app.models.XNotification;
 import com.callx.app.models.XTweet;
 import com.callx.app.utils.XFirebaseUtils;
@@ -29,9 +25,7 @@ import com.callx.app.x.R;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActionListener {
 
@@ -44,7 +38,17 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
     private String myUid;
     private int activeTab = 0;
 
-    // ── Cache / Preloaders (Reels jaisa system) ─────────────────────────────
+    // Pagination
+    private static final int PAGE_SIZE = 30;
+    private long oldestTimestamp = Long.MAX_VALUE;
+    private boolean isLoadingMore = false;
+    private boolean hasMorePages  = true;
+
+    // Block/mute sets (loaded once on start)
+    private final Set<String> blockedUids = new HashSet<>();
+    private final Set<String> mutedUids   = new HashSet<>();
+
+    // Preloaders
     private XTweetMediaPreloader mediaPreloader;
     private XTweetImagePreloader imagePreloader;
 
@@ -68,126 +72,194 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         recyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
         recyclerView.setAdapter(adapter);
 
-        swipeRefresh.setOnRefreshListener(this::loadFeed);
-        fabCompose.setOnClickListener(v ->
-            startActivity(new Intent(requireContext(), XComposeActivity.class)));
+        swipeRefresh.setOnRefreshListener(this::refreshFeed);
+        if (fabCompose != null)
+            fabCompose.setOnClickListener(v ->
+                startActivity(new Intent(requireContext(), XComposeActivity.class)));
 
-        // ── Cache init (Reels jaisa) ─────────────────────────────────────
         XTweetCacheManager.init(requireContext());
         mediaPreloader = new XTweetMediaPreloader(requireContext());
         imagePreloader = new XTweetImagePreloader(requireContext());
 
-        // Scroll listener: jab user scroll kare tab agle tweets preload karo
+        // Infinite scroll
         recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (dy <= 0) return; // Sirf neeche scroll hone par preload karo
-                androidx.recyclerview.widget.LinearLayoutManager lm =
-                    (androidx.recyclerview.widget.LinearLayoutManager) rv.getLayoutManager();
+            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (dy <= 0) return;
+                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
                 if (lm == null) return;
                 int firstVisible = lm.findFirstVisibleItemPosition();
-                if (firstVisible < 0) return;
                 mediaPreloader.preloadFrom(adapter.getTweets(), firstVisible);
                 imagePreloader.preloadFrom(adapter.getTweets(), firstVisible);
+                int lastVisible = lm.findLastVisibleItemPosition();
+                int total = adapter.getItemCount();
+                if (!isLoadingMore && hasMorePages && lastVisible >= total - 5) {
+                    loadMoreFeed();
+                }
             }
         });
 
         view.findViewById(R.id.tab_x_for_you).setOnClickListener(v -> {
-            activeTab = 0; updateTabUI(view); loadFeed();
+            activeTab = 0; updateTabUI(view); refreshFeed();
         });
         view.findViewById(R.id.tab_x_following).setOnClickListener(v -> {
-            activeTab = 1; updateTabUI(view); loadFeed();
+            activeTab = 1; updateTabUI(view); refreshFeed();
         });
         updateTabUI(view);
-        loadFeed();
+
+        // Load block/mute lists, then feed
+        loadBlockMuteLists(() -> refreshFeed());
     }
 
     private void updateTabUI(View view) {
+        if (view == null) return;
         view.findViewById(R.id.tab_x_for_you).setSelected(activeTab == 0);
         view.findViewById(R.id.tab_x_following).setSelected(activeTab == 1);
     }
 
-    private void loadFeed() {
+    // ── Block / Mute loading ─────────────────────────────────────────────────
+
+    private void loadBlockMuteLists(Runnable onDone) {
+        if (myUid.isEmpty()) { onDone.run(); return; }
+        final int[] pending = {2};
+        Runnable check = () -> { if (--pending[0] == 0) onDone.run(); };
+
+        XFirebaseUtils.userBlockedRef(myUid).get().addOnSuccessListener(snap -> {
+            blockedUids.clear();
+            for (DataSnapshot ds : snap.getChildren()) blockedUids.add(ds.getKey());
+            check.run();
+        }).addOnFailureListener(e -> check.run());
+
+        XFirebaseUtils.userMutedRef(myUid).get().addOnSuccessListener(snap -> {
+            mutedUids.clear();
+            for (DataSnapshot ds : snap.getChildren()) mutedUids.add(ds.getKey());
+            check.run();
+        }).addOnFailureListener(e -> check.run());
+    }
+
+    // ── Feed loading ─────────────────────────────────────────────────────────
+
+    private void refreshFeed() {
         if (isDetached() || getContext() == null) return;
-        swipeRefresh.setRefreshing(true);
+        oldestTimestamp = Long.MAX_VALUE;
+        hasMorePages    = true;
+        isLoadingMore   = false;
+        adapter.setTweets(new ArrayList<>());
+        if (swipeRefresh != null) swipeRefresh.setRefreshing(true);
         if (feedListener != null && currentFeedRef != null)
             currentFeedRef.removeEventListener(feedListener);
+        loadFeedPage(true);
+    }
 
-        currentFeedRef = activeTab == 0
-            ? XFirebaseUtils.globalFeedRef().limitToLast(50)
-            : XFirebaseUtils.userFeedRef(myUid).limitToLast(50);
-
+    private void loadFeedPage(boolean replace) {
+        Query query;
+        if (activeTab == 0) {
+            query = XFirebaseUtils.globalFeedRef()
+                .orderByChild("timestamp")
+                .endAt(oldestTimestamp == Long.MAX_VALUE ? Double.MAX_VALUE : oldestTimestamp - 1)
+                .limitToLast(PAGE_SIZE);
+        } else {
+            query = XFirebaseUtils.userFeedRef(myUid)
+                .orderByChild("timestamp")
+                .endAt(oldestTimestamp == Long.MAX_VALUE ? Double.MAX_VALUE : oldestTimestamp - 1)
+                .limitToLast(PAGE_SIZE);
+        }
+        currentFeedRef = query;
         feedListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!isAdded()) return;
-                List<XTweet> list = new ArrayList<>();
+                List<XTweet> page = new ArrayList<>();
                 for (DataSnapshot ds : snap.getChildren()) {
                     XTweet t = ds.getValue(XTweet.class);
-                    if (t != null && !t.isDeleted) { t.id = ds.getKey(); list.add(t); }
+                    if (t == null || t.isDeleted) continue;
+                    t.id = ds.getKey();
+                    // Filter blocked + muted users
+                    if (blockedUids.contains(t.authorUid)) continue;
+                    if (mutedUids.contains(t.authorUid)) continue;
+                    // Filter non-public for "for you" tab only
+                    if (activeTab == 0 && "followers".equals(t.audience)
+                            && !t.authorUid.equals(myUid)) continue;
+                    page.add(t);
                 }
-                Collections.sort(list, (a, b) -> Long.compare(b.timestamp, a.timestamp));
-                adapter.setTweets(list);
-                swipeRefresh.setRefreshing(false);
+                page.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                hasMorePages = page.size() >= PAGE_SIZE;
+                if (!page.isEmpty())
+                    oldestTimestamp = page.get(page.size() - 1).timestamp;
 
-                // Load like / retweet / bookmark state for each tweet from separate Firebase nodes
-                // (Feed snapshots don't include these nested maps → buttons show wrong state)
-                if (!myUid.isEmpty()) {
-                    for (XTweet tweet : list) {
-                        final XTweet t = tweet;
-                        // Like state
-                        XFirebaseUtils.tweetLikesRef(t.id).child(myUid).get()
-                            .addOnSuccessListener(ds -> {
-                                if (!isAdded()) return;
-                                if (t.likes == null) t.likes = new java.util.HashMap<>();
-                                t.likes.put(myUid, ds.getValue() != null);
-                                adapter.notifyItemChanged(list.indexOf(t));
-                            });
-                        // Retweet state
-                        XFirebaseUtils.tweetRetweetsRef(t.id).child(myUid).get()
-                            .addOnSuccessListener(ds -> {
-                                if (!isAdded()) return;
-                                if (t.retweets == null) t.retweets = new java.util.HashMap<>();
-                                t.retweets.put(myUid, ds.getValue() != null);
-                                adapter.notifyItemChanged(list.indexOf(t));
-                            });
-                        // Bookmark state
-                        XFirebaseUtils.userBookmarksRef(myUid).child(t.id).get()
-                            .addOnSuccessListener(ds -> {
-                                if (!isAdded()) return;
-                                if (t.bookmarks == null) t.bookmarks = new java.util.HashMap<>();
-                                t.bookmarks.put(myUid, ds.getValue() != null);
-                                adapter.notifyItemChanged(list.indexOf(t));
-                            });
-                    }
+                if (replace) {
+                    adapter.setTweets(page);
+                } else {
+                    List<XTweet> merged = new ArrayList<>(adapter.getTweets());
+                    merged.addAll(page);
+                    adapter.setTweets(merged);
                 }
+                if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                isLoadingMore = false;
+                // Load engagement states
+                loadEngagementStates(page);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
-                if (isAdded()) swipeRefresh.setRefreshing(false);
+                if (isAdded() && swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                isLoadingMore = false;
             }
         };
         currentFeedRef.addValueEventListener(feedListener);
     }
 
-    // ── Tweet Actions ───────────────────────────────────────────────────────
+    private void loadMoreFeed() {
+        if (isLoadingMore || !hasMorePages || myUid.isEmpty()) return;
+        isLoadingMore = true;
+        loadFeedPage(false);
+    }
+
+    /** Load like/retweet/bookmark states in batch */
+    private void loadEngagementStates(List<XTweet> tweets) {
+        if (myUid.isEmpty() || !isAdded()) return;
+        for (XTweet tweet : tweets) {
+            final XTweet t = tweet;
+            XFirebaseUtils.tweetLikesRef(t.id).child(myUid).get()
+                .addOnSuccessListener(ds -> {
+                    if (!isAdded()) return;
+                    if (t.likes == null) t.likes = new HashMap<>();
+                    t.likes.put(myUid, ds.getValue() != null);
+                    int idx = adapter.getTweets().indexOf(t);
+                    if (idx >= 0) adapter.notifyItemChanged(idx);
+                });
+            XFirebaseUtils.tweetRetweetsRef(t.id).child(myUid).get()
+                .addOnSuccessListener(ds -> {
+                    if (!isAdded()) return;
+                    if (t.retweets == null) t.retweets = new HashMap<>();
+                    t.retweets.put(myUid, ds.getValue() != null);
+                    int idx = adapter.getTweets().indexOf(t);
+                    if (idx >= 0) adapter.notifyItemChanged(idx);
+                });
+            XFirebaseUtils.userBookmarksRef(myUid).child(t.id).get()
+                .addOnSuccessListener(ds -> {
+                    if (!isAdded()) return;
+                    if (t.bookmarks == null) t.bookmarks = new HashMap<>();
+                    t.bookmarks.put(myUid, ds.getValue() != null);
+                    int idx = adapter.getTweets().indexOf(t);
+                    if (idx >= 0) adapter.notifyItemChanged(idx);
+                });
+        }
+    }
+
+    // ── Tweet Actions ────────────────────────────────────────────────────────
 
     @Override public void onLike(XTweet tweet, boolean liked) {
-        // liked = what user wants NOW (true=like, false=unlike)
-        // Write like state
         XFirebaseUtils.tweetLikesRef(tweet.id).child(myUid).setValue(liked ? true : null);
         XFirebaseUtils.userLikedTweetsRef(myUid).child(tweet.id).setValue(liked ? true : null);
-        // runTransaction avoids race condition when multiple users like simultaneously
         XFirebaseUtils.tweetRef(tweet.id).child("likeCount")
             .runTransaction(new com.google.firebase.database.Transaction.Handler() {
-                @androidx.annotation.NonNull
-                @Override public com.google.firebase.database.Transaction.Result doTransaction(
-                        @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                @NonNull @Override
+                public com.google.firebase.database.Transaction.Result doTransaction(
+                        @NonNull com.google.firebase.database.MutableData data) {
                     Long cur = data.getValue(Long.class);
                     if (cur == null) cur = 0L;
                     data.setValue(liked ? cur + 1 : Math.max(0, cur - 1));
                     return com.google.firebase.database.Transaction.success(data);
                 }
                 @Override public void onComplete(com.google.firebase.database.DatabaseError e,
-                        boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+                        boolean c, com.google.firebase.database.DataSnapshot s) {}
             });
         if (liked && !myUid.equals(tweet.authorUid)) pushNotif(tweet, "like");
     }
@@ -197,16 +269,16 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         XFirebaseUtils.userRetweetsRef(myUid).child(tweet.id).setValue(retweeted ? true : null);
         XFirebaseUtils.tweetRef(tweet.id).child("retweetCount")
             .runTransaction(new com.google.firebase.database.Transaction.Handler() {
-                @androidx.annotation.NonNull
-                @Override public com.google.firebase.database.Transaction.Result doTransaction(
-                        @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                @NonNull @Override
+                public com.google.firebase.database.Transaction.Result doTransaction(
+                        @NonNull com.google.firebase.database.MutableData data) {
                     Long cur = data.getValue(Long.class);
                     if (cur == null) cur = 0L;
                     data.setValue(retweeted ? cur + 1 : Math.max(0, cur - 1));
                     return com.google.firebase.database.Transaction.success(data);
                 }
                 @Override public void onComplete(com.google.firebase.database.DatabaseError e,
-                        boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+                        boolean c, com.google.firebase.database.DataSnapshot s) {}
             });
         if (retweeted && !myUid.equals(tweet.authorUid)) pushNotif(tweet, "retweet");
     }
@@ -223,38 +295,45 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
     }
 
     @Override public void onBookmark(XTweet tweet) {
-        // Read current bookmark state directly from Firebase (tweet.bookmarks is null from feed)
         XFirebaseUtils.userBookmarksRef(myUid).child(tweet.id).get()
             .addOnSuccessListener(snap -> {
-                boolean alreadyBookmarked = snap.getValue() != null;
-                boolean newState = !alreadyBookmarked;
-                // Save in user_bookmarks node
-                XFirebaseUtils.userBookmarksRef(myUid).child(tweet.id)
-                    .setValue(newState ? true : null);
-                // Also save in tweet node so isBookmarkedBy() works
-                XFirebaseUtils.tweetRef(tweet.id).child("bookmarks").child(myUid)
-                    .setValue(newState ? true : null);
+                boolean was = snap.getValue() != null;
+                boolean now = !was;
+                XFirebaseUtils.userBookmarksRef(myUid).child(tweet.id).setValue(now ? true : null);
+                XFirebaseUtils.tweetRef(tweet.id).child("bookmarks").child(myUid).setValue(now ? true : null);
+                XFirebaseUtils.tweetRef(tweet.id).child("bookmarkCount")
+                    .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                        @NonNull @Override
+                        public com.google.firebase.database.Transaction.Result doTransaction(
+                                @NonNull com.google.firebase.database.MutableData data) {
+                            Long cur = data.getValue(Long.class);
+                            if (cur == null) cur = 0L;
+                            data.setValue(now ? cur + 1 : Math.max(0, cur - 1));
+                            return com.google.firebase.database.Transaction.success(data);
+                        }
+                        @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                boolean c, com.google.firebase.database.DataSnapshot s) {}
+                    });
                 Toast.makeText(requireContext(),
-                    newState ? "Added to Bookmarks" : "Removed from Bookmarks",
-                    Toast.LENGTH_SHORT).show();
+                    now ? "Added to Bookmarks" : "Removed from Bookmarks", Toast.LENGTH_SHORT).show();
             });
     }
 
     @Override public void onShare(XTweet tweet) {
         String shareText = (tweet.authorName != null ? tweet.authorName : "")
-            + ": " + (tweet.text != null ? tweet.text : "")
-            + " — via CallX";
+            + ": " + (tweet.text != null ? tweet.text : "") + " — via CallX";
         Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain");
         i.putExtra(Intent.EXTRA_TEXT, shareText);
         startActivity(Intent.createChooser(i, "Share post"));
     }
 
     @Override public void onMore(XTweet tweet, View anchor) {
-        PopupMenu menu = new PopupMenu(requireContext(), anchor);
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(requireContext(), anchor);
         boolean mine = myUid.equals(tweet.authorUid);
         if (mine) {
             menu.getMenu().add(0, 1, 0, "Delete post");
             menu.getMenu().add(0, 2, 0, tweet.isPinned ? "Unpin from profile" : "Pin to profile");
+            if (tweet.editedAt == 0) menu.getMenu().add(0, 9, 0, "Edit post");
         } else {
             menu.getMenu().add(0, 3, 0, "Follow @" + tweet.authorHandle);
             menu.getMenu().add(0, 4, 0, "Mute @" + tweet.authorHandle);
@@ -273,6 +352,7 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                 case 6: reportTweet(tweet); break;
                 case 7: copyLink(tweet); break;
                 case 8: onQuote(tweet); break;
+                case 9: editTweet(tweet); break;
             }
             return true;
         });
@@ -292,18 +372,30 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         boolean pin = !tweet.isPinned;
         XFirebaseUtils.tweetRef(tweet.id).child("isPinned").setValue(pin);
         XFirebaseUtils.xUserRef(myUid).child("pinnedTweetId").setValue(pin ? tweet.id : null);
-        Toast.makeText(requireContext(), pin ? "Post pinned to profile" : "Post unpinned",
-            Toast.LENGTH_SHORT).show();
+        Toast.makeText(requireContext(), pin ? "Post pinned" : "Post unpinned", Toast.LENGTH_SHORT).show();
+    }
+
+    private void editTweet(XTweet tweet) {
+        startActivity(new Intent(requireContext(), XComposeActivity.class)
+            .putExtra("edit_tweet_id", tweet.id)
+            .putExtra("edit_text", tweet.text));
     }
 
     private void followUser(XTweet tweet) {
         XFirebaseUtils.userFollowersRef(tweet.authorUid).child(myUid).setValue(true);
         XFirebaseUtils.userFollowingRef(myUid).child(tweet.authorUid).setValue(true);
-        XFirebaseUtils.xUserRef(tweet.authorUid).child("followerCount").get()
-            .addOnSuccessListener(ds -> {
-                Long c = ds.getValue(Long.class);
-                XFirebaseUtils.xUserRef(tweet.authorUid).child("followerCount")
-                    .setValue(c != null ? c + 1 : 1);
+        // Transaction-safe follower count
+        XFirebaseUtils.xUserRef(tweet.authorUid).child("followerCount")
+            .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                @NonNull @Override
+                public com.google.firebase.database.Transaction.Result doTransaction(
+                        @NonNull com.google.firebase.database.MutableData data) {
+                    Long cur = data.getValue(Long.class);
+                    data.setValue(cur != null ? cur + 1 : 1);
+                    return com.google.firebase.database.Transaction.success(data);
+                }
+                @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                        boolean c, com.google.firebase.database.DataSnapshot s) {}
             });
         pushNotif(tweet, "follow");
         Toast.makeText(requireContext(), "Following @" + tweet.authorHandle, Toast.LENGTH_SHORT).show();
@@ -311,17 +403,31 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
 
     private void muteUser(XTweet tweet) {
         XFirebaseUtils.userMutedRef(myUid).child(tweet.authorUid).setValue(true);
+        mutedUids.add(tweet.authorUid);
+        // Remove their tweets from current feed
+        List<XTweet> filtered = new ArrayList<>();
+        for (XTweet t : adapter.getTweets())
+            if (!t.authorUid.equals(tweet.authorUid)) filtered.add(t);
+        adapter.setTweets(filtered);
         Toast.makeText(requireContext(), "Muted @" + tweet.authorHandle, Toast.LENGTH_SHORT).show();
     }
 
     private void blockUser(XTweet tweet) {
         XFirebaseUtils.userBlockedRef(myUid).child(tweet.authorUid).setValue(true);
         XFirebaseUtils.userBlockedRef(tweet.authorUid).child(myUid).setValue(true);
+        blockedUids.add(tweet.authorUid);
+        List<XTweet> filtered = new ArrayList<>();
+        for (XTweet t : adapter.getTweets())
+            if (!t.authorUid.equals(tweet.authorUid)) filtered.add(t);
+        adapter.setTweets(filtered);
         Toast.makeText(requireContext(), "Blocked @" + tweet.authorHandle, Toast.LENGTH_SHORT).show();
     }
 
     private void reportTweet(XTweet tweet) {
-        XFirebaseUtils.tweetReportsRef(tweet.id).child(myUid).setValue(true);
+        XFirebaseUtils.tweetReportsRef(tweet.id).child(myUid).setValue(
+            new java.util.HashMap<String, Object>() {{
+                put("reason", "spam"); put("ts", System.currentTimeMillis());
+            }});
         Toast.makeText(requireContext(), "Reported. Thank you.", Toast.LENGTH_SHORT).show();
     }
 
@@ -352,12 +458,19 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                     n.timestamp    = System.currentTimeMillis();
                     n.read         = false;
                     n.notified     = false;
-                    XFirebaseUtils.xNotificationsRef(tweet.authorUid).push().setValue(n);
-                    XFirebaseUtils.xUnreadNotifCountRef(tweet.authorUid).get()
-                        .addOnSuccessListener(ds -> {
-                            Long c = ds.getValue(Long.class);
-                            XFirebaseUtils.xUnreadNotifCountRef(tweet.authorUid)
-                                .setValue(c != null ? c + 1 : 1);
+                    String targetUid = "follow".equals(type) ? tweet.authorUid : tweet.authorUid;
+                    XFirebaseUtils.xNotificationsRef(targetUid).push().setValue(n);
+                    XFirebaseUtils.xUnreadNotifCountRef(targetUid)
+                        .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                            @NonNull @Override
+                            public com.google.firebase.database.Transaction.Result doTransaction(
+                                    @NonNull com.google.firebase.database.MutableData data) {
+                                Long c = data.getValue(Long.class);
+                                data.setValue(c != null ? c + 1 : 1);
+                                return com.google.firebase.database.Transaction.success(data);
+                            }
+                            @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                    boolean c, com.google.firebase.database.DataSnapshot s) {}
                         });
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -368,7 +481,6 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         super.onDestroyView();
         if (feedListener != null && currentFeedRef != null)
             currentFeedRef.removeEventListener(feedListener);
-        // Cache preloaders cleanup (Reels jaisa)
         if (mediaPreloader != null) mediaPreloader.shutdown();
     }
 }
