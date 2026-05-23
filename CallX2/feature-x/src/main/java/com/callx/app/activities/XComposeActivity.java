@@ -285,7 +285,7 @@ public class XComposeActivity extends AppCompatActivity {
     private void compressVideo(Uri uri) {
         setCompressHint("Compressing video… 0%");
 
-        VideoCompressor.Quality quality = VideoQualityPreferences.getQuality(this);
+        VideoQualityPreferences.Quality quality = new VideoQualityPreferences(this).getGlobalQuality();
 
         VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
             @Override

@@ -438,7 +438,7 @@ public class NewStatusActivity extends AppCompatActivity {
                                         String uid, String name, String photo) {
         runOnUiThread(() -> setHint("Compressing video… 0%"));
 
-        VideoCompressor.Quality quality = new VideoQualityPreferences(this).getGlobalQuality();
+        VideoQualityPreferences.Quality quality = new VideoQualityPreferences(this).getGlobalQuality();
 
         VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
             @Override
