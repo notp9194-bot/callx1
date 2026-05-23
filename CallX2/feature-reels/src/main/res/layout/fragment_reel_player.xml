@@ -124,7 +124,14 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="12dp"/>
+            android:layout_marginBottom="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"/>
 
         <!-- Share -->
         <ImageButton

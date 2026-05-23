@@ -1190,14 +1190,10 @@ public class ReelPlayerFragment extends Fragment {
 
     private void shareReel() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        ReelShareSheetFragment.newInstance(
-                reel.reelId,
-                reel.videoUrl,
-                reel.thumbUrl,
-                reel.caption,
-                reel.uid,          // ownerUid = uid in ReelModel
-                reel.allowReposts
-        ).show(getChildFragmentManager(), "share_sheet");
+        ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                reel.reelId, reel.videoUrl, reel.thumbUrl,
+                reel.caption, reel.uid, reel.allowReposts);
+        showBottomSheet(sheet, "share_sheet");
     }
 
     // ── Download ──────────────────────────────────────────────────────────
@@ -1227,42 +1223,32 @@ public class ReelPlayerFragment extends Fragment {
 
     private void openLikesSheet() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        try {
-            com.callx.app.ui.ReelLikesBottomSheet sheet =
-                    com.callx.app.ui.ReelLikesBottomSheet.newInstance(
-                            reel.reelId,
-                            reel.likesCount,
-                            reel.viewsCount);
-            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelLikesBottomSheet.TAG);
-        } catch (Exception ignored) {}
+        com.callx.app.ui.ReelLikesBottomSheet sheet =
+                com.callx.app.ui.ReelLikesBottomSheet.newInstance(
+                        reel.reelId, reel.likesCount, reel.viewsCount);
+        showBottomSheet(sheet, com.callx.app.ui.ReelLikesBottomSheet.TAG);
     }
 
     // ── Shares bottom sheet ───────────────────────────────────────────────
 
     private void openSharesSheet() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        try {
-            com.callx.app.ui.ReelSharesBottomSheet sheet =
-                    com.callx.app.ui.ReelSharesBottomSheet.newInstance(
-                            reel.reelId,
-                            reel.sharesCount,
-                            reel.repostCount);
-            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelSharesBottomSheet.TAG);
-        } catch (Exception ignored) {}
+        com.callx.app.ui.ReelSharesBottomSheet sheet =
+                com.callx.app.ui.ReelSharesBottomSheet.newInstance(
+                        reel.reelId, reel.sharesCount, reel.repostCount);
+        showBottomSheet(sheet, com.callx.app.ui.ReelSharesBottomSheet.TAG);
     }
 
     // ── Comments bottom sheet ─────────────────────────────────────────────
 
     private void openCommentsSheet() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        try {
-            com.callx.app.ui.ReelCommentsBottomSheet sheet =
-                    com.callx.app.ui.ReelCommentsBottomSheet.newInstance(
-                            reel.reelId,
-                            reel.uid != null ? reel.uid : "",
-                            reel.commentsCount);
-            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelCommentsBottomSheet.TAG);
-        } catch (Exception ignored) {}
+        com.callx.app.ui.ReelCommentsBottomSheet sheet =
+                com.callx.app.ui.ReelCommentsBottomSheet.newInstance(
+                        reel.reelId,
+                        reel.uid != null ? reel.uid : "",
+                        reel.commentsCount);
+        showBottomSheet(sheet, com.callx.app.ui.ReelCommentsBottomSheet.TAG);
     }
 
     // ── Comments ──────────────────────────────────────────────────────────
@@ -1661,6 +1647,63 @@ public class ReelPlayerFragment extends Fragment {
     private String safeMyUid() {
         try { return FirebaseUtils.getCurrentUid(); }
         catch (Exception e) { return null; }
+    }
+
+    /**
+     * Returns the correct FragmentManager for showing bottom sheets.
+     *
+     * - Jab ReelPlayerFragment kisi parent Fragment ke andar ho (e.g. ReelsFragment
+     *   inside MainActivity ViewPager), tab getParentFragmentManager() use karo —
+     *   yeh Activity-level FM ke equivalent hai aur state issues se safe rehta hai.
+     * - Jab directly Activity se host ho (e.g. SingleReelPlayerActivity ka ViewPager2),
+     *   tab getParentFragment() == null hoga — seedha Activity ka
+     *   getSupportFragmentManager() use karo.
+     */
+    private androidx.fragment.app.FragmentManager safeFragmentManager() {
+        if (getParentFragment() != null) {
+            // Nested fragment case — use parent's FM (Activity-level)
+            return getParentFragmentManager();
+        }
+        // Directly hosted by Activity (SingleReelPlayerActivity etc.)
+        return requireActivity().getSupportFragmentManager();
+    }
+
+    /**
+     * Safe show for BottomSheetDialogFragment — guards against:
+     *  1. isStateSaved() → "Can not perform this action after onSaveInstanceState"
+     *  2. Fragment already added with same tag → silent duplicate
+     *  3. Activity finishing/destroyed
+     *
+     *  FIX: SingleReelPlayerActivity mein ViewPager2 ke andar ReelPlayerFragment
+     *  directly Activity se hosted hota hai. Isme sheet.show() kabhi kabhi
+     *  isStateSaved() ke wajah se silently fail hoti thi. Ab hum hamesha
+     *  commitAllowingStateLoss() wala approach use karte hain.
+     */
+    private void showBottomSheet(androidx.fragment.app.DialogFragment sheet, String tag) {
+        if (!isAdded() || getActivity() == null) return;
+        if (getActivity().isFinishing() || getActivity().isDestroyed()) return;
+        androidx.fragment.app.FragmentManager fm = safeFragmentManager();
+        if (fm.isDestroyed()) return;
+        // Remove any existing instance with same tag first
+        androidx.fragment.app.Fragment existing = fm.findFragmentByTag(tag);
+        if (existing != null) {
+            try {
+                fm.beginTransaction().remove(existing).commitAllowingStateLoss();
+                fm.executePendingTransactions();
+            } catch (Exception ignored) {}
+        }
+        // Always use commitAllowingStateLoss — safe even when state may be saved
+        // (common in ViewPager2 nested fragments like SingleReelPlayerActivity)
+        try {
+            fm.beginTransaction()
+                .add(sheet, tag)
+                .commitAllowingStateLoss();
+        } catch (Exception e) {
+            // Last resort fallback
+            try {
+                sheet.show(fm, tag);
+            } catch (Exception ignored) {}
+        }
     }
 
     private String formatCount(int n) {

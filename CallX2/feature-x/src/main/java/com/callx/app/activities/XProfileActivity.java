@@ -10,6 +10,8 @@ import android.widget.ImageView;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -37,6 +39,16 @@ public class XProfileActivity extends AppCompatActivity {
     private boolean isFollowing;
     private ValueEventListener userListener, tweetsListener;
     private XTweetAdapter adapter;
+
+    // FIX: Use ActivityResultLauncher so profile refreshes after edit and
+    //      avoids "this" capture crash in lambda
+    private final ActivityResultLauncher<Intent> editProfileLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (result.getResultCode() == RESULT_OK) {
+                // Reload profile to reflect changes
+                loadProfile();
+            }
+        });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -165,10 +177,30 @@ public class XProfileActivity extends AppCompatActivity {
         tvFollowing.setText(fmt(xUser.followingCount) + " Following");
         ivVerified.setVisibility(xUser.verified || xUser.blueVerified ? View.VISIBLE : View.GONE);
 
+        // Meta fields
+        TextView tvLocation = findViewById(R.id.tv_x_profile_location);
+        TextView tvWebsite  = findViewById(R.id.tv_x_profile_website);
+        TextView tvJoined   = findViewById(R.id.tv_x_profile_joined);
+
+        if (xUser.location != null && !xUser.location.isEmpty()) {
+            tvLocation.setText("📍 " + xUser.location);
+            tvLocation.setVisibility(View.VISIBLE);
+        }
+        if (xUser.website != null && !xUser.website.isEmpty()) {
+            tvWebsite.setText("🔗 " + xUser.website);
+            tvWebsite.setVisibility(View.VISIBLE);
+        }
+        if (xUser.joinedTs > 0) {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMMM yyyy",
+                java.util.Locale.getDefault());
+            tvJoined.setText("📅 Joined " + sdf.format(new java.util.Date(xUser.joinedTs)));
+            tvJoined.setVisibility(View.VISIBLE);
+        }
+
         if (targetUid.equals(myUid)) {
             btnFollow.setText("Edit profile");
             btnFollow.setOnClickListener(v ->
-                startActivity(new Intent(this, XEditProfileActivity.class)));
+                editProfileLauncher.launch(new Intent(XProfileActivity.this, XEditProfileActivity.class)));
         } else {
             // Check follow status from followers map
             XFirebaseUtils.userFollowersRef(targetUid).child(myUid).get()
