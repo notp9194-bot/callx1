@@ -143,11 +143,12 @@ public class XTweetDetailActivity extends AppCompatActivity {
                 TextView tvViews   = findViewById(R.id.tv_x_detail_views);
                 TextView tvReplies = findViewById(R.id.tv_x_detail_replies);
 
-                if (ivAvatar != null)
+                if (ivAvatar != null) {
                     String detailAvatarUrl = (rootTweet.authorThumbUrl != null && !rootTweet.authorThumbUrl.isEmpty())
                         ? rootTweet.authorThumbUrl : rootTweet.authorPhotoUrl;
                     Glide.with(XTweetDetailActivity.this).load(detailAvatarUrl)
                         .circleCrop().into(ivAvatar);
+                }
                 if (tvName != null)   tvName.setText(rootTweet.authorName);
                 if (tvHandle != null) tvHandle.setText("@" + rootTweet.authorHandle);
                 if (tvText != null)   tvText.setText(rootTweet.text);
