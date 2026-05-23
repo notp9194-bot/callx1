@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 
+import com.callx.app.notifications.XNotificationWorker;
 import com.callx.app.activities.AuthActivity;
 import com.callx.app.activities.LockScreenActivity;
 import com.callx.app.cache.CacheAnalytics;
@@ -45,6 +46,8 @@ public class CallxApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        // Schedule X background notification polling
+        XNotificationWorker.schedule(this);
 
         // ── Reel Notification System (v5) ─────────────────────────────
         // Register all 39 reel notification channels at startup

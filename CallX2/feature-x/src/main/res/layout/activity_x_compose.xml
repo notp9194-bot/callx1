@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:app="http://schemas.android.com/apk/res-auto"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:orientation="vertical"
+      android:background="@color/x_bg">
+
+      <!-- Header -->
+      <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingStart="12dp" android:paddingEnd="12dp">
+          <ImageButton android:id="@+id/btn_compose_close"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_close" android:tint="@color/x_text_primary"
+              android:background="?attr/selectableItemBackgroundBorderless"/>
+          <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+          <TextView android:id="@+id/tv_char_count"
+              android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:layout_marginEnd="12dp"
+              android:text="280" android:textColor="@color/x_text_secondary" android:textSize="13sp"/>
+          <com.google.android.material.button.MaterialButton
+              android:id="@+id/btn_x_post"
+              android:layout_width="wrap_content" android:layout_height="36dp"
+              android:text="@string/x_post_btn"
+              android:textColor="@color/white"
+              app:backgroundTint="@color/x_accent"
+              app:cornerRadius="18dp"
+              style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+      </LinearLayout>
+
+      <View android:layout_width="match_parent" android:layout_height="1dp"
+          android:background="@color/x_divider"/>
+
+      <!-- Compose area -->
+      <LinearLayout android:layout_width="match_parent" android:layout_height="0dp"
+          android:layout_weight="1" android:orientation="horizontal"
+          android:padding="12dp">
+
+          <de.hdodenhof.circleimageview.CircleImageView
+              android:id="@+id/iv_compose_avatar"
+              android:layout_width="42dp" android:layout_height="42dp"
+              android:src="@drawable/ic_person"/>
+
+          <LinearLayout android:layout_width="0dp" android:layout_height="match_parent"
+              android:layout_weight="1" android:layout_marginStart="10dp"
+              android:orientation="vertical">
+
+              <EditText android:id="@+id/et_compose_text"
+                  android:layout_width="match_parent" android:layout_height="0dp"
+                  android:layout_weight="1"
+                  android:hint="@string/x_compose_hint"
+                  android:textColorHint="@color/x_text_muted"
+                  android:textColor="@color/x_text_primary"
+                  android:textSize="18sp"
+                  android:background="@null"
+                  android:gravity="top"
+                  android:inputType="textMultiLine|textCapSentences"
+                  android:maxLength="280"/>
+
+              <!-- Media preview -->
+              <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+                  <ImageView android:id="@+id/iv_compose_media_preview"
+                      android:layout_width="match_parent" android:layout_height="180dp"
+                      android:scaleType="centerCrop"
+                      android:background="@drawable/bg_x_media_rounded"
+                      android:clipToOutline="true"
+                      android:visibility="gone"/>
+                  <ProgressBar android:id="@+id/pb_compose_upload"
+                      style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                      android:layout_width="match_parent" android:layout_height="4dp"
+                      android:layout_gravity="bottom"
+                      android:progressTint="@color/x_accent"
+                      android:visibility="gone"/>
+              </FrameLayout>
+          </LinearLayout>
+      </LinearLayout>
+
+      <!-- Action bar -->
+      <View android:layout_width="match_parent" android:layout_height="1dp"
+          android:background="@color/x_divider"/>
+      <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingStart="8dp" android:paddingEnd="8dp">
+          <ImageButton android:id="@+id/btn_compose_media"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_photo" android:tint="@color/x_accent"
+              android:background="?attr/selectableItemBackgroundBorderless"/>
+          <ImageButton android:id="@+id/btn_compose_gif"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_gif" android:tint="@color/x_accent"
+              android:background="?attr/selectableItemBackgroundBorderless"/>
+          <ImageButton android:id="@+id/btn_compose_poll"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_poll" android:tint="@color/x_accent"
+              android:background="?attr/selectableItemBackgroundBorderless"/>
+          <ImageButton android:id="@+id/btn_compose_emoji"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_emoji" android:tint="@color/x_accent"
+              android:background="?attr/selectableItemBackgroundBorderless"/>
+          <ImageButton android:id="@+id/btn_compose_schedule"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_schedule" android:tint="@color/x_accent"
+              android:background="?attr/selectableItemBackgroundBorderless"/>
+      </LinearLayout>
+  </LinearLayout>

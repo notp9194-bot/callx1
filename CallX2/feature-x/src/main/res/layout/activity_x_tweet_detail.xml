@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent" android:layout_height="match_parent"
+      android:orientation="vertical" android:background="@color/x_bg">
+
+      <!-- Header -->
+      <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingStart="8dp">
+          <ImageButton android:id="@+id/btn_x_detail_back"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_arrow_back" android:tint="@color/x_text_primary"
+              android:background="?attr/selectableItemBackgroundBorderless"/>
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:layout_marginStart="8dp"
+              android:text="Post" android:textColor="@color/x_text_primary"
+              android:textStyle="bold" android:textSize="18sp"/>
+      </LinearLayout>
+
+      <androidx.core.widget.NestedScrollView
+          android:layout_width="match_parent" android:layout_height="0dp"
+          android:layout_weight="1">
+
+          <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+              android:orientation="vertical">
+
+              <!-- Root tweet -->
+              <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                  android:orientation="horizontal" android:padding="16dp">
+                  <de.hdodenhof.circleimageview.CircleImageView
+                      android:id="@+id/iv_x_detail_avatar"
+                      android:layout_width="44dp" android:layout_height="44dp"/>
+                  <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                      android:layout_weight="1" android:layout_marginStart="12dp"
+                      android:orientation="vertical">
+                      <TextView android:id="@+id/tv_x_detail_name"
+                          android:layout_width="wrap_content" android:layout_height="wrap_content"
+                          android:textColor="@color/x_text_primary" android:textStyle="bold"
+                          android:textSize="15sp"/>
+                      <TextView android:id="@+id/tv_x_detail_handle"
+                          android:layout_width="wrap_content" android:layout_height="wrap_content"
+                          android:textColor="@color/x_text_secondary" android:textSize="13sp"/>
+                      <TextView android:id="@+id/tv_x_detail_text"
+                          android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:textColor="@color/x_text_primary" android:textSize="20sp"/>
+                      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                          android:orientation="horizontal" android:layout_marginTop="12dp">
+                          <TextView android:id="@+id/tv_x_detail_retweets"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
+                              android:textColor="@color/x_text_primary" android:textStyle="bold"
+                              android:textSize="14sp" android:layout_marginEnd="16dp"/>
+                          <TextView android:id="@+id/tv_x_detail_likes"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
+                              android:textColor="@color/x_text_primary" android:textStyle="bold"
+                              android:textSize="14sp" android:layout_marginEnd="16dp"/>
+                          <TextView android:id="@+id/tv_x_detail_views"
+                              android:layout_width="wrap_content" android:layout_height="wrap_content"
+                              android:textColor="@color/x_text_secondary" android:textSize="14sp"/>
+                      </LinearLayout>
+                  </LinearLayout>
+              </LinearLayout>
+
+              <View android:layout_width="match_parent" android:layout_height="1dp"
+                  android:background="@color/x_divider"/>
+
+              <!-- Replies -->
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_x_replies"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:nestedScrollingEnabled="false"/>
+          </LinearLayout>
+      </androidx.core.widget.NestedScrollView>
+
+      <!-- Reply box -->
+      <View android:layout_width="match_parent" android:layout_height="1dp"
+          android:background="@color/x_divider"/>
+      <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingStart="12dp" android:paddingEnd="12dp">
+          <EditText android:id="@+id/et_x_detail_reply"
+              android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1"
+              android:hint="@string/x_reply_hint" android:textColorHint="@color/x_text_muted"
+              android:textColor="@color/x_text_primary"
+              android:background="@drawable/bg_surface_input"
+              android:paddingStart="12dp" android:paddingEnd="12dp"
+              android:textSize="14sp" android:singleLine="true"/>
+          <com.google.android.material.button.MaterialButton
+              android:id="@+id/btn_x_send_reply"
+              android:layout_width="wrap_content" android:layout_height="36dp"
+              android:layout_marginStart="8dp"
+              android:text="Reply" android:textColor="@color/white"
+              style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+              app:backgroundTint="@color/x_accent" app:cornerRadius="18dp"
+              xmlns:app="http://schemas.android.com/apk/res-auto"/>
+      </LinearLayout>
+  </LinearLayout>

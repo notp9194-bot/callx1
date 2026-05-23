@@ -29,6 +29,14 @@ import com.callx.app.activities.ReelNotificationsActivity;
 import com.callx.app.workers.StoryNotificationWorker;
 import com.callx.app.fragments.ReelsFragment;
 import com.callx.app.utils.AppUpdateManager;
+import android.animation.ObjectAnimator;
+  import android.view.View;
+  import android.widget.TextView;
+  import com.bumptech.glide.Glide;
+  import de.hdodenhof.circleimageview.CircleImageView;
+  import com.callx.app.activities.XActivity;
+  import com.callx.app.notifications.XNotificationWorker;
+  import com.callx.app.utils.XFirebaseUtils;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -37,6 +45,11 @@ public class MainActivity extends AppCompatActivity {
     // My profile cache — for UserReelsActivity launch
     private String myName     = "";
     private String myPhotoUrl = "";
+
+
+      // ── X Module ────────────────────────────────────────────────────────────────
+      private ValueEventListener xNotifBadgeListener;
+      private int xUnreadCount = 0;
 
     // Notification badge counter
     private int totalNotifUnread = 0;
@@ -91,6 +104,10 @@ public class MainActivity extends AppCompatActivity {
         // ──────────────────────────────────────────────────────────────────────
 
         setSupportActionBar(binding.toolbar);
+
+          // ── X Module: animated entry button ─────────────────────────────────────
+          setupXEntryButton();
+          // ────────────────────────────────────────────────────────────────────────
 
         binding.btnSearchToolbar.setOnClickListener(v -> {
             startActivity(new Intent(this, SearchActivity.class));
@@ -250,6 +267,12 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         super.onDestroy();
+
+          // X badge listener cleanup
+          if (xNotifBadgeListener != null) {
+              String uid = currentUid();
+              if (uid != null) XFirebaseUtils.xUnreadNotifCountRef(uid).removeEventListener(xNotifBadgeListener);
+          }
     }
 
     private String currentUid() {

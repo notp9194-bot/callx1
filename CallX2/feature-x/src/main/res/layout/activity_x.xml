@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <androidx.coordinatorlayout.widget.CoordinatorLayout
+      xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:app="http://schemas.android.com/apk/res-auto"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:background="@color/x_bg">
+
+      <!-- X App Header -->
+      <com.google.android.material.appbar.AppBarLayout
+          android:id="@+id/x_app_bar"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:background="@color/x_bg"
+          app:elevation="0dp">
+
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="56dp"
+              android:orientation="horizontal"
+              android:gravity="center_vertical"
+              android:paddingStart="12dp"
+              android:paddingEnd="12dp">
+
+              <!-- Back to CallX -->
+              <ImageButton
+                  android:id="@+id/btn_x_back"
+                  android:layout_width="40dp"
+                  android:layout_height="40dp"
+                  android:src="@drawable/ic_arrow_back"
+                  android:background="?attr/selectableItemBackgroundBorderless"
+                  android:tint="@color/x_text_primary"
+                  android:contentDescription="Back"/>
+
+              <!-- X Logo centered -->
+              <ImageView
+                  android:layout_width="0dp"
+                  android:layout_height="28dp"
+                  android:layout_weight="1"
+                  android:src="@drawable/ic_x_logo"
+                  android:scaleType="center"
+                  android:contentDescription="X"/>
+
+              <!-- Compose icon -->
+              <ImageButton
+                  android:id="@+id/btn_x_header_compose"
+                  android:layout_width="40dp"
+                  android:layout_height="40dp"
+                  android:src="@drawable/ic_x_compose"
+                  android:background="?attr/selectableItemBackgroundBorderless"
+                  android:tint="@color/x_text_primary"
+                  android:contentDescription="Compose"/>
+
+          </LinearLayout>
+      </com.google.android.material.appbar.AppBarLayout>
+
+      <!-- Fragment container -->
+      <FrameLayout
+          android:id="@+id/x_fragment_container"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:layout_marginTop="56dp"
+          android:layout_marginBottom="56dp"
+          app:layout_behavior="@string/appbar_scrolling_view_behavior"/>
+
+      <!-- X Bottom Navigation -->
+      <com.google.android.material.bottomnavigation.BottomNavigationView
+          android:id="@+id/x_bottom_nav"
+          android:layout_width="match_parent"
+          android:layout_height="56dp"
+          android:layout_gravity="bottom"
+          android:background="@color/x_nav_bg"
+          app:itemIconTint="@color/x_nav_icon_default"
+          app:itemTextColor="@color/x_nav_icon_default"
+          app:itemIconSize="22dp"
+          app:labelVisibilityMode="unlabeled"
+          app:menu="@menu/x_bottom_nav"
+          app:elevation="8dp"/>
+
+  </androidx.coordinatorlayout.widget.CoordinatorLayout>

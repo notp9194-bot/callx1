@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <resources>
+      <!-- X Brand -->
+      <color name="x_accent">#1D9BF0</color>
+      <color name="x_bg">#000000</color>
+      <color name="x_surface">#16181C</color>
+      <color name="x_surface_elevated">#1E2732</color>
+      <color name="x_divider">#2F3336</color>
+
+      <!-- Text -->
+      <color name="x_text_primary">#E7E9EA</color>
+      <color name="x_text_secondary">#71767B</color>
+      <color name="x_text_muted">#536471</color>
+      <color name="x_text_link">#1D9BF0</color>
+
+      <!-- Action states -->
+      <color name="x_like_active">#F91880</color>
+      <color name="x_retweet_active">#00BA7C</color>
+      <color name="x_bookmark_active">#1D9BF0</color>
+      <color name="x_icon_default">#6B7280</color>
+
+      <!-- Nav bar -->
+      <color name="x_nav_bg">#000000</color>
+      <color name="x_nav_icon_selected">#E7E9EA</color>
+      <color name="x_nav_icon_default">#536471</color>
+
+      <!-- Tab indicator -->
+      <color name="x_tab_indicator">#1D9BF0</color>
+
+      <!-- FAB -->
+      <color name="x_fab_bg">#1D9BF0</color>
+
+      <!-- Header -->
+      <color name="x_header_bg">#00000066</color>
+
+      <!-- Entry button (in CallX header) -->
+      <color name="x_entry_stripe_bg">#000000</color>
+      <color name="x_entry_badge_bg">#F91880</color>
+  </resources>

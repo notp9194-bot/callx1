@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+      <application>
+          <!-- X Module Activities -->
+          <activity
+              android:name="com.callx.app.activities.XActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XComposeActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XTweetDetailActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XProfileActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSearchActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XDMConversationActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XHashtagActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XBookmarksActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XListsActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XNotificationSettingsActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <!-- X Background Notification Service -->
+          <service
+              android:name="com.callx.app.notifications.XNotificationService"
+              android:exported="false"
+              android:foregroundServiceType="dataSync"
+              android:stopWithTask="false"/>
+
+          <!-- X WorkManager for killed-state notifications -->
+          <provider
+              android:name="androidx.startup.InitializationProvider"
+              android:authorities="${applicationId}.x_startup"
+              android:exported="false"
+              tools:node="remove"/>
+
+      </application>
+  </manifest>

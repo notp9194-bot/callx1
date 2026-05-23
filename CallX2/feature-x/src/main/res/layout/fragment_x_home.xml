@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <androidx.coordinatorlayout.widget.CoordinatorLayout
+      xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:app="http://schemas.android.com/apk/res-auto"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:background="@color/x_bg">
+
+      <!-- For You / Following tabs -->
+      <LinearLayout
+          android:id="@+id/ll_x_home_tabs"
+          android:layout_width="match_parent"
+          android:layout_height="48dp"
+          android:orientation="horizontal"
+          android:background="@color/x_bg">
+
+          <TextView
+              android:id="@+id/tab_x_for_you"
+              android:layout_width="0dp"
+              android:layout_height="match_parent"
+              android:layout_weight="1"
+              android:gravity="center"
+              android:text="@string/x_for_you"
+              android:textColor="@color/x_text_primary"
+              android:textStyle="bold"
+              android:textSize="15sp"
+              android:selected="true"
+              android:background="?attr/selectableItemBackground"/>
+
+          <TextView
+              android:id="@+id/tab_x_following"
+              android:layout_width="0dp"
+              android:layout_height="match_parent"
+              android:layout_weight="1"
+              android:gravity="center"
+              android:text="@string/x_following"
+              android:textColor="@color/x_text_secondary"
+              android:textSize="15sp"
+              android:background="?attr/selectableItemBackground"/>
+      </LinearLayout>
+
+      <View
+          android:layout_width="match_parent"
+          android:layout_height="1dp"
+          android:layout_marginTop="48dp"
+          android:background="@color/x_divider"/>
+
+      <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+          android:id="@+id/swipe_x_home"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:layout_marginTop="49dp">
+
+          <androidx.recyclerview.widget.RecyclerView
+              android:id="@+id/rv_x_home"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:clipToPadding="false"
+              android:paddingBottom="8dp"/>
+      </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+      <!-- Compose FAB -->
+      <com.google.android.material.floatingactionbutton.FloatingActionButton
+          android:id="@+id/fab_x_compose"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="bottom|end"
+          android:layout_margin="16dp"
+          android:src="@drawable/ic_x_compose"
+          android:contentDescription="Compose"
+          app:backgroundTint="@color/x_fab_bg"
+          app:tint="@color/white"/>
+
+  </androidx.coordinatorlayout.widget.CoordinatorLayout>

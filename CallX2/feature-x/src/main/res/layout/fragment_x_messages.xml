@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <androidx.coordinatorlayout.widget.CoordinatorLayout
+      xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:app="http://schemas.android.com/apk/res-auto"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:background="@color/x_bg">
+
+      <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:orientation="vertical">
+
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="48dp"
+              android:orientation="horizontal"
+              android:gravity="center_vertical"
+              android:paddingStart="16dp"
+              android:paddingEnd="8dp">
+
+              <TextView
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:text="@string/x_messages"
+                  android:textColor="@color/x_text_primary"
+                  android:textStyle="bold"
+                  android:textSize="18sp"/>
+
+              <ImageButton
+                  android:id="@+id/btn_x_new_dm"
+                  android:layout_width="40dp"
+                  android:layout_height="40dp"
+                  android:src="@drawable/ic_x_compose"
+                  android:background="?attr/selectableItemBackgroundBorderless"
+                  android:tint="@color/x_accent"
+                  android:contentDescription="New message"/>
+          </LinearLayout>
+
+          <View android:layout_width="match_parent" android:layout_height="1dp"
+              android:background="@color/x_divider"/>
+
+          <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+              android:id="@+id/swipe_x_messages"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_x_messages"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"/>
+          </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+      </LinearLayout>
+  </androidx.coordinatorlayout.widget.CoordinatorLayout>
