@@ -13,6 +13,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.annotation.NonNull;
 import com.bumptech.glide.Glide;
 import com.callx.app.models.XUser;
 import com.callx.app.utils.XCloudinaryUtils;
@@ -59,14 +60,32 @@ public class XEditProfileActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_x_edit_profile);
 
-        // FIX: null user guard — prevents Firebase invalid-path crash
-        if (FirebaseAuth.getInstance().getCurrentUser() == null) {
-            Toast.makeText(this, "Please login first", Toast.LENGTH_SHORT).show();
-            finish();
-            return;
+        // FIX: getCurrentUser() can return null briefly on cold launch due to Firebase
+        //      Auth state restore race condition — causes instant finish() crash.
+        //      Use addAuthStateListener to wait for auth to be ready first.
+        FirebaseAuth auth = FirebaseAuth.getInstance();
+        if (auth.getCurrentUser() != null) {
+            myUid = auth.getCurrentUser().getUid();
+            initViews();
+        } else {
+            // Auth state not yet restored — wait for it
+            auth.addAuthStateListener(new FirebaseAuth.AuthStateListener() {
+                @Override public void onAuthStateChanged(@NonNull FirebaseAuth fa) {
+                    fa.removeAuthStateListener(this);
+                    if (fa.getCurrentUser() == null) {
+                        Toast.makeText(XEditProfileActivity.this,
+                            "Please login first", Toast.LENGTH_SHORT).show();
+                        finish();
+                    } else {
+                        myUid = fa.getCurrentUser().getUid();
+                        initViews();
+                    }
+                }
+            });
         }
-        myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+    }
 
+    private void initViews() {
         ivAvatar    = findViewById(R.id.iv_edit_avatar);
         ivBanner    = findViewById(R.id.iv_edit_banner);
         etName      = findViewById(R.id.et_edit_name);
