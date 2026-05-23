@@ -24,7 +24,6 @@
               android:textColor="@color/x_text_primary"
               android:textStyle="bold"
               android:textSize="15sp"
-              android:selected="true"
               android:background="?attr/selectableItemBackground"/>
 
           <TextView
