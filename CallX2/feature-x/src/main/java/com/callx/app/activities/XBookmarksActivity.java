@@ -27,18 +27,20 @@ package com.callx.app.activities;
           findViewById(R.id.btn_x_bookmarks_back).setOnClickListener(v -> finish());
 
           RecyclerView rv = findViewById(R.id.rv_x_bookmarks);
-          XTweetAdapter adapter = new XTweetAdapter(this, new XTweetAdapter.OnTweetActionListener() {
+          XTweetAdapter[] adapterHolder = new XTweetAdapter[1];
+          adapterHolder[0] = new XTweetAdapter(this, new XTweetAdapter.OnTweetActionListener() {
               @Override public void onLike(XTweet t, boolean l) {}
               @Override public void onRetweet(XTweet t, boolean r) {}
               @Override public void onReply(XTweet t) {}
               @Override public void onBookmark(XTweet tweet) {
                   // Remove bookmark
                   XFirebaseUtils.userBookmarksRef(myUid).child(tweet.id).removeValue();
-                  adapter.removeTweet(tweet.id);
+                  adapterHolder[0].removeTweet(tweet.id);
               }
               @Override public void onShare(XTweet t) {}
               @Override public void onMore(XTweet t, android.view.View a) {}
           });
+          XTweetAdapter adapter = adapterHolder[0];
           rv.setLayoutManager(new LinearLayoutManager(this));
           rv.setAdapter(adapter);
 
