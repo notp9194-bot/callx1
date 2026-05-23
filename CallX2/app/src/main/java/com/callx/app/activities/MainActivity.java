@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -270,7 +271,6 @@ public class MainActivity extends AppCompatActivity {
 
           // X badge listener cleanup
           if (xNotifBadgeListener != null) {
-              String uid = currentUid();
               if (uid != null) XFirebaseUtils.xUnreadNotifCountRef(uid).removeEventListener(xNotifBadgeListener);
           }
     }
@@ -469,6 +469,60 @@ public class MainActivity extends AppCompatActivity {
 
         // 6. AllNotifications toolbar badge
         startNotifBadgeListeners(uid);
+    }
+
+    /** Sets up the animated X entry button in the toolbar */
+    private void setupXEntryButton() {
+        View xEntryRoot = findViewById(R.id.include_x_entry);
+        if (xEntryRoot == null) return;
+
+        CircleImageView ivAvatar = xEntryRoot.findViewById(R.id.iv_x_entry_avatar);
+        View stripView           = xEntryRoot.findViewById(R.id.ll_x_entry_strip);
+        TextView tvBadge         = xEntryRoot.findViewById(R.id.tv_x_entry_badge);
+
+        // Load current user avatar
+        String uid = currentUid();
+        if (uid != null && ivAvatar != null) {
+            FirebaseUtils.getProfileRef(uid).child("profileImage")
+                .get().addOnSuccessListener(snap -> {
+                    String url = snap.getValue(String.class);
+                    if (url != null && !url.isEmpty()) {
+                        Glide.with(this).load(url)
+                            .apply(new RequestOptions().circleCrop())
+                            .placeholder(R.drawable.ic_person)
+                            .into(ivAvatar);
+                    }
+                });
+        }
+
+        // Slide-in animation on the strip
+        if (stripView != null) {
+            stripView.setTranslationX(-200f);
+            ObjectAnimator.ofFloat(stripView, "translationX", -200f, 0f)
+                .setDuration(400)
+                .start();
+        }
+
+        // Click → open XActivity
+        xEntryRoot.setOnClickListener(v ->
+            startActivity(new Intent(this, XActivity.class)));
+
+        // Badge: listen for unread X notifications
+        if (uid != null && tvBadge != null) {
+            xNotifBadgeListener = new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    Long count = snap.getValue(Long.class);
+                    if (count != null && count > 0) {
+                        tvBadge.setVisibility(View.VISIBLE);
+                        tvBadge.setText(count > 99 ? "99+" : String.valueOf(count));
+                    } else {
+                        tvBadge.setVisibility(View.GONE);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            };
+            XFirebaseUtils.xUnreadNotifCountRef(uid).addValueEventListener(xNotifBadgeListener);
+        }
     }
 
     /** Real-time badge on the 🔔 notification icon in the main toolbar */
