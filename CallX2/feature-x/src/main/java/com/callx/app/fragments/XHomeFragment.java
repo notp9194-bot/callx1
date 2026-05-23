@@ -20,6 +20,7 @@ package com.callx.app.fragments;
   import com.google.android.material.floatingactionbutton.FloatingActionButton;
   import com.google.firebase.auth.FirebaseAuth;
   import com.google.firebase.database.*;
+  import com.google.firebase.database.Query;
   import java.util.ArrayList;
   import java.util.Collections;
   import java.util.List;
@@ -31,6 +32,7 @@ package com.callx.app.fragments;
       private XTweetAdapter adapter;
       private FloatingActionButton fabCompose;
       private ValueEventListener feedListener;
+      private Query currentFeedRef;
       private String myUid;
       private int activeTab = 0; // 0=ForYou, 1=Following
 
@@ -83,11 +85,11 @@ package com.callx.app.fragments;
           swipeRefresh.setRefreshing(true);
 
           // Detach old listener
-          if (feedListener != null) {
-              XFirebaseUtils.globalFeedRef().removeEventListener(feedListener);
+          if (feedListener != null && currentFeedRef != null) {
+              currentFeedRef.removeEventListener(feedListener);
           }
 
-          DatabaseReference ref = activeTab == 0
+          currentFeedRef = activeTab == 0
               ? XFirebaseUtils.globalFeedRef().limitToLast(50)
               : XFirebaseUtils.userFeedRef(myUid).limitToLast(50);
 
@@ -111,7 +113,7 @@ package com.callx.app.fragments;
               }
           };
 
-          ref.addValueEventListener(feedListener);
+          currentFeedRef.addValueEventListener(feedListener);
       }
 
       // ── Tweet Actions ──────────────────────────────────────────────────────
@@ -176,7 +178,7 @@ package com.callx.app.fragments;
 
       @Override public void onDestroyView() {
           super.onDestroyView();
-          if (feedListener != null)
-              XFirebaseUtils.globalFeedRef().removeEventListener(feedListener);
+          if (feedListener != null && currentFeedRef != null)
+              currentFeedRef.removeEventListener(feedListener);
       }
   }
