@@ -115,8 +115,6 @@ public class FollowersListActivity extends AppCompatActivity {
                                 @Override public void onDataChange(@NonNull DataSnapshot us) {
                                     String name  = us.child("name").getValue(String.class);
                                     String photo = us.child("photoUrl").getValue(String.class);
-                                    String thumb = us.child("thumbUrl").getValue(String.class);
-                                    photo = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                                     String bio   = us.child("bio").getValue(String.class);
                                     allItems.add(new UserItem(uid,
                                         name  != null ? name  : "User",

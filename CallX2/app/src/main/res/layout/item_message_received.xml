@@ -313,7 +313,7 @@
                         android:id="@+id/tv_time"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/text_muted"
                         android:textSize="10sp"/>
                     <TextView
                         android:id="@+id/tv_status"

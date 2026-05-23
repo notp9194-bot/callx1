@@ -101,10 +101,8 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(DataSnapshot snap) {
                         String photo = snap.child("photoUrl").getValue(String.class);
-                        String thumb = snap.child("thumbUrl").getValue(String.class);
-                        String callAvatar = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                        if (callAvatar != null && !callAvatar.isEmpty() && ctx != null)
-                            Glide.with(ctx).load(callAvatar)
+                        if (photo != null && !photo.isEmpty() && ctx != null)
+                            Glide.with(ctx).load(photo)
                                 .apply(RequestOptions.circleCropTransform())
                                 .placeholder(R.drawable.ic_person)
                                 .into(h.ivAvatar);

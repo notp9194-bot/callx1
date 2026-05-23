@@ -19,7 +19,6 @@ public class SpecialRequestPopupActivity extends AppCompatActivity {
         final String fromName  = getIntent().getStringExtra("fromName") == null
             ? "User" : getIntent().getStringExtra("fromName");
         final String fromPhoto = getIntent().getStringExtra("fromPhoto");
-        final String fromThumb = getIntent().getStringExtra("fromThumb");
         final String reqText   = getIntent().getStringExtra("text") == null
             ? "Please unblock me" : getIntent().getStringExtra("text");
         if (fromUid == null || fromUid.isEmpty()) { finish(); return; }
@@ -32,9 +31,8 @@ public class SpecialRequestPopupActivity extends AppCompatActivity {
         MaterialButton btnLater   = sheet.findViewById(R.id.btn_sp_later);
         tvName.setText(fromName);
         tvText.setText(reqText);
-        String popupAvatar = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : fromPhoto;
-        if (popupAvatar != null && !popupAvatar.isEmpty()) {
-            Glide.with(this).load(popupAvatar).circleCrop().into(iv);
+        if (fromPhoto != null && !fromPhoto.isEmpty()) {
+            Glide.with(this).load(fromPhoto).into(iv);
         } else {
             iv.setImageResource(R.drawable.ic_person);
         }

@@ -325,20 +325,6 @@ public class GroupChatActivity extends AppCompatActivity {
             @Override public void onStar(Message m)                { toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
-            @Override public void onNavigateToOriginal(String messageId) {
-                if (messageId == null || messageId.isEmpty()) return;
-                for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
-                    com.callx.app.models.Message m = pagingAdapter.peek(i);
-                    if (m != null && (messageId.equals(m.id) || messageId.equals(m.messageId))) {
-                        com.callx.app.chat.ui.MessageHighlightAnimator.scrollAndHighlight(
-                            binding.rvMessages, i, null);
-                        return;
-                    }
-                }
-                android.widget.Toast.makeText(GroupChatActivity.this,
-                    "Original message not loaded — scroll up to find it",
-                    android.widget.Toast.LENGTH_SHORT).show();
-            }
         });
 
         LinearLayoutManager llm = new LinearLayoutManager(this);

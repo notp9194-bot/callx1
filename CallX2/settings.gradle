@@ -25,5 +25,3 @@ include ':feature-chat'
 include ':feature-reels'
 include ':feature-calls'
 include ':feature-status'
-
-include ':feature-x'

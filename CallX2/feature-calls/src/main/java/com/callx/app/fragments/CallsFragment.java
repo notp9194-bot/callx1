@@ -103,10 +103,8 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                     Boolean online = snap.child("online").getValue(Boolean.class);
                     if (Boolean.TRUE.equals(online)) {
                         String photo = snap.child("photoUrl").getValue(String.class);
-                        String thumbu = snap.child("thumbUrl").getValue(String.class);
                         String name  = snap.child("name").getValue(String.class);
                         if (photo != null) u.photoUrl = photo;
-                        if (thumbu != null) u.thumbUrl = thumbu;
                         if (name  != null) u.name     = name;
                         onlineUsers.add(u);
                     }
@@ -133,9 +131,8 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             CircleImageView iv = item.findViewById(R.id.iv_online_avatar);
             TextView tv = item.findViewById(R.id.tv_online_name);
             tv.setText(u.name != null ? u.name : "User");
-            String onlineAvatar = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
-            if (onlineAvatar != null && !onlineAvatar.isEmpty()) {
-                Glide.with(getContext()).load(onlineAvatar)
+            if (u.photoUrl != null && !u.photoUrl.isEmpty()) {
+                Glide.with(getContext()).load(u.photoUrl)
                     .apply(RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person).into(iv);
             }

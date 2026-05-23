@@ -54,8 +54,4 @@ public interface UserDao {
     /** v17: Offline search — callxId se user dhundho */
     @Query("SELECT * FROM users WHERE LOWER(callxId) = LOWER(:callxId) LIMIT 5")
     List<UserEntity> searchByCallxId(String callxId);
-
-    /** v18: Search by callxId OR name (partial match) — offline multi-result */
-    @Query("SELECT * FROM users WHERE LOWER(callxId) LIKE '%' || LOWER(:query) || '%' OR LOWER(name) LIKE '%' || LOWER(:query) || '%' ORDER BY name ASC LIMIT 20")
-    List<UserEntity> searchByIdOrName(String query);
 }

@@ -45,11 +45,9 @@ public class ReelContactShareAdapter
         User contact = contacts.get(pos);
         h.tvName.setText(contact.name != null ? contact.name : "User");
 
-        String _cAvatar = (contact.thumbUrl != null && !contact.thumbUrl.isEmpty())
-            ? contact.thumbUrl : contact.photoUrl;
-        if (_cAvatar != null && !_cAvatar.isEmpty()) {
+        if (contact.photoUrl != null && !contact.photoUrl.isEmpty()) {
             Glide.with(h.itemView.getContext())
-                .load(_cAvatar)
+                .load(contact.photoUrl)
                 .apply(RequestOptions.circleCropTransform())
                 .placeholder(R.drawable.ic_person)
                 .into(h.ivAvatar);

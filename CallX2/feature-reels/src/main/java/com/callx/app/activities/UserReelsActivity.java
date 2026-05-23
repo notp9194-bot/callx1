@@ -511,9 +511,7 @@ public class UserReelsActivity extends AppCompatActivity
                                         .addListenerForSingleValueEvent(new ValueEventListener() {
                                             @Override public void onDataChange(@NonNull DataSnapshot us) {
                                                 String n = us.child("name").getValue(String.class);
-                                                String thumb = us.child("thumbUrl").getValue(String.class);
-                                                String photo = us.child("photoUrl").getValue(String.class);
-                                                String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                                                String p = us.child("photoUrl").getValue(String.class);
                                                 names.add(n != null ? n : "User");
                                                 photos.add(p != null ? p : "");
                                                 done[0]++;
@@ -1110,7 +1108,6 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 String name      = snap.child("name").getValue(String.class);
                 String photo     = snap.child("photoUrl").getValue(String.class);
-                String photoThumb = snap.child("thumbUrl").getValue(String.class);
                 String bio       = snap.child("bio").getValue(String.class);
                 String phone     = snap.child("phone").getValue(String.class);
                 String whatsapp  = snap.child("whatsapp").getValue(String.class);
@@ -1120,9 +1117,8 @@ public class UserReelsActivity extends AppCompatActivity
 
                 if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); }
                 if (photo != null && !photo.isEmpty()) {
-                    targetPhoto = photo; // kept as full URL for zoom dialog
-                    String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
-                    Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
+                    targetPhoto = photo;
+                    Glide.with(UserReelsActivity.this).load(photo).circleCrop()
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
 

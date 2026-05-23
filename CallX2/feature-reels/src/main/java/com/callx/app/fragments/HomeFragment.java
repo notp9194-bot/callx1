@@ -307,9 +307,7 @@ public class HomeFragment extends Fragment {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!isAdded() || getContext() == null) return;
                 String name  = snap.child("name").getValue(String.class);
-                String _photo = snap.child("photoUrl").getValue(String.class);
-                String _thumb = snap.child("thumbUrl").getValue(String.class);
-                String photo = (_thumb != null && !_thumb.isEmpty()) ? _thumb : _photo;
+                String photo = snap.child("photoUrl").getValue(String.class);
 
                 FirebaseUtils.getUserStatusRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot statusSnap) {
@@ -825,15 +823,13 @@ public class HomeFragment extends Fragment {
                         String message  = s.child("message").getValue(String.class);
                         String fromUid  = s.child("from_uid").getValue(String.class);
                         String fromPhoto= s.child("from_photo").getValue(String.class);
-                        String fromThumb= s.child("from_thumb").getValue(String.class);
                         Long   ts       = s.child("timestamp").getValue(Long.class);
-                        String resolvedPhoto = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : (fromPhoto != null ? fromPhoto : "");
                         if (message != null) {
                             item.put("message",    message);
                             item.put("timestamp",  ts != null ? ts : 0L);
                             item.put("type",       type != null ? type : "like");
                             item.put("from_uid",   fromUid != null ? fromUid : "");
-                            item.put("from_photo", resolvedPhoto);
+                            item.put("from_photo", fromPhoto != null ? fromPhoto : "");
                             activities.add(item);
                         }
                     }
@@ -1062,9 +1058,7 @@ public class HomeFragment extends Fragment {
                         String uid   = s.getKey();
                         if (uid == null || uid.equals(myUid)) continue;
                         String name  = s.child("name").getValue(String.class);
-                        String _cPhoto = s.child("photoUrl").getValue(String.class);
-                        String _cThumb = s.child("thumbUrl").getValue(String.class);
-                        String photo = (_cThumb != null && !_cThumb.isEmpty()) ? _cThumb : _cPhoto;
+                        String photo = s.child("photoUrl").getValue(String.class);
                         Long rc      = s.child("reelCount").getValue(Long.class);
                         if (name != null)
                             creators.add(new String[]{

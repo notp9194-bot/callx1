@@ -1,6 +1,5 @@
 package com.callx.app.cache;
 
-import android.app.ActivityManager;
 import android.content.Context;
 import android.util.Log;
 
@@ -17,11 +16,10 @@ import java.io.File;
  * ReelCacheManager — Singleton SimpleCache specifically for Reels.
  *
  * Instagram-like caching:
- *  ✅ Adaptive disk cache — 200MB (low-end) / 350MB (normal) [FIX #MEM-3A]
+ *  ✅ 500 MB dedicated disk cache for reel videos
  *  ✅ LRU eviction — purane reels automatically remove hote hain
  *  ✅ CacheDataSource.Factory — ExoPlayer is connect karta hai cache se
  *  ✅ Ek hi instance puri app mein (singleton)
- *  ✅ trimMemory() — OS low-memory signal par 50% cache release [FIX #MEM-3B]
  *
  * Usage:
  *   // Application.onCreate() ya ReelPlayerFragment mein:
@@ -38,12 +36,8 @@ import java.io.File;
 @OptIn(markerClass = UnstableApi.class)
 public class ReelCacheManager {
 
-    private static final String TAG = "ReelCacheManager";
-
-    // FIX #MEM-3A: 500MB → adaptive
-    // Low-end phones mein 500MB bahut zyada tha — OOM crash hota tha
-    private static final long CACHE_SIZE_LOW  = 200L * 1024 * 1024; // 200MB
-    private static final long CACHE_SIZE_NORM = 350L * 1024 * 1024; // 350MB
+    private static final String TAG        = "ReelCacheManager";
+    private static final long   CACHE_SIZE = 500L * 1024 * 1024; // 500 MB
     private static final String CACHE_DIR  = "reel_video_cache";
 
     private static SimpleCache            sSimpleCache;
@@ -51,11 +45,6 @@ public class ReelCacheManager {
     private static boolean                sInitialized = false;
 
     private ReelCacheManager() {}
-
-    private static boolean isLowMemoryDevice(Context ctx) {
-        ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
-        return am != null && am.isLowRamDevice();
-    }
 
     /**
      * Pehle init() call karo — Application.onCreate() ya ReelsFragment.onAttach() mein.
@@ -68,10 +57,9 @@ public class ReelCacheManager {
             File cacheDir = new File(context.getCacheDir(), CACHE_DIR);
             if (!cacheDir.exists()) cacheDir.mkdirs();
 
-            // FIX #MEM-3A: Adaptive size — low-end 200MB, normal 350MB
-            long cacheSize = isLowMemoryDevice(context) ? CACHE_SIZE_LOW : CACHE_SIZE_NORM;
+            // LRU Evictor: jab 500MB bhar jaye, sabse purani reel ka cache delete hoga
             LeastRecentlyUsedCacheEvictor evictor =
-                new LeastRecentlyUsedCacheEvictor(cacheSize);
+                new LeastRecentlyUsedCacheEvictor(CACHE_SIZE);
 
             sSimpleCache = new SimpleCache(cacheDir, evictor);
 
@@ -130,28 +118,6 @@ public class ReelCacheManager {
                 sSimpleCache.getContentMetadata(videoUrl));
         } catch (Exception e) {
             return 0;
-        }
-    }
-
-    /**
-     * FIX #MEM-3B: trimMemory — CallxApp.onTrimMemory() se call hota hai.
-     * OS low-memory signal aane par cached reel data ka ~50% release karo.
-     * LRU order mein evict hoga — sabse purane / least-watched reels pehle hatenge.
-     */
-    public static synchronized void trimMemory() {
-        if (!sInitialized || sSimpleCache == null) return;
-        try {
-            long before = sSimpleCache.getCacheSpace();
-            long target = before / 2; // 50% release karo
-            for (String key : sSimpleCache.getKeys()) {
-                if (sSimpleCache.getCacheSpace() <= target) break;
-                sSimpleCache.removeResource(key);
-            }
-            Log.d(TAG, "ReelCacheManager trimMemory: "
-                + before / (1024 * 1024) + "MB → "
-                + sSimpleCache.getCacheSpace() / (1024 * 1024) + "MB");
-        } catch (Exception e) {
-            Log.w(TAG, "trimMemory error: " + e.getMessage());
         }
     }
 

@@ -81,7 +81,6 @@ public class MessagePagingAdapter
     // ── Interface for long-press actions ─────────────────────────
     public interface ActionListener {
         void onReply(Message m);
-        void onNavigateToOriginal(String messageId);
         void onDelete(Message m);
         void onReact(Message m, String emoji);
         void onStar(Message m);
@@ -327,18 +326,6 @@ public class MessagePagingAdapter
         Context ctx = h.itemView.getContext();
         boolean sent = currentUid.equals(m.senderId);
 
-        // ── Theme-aware bubble background ─────────────────────────────────
-        try {
-            android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
-            if (llBubble != null) {
-                boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
-                String bType = m.type != null ? m.type : "text";
-                com.callx.app.utils.ChatThemeManager
-                        .get(ctx)
-                        .applyBubble(llBubble, sent, bType, hasReply);
-            }
-        } catch (Exception ignored) {}
-
         // Reset visibility
         h.tvMessage.setVisibility(View.GONE);
         if (h.ivImage    != null) h.ivImage.setVisibility(View.GONE);
@@ -374,11 +361,15 @@ public class MessagePagingAdapter
                         h.ivReplyThumb.setVisibility(View.GONE);
                     }
                 }
-                // Click → scroll to original message
+                // Click → navigate to original
                 final String replyId = m.replyToId;
                 h.llReplyPreview.setOnClickListener(v -> {
                     if (actionListener != null) {
-                        actionListener.onNavigateToOriginal(replyId);
+                        // Encode nav request as a Reply action for routing in ChatActivity
+                        Message stub = new Message();
+                        stub.id = replyId;
+                        stub.messageId = replyId;
+                        actionListener.onReply(stub);
                     }
                 });
             } else {
@@ -573,15 +564,13 @@ public class MessagePagingAdapter
                     android.text.util.Linkify.PHONE_NUMBERS |
                     android.text.util.Linkify.EMAIL_ADDRESSES);
                 h.tvMessage.setText(spanned);
-                // Link color matching bubble theme
+                // Link color matching bubble theme (sent=white tint, received=blue)
                 boolean isSentMsg = currentUid.equals(m.senderId);
                 int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
                 h.tvMessage.setLinkTextColor(linkColor);
                 h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                 h.tvMessage.setHighlightColor(0x33FFFFFF);
                 h.tvMessage.setAlpha(1f);
-                h.tvMessage.setTextColor(
-                    com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
                 break;
         }
 
@@ -592,18 +581,15 @@ public class MessagePagingAdapter
             switch (status) {
                 case "seen":
                     h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
+                    h.tvStatus.setTextColor(0xFF4FC3F7); // blue
                     break;
                 case "delivered":
                     h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    h.tvStatus.setTextColor(0xAAFFFFFF);
                     break;
                 default:
                     h.tvStatus.setText("✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    h.tvStatus.setTextColor(0xAAFFFFFF);
                     break;
             }
         } else if (h.tvStatus != null) {

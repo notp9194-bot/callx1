@@ -87,8 +87,7 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.NewGroupActivity" android:exported="false"/>
-        <activity android:name=".activities.SearchActivity" android:exported="false"
-            android:theme="@style/Theme.CallX.NoTransition"
+        <activity android:name=".activities.SearchActivity"   android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.RequestsActivity" android:exported="false"/>
         <activity android:name=".activities.RequestPopupActivity"
@@ -245,12 +244,10 @@
           </intent-filter>
       </receiver>
 
-        <activity android:name=".activities.AccountMenuActivity" android:exported="false"
-            android:theme="@style/Theme.CallX.NoTransition"/>
+        <activity android:name=".activities.AccountMenuActivity" android:exported="false"/>
         <activity android:name=".activities.PhoneAuthActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.ProfileSetupActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
-        <activity android:name=".activities.AllNotificationsActivity" android:exported="false"
-            android:theme="@style/Theme.CallX.NoTransition"/>
+        <activity android:name=".activities.AllNotificationsActivity" android:exported="false"/>
         <activity android:name=".activities.PrivacySecurityActivity" android:exported="false"/>
         <activity android:name=".activities.TwoStepVerificationActivity" android:exported="false"/>
         <activity android:name=".activities.LoginActivityLogActivity" android:exported="false"/>

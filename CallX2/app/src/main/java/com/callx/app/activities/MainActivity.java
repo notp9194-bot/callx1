@@ -9,7 +9,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -29,15 +28,6 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import com.callx.app.activities.ReelNotificationsActivity;
 import com.callx.app.workers.StoryNotificationWorker;
 import com.callx.app.fragments.ReelsFragment;
-import com.callx.app.utils.AppUpdateManager;
-import android.animation.ObjectAnimator;
-  import android.view.View;
-  import android.widget.TextView;
-  import com.bumptech.glide.Glide;
-  import de.hdodenhof.circleimageview.CircleImageView;
-  import com.callx.app.activities.XActivity;
-  import com.callx.app.notifications.XNotificationWorker;
-  import com.callx.app.utils.XFirebaseUtils;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -46,11 +36,6 @@ public class MainActivity extends AppCompatActivity {
     // My profile cache — for UserReelsActivity launch
     private String myName     = "";
     private String myPhotoUrl = "";
-
-
-      // ── X Module ────────────────────────────────────────────────────────────────
-      private ValueEventListener xNotifBadgeListener;
-      private int xUnreadCount = 0;
 
     // Notification badge counter
     private int totalNotifUnread = 0;
@@ -106,34 +91,16 @@ public class MainActivity extends AppCompatActivity {
 
         setSupportActionBar(binding.toolbar);
 
-          // ── X Module: animated entry button ─────────────────────────────────────
-          setupXEntryButton();
-          // ────────────────────────────────────────────────────────────────────────
+        binding.btnSearchToolbar.setOnClickListener(v ->
+            startActivity(new Intent(this, SearchActivity.class)));
 
-        binding.btnSearchToolbar.setOnClickListener(v -> {
-            startActivity(new Intent(this, SearchActivity.class));
-            overridePendingTransition(0, 0); // Tab switch — instant 0ms
-        });
+        binding.btnNotificationsToolbar.setOnClickListener(v ->
+            startActivity(new Intent(this, AllNotificationsActivity.class)));
 
-        binding.btnNotificationsToolbar.setOnClickListener(v -> {
-            startActivity(new Intent(this, AllNotificationsActivity.class));
-            overridePendingTransition(0, 0); // Tab switch — instant 0ms
-        });
-
-        binding.ivAvatarMenu.setOnClickListener(v -> {
-            startActivity(new Intent(this, AccountMenuActivity.class));
-            overridePendingTransition(0, 0); // Tab switch — instant 0ms
-        });
+        binding.ivAvatarMenu.setOnClickListener(v ->
+            startActivity(new Intent(this, AccountMenuActivity.class)));
 
         binding.viewPager.setAdapter(new ViewPagerAdapter(this));
-        // FIX #LAZY: offscreenPageLimit 2 → 1 kiya gaya.
-        // Pehle: Tab 0 open hone par Tab 1 + Tab 2 dono immediately load hote the.
-        // Ab:    Sirf Tab 1 (Status) pre-load hoga — Tab 2 (Groups), Tab 3 (Reels),
-        //        Tab 4 (Calls) tab par tap karne par hi load honge.
-        // Faida: ~15% less memory on startup, Reels ExoPlayer init tab switch pe hoga.
-        binding.viewPager.setOffscreenPageLimit(1);
-        // Bottom nav tap par instant switch (no scroll animation) — WhatsApp jaisa
-        binding.viewPager.setUserInputEnabled(true);
         binding.viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int position) {
                 int[] ids = {
@@ -155,25 +122,24 @@ public class MainActivity extends AppCompatActivity {
 
         binding.bottomNav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
-            // false = instant switch (no scroll animation) — WhatsApp/Instagram jaisa snap
-            if      (id == R.id.nav_chats)  { binding.viewPager.setCurrentItem(TAB_CHATS, false); }
+            if      (id == R.id.nav_chats)  { binding.viewPager.setCurrentItem(TAB_CHATS); }
             else if (id == R.id.nav_status) {
-                binding.viewPager.setCurrentItem(TAB_STATUS, false);
+                binding.viewPager.setCurrentItem(TAB_STATUS);
                 clearBadge(R.id.nav_status);
                 // Also clear status contribution from header notification ball
                 notifStatusUnread = 0;
                 updateNotifBadge();
             }
             else if (id == R.id.nav_groups) {
-                binding.viewPager.setCurrentItem(TAB_GROUPS, false);
+                binding.viewPager.setCurrentItem(TAB_GROUPS);
                 clearBadge(R.id.nav_groups);
             }
             else if (id == R.id.nav_reels)  {
-                binding.viewPager.setCurrentItem(TAB_REELS, false);
+                binding.viewPager.setCurrentItem(TAB_REELS);
                 clearBadge(R.id.nav_reels);
             }
             else if (id == R.id.nav_calls)  {
-                binding.viewPager.setCurrentItem(TAB_CALLS, false);
+                binding.viewPager.setCurrentItem(TAB_CALLS);
                 // Mark missed calls as seen
                 getSharedPreferences("callx_prefs", MODE_PRIVATE).edit()
                     .putLong("last_seen_calls_ts", System.currentTimeMillis()).apply();
@@ -194,8 +160,6 @@ public class MainActivity extends AppCompatActivity {
         loadMyAvatar();
         refreshFcmToken();
         startBadgeListeners();
-        // ── In-App Update Check — Firebase se version compare karta hai ──
-        AppUpdateManager.check(this);
     }
 
     // Called when app is ALREADY running and user taps a reel notification or deep link
@@ -272,11 +236,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         super.onDestroy();
-
-          // X badge listener cleanup
-          if (xNotifBadgeListener != null) {
-              if (uid != null) XFirebaseUtils.xUnreadNotifCountRef(uid).removeEventListener(xNotifBadgeListener);
-          }
     }
 
     private String currentUid() {
@@ -326,12 +285,10 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onDataChange(DataSnapshot snap) {
                 String name  = snap.child("name").getValue(String.class);
                 String photo = snap.child("photoUrl").getValue(String.class);
-                String thumb = snap.child("thumbUrl").getValue(String.class);
                 if (name  != null) myName     = name;
                 if (photo != null) myPhotoUrl = photo;
-                String avatarUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                if (avatarUrl != null && !avatarUrl.isEmpty())
-                    Glide.with(MainActivity.this).load(avatarUrl)
+                if (photo != null && !photo.isEmpty())
+                    Glide.with(MainActivity.this).load(photo)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
                         .into(binding.ivAvatarMenu);
@@ -475,64 +432,6 @@ public class MainActivity extends AppCompatActivity {
 
         // 6. AllNotifications toolbar badge
         startNotifBadgeListeners(uid);
-    }
-
-    /** Sets up the animated X entry button in the toolbar */
-    private void setupXEntryButton() {
-        View xEntryRoot = findViewById(R.id.include_x_entry);
-        if (xEntryRoot == null) return;
-
-        CircleImageView ivAvatar = xEntryRoot.findViewById(R.id.iv_x_entry_avatar);
-        View stripView           = xEntryRoot.findViewById(R.id.ll_x_entry_strip);
-        TextView tvBadge         = xEntryRoot.findViewById(R.id.tv_x_entry_badge);
-
-        // Load current user avatar
-        String uid = currentUid();
-        if (uid != null && ivAvatar != null) {
-            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
-                    String thumb2 = snap.child("thumbUrl").getValue(String.class);
-                    String photo2 = snap.child("photoUrl").getValue(String.class);
-                    String xUrl = (thumb2 != null && !thumb2.isEmpty()) ? thumb2 : photo2;
-                    if (xUrl != null && !xUrl.isEmpty()) {
-                        Glide.with(MainActivity.this).load(xUrl)
-                            .apply(new RequestOptions().circleCrop())
-                            .placeholder(R.drawable.ic_person)
-                            .into(ivAvatar);
-                    }
-                }
-                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
-            });
-        }
-
-        // Slide-in animation on the strip
-        if (stripView != null) {
-            stripView.setTranslationX(-200f);
-            ObjectAnimator.ofFloat(stripView, "translationX", -200f, 0f)
-                .setDuration(400)
-                .start();
-        }
-
-        // Click → open XActivity
-        xEntryRoot.setOnClickListener(v ->
-            startActivity(new Intent(this, XActivity.class)));
-
-        // Badge: listen for unread X notifications
-        if (uid != null && tvBadge != null) {
-            xNotifBadgeListener = new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    Long count = snap.getValue(Long.class);
-                    if (count != null && count > 0) {
-                        tvBadge.setVisibility(View.VISIBLE);
-                        tvBadge.setText(count > 99 ? "99+" : String.valueOf(count));
-                    } else {
-                        tvBadge.setVisibility(View.GONE);
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            };
-            XFirebaseUtils.xUnreadNotifCountRef(uid).addValueEventListener(xNotifBadgeListener);
-        }
     }
 
     /** Real-time badge on the 🔔 notification icon in the main toolbar */
@@ -746,9 +645,7 @@ public class MainActivity extends AppCompatActivity {
                             new ValueEventListener() {
                                 @Override public void onDataChange(DataSnapshot userSnap) {
                                     String cName  = userSnap.child("name").getValue(String.class);
-                                    String cThumb = userSnap.child("thumbUrl").getValue(String.class);
-                                    String cPhotoFull = userSnap.child("photoUrl").getValue(String.class);
-                                    String cPhoto = (cThumb != null && !cThumb.isEmpty()) ? cThumb : cPhotoFull;
+                                    String cPhoto = userSnap.child("photoUrl").getValue(String.class);
 
                                     // Listen for new status items from this contact
                                     contactStatusChildListener =

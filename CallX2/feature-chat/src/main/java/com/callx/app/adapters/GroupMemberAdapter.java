@@ -30,17 +30,15 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         public final String name;
         public final String role;   // "admin" | "member" | "creator"
         public final String photoUrl;
-        public final String thumbUrl;
         public final boolean online;
         public final Long   lastSeen;
 
         public MemberItem(String uid, String name, String role,
-                          String photoUrl, String thumbUrl, boolean online, Long lastSeen) {
+                          String photoUrl, boolean online, Long lastSeen) {
             this.uid      = uid;
             this.name     = name;
             this.role     = role;
             this.photoUrl = photoUrl;
-            this.thumbUrl = thumbUrl;
             this.online   = online;
             this.lastSeen = lastSeen;
         }
@@ -89,9 +87,8 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
 
         // Avatar
         // thumbUrl → small WebP, fast in group list. Fallback: photoUrl
-        String avatarUrl = (m.thumbUrl != null && !m.thumbUrl.isEmpty())
-            ? m.thumbUrl
-            : (m.photoUrl != null && !m.photoUrl.isEmpty() ? m.photoUrl : null);
+        String avatarUrl = (m.photoUrl != null && !m.photoUrl.isEmpty())
+            ? m.photoUrl : null;  // thumbUrl not in Member model yet → use photoUrl
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(ctx).load(avatarUrl)
                     .placeholder(R.drawable.ic_person)

@@ -15,11 +15,6 @@
         android:title="⭐ Starred Messages"
         app:showAsAction="never"/>
 
-    <!-- Chat Bubble Theme Picker -->
-    <item android:id="@+id/action_chat_theme"
-        android:title="🎨 Chat Theme"
-        app:showAsAction="never"/>
-
     <item android:id="@+id/action_mute"
         android:title="🔔 Mute"
         app:showAsAction="never"/>

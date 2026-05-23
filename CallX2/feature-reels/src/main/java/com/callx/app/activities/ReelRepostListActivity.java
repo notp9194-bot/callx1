@@ -181,9 +181,8 @@ public class ReelRepostListActivity extends AppCompatActivity {
                             @Override public void onDataChange(@NonNull DataSnapshot u) {
                                 if (isFinishing() || isDestroyed()) return;
                                 item.name  = stringVal(u, "name", uid);
-                                String _rlThumb = stringVal(u, "thumbUrl", null);
-                                String _rlPhoto = stringVal(u, "photoUrl", null);
-                                item.photo = (_rlThumb != null && !_rlThumb.isEmpty()) ? _rlThumb : _rlPhoto;
+                                item.photo = stringVal(u, "photoUrl", null);
+                                if (item.photo == null) item.photo = stringVal(u, "thumbUrl", null);
                                 pending[0]--;
                                 adapter.notifyDataSetChanged();
                             }

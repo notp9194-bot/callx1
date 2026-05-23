@@ -386,9 +386,6 @@ public class ReelsFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
-        // CRASH FIX: Remove Firebase listeners BEFORE destroying view.
-        // Without this, Firebase callbacks fire after vpReels/adapter are null → NPE crash.
-        removeListeners();
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader = null;
         super.onDestroyView();
@@ -401,13 +398,6 @@ public class ReelsFragment extends Fragment {
         applyWhiteTintToNavIcons();
         // Refresh creator avatar whenever fragment comes to foreground
         loadCreatorAvatar();
-
-        // FIX #LAZY-REELS: isTabActive guard — agar user ne Reels tab abhi nahi khola
-        // (offscreenPageLimit ki wajah se fragment create hua lekin visible nahi hai)
-        // to Firebase fetch aur video preload bilkul nahi hoga.
-        // Jab user pehli baar Reels tab tap karega, onTabResumed() → onStart() dobara
-        // call hoga aur tab isTabActive = true hoga — tab fetch hoga.
-        if (!isTabActive) return;
 
         if (allReels.isEmpty()) {
             loadFypReels();
@@ -573,8 +563,6 @@ public class ReelsFragment extends Fragment {
     // ── Render + paginate ─────────────────────────────────────────────────
 
     private void renderPage(List<ReelModel> source) {
-        // CRASH FIX: Guard against fragment detach before adapter operations
-        if (!isAdded() || getActivity() == null || adapter == null || vpReels == null) return;
         int end = Math.min(PAGE_SIZE, source.size());
         adapter.setReels(source.subList(0, end));
         currentPage   = end;
@@ -582,7 +570,6 @@ public class ReelsFragment extends Fragment {
         if (videoPreloader != null) videoPreloader.preloadFrom(source.subList(0, end), 0);
         if (thumbPreloader != null) thumbPreloader.preloadFrom(source.subList(0, end), 0);
         if (getActivity() != null) getActivity().runOnUiThread(() -> {
-            if (!isAdded() || vpReels == null) return;
             vpReels.setCurrentItem(0, false);
             controlPlayback(0);
         });
@@ -590,8 +577,6 @@ public class ReelsFragment extends Fragment {
 
     private void renderPageAtPosition(List<ReelModel> source, int position) {
         if (source.isEmpty()) return;
-        // CRASH FIX: Guard against fragment detach
-        if (!isAdded() || getActivity() == null || adapter == null || vpReels == null) return;
         int end = Math.max(Math.min(PAGE_SIZE, source.size()),
                            Math.min(position + 1, source.size()));
         if (adapter.getItemCount() == 0) {
@@ -600,7 +585,6 @@ public class ReelsFragment extends Fragment {
         }
         int safePos = Math.min(position, adapter.getItemCount() - 1);
         if (getActivity() != null) getActivity().runOnUiThread(() -> {
-            if (!isAdded() || vpReels == null) return;
             vpReels.setCurrentItem(safePos, false);
             controlPlayback(safePos);
         });
@@ -663,21 +647,10 @@ public class ReelsFragment extends Fragment {
     /**
      * Called by MainActivity when the user switches TO the Reels tab.
      * Resumes playback of the currently visible reel.
-     *
-     * FIX #LAZY-REELS: Agar reels abhi tak load nahi hue (pehli baar tab khula),
-     * to yahan se loadFypReels() trigger karo. offscreenPageLimit=1 ki wajah se
-     * onStart() mein isTabActive=false tha, isliye fetch nahi hua tha.
      */
     public void onTabResumed() {
         isTabActive = true;
-
-        // Pehli baar tab khula — ab fetch karo (lazy load trigger)
-        if (allReels.isEmpty()) {
-            loadFypReels();
-            return;
-        }
-
-        // Already loaded — sirf playback resume karo
+        // Only play if the Home overlay is not covering the reel feed
         boolean homeVisible = homeContainer != null
                 && homeContainer.getVisibility() == android.view.View.VISIBLE;
         if (!homeVisible && vpReels != null) {

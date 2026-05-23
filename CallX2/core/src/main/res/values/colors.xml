@@ -21,16 +21,14 @@
     <color name="text_primary">#0F172A</color>
     <color name="text_secondary">#64748B</color>
     <color name="text_muted">#94A3B8</color>
-    <!-- Chat message time color -->
-    <color name="chat_time_color">#333333</color>
     <color name="text_on_primary">#FFFFFF</color>
 
-    <!-- Bubbles — Option 1: Teal Sent + Brand Purple Received -->
-    <color name="bubble_sent">#a855f7</color>
-    <color name="bubble_sent_end">#ec4899</color>
-    <color name="bubble_sent_text">#FFFFFF</color>
-    <color name="bubble_received">#10b981</color>
-    <color name="bubble_received_end">#84cc16</color>
+    <!-- Bubbles -->
+    <color name="bubble_sent">#00C853</color>
+    <color name="bubble_sent_end">#00E676</color>
+    <color name="bubble_sent_text">#000000</color>
+    <color name="bubble_received">#4B0082</color>
+    <color name="bubble_received_end">#6A0DAD</color>
     <color name="bubble_received_text">#FFFFFF</color>
 
     <!-- Status / actions -->

@@ -81,18 +81,6 @@
                     app:civ_border_width="2dp"
                     app:civ_border_color="@color/brand_primary"/>
             </LinearLayout>
-        
-              <!-- ╔════════════════════════════════════════════════════════════╗
-                   ║  X Entry Button — animated slide-out strip                ║
-                   ║  Avatar + black strip with X icon + notification badge    ║
-                   ╚════════════════════════════════════════════════════════════╝ -->
-              <include
-                  android:id="@+id/include_x_entry"
-                  layout="@layout/layout_x_entry_button"
-                  android:layout_width="wrap_content"
-                  android:layout_height="match_parent"
-                  android:layout_gravity="start"
-                  android:layout_marginStart="4dp"/>
         </androidx.appcompat.widget.Toolbar>
     </com.google.android.material.appbar.AppBarLayout>
 

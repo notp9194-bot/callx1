@@ -312,7 +312,6 @@
 
         <!-- Left accent stripe -->
         <View
-            android:id="@+id/view_reply_accent"
             android:layout_width="3dp"
             android:layout_height="44dp"
             android:background="@color/brand_primary"
@@ -365,7 +364,6 @@
 
     <!-- Input row -->
     <LinearLayout
-        android:id="@+id/ll_input_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
