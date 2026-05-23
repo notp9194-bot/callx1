@@ -1,6 +1,5 @@
 package com.callx.app.models;
 
-  import java.util.HashMap;
   import java.util.List;
   import java.util.Map;
 
@@ -28,12 +27,12 @@ package com.callx.app.models;
       public boolean isPinned;
 
       // Like / RT / bookmark maps — stored as {uid: true}
-      public Map<String, Boolean> likes     = new HashMap<>();
-      public Map<String, Boolean> retweets  = new HashMap<>();
-      public Map<String, Boolean> bookmarks = new HashMap<>();
+      public Map<String, Boolean> likes;
+      public Map<String, Boolean> retweets;
+      public Map<String, Boolean> bookmarks;
 
       // Convenience helpers — not stored in Firebase
-      public boolean isLikedBy(String uid)      { return uid != null && Boolean.TRUE.equals(likes.get(uid)); }
-      public boolean isRetweetedBy(String uid)  { return uid != null && Boolean.TRUE.equals(retweets.get(uid)); }
-      public boolean isBookmarkedBy(String uid) { return uid != null && Boolean.TRUE.equals(bookmarks.get(uid)); }
+      public boolean isLikedBy(String uid)      { return uid != null && likes != null && Boolean.TRUE.equals(likes.get(uid)); }
+      public boolean isRetweetedBy(String uid)  { return uid != null && retweets != null && Boolean.TRUE.equals(retweets.get(uid)); }
+      public boolean isBookmarkedBy(String uid) { return uid != null && bookmarks != null && Boolean.TRUE.equals(bookmarks.get(uid)); }
   }

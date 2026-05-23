@@ -96,6 +96,10 @@ package com.callx.app.activities;
           btnMedia.setOnClickListener(v -> pickMedia());
           btnPost.setOnClickListener(v -> postTweet());
 
+          // Initialize uid immediately (sync) — don't wait for profile load
+          myUid = FirebaseAuth.getInstance().getCurrentUser() != null
+              ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+
           loadMyProfile();
       }
 
@@ -162,6 +166,13 @@ package com.callx.app.activities;
       private void postTweet() {
           String text = etTweetText.getText().toString().trim();
           if (text.isEmpty() || isPosting) return;
+
+          // Guard: profile must be loaded
+          if (myUid == null || myUid.isEmpty()) {
+              Toast.makeText(this, "Please wait, loading profile...", Toast.LENGTH_SHORT).show();
+              return;
+          }
+
           isPosting = true;
           btnPost.setEnabled(false);
 
@@ -179,13 +190,15 @@ package com.callx.app.activities;
           tweet.mentions       = extractMentions(text);
 
           String key = XFirebaseUtils.tweetsRef().push().getKey();
-          if (key == null) { isPosting = false; return; }
+          if (key == null) { isPosting = false; btnPost.setEnabled(true); return; }
           tweet.id = key;
 
           XFirebaseUtils.tweetRef(key).setValue(tweet).addOnCompleteListener(t -> {
               if (t.isSuccessful()) {
                   // Publish to global feed
                   XFirebaseUtils.globalFeedRef().child(key).setValue(tweet);
+                  // Save to user's own tweet list
+                  XFirebaseUtils.userTweetsRef(myUid).child(key).setValue(true);
                   // If reply, record under parent thread
                   if (replyToId != null)
                       XFirebaseUtils.tweetRepliesRef(replyToId).child(key).setValue(true);
@@ -196,7 +209,8 @@ package com.callx.app.activities;
               } else {
                   isPosting = false;
                   btnPost.setEnabled(true);
-                  Toast.makeText(this, "Post failed. Try again.", Toast.LENGTH_SHORT).show();
+                  String errMsg = t.getException() != null ? t.getException().getMessage() : "Unknown error";
+                  Toast.makeText(this, "Post failed: " + errMsg, Toast.LENGTH_LONG).show();
               }
           });
       }
