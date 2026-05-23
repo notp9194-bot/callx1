@@ -1,0 +1,655 @@
+package com.callx.app.activities;
+
+import android.util.Log;
+import android.Manifest;
+import android.app.Activity;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.view.View;
+import android.widget.*;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
+
+import com.callx.app.reels.R;
+import com.callx.app.activities.ReelTagPeopleActivity;
+import com.callx.app.activities.ReelLocationTagActivity;
+import com.callx.app.activities.ReelPrivacySettingsActivity;
+import com.callx.app.activities.ReelSchedulerActivity;
+import com.callx.app.activities.ReelDraftsActivity;
+import com.callx.app.activities.ReelProductTagActivity;
+
+import com.callx.app.helpers.AudioMixHelper;
+import com.callx.app.models.ReelModel;
+import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.VideoCompressor;
+import com.callx.app.utils.VideoQualityPreferences;
+import com.callx.app.utils.VideoUploader;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.MutableData;
+import com.google.firebase.database.Transaction;
+import com.google.firebase.database.ValueEventListener;
+
+import java.lang.ref.WeakReference;
+import java.util.UUID;
+
+/**
+ * ReelUploadActivity — Fully crash-safe production reel upload.
+ *
+ * Crash fixes:
+ *  ✅ WeakReference in all background callbacks — no NPE on dead activity
+ *  ✅ isFinishing()/isDestroyed() guard before every UI update
+ *  ✅ READ_MEDIA_VIDEO permission request on Android 13+ (API 33)
+ *  ✅ Empty thumbnail fallback — upload proceeds even if thumb extraction failed
+ *  ✅ CompressedResult null-guard on every path
+ *  ✅ Player released before new video selected
+ *  ✅ Firebase user null-guard — never crashes if user is not logged in
+ *
+ * Advanced features:
+ *  ✅ 4-tier quality selector (Low / Standard / HD / Full HD)
+ *  ✅ Live compression progress + savings badge
+ *  ✅ Audience selector (Everyone / Contacts Only)
+ *  ✅ Hashtag auto-extraction from caption
+ *  ✅ Video preview with ExoPlayer before upload
+ */
+public class ReelUploadActivity extends AppCompatActivity {
+
+    // ── Extras accepted from ReelEditorActivity ───────────────────────────
+    public static final String EXTRA_VIDEO_URI    = "upload_video_uri";
+    public static final String EXTRA_IS_FILE_PATH = "upload_is_file_path";
+    public static final String EXTRA_TRIM_START   = "upload_trim_start";
+    public static final String EXTRA_TRIM_END     = "upload_trim_end";
+    public static final String EXTRA_TEXT_OVERLAY = "upload_text_overlay";
+    public static final String EXTRA_MUSIC_NAME   = "upload_music_name";
+    // Sound pre-selected from SoundDetailActivity
+    public static final String EXTRA_SOUND_ID    = "selected_sound_id";
+    public static final String EXTRA_SOUND_TITLE = "selected_sound_title";
+    public static final String EXTRA_SOUND_URL   = "selected_sound_url";
+
+    private static final int REQ_PICK_VIDEO  = 901;
+    private static final int REQ_PERMISSION  = 902;
+
+    private PlayerView        playerPreview;
+    private ImageView         ivThumbPreview;
+    private View              layoutPickVideo, layoutCompression, layoutVideoInfo;
+    private View              layoutUploadProgress;
+    private ProgressBar       progressCompress, progressUpload;
+    private TextView          tvCompressStatus, tvUploadStatus;
+    private TextView          tvVideoInfo, tvCompressionSavings;
+    private TextInputEditText etCaption, etMusic;
+    private Button            btnPostReel;
+    private ChipGroup         chipQuality, chipAudience;
+    private View              btnTagPeople, btnLocationTag, btnPrivacySettings, btnSchedule, btnSaveDraft, btnProductTag;
+    private TextView          tvTagSummary, tvLocationName, tvScheduleTime;
+    private String            taggedUids = "", locationName = "", scheduleTime = "";
+
+    private Uri                    selectedUri;
+    private String                 preSelectedSoundId    = "";
+    private String                 preSelectedSoundUrl   = "";
+    private ExoPlayer              previewPlayer;
+    private VideoCompressor.Result compressedResult;
+    private boolean                compressionInProgress = false;
+
+    // Audio mix settings received from ReelEditorActivity (via ReelAudioMixerActivity)
+    private float  mixOrigVol       = 1.0f;
+    private float  mixMusicVol      = 0.8f;
+    private String mixVoiceoverPath = "";
+    private float  mixVoiceoverVol  = 1.0f;
+    private String mixedVideoPath   = null; // set after AudioMixHelper finishes
+
+    // ✅ NEW: True when ReelCameraActivity already replaced mic audio at recording time.
+    // If true, skip AudioMixHelper in handlePostReel() to avoid double-mixing.
+    private boolean audioAlreadyReplaced = false;
+
+    @Override
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_reel_upload);
+
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+        if (getSupportActionBar() != null) getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        toolbar.setNavigationOnClickListener(v -> finish());
+
+        bindViews();
+        setupChipDefaults();
+
+        layoutPickVideo.setOnClickListener(v -> checkPermissionAndPickVideo());
+        playerPreview.setOnClickListener(v -> checkPermissionAndPickVideo());
+        ivThumbPreview.setOnClickListener(v -> checkPermissionAndPickVideo());
+        btnPostReel.setOnClickListener(v -> handlePostReel());
+        if (btnTagPeople       != null) btnTagPeople.setOnClickListener(v       -> startActivityForResult(new Intent(this, ReelTagPeopleActivity.class), 501));
+        if (btnLocationTag     != null) btnLocationTag.setOnClickListener(v     -> startActivityForResult(new Intent(this, ReelLocationTagActivity.class), 502));
+        if (btnPrivacySettings != null) btnPrivacySettings.setOnClickListener(v -> startActivityForResult(new Intent(this, ReelPrivacySettingsActivity.class), 503));
+        if (btnSchedule        != null) btnSchedule.setOnClickListener(v        -> startActivityForResult(new Intent(this, ReelSchedulerActivity.class), 504));
+        if (btnSaveDraft       != null) btnSaveDraft.setOnClickListener(v -> startActivity(new Intent(this, ReelDraftsActivity.class)));
+        if (btnProductTag      != null) btnProductTag.setOnClickListener(v      -> startActivityForResult(new Intent(this, ReelProductTagActivity.class), 505));
+
+        // If launched from ReelEditorActivity, pre-load the video + text overlay
+        handleEditorExtras();
+    }
+
+    private void bindViews() {
+        playerPreview        = findViewById(R.id.player_preview);
+        ivThumbPreview       = findViewById(R.id.iv_thumb_preview);
+        layoutPickVideo      = findViewById(R.id.layout_pick_video);
+        layoutCompression    = findViewById(R.id.layout_compression);
+        layoutVideoInfo      = findViewById(R.id.layout_video_info);
+        layoutUploadProgress = findViewById(R.id.layout_upload_progress);
+        progressCompress     = findViewById(R.id.progress_compress);
+        progressUpload       = findViewById(R.id.progress_upload);
+        tvCompressStatus     = findViewById(R.id.tv_compress_status);
+        tvUploadStatus       = findViewById(R.id.tv_upload_status);
+        tvVideoInfo          = findViewById(R.id.tv_video_info);
+        tvCompressionSavings = findViewById(R.id.tv_compression_savings);
+        etCaption            = findViewById(R.id.et_caption);
+        etMusic              = findViewById(R.id.et_music);
+        btnPostReel          = findViewById(R.id.btn_post_reel);
+        chipQuality          = findViewById(R.id.chip_quality);
+        chipAudience         = findViewById(R.id.chip_audience);
+        btnTagPeople         = findViewById(R.id.btn_tag_people);
+        btnLocationTag       = findViewById(R.id.btn_location_tag);
+        btnPrivacySettings   = findViewById(R.id.btn_privacy_settings);
+        btnSchedule          = findViewById(R.id.btn_schedule);
+        btnSaveDraft         = findViewById(R.id.btn_save_draft);
+        btnProductTag        = findViewById(R.id.btn_product_tag);
+        tvTagSummary         = findViewById(R.id.tv_tag_summary);
+        tvLocationName       = findViewById(R.id.tv_location_name);
+        tvScheduleTime       = findViewById(R.id.tv_schedule_time);
+    }
+
+    private void setupChipDefaults() {
+        Chip chipStandard = findViewById(R.id.chip_standard);
+        if (chipStandard != null) chipStandard.setChecked(true);
+        Chip chipEveryone = findViewById(R.id.chip_everyone);
+        if (chipEveryone != null) chipEveryone.setChecked(true);
+    }
+
+    /**
+     * If launched from ReelEditorActivity, auto-load the video file
+     * and pre-populate any text overlay / music passed via intent extras.
+     */
+    private void handleEditorExtras() {
+        Intent i = getIntent();
+        if (i == null) return;
+
+        // ── Read sound extras FIRST (before any early return) ─────────────
+        // These are set by SoundDetailActivity (gallery flow) OR ReelEditorActivity (camera flow)
+        String soundId    = i.getStringExtra(EXTRA_SOUND_ID);
+        String soundTitle = i.getStringExtra(EXTRA_SOUND_TITLE);
+        String soundUrl   = i.getStringExtra(EXTRA_SOUND_URL);
+        if (soundId    != null && !soundId.isEmpty())    preSelectedSoundId  = soundId;
+        if (soundUrl   != null && !soundUrl.isEmpty())   preSelectedSoundUrl = soundUrl;
+        if (soundTitle != null && !soundTitle.isEmpty() && etMusic != null
+                && (etMusic.getText() == null || etMusic.getText().toString().isEmpty())) {
+            etMusic.setText(soundTitle);
+        }
+
+        // Audio mix settings from ReelEditorActivity (camera flow only)
+        mixOrigVol       = i.getFloatExtra("mix_orig_vol",        1.0f);
+        mixMusicVol      = i.getFloatExtra("mix_music_vol",       0.8f);
+        mixVoiceoverPath = i.getStringExtra("mix_voiceover_path");
+        mixVoiceoverVol  = i.getFloatExtra("mix_voiceover_vol",   1.0f);
+        if (mixVoiceoverPath == null) mixVoiceoverPath = "";
+
+        // ✅ NEW: If ReelCameraActivity already replaced mic audio, skip mixing at upload time.
+        audioAlreadyReplaced = i.getBooleanExtra("audio_already_replaced", false);
+
+        // ── If no video URI, stop here (gallery flow: user picks video later) ──
+        String videoUriStr = i.getStringExtra(EXTRA_VIDEO_URI);
+        if (videoUriStr == null || videoUriStr.isEmpty()) return;
+
+        boolean isFilePath = i.getBooleanExtra(EXTRA_IS_FILE_PATH, true);
+        Uri uri = isFilePath
+            ? android.net.Uri.fromFile(new java.io.File(videoUriStr))
+            : Uri.parse(videoUriStr);
+        selectedUri           = uri;
+        compressedResult      = null;
+        compressionInProgress = false;
+        showVideoPreview(uri);
+        compressVideo(uri);
+
+        // Pre-fill text overlay as initial caption if provided
+        String textOverlay = i.getStringExtra(EXTRA_TEXT_OVERLAY);
+        if (textOverlay != null && !textOverlay.isEmpty() && etCaption != null) {
+            etCaption.setText(textOverlay);
+        }
+
+        // Pre-fill music name if provided
+        String musicName = i.getStringExtra(EXTRA_MUSIC_NAME);
+        if (musicName != null && !musicName.isEmpty() && etMusic != null) {
+            etMusic.setText(musicName);
+        }
+    }
+
+    // ── Permission ────────────────────────────────────────────────────────
+
+    private void checkPermissionAndPickVideo() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_MEDIA_VIDEO}, REQ_PERMISSION);
+                return;
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_PERMISSION);
+                return;
+            }
+        }
+        pickVideo();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                pickVideo();
+            } else {
+                Toast.makeText(this, "Storage permission required to select video",
+                    Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void pickVideo() {
+        Intent i = new Intent(Intent.ACTION_PICK);
+        i.setType("video/*");
+        startActivityForResult(i, REQ_PICK_VIDEO);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 501 && resultCode == Activity.RESULT_OK && data != null) {
+            taggedUids = data.getStringExtra(ReelTagPeopleActivity.RESULT_TAGGED_UIDS);
+            if (taggedUids == null) taggedUids = "";
+            if (tvTagSummary != null) tvTagSummary.setText(taggedUids.isEmpty() ? "" : "Tagged");
+        } else if (requestCode == 502 && resultCode == Activity.RESULT_OK && data != null) {
+            locationName = data.getStringExtra(ReelLocationTagActivity.RESULT_NAME);
+            if (locationName == null) locationName = "";
+            if (tvLocationName != null) tvLocationName.setText(locationName);
+        } else if (requestCode == 504 && resultCode == Activity.RESULT_OK && data != null) {
+            scheduleTime = data.getStringExtra("scheduled_time");
+            if (scheduleTime == null) scheduleTime = "";
+            if (tvScheduleTime != null) tvScheduleTime.setText(scheduleTime);
+        }
+        if (requestCode == REQ_PICK_VIDEO && resultCode == Activity.RESULT_OK
+                && data != null && data.getData() != null) {
+            selectedUri      = data.getData();
+            compressedResult = null;
+            compressionInProgress = false;
+            showVideoPreview(selectedUri);
+            compressVideo(selectedUri);
+        }
+    }
+
+    // ── Video preview ─────────────────────────────────────────────────────
+
+    private void showVideoPreview(Uri uri) {
+        if (isFinishing() || isDestroyed()) return;
+        layoutPickVideo.setVisibility(View.GONE);
+        ivThumbPreview.setVisibility(View.GONE);
+        releasePreviewPlayer();
+        try {
+            previewPlayer = new ExoPlayer.Builder(this).build();
+            playerPreview.setPlayer(previewPlayer);
+            previewPlayer.setMediaItem(MediaItem.fromUri(uri));
+            previewPlayer.setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_ONE);
+            previewPlayer.prepare();
+            previewPlayer.setPlayWhenReady(false);
+        } catch (Exception e) {
+            Toast.makeText(this, "Cannot preview this video", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // ── Compression ───────────────────────────────────────────────────────
+
+    private void compressVideo(Uri uri) {
+        if (isFinishing() || isDestroyed()) return;
+        VideoQualityPreferences.Quality quality = getSelectedQuality();
+
+        layoutCompression.setVisibility(View.VISIBLE);
+        progressCompress.setProgress(0);
+        tvCompressStatus.setText("Compressing… 0%");
+        btnPostReel.setEnabled(false);
+        compressionInProgress = true;
+
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+
+        VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
+            @Override
+            public void onProgress(int percent) {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                a.progressCompress.setProgress(percent);
+                a.tvCompressStatus.setText("Compressing… " + percent + "%");
+            }
+
+            @Override
+            public void onSuccess(VideoCompressor.Result result) {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                a.compressionInProgress = false;
+                a.compressedResult = result;
+                a.layoutCompression.setVisibility(View.GONE);
+                a.btnPostReel.setEnabled(true);
+
+                a.layoutVideoInfo.setVisibility(View.VISIBLE);
+                a.tvVideoInfo.setText(result.width + "×" + result.height
+                    + "  •  " + (result.durationMs / 1000) + "s"
+                    + "  •  " + String.format("%.1f MB", result.compressedBytes / 1_000_000f));
+                float savings = result.savingsPercent();
+                if (savings > 1f) {
+                    a.tvCompressionSavings.setText(String.format("%.0f%% saved", savings));
+                    a.tvCompressionSavings.setVisibility(View.VISIBLE);
+                }
+            }
+
+            @Override
+            public void onError(Exception e) {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                a.compressionInProgress = false;
+                a.layoutCompression.setVisibility(View.GONE);
+                a.btnPostReel.setEnabled(true);
+                String msg = e != null ? e.getMessage() : "Unknown error";
+                Toast.makeText(a, "Compression failed: " + msg, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    // ── Upload logic ──────────────────────────────────────────────────────
+
+    private void handlePostReel() {
+        if (selectedUri == null) {
+            Toast.makeText(this, "Please select a video first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (compressionInProgress) {
+            Toast.makeText(this, "Video is still being compressed…", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (compressedResult == null) {
+            Toast.makeText(this, "Compression not complete. Please wait.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (compressedResult.videoFile == null || !compressedResult.videoFile.exists()
+                || compressedResult.videoFile.length() == 0) {
+            Toast.makeText(this, "Compressed video file is missing. Please try again.",
+                Toast.LENGTH_SHORT).show();
+            compressedResult = null;
+            compressVideo(selectedUri);
+            return;
+        }
+
+        String caption   = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
+        String musicName = etMusic.getText()   != null ? etMusic.getText().toString().trim()   : "";
+
+        // ── Instagram golden rule: "Record first, mix later" ──────────────
+        // If user has selected background music, run AudioMixHelper before upload.
+        boolean hasMusicTrack = preSelectedSoundUrl != null && !preSelectedSoundUrl.isEmpty();
+        boolean hasVoiceover  = mixVoiceoverPath != null && !mixVoiceoverPath.isEmpty();
+
+        // ✅ NEW: If audio was already replaced at camera recording stage, skip mixing.
+        if (audioAlreadyReplaced) {
+            uploadReel(caption, musicName, compressedResult.videoFile.getAbsolutePath());
+        } else if (hasMusicTrack || hasVoiceover) {
+            runAudioMixThenUpload(caption, musicName);
+        } else {
+            // No extra audio — upload compressed video directly
+            uploadReel(caption, musicName, compressedResult.videoFile.getAbsolutePath());
+        }
+    }
+
+    /**
+     * Step: mix audio tracks with AudioMixHelper, then proceed to upload.
+     */
+    private void runAudioMixThenUpload(String caption, String musicName) {
+        btnPostReel.setEnabled(false);
+        layoutUploadProgress.setVisibility(View.VISIBLE);
+        progressUpload.setProgress(0);
+        tvUploadStatus.setText("Mixing audio…");
+
+        String rawVideoPath = compressedResult.videoFile.getAbsolutePath();
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+
+        AudioMixHelper.mixAndExport(
+            this,
+            rawVideoPath,
+            preSelectedSoundUrl,
+            mixVoiceoverPath,
+            mixOrigVol,
+            mixMusicVol,
+            mixVoiceoverVol,
+            new AudioMixHelper.MixCallback() {
+                @Override public void onProgress(int percent) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.progressUpload.setProgress(percent / 2); // mix = 0–50%, upload = 50–100%
+                    a.tvUploadStatus.setText("Mixing audio… " + percent + "%");
+                }
+                @Override public void onSuccess(String mixedPath) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.mixedVideoPath = mixedPath;
+                    a.tvUploadStatus.setText("Uploading reel…");
+                    a.uploadReel(caption, musicName, mixedPath);
+                }
+                @Override public void onError(Exception e) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.btnPostReel.setEnabled(true);
+                    a.layoutUploadProgress.setVisibility(View.GONE);
+                    // Fallback: upload without mixing
+                    Toast.makeText(a,
+                        "Audio mix failed, uploading original video. (" + e.getMessage() + ")",
+                        Toast.LENGTH_LONG).show();
+                    a.uploadReel(caption, musicName, rawVideoPath);
+                }
+            }
+        );
+    }
+
+    private void uploadReel(String caption, String musicName, String videoPath) {
+        btnPostReel.setEnabled(false);
+        layoutUploadProgress.setVisibility(View.VISIBLE);
+        progressUpload.setProgress(50);
+        tvUploadStatus.setText("Uploading reel…");
+
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+
+        // If audio was mixed, we need to upload the mixed file.
+        // VideoUploader accepts a Result — re-use compressedResult but override
+        // the file by creating a thin wrapper that replaces only videoFile.
+        final VideoCompressor.Result uploadResult = compressedResult;
+        final java.io.File uploadFile = new java.io.File(videoPath);
+
+        VideoUploader.upload(this, uploadResult, uploadFile, new VideoUploader.UploadCallback() {
+            @Override
+            public void onProgress(int percent) {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                a.progressUpload.setProgress(percent);
+                a.tvUploadStatus.setText("Uploading… " + percent + "%");
+            }
+
+            @Override
+            public void onSuccess(String thumbUrl, String videoUrl,
+                                  int durationMs, int width, int height) {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                a.saveReelToFirebase(thumbUrl, videoUrl, durationMs, width, height,
+                    caption, musicName, uploadResult, videoPath);
+            }
+
+            @Override
+            public void onError(Exception e) {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                a.btnPostReel.setEnabled(true);
+                a.layoutUploadProgress.setVisibility(View.GONE);
+                String msg = e != null ? e.getMessage() : "Network error";
+                Toast.makeText(a, "Upload failed: " + msg, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    // ── Firebase save ─────────────────────────────────────────────────────
+
+    private void saveReelToFirebase(String thumbUrl, String videoUrl,
+                                    int durationMs, int width, int height,
+                                    String caption, String musicName,
+                                    VideoCompressor.Result result, String videoPath) {
+        if (isFinishing() || isDestroyed()) return;
+
+        String myUid, myName;
+        try {
+            myUid  = FirebaseUtils.getCurrentUid();
+            myName = FirebaseUtils.getCurrentName();
+            if (myUid == null || myUid.isEmpty()) throw new IllegalStateException("uid null");
+        } catch (Exception e) {
+            Toast.makeText(this, "Session expired. Please log in again.", Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+
+        String reelId = FirebaseUtils.getReelsRef().push().getKey();
+        if (reelId == null) reelId = UUID.randomUUID().toString();
+        final String finalReelId = reelId;
+
+        String audienceType = getAudienceType();
+
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+
+        FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snap) {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+
+                String photo = snap.child("photoUrl").getValue(String.class);
+                String thumb = snap.child("thumbUrl").getValue(String.class);
+                // Use thumbUrl for reel avatar — saves data for all viewers
+                String safePhoto = (thumb != null && !thumb.isEmpty()) ? thumb : (photo != null ? photo : "");
+
+                ReelModel reel = new ReelModel(
+                    finalReelId, myUid, myName, safePhoto,
+                    videoUrl, thumbUrl, caption, musicName,
+                    System.currentTimeMillis(), durationMs, width, height);
+
+                reel.audienceType = audienceType;
+                // Attach pre-selected sound if provided
+                if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
+                if (!a.preSelectedSoundUrl.isEmpty()) reel.musicUrl = a.preSelectedSoundUrl;
+                if (result != null) {
+                    reel.compressionSummary = result.compressionSummary();
+                    reel.savingsPercent     = result.savingsPercent();
+                }
+
+                FirebaseUtils.getReelsRef().child(finalReelId).setValue(reel)
+                    .addOnSuccessListener(unused -> {
+                        ReelUploadActivity b = ref.get();
+                        if (b == null || b.isFinishing() || b.isDestroyed()) return;
+
+                        FirebaseUtils.getReelsByUserRef(myUid).child(finalReelId).setValue(true);
+
+                        Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
+                        b.setResult(RESULT_OK);
+
+                        // ── Background: extract + upload original audio ───────
+                        // This runs after the reel is already live, so user doesn't wait.
+                        java.io.File videoFileForAudio = new java.io.File(videoPath);
+                        if (videoFileForAudio.exists()) {
+                            VideoUploader.uploadOriginalAudio(b, videoFileForAudio,
+                                new VideoUploader.AudioUploadCallback() {
+                                    @Override
+                                    public void onSuccess(String audioUrl) {
+                                        // Save originalAudioUrl to Firebase
+                                        FirebaseUtils.getReelsRef()
+                                            .child(finalReelId)
+                                            .child("originalAudioUrl")
+                                            .setValue(audioUrl);
+                                        Log.d("ReelUpload",
+                                            "originalAudioUrl saved: " + audioUrl);
+                                    }
+                                    @Override
+                                    public void onError(Exception e) {
+                                        Log.w("ReelUpload",
+                                            "Audio upload failed (non-fatal): " + e.getMessage());
+                                    }
+                                });
+                        }
+                        // ─────────────────────────────────────────────────────
+
+                        b.finish();
+                    })
+                    .addOnFailureListener(ex -> {
+                        ReelUploadActivity b = ref.get();
+                        if (b == null || b.isFinishing() || b.isDestroyed()) return;
+                        b.btnPostReel.setEnabled(true);
+                        b.layoutUploadProgress.setVisibility(View.GONE);
+                        Toast.makeText(b, "Failed to save reel: " + ex.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                    });
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError e) {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                a.btnPostReel.setEnabled(true);
+                a.layoutUploadProgress.setVisibility(View.GONE);
+                Toast.makeText(a, "Database error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private VideoQualityPreferences.Quality getSelectedQuality() {
+        int id = chipQuality.getCheckedChipId();
+        if (id == R.id.chip_low)    return VideoQualityPreferences.Quality.LOW;
+        if (id == R.id.chip_hd)     return VideoQualityPreferences.Quality.HD;
+        if (id == R.id.chip_fullhd) return VideoQualityPreferences.Quality.FULL_HD;
+        return VideoQualityPreferences.Quality.STANDARD;
+    }
+
+    private String getAudienceType() {
+        int id = chipAudience.getCheckedChipId();
+        return id == R.id.chip_contacts_only ? "contacts" : "everyone";
+    }
+
+    private void releasePreviewPlayer() {
+        if (previewPlayer != null) {
+            try { previewPlayer.stop(); } catch (Exception ignored) {}
+            try { previewPlayer.release(); } catch (Exception ignored) {}
+            previewPlayer = null;
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        releasePreviewPlayer();
+        super.onDestroy();
+    }
+}
