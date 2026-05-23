@@ -130,7 +130,6 @@ public class XSearchActivity extends AppCompatActivity {
                     XUser u = ds.getValue(XUser.class);
                     if (u == null) continue;
                     u.uid = ds.getKey();
-                    u.ensureMapsNotNull();
                     View row = getLayoutInflater().inflate(R.layout.item_x_user_row, llUserResults, false);
                     ImageView iv = row.findViewById(R.id.iv_x_user_avatar);
                     TextView tvName   = row.findViewById(R.id.tv_x_user_name);

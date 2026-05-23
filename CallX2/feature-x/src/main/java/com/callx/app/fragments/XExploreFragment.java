@@ -361,7 +361,6 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                     XUser u = ds.getValue(XUser.class);
                     if (u == null) continue;
                     u.uid = ds.getKey();
-                    u.ensureMapsNotNull();
                     View row = LayoutInflater.from(requireContext())
                         .inflate(R.layout.item_x_user_row, llUserResults, false);
                     Glide.with(requireContext()).load(u.photoUrl).circleCrop()
