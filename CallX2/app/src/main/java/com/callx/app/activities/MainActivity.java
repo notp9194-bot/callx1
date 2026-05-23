@@ -483,7 +483,7 @@ public class MainActivity extends AppCompatActivity {
         // Load current user avatar
         String uid = currentUid();
         if (uid != null && ivAvatar != null) {
-            FirebaseUtils.getUserRef(uid).child("profileImage")
+            FirebaseUtils.getUserRef(uid).child("photoUrl")
                 .get().addOnSuccessListener(snap -> {
                     String url = snap.getValue(String.class);
                     if (url != null && !url.isEmpty()) {

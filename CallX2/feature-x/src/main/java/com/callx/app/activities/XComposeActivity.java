@@ -20,6 +20,7 @@ package com.callx.app.activities;
   import com.callx.app.models.XTweet;
   import com.callx.app.utils.XCloudinaryUtils;
   import com.callx.app.utils.XFirebaseUtils;
+  import com.callx.app.utils.FirebaseUtils;
   import com.callx.app.x.R;
   import com.google.firebase.auth.FirebaseAuth;
   import com.google.firebase.database.DataSnapshot;
@@ -104,16 +105,19 @@ package com.callx.app.activities;
       }
 
       private void loadMyProfile() {
-          myUid = FirebaseAuth.getInstance().getCurrentUser() != null
-              ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
           if (myUid.isEmpty()) return;
-          XFirebaseUtils.xUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+          // Read from main users node where profile data actually lives
+          com.callx.app.utils.FirebaseUtils.getUserRef(myUid)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot snap) {
                   myName     = snap.child("name").getValue(String.class);
-                  myHandle   = snap.child("handle").getValue(String.class);
+                  String mobile = snap.child("mobile").getValue(String.class);
+                  myHandle   = (mobile != null && !mobile.isEmpty()) ? mobile : "user";
                   myPhotoUrl = snap.child("photoUrl").getValue(String.class);
-                  if (myPhotoUrl != null) Glide.with(XComposeActivity.this).load(myPhotoUrl)
-                      .circleCrop().into(ivMyAvatar);
+                  if (myPhotoUrl != null && !myPhotoUrl.isEmpty()) {
+                      Glide.with(XComposeActivity.this).load(myPhotoUrl)
+                          .circleCrop().into(ivMyAvatar);
+                  }
               }
               @Override public void onCancelled(DatabaseError e) {}
           });
