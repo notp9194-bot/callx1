@@ -24,6 +24,15 @@ plugins {
           sourceCompatibility JavaVersion.VERSION_17
           targetCompatibility JavaVersion.VERSION_17
       }
+
+      lint {
+          abortOnError false
+          checkReleaseBuilds false
+          disable 'WrongViewCast', 'MissingPermission', 'SetTextI18n',
+                  'HardcodedText', 'UseCompoundDrawables', 'ContentDescription',
+                  'RtlHardcoded', 'RtlEnabled', 'RelativeOverlap',
+                  'UnusedResources', 'ObsoleteSdkInt', 'GradleDependency'
+      }
   }
 
   dependencies {

@@ -48,7 +48,8 @@ package com.callx.app.adapters;
 
       class VH extends RecyclerView.ViewHolder {
           ImageView ivAvatar, ivVerified;
-          TextView tvName, tvHandle, tvLastMsg, tvTime, tvUnread;
+          TextView tvName, tvHandle, tvLastMsg, tvTime;
+          View tvUnread;
 
           VH(View v) {
               super(v);
