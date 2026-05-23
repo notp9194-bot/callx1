@@ -1649,67 +1649,32 @@ public class ReelPlayerFragment extends Fragment {
         catch (Exception e) { return null; }
     }
 
-    /**
-     * Returns the correct FragmentManager for showing bottom sheets.
-     *
-     * - Jab ReelPlayerFragment kisi parent Fragment ke andar ho (e.g. ReelsFragment
-     *   inside MainActivity ViewPager), tab getParentFragmentManager() use karo —
-     *   yeh Activity-level FM ke equivalent hai aur state issues se safe rehta hai.
-     * - Jab directly Activity se host ho (e.g. SingleReelPlayerActivity ka ViewPager2),
-     *   tab getParentFragment() == null hoga — seedha Activity ka
-     *   getSupportFragmentManager() use karo.
-     */
-    private androidx.fragment.app.FragmentManager safeFragmentManager() {
-        if (getParentFragment() != null) {
-            // Nested fragment case — use parent's FM (Activity-level)
-            return getParentFragmentManager();
-        }
-        // Directly hosted by Activity (SingleReelPlayerActivity etc.)
-        return requireActivity().getSupportFragmentManager();
-    }
 
     /**
      * Safe show for BottomSheetDialogFragment.
-     *
-     * CRITICAL: DialogFragment MUST be shown via sheet.show(fm, tag) — NOT via
-     * beginTransaction().add(sheet, tag). The show() method sets internal flags
-     * (mDismissed=false, mShownByMe=true) that make the dialog window actually appear.
-     * Using raw beginTransaction().add() skips these flags — dialog never shows.
-     *
-     * We post onto the main thread Handler so we are never inside a layout/draw pass
-     * where isStateSaved() might be true (common in ViewPager2-hosted fragments
-     * like SingleReelPlayerActivity).
+     * DialogFragment MUST be shown via sheet.show(fm, tag) — not beginTransaction().add().
+     * show() sets internal flags (mDismissed=false, mShownByMe=true) required for
+     * the dialog window to actually appear.
      */
     private void showBottomSheet(androidx.fragment.app.DialogFragment sheet, String tag) {
-        if (!isAdded() || getActivity() == null) return;
-        if (getActivity().isFinishing() || getActivity().isDestroyed()) return;
-
-        // Post to next looper tick — avoids IllegalStateException in ViewPager2
-        uiHandler.post(() -> {
-            if (!isAdded() || getActivity() == null) return;
-            if (getActivity().isFinishing() || getActivity().isDestroyed()) return;
-
-            androidx.fragment.app.FragmentManager fm = safeFragmentManager();
-            if (fm.isDestroyed()) return;
-
-            // Remove stale instance with same tag
-            androidx.fragment.app.Fragment existing = fm.findFragmentByTag(tag);
-            if (existing != null) {
-                try {
-                    fm.beginTransaction().remove(existing).commitAllowingStateLoss();
-                    fm.executePendingTransactions();
-                } catch (Exception ignored) {}
-            }
-
-            // MUST use sheet.show() — not beginTransaction().add()
+        if (!isAdded()) return;
+        // Use getChildFragmentManager() — works correctly whether ReelPlayerFragment
+        // is hosted inside ReelsFragment (MainActivity) or directly in
+        // SingleReelPlayerActivity. Never causes "Activity is finished" crashes.
+        androidx.fragment.app.FragmentManager fm = getChildFragmentManager();
+        if (fm.isDestroyed()) return;
+        androidx.fragment.app.Fragment existing = fm.findFragmentByTag(tag);
+        if (existing != null) {
             try {
-                sheet.show(fm, tag);
-            } catch (IllegalStateException e) {
-                try {
-                    sheet.showNow(fm, tag);
-                } catch (Exception ignored) {}
+                fm.beginTransaction().remove(existing).commitAllowingStateLoss();
+                fm.executePendingTransactions();
             } catch (Exception ignored) {}
-        });
+        }
+        try {
+            sheet.show(fm, tag);
+        } catch (Exception e) {
+            try { sheet.showNow(fm, tag); } catch (Exception ignored) {}
+        }
     }
 
     private String formatCount(int n) {
