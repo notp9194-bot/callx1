@@ -106,8 +106,7 @@ package com.callx.app.activities;
 
       private void loadMyProfile() {
           if (myUid.isEmpty()) return;
-          // Read from main users node where profile data actually lives
-          com.callx.app.utils.FirebaseUtils.getUserRef(myUid)
+          FirebaseUtils.getUserRef(myUid)
               .addListenerForSingleValueEvent(new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot snap) {
                   myName     = snap.child("name").getValue(String.class);
