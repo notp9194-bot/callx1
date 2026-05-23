@@ -190,11 +190,36 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                 ? ContextCompat.getColor(ctx, R.color.x_bookmark_active)
                 : ContextCompat.getColor(ctx, R.color.x_icon_default));
 
-            // Buttons
-            btnLike.setOnClickListener(v -> { if (listener != null) listener.onLike(tweet, !liked); });
-            btnRetweet.setOnClickListener(v -> { if (listener != null) listener.onRetweet(tweet, !rted); });
+            // Buttons — optimistic UI update on tap
+            btnLike.setOnClickListener(v -> {
+                if (listener == null) return;
+                boolean nowLiked = !tweet.isLikedBy(myUid);
+                // Update local state immediately for instant UI feedback
+                if (tweet.likes == null) tweet.likes = new java.util.HashMap<>();
+                tweet.likes.put(myUid, nowLiked);
+                tweet.likeCount = Math.max(0, tweet.likeCount + (nowLiked ? 1 : -1));
+                notifyItemChanged(getAdapterPosition());
+                listener.onLike(tweet, nowLiked);
+            });
+            btnRetweet.setOnClickListener(v -> {
+                if (listener == null) return;
+                boolean nowRted = !tweet.isRetweetedBy(myUid);
+                if (tweet.retweets == null) tweet.retweets = new java.util.HashMap<>();
+                tweet.retweets.put(myUid, nowRted);
+                tweet.retweetCount = Math.max(0, tweet.retweetCount + (nowRted ? 1 : -1));
+                notifyItemChanged(getAdapterPosition());
+                listener.onRetweet(tweet, nowRted);
+            });
             btnReply.setOnClickListener(v -> { if (listener != null) listener.onReply(tweet); });
-            btnBookmark.setOnClickListener(v -> { if (listener != null) listener.onBookmark(tweet); });
+            btnBookmark.setOnClickListener(v -> {
+                if (listener == null) return;
+                // Toggle local state for immediate feedback
+                boolean nowBkd = !tweet.isBookmarkedBy(myUid);
+                if (tweet.bookmarks == null) tweet.bookmarks = new java.util.HashMap<>();
+                tweet.bookmarks.put(myUid, nowBkd);
+                notifyItemChanged(getAdapterPosition());
+                listener.onBookmark(tweet);
+            });
             btnShare.setOnClickListener(v -> { if (listener != null) listener.onShare(tweet); });
             btnMore.setOnClickListener(v -> { if (listener != null) listener.onMore(tweet, v); });
 

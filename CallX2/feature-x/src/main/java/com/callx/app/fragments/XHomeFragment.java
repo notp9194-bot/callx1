@@ -128,6 +128,38 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                 Collections.sort(list, (a, b) -> Long.compare(b.timestamp, a.timestamp));
                 adapter.setTweets(list);
                 swipeRefresh.setRefreshing(false);
+
+                // Load like / retweet / bookmark state for each tweet from separate Firebase nodes
+                // (Feed snapshots don't include these nested maps → buttons show wrong state)
+                if (!myUid.isEmpty()) {
+                    for (XTweet tweet : list) {
+                        final XTweet t = tweet;
+                        // Like state
+                        XFirebaseUtils.tweetLikesRef(t.id).child(myUid).get()
+                            .addOnSuccessListener(ds -> {
+                                if (!isAdded()) return;
+                                if (t.likes == null) t.likes = new java.util.HashMap<>();
+                                t.likes.put(myUid, ds.getValue() != null);
+                                adapter.notifyItemChanged(list.indexOf(t));
+                            });
+                        // Retweet state
+                        XFirebaseUtils.tweetRetweetsRef(t.id).child(myUid).get()
+                            .addOnSuccessListener(ds -> {
+                                if (!isAdded()) return;
+                                if (t.retweets == null) t.retweets = new java.util.HashMap<>();
+                                t.retweets.put(myUid, ds.getValue() != null);
+                                adapter.notifyItemChanged(list.indexOf(t));
+                            });
+                        // Bookmark state
+                        XFirebaseUtils.userBookmarksRef(myUid).child(t.id).get()
+                            .addOnSuccessListener(ds -> {
+                                if (!isAdded()) return;
+                                if (t.bookmarks == null) t.bookmarks = new java.util.HashMap<>();
+                                t.bookmarks.put(myUid, ds.getValue() != null);
+                                adapter.notifyItemChanged(list.indexOf(t));
+                            });
+                    }
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
                 if (isAdded()) swipeRefresh.setRefreshing(false);
@@ -139,10 +171,24 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
     // ── Tweet Actions ───────────────────────────────────────────────────────
 
     @Override public void onLike(XTweet tweet, boolean liked) {
+        // liked = what user wants NOW (true=like, false=unlike)
+        // Write like state
         XFirebaseUtils.tweetLikesRef(tweet.id).child(myUid).setValue(liked ? true : null);
         XFirebaseUtils.userLikedTweetsRef(myUid).child(tweet.id).setValue(liked ? true : null);
+        // runTransaction avoids race condition when multiple users like simultaneously
         XFirebaseUtils.tweetRef(tweet.id).child("likeCount")
-            .setValue(liked ? tweet.likeCount + 1 : Math.max(0, tweet.likeCount - 1));
+            .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                @androidx.annotation.NonNull
+                @Override public com.google.firebase.database.Transaction.Result doTransaction(
+                        @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                    Long cur = data.getValue(Long.class);
+                    if (cur == null) cur = 0L;
+                    data.setValue(liked ? cur + 1 : Math.max(0, cur - 1));
+                    return com.google.firebase.database.Transaction.success(data);
+                }
+                @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                        boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+            });
         if (liked && !myUid.equals(tweet.authorUid)) pushNotif(tweet, "like");
     }
 
@@ -150,7 +196,18 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         XFirebaseUtils.tweetRetweetsRef(tweet.id).child(myUid).setValue(retweeted ? true : null);
         XFirebaseUtils.userRetweetsRef(myUid).child(tweet.id).setValue(retweeted ? true : null);
         XFirebaseUtils.tweetRef(tweet.id).child("retweetCount")
-            .setValue(retweeted ? tweet.retweetCount + 1 : Math.max(0, tweet.retweetCount - 1));
+            .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                @androidx.annotation.NonNull
+                @Override public com.google.firebase.database.Transaction.Result doTransaction(
+                        @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                    Long cur = data.getValue(Long.class);
+                    if (cur == null) cur = 0L;
+                    data.setValue(retweeted ? cur + 1 : Math.max(0, cur - 1));
+                    return com.google.firebase.database.Transaction.success(data);
+                }
+                @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                        boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+            });
         if (retweeted && !myUid.equals(tweet.authorUid)) pushNotif(tweet, "retweet");
     }
 
@@ -166,15 +223,29 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
     }
 
     @Override public void onBookmark(XTweet tweet) {
-        boolean bkd = tweet.isBookmarkedBy(myUid);
-        XFirebaseUtils.userBookmarksRef(myUid).child(tweet.id).setValue(bkd ? null : true);
-        Toast.makeText(requireContext(),
-            bkd ? "Removed from Bookmarks" : "Added to Bookmarks", Toast.LENGTH_SHORT).show();
+        // Read current bookmark state directly from Firebase (tweet.bookmarks is null from feed)
+        XFirebaseUtils.userBookmarksRef(myUid).child(tweet.id).get()
+            .addOnSuccessListener(snap -> {
+                boolean alreadyBookmarked = snap.getValue() != null;
+                boolean newState = !alreadyBookmarked;
+                // Save in user_bookmarks node
+                XFirebaseUtils.userBookmarksRef(myUid).child(tweet.id)
+                    .setValue(newState ? true : null);
+                // Also save in tweet node so isBookmarkedBy() works
+                XFirebaseUtils.tweetRef(tweet.id).child("bookmarks").child(myUid)
+                    .setValue(newState ? true : null);
+                Toast.makeText(requireContext(),
+                    newState ? "Added to Bookmarks" : "Removed from Bookmarks",
+                    Toast.LENGTH_SHORT).show();
+            });
     }
 
     @Override public void onShare(XTweet tweet) {
+        String shareText = (tweet.authorName != null ? tweet.authorName : "")
+            + ": " + (tweet.text != null ? tweet.text : "")
+            + " — via CallX";
         Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain");
-        i.putExtra(Intent.EXTRA_TEXT, tweet.authorName + ": " + tweet.text + " — via CallX");
+        i.putExtra(Intent.EXTRA_TEXT, shareText);
         startActivity(Intent.createChooser(i, "Share post"));
     }
 

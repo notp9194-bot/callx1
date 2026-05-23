@@ -393,8 +393,22 @@ public class XComposeActivity extends AppCompatActivity {
                     XFirebaseUtils.globalFeedRef().child(key).setValue(tweet);
                 }
                 XFirebaseUtils.userTweetsRef(myUid).child(key).setValue(true);
-                if (replyToId != null)
+                if (replyToId != null) {
                     XFirebaseUtils.tweetRepliesRef(replyToId).child(key).setValue(true);
+                    // replyCount increment via transaction (race-condition safe)
+                    XFirebaseUtils.tweetRef(replyToId).child("replyCount")
+                        .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                            @androidx.annotation.NonNull
+                            @Override public com.google.firebase.database.Transaction.Result doTransaction(
+                                    @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                                Long cur = data.getValue(Long.class);
+                                data.setValue(cur != null ? cur + 1 : 1);
+                                return com.google.firebase.database.Transaction.success(data);
+                            }
+                            @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                    boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+                        });
+                }
                 if (scheduledAt <= 0) fanOutToFollowers(key, tweet);
                 long nowTs = System.currentTimeMillis();
                 for (String tag : tweet.hashtags != null ? tweet.hashtags : new java.util.ArrayList<String>()) {

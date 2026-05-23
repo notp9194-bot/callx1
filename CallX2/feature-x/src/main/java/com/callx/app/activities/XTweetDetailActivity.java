@@ -46,12 +46,35 @@ public class XTweetDetailActivity extends AppCompatActivity {
                 XFirebaseUtils.tweetLikesRef(t.id).child(myUid).setValue(l ? true : null);
                 XFirebaseUtils.userLikedTweetsRef(myUid).child(t.id).setValue(l ? true : null);
                 XFirebaseUtils.tweetRef(t.id).child("likeCount")
-                    .setValue(l ? t.likeCount + 1 : Math.max(0, t.likeCount - 1));
+                    .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                        @androidx.annotation.NonNull
+                        @Override public com.google.firebase.database.Transaction.Result doTransaction(
+                                @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                            Long cur = data.getValue(Long.class);
+                            if (cur == null) cur = 0L;
+                            data.setValue(l ? cur + 1 : Math.max(0, cur - 1));
+                            return com.google.firebase.database.Transaction.success(data);
+                        }
+                        @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+                    });
             }
             @Override public void onRetweet(XTweet t, boolean r) {
                 XFirebaseUtils.tweetRetweetsRef(t.id).child(myUid).setValue(r ? true : null);
+                XFirebaseUtils.userRetweetsRef(myUid).child(t.id).setValue(r ? true : null);
                 XFirebaseUtils.tweetRef(t.id).child("retweetCount")
-                    .setValue(r ? t.retweetCount + 1 : Math.max(0, t.retweetCount - 1));
+                    .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                        @androidx.annotation.NonNull
+                        @Override public com.google.firebase.database.Transaction.Result doTransaction(
+                                @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                            Long cur = data.getValue(Long.class);
+                            if (cur == null) cur = 0L;
+                            data.setValue(r ? cur + 1 : Math.max(0, cur - 1));
+                            return com.google.firebase.database.Transaction.success(data);
+                        }
+                        @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+                    });
             }
             @Override public void onReply(XTweet t) {
                 startActivity(new Intent(XTweetDetailActivity.this, XComposeActivity.class)
@@ -157,30 +180,65 @@ public class XTweetDetailActivity extends AppCompatActivity {
                 if (tvViews != null)  tvViews.setText(fmt(rootTweet.viewCount) + " Views");
                 if (tvReplies != null) tvReplies.setText(fmt(rootTweet.replyCount) + " Replies");
 
-                // Like button
+                // Like button — read state from Firebase (rootTweet.likes may be null)
                 View btnLike = findViewById(R.id.btn_x_detail_like);
                 if (btnLike != null) {
                     btnLike.setOnClickListener(v -> {
-                        boolean liked = rootTweet.isLikedBy(myUid);
-                        XFirebaseUtils.tweetLikesRef(tweetId).child(myUid).setValue(!liked ? true : null);
-                        XFirebaseUtils.userLikedTweetsRef(myUid).child(tweetId).setValue(!liked ? true : null);
-                        XFirebaseUtils.tweetRef(tweetId).child("likeCount")
-                            .setValue(!liked ? rootTweet.likeCount + 1 : Math.max(0, rootTweet.likeCount - 1));
-                        if (!liked && !myUid.equals(rootTweet.authorUid))
-                            pushNotif(rootTweet, "like");
+                        XFirebaseUtils.tweetLikesRef(tweetId).child(myUid).get()
+                            .addOnSuccessListener(ds -> {
+                                boolean liked = ds.getValue() != null;
+                                boolean newLiked = !liked;
+                                XFirebaseUtils.tweetLikesRef(tweetId).child(myUid)
+                                    .setValue(newLiked ? true : null);
+                                XFirebaseUtils.userLikedTweetsRef(myUid).child(tweetId)
+                                    .setValue(newLiked ? true : null);
+                                XFirebaseUtils.tweetRef(tweetId).child("likeCount")
+                                    .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                                        @androidx.annotation.NonNull
+                                        @Override public com.google.firebase.database.Transaction.Result doTransaction(
+                                                @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                                            Long cur = data.getValue(Long.class);
+                                            if (cur == null) cur = 0L;
+                                            data.setValue(newLiked ? cur + 1 : Math.max(0, cur - 1));
+                                            return com.google.firebase.database.Transaction.success(data);
+                                        }
+                                        @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                                boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+                                    });
+                                if (newLiked && !myUid.equals(rootTweet.authorUid))
+                                    pushNotif(rootTweet, "like");
+                            });
                     });
                 }
 
-                // Retweet button
+                // Retweet button — read state from Firebase + add userRetweetsRef
                 View btnRt = findViewById(R.id.btn_x_detail_retweet);
                 if (btnRt != null) {
                     btnRt.setOnClickListener(v -> {
-                        boolean rted = rootTweet.isRetweetedBy(myUid);
-                        XFirebaseUtils.tweetRetweetsRef(tweetId).child(myUid).setValue(!rted ? true : null);
-                        XFirebaseUtils.tweetRef(tweetId).child("retweetCount")
-                            .setValue(!rted ? rootTweet.retweetCount + 1 : Math.max(0, rootTweet.retweetCount - 1));
-                        if (!rted && !myUid.equals(rootTweet.authorUid))
-                            pushNotif(rootTweet, "retweet");
+                        XFirebaseUtils.tweetRetweetsRef(tweetId).child(myUid).get()
+                            .addOnSuccessListener(ds -> {
+                                boolean rted = ds.getValue() != null;
+                                boolean newRted = !rted;
+                                XFirebaseUtils.tweetRetweetsRef(tweetId).child(myUid)
+                                    .setValue(newRted ? true : null);
+                                XFirebaseUtils.userRetweetsRef(myUid).child(tweetId)
+                                    .setValue(newRted ? true : null);
+                                XFirebaseUtils.tweetRef(tweetId).child("retweetCount")
+                                    .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                                        @androidx.annotation.NonNull
+                                        @Override public com.google.firebase.database.Transaction.Result doTransaction(
+                                                @androidx.annotation.NonNull com.google.firebase.database.MutableData data) {
+                                            Long cur = data.getValue(Long.class);
+                                            if (cur == null) cur = 0L;
+                                            data.setValue(newRted ? cur + 1 : Math.max(0, cur - 1));
+                                            return com.google.firebase.database.Transaction.success(data);
+                                        }
+                                        @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                                boolean committed, com.google.firebase.database.DataSnapshot snap) {}
+                                    });
+                                if (newRted && !myUid.equals(rootTweet.authorUid))
+                                    pushNotif(rootTweet, "retweet");
+                            });
                     });
                 }
 
