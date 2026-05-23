@@ -548,7 +548,9 @@ public class ReelUploadActivity extends AppCompatActivity {
                 if (a == null || a.isFinishing() || a.isDestroyed()) return;
 
                 String photo = snap.child("photoUrl").getValue(String.class);
-                String safePhoto = photo != null ? photo : "";
+                String thumb = snap.child("thumbUrl").getValue(String.class);
+                // Use thumbUrl for reel avatar — saves data for all viewers
+                String safePhoto = (thumb != null && !thumb.isEmpty()) ? thumb : (photo != null ? photo : "");
 
                 ReelModel reel = new ReelModel(
                     finalReelId, myUid, myName, safePhoto,

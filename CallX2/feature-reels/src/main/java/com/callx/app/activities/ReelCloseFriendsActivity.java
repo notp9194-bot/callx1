@@ -146,7 +146,9 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
                         Friend f = new Friend();
                         f.uid   = uid;
                         f.name  = s.child("name").getValue(String.class);
-                        f.photo = s.child("photoUrl").getValue(String.class);
+                        String _thumb = s.child("thumbUrl").getValue(String.class);
+                        String _photo = s.child("photoUrl").getValue(String.class);
+                        f.photo = (_thumb != null && !_thumb.isEmpty()) ? _thumb : _photo;
                         if (f.name != null) searchResults.add(f);
                     }
                     searchAdapter.notifyDataSetChanged();

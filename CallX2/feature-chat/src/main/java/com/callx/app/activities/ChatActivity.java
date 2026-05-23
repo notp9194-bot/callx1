@@ -193,6 +193,7 @@ public class ChatActivity extends AppCompatActivity {
             finish(); return;
         }
         setupToolbar();
+        applyScreenTheme();   // ← Apply full chat-screen theme on launch
         setupPickers();
         recorder = new VoiceRecorder();
 
@@ -462,6 +463,7 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onStar(Message m)                { toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
+            @Override public void onNavigateToOriginal(String messageId) { navigateToOriginal(messageId); }
         });
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
@@ -1765,6 +1767,58 @@ public class ChatActivity extends AppCompatActivity {
                 .show();
     }
 
+    // ── Apply Chat Screen Theme (toolbar, bg, input bar, buttons) ─────────
+    private void applyScreenTheme() {
+        com.callx.app.utils.ChatThemeManager mgr =
+                com.callx.app.utils.ChatThemeManager.get(this);
+
+        // Toolbar = the root LinearLayout id="toolbar"
+        android.view.View toolbar = binding.toolbar;
+
+        // Root layout (for chat background)
+        android.view.View chatRoot = binding.getRoot();
+
+        // Input row
+        android.view.View inputRow = binding.llInputRow;
+
+        // Reply bar accent stripe
+        android.view.View replyAccent = binding.viewReplyAccent;
+
+        // Also update tv_reply_bar_name color to match primary
+        if (binding.tvReplyBarName != null) {
+            binding.tvReplyBarName.setTextColor(mgr.getPrimaryColor());
+        }
+
+        mgr.applyScreenTheme(
+                toolbar,
+                chatRoot,
+                inputRow,
+                binding.btnSend,
+                binding.btnMic,
+                binding.fabBackToLatest,
+                replyAccent);
+    }
+
+    // ── Chat Bubble Theme Picker ──────────────────────────────────────────
+    private void showThemePicker() {
+        com.callx.app.utils.ChatThemeManager mgr =
+                com.callx.app.utils.ChatThemeManager.get(this);
+        int current = mgr.getCurrentTheme();
+        new AlertDialog.Builder(this)
+            .setTitle("\uD83C\uDFA8 Choose Bubble Theme")
+            .setSingleChoiceItems(
+                com.callx.app.utils.ChatThemeManager.THEME_NAMES,
+                current,
+                (dialog, which) -> {
+                    mgr.setTheme(which);
+                    pagingAdapter.notifyDataSetChanged();
+                    applyScreenTheme();   // ← Apply to toolbar/bg/buttons too
+                    dialog.dismiss();
+                })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // MENU
     // ─────────────────────────────────────────────────────────────────────
@@ -1798,6 +1852,7 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_mute)        { toggleMute();          return true; }
         if (id == R.id.action_block)       { confirmBlockUser();    return true; }
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
+        if (id == R.id.action_chat_theme)  { showThemePicker();     return true; }
         return super.onOptionsItemSelected(item);
     }
 

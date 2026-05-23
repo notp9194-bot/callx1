@@ -69,7 +69,7 @@ public class CallActivity extends AppCompatActivity {
     private ActivityCallBinding binding;
 
     // Call params
-    private String partnerUid, partnerName, partnerPhoto, callId;
+    private String partnerUid, partnerName, partnerPhoto, partnerThumb, callId;
     private boolean isCaller, isVideo;
     private boolean micOn = true, camOn = true, speakerOn = false;
     private boolean usingFrontCamera = true;
@@ -130,6 +130,7 @@ public class CallActivity extends AppCompatActivity {
         partnerUid   = getIntent().getStringExtra("partnerUid");
         partnerName  = getIntent().getStringExtra("partnerName");
         partnerPhoto = getIntent().getStringExtra("partnerPhoto");
+        partnerThumb = getIntent().getStringExtra("partnerThumb");
         isCaller     = getIntent().getBooleanExtra("isCaller", false);
         isVideo      = getIntent().getBooleanExtra("video", false);
         callId       = getIntent().getStringExtra("callId");
@@ -150,8 +151,9 @@ public class CallActivity extends AppCompatActivity {
             binding.btnSwitchCamera.setVisibility(View.GONE);
         }
 
-        if (partnerPhoto != null && !partnerPhoto.isEmpty()) {
-            Glide.with(this).load(partnerPhoto).circleCrop().into(binding.ivCallAvatar);
+        String callAvatarUrl = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
+        if (callAvatarUrl != null && !callAvatarUrl.isEmpty()) {
+            Glide.with(this).load(callAvatarUrl).circleCrop().into(binding.ivCallAvatar);
         }
 
         binding.btnEndCall.setOnClickListener(v -> endCall());

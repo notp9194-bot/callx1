@@ -55,7 +55,8 @@ public class AccountMenuActivity extends AppCompatActivity {
                 binding.tvProfileName.setText(name.isEmpty() ? "User" : name);
                 binding.tvProfileAbout.setText(about.isEmpty() ? "Hey there! I am using CallX" : about);
                 binding.tvCallxId.setText("ID: " + (myCallxId.isEmpty() ? "—" : myCallxId));
-                if (!photo.isEmpty()) Glide.with(AccountMenuActivity.this).load(photo).circleCrop()
+                String profileAvatar = thumb.isEmpty() ? photo : thumb;
+                if (!profileAvatar.isEmpty()) Glide.with(AccountMenuActivity.this).load(profileAvatar).circleCrop()
                     .placeholder(R.drawable.ic_person).into(binding.ivProfileAvatar);
                 String headerImg = thumb.isEmpty() ? photo : thumb;
                 if (!headerImg.isEmpty()) Glide.with(AccountMenuActivity.this).load(headerImg).circleCrop()

@@ -79,7 +79,7 @@ public class ReelTagPeopleActivity extends AppCompatActivity {
                 @Override public void onDataChange(@NonNull DataSnapshot s){
                     if(!isFinishing()&&!isDestroyed()){
                         Contact c=new Contact(); c.uid=uid;
-                        c.name=str(s,"name"); c.username=str(s,"username"); c.photo=str(s,"photoUrl");
+                        c.name=str(s,"name"); c.username=str(s,"username"); String _t=str(s,"thumbUrl"); String _p=str(s,"photoUrl"); c.photo=(!_t.isEmpty())?_t:_p;
                         if(!c.name.isEmpty()){all.add(c); if(pre.contains(uid)) selected.put(uid,c);}
                     }
                     if(--cnt[0]<=0) finishLoad();

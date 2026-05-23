@@ -142,7 +142,9 @@ package com.callx.app.activities;
                                   MutedContact mc = new MutedContact();
                                   mc.uid   = uid;
                                   mc.name  = us.child("name").getValue(String.class);
-                                  mc.photo = us.child("photoUrl").getValue(String.class);
+                                  String _mThumb = us.child("thumbUrl").getValue(String.class);
+                                  String _mPhoto = us.child("photoUrl").getValue(String.class);
+                                  mc.photo = (_mThumb != null && !_mThumb.isEmpty()) ? _mThumb : _mPhoto;
                                   if (mc.name == null) mc.name = uid;
                                   items.add(mc);
                                   if (++done[0] == uids.size()) {

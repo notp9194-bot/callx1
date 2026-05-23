@@ -387,11 +387,12 @@ public class GroupInfoActivity extends AppCompatActivity {
                     String role     = c.child("role").getValue(String.class);
                     Long   lastSeen = c.child("lastSeen").getValue(Long.class);
                     String photo    = c.child("photoUrl").getValue(String.class);
+                    String thumb    = c.child("thumbUrl").getValue(String.class);
                     boolean online  = lastSeen != null && (now - lastSeen) < onlineMs;
                     members.add(new GroupMemberAdapter.MemberItem(
                             uid, name != null ? name : "Member",
                             role != null ? role : "member",
-                            photo, online, lastSeen));
+                            photo, thumb, online, lastSeen));
                 }
                 // Sort: creator/admin first, then by name
                 members.sort((a, b) -> {
@@ -504,7 +505,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                 i.putExtra("partnerUid",   m.uid);
                 i.putExtra("partnerName",  m.name);
                 i.putExtra("partnerPhoto", m.photoUrl != null ? m.photoUrl : "");
-                i.putExtra("partnerThumb", "");  // MemberItem mein thumbUrl nahi — blank ok
+                i.putExtra("partnerThumb", m.thumbUrl != null ? m.thumbUrl : "");
                 startActivity(i);
                 return;
             }

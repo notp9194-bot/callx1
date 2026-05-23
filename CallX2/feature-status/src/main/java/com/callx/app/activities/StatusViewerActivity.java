@@ -658,11 +658,13 @@ public class StatusViewerActivity extends AppCompatActivity {
                         public void onDataChange(@NonNull DataSnapshot snap) {
                             String myName  = snap.child("name").getValue(String.class);
                             String myPhoto = snap.child("photoUrl").getValue(String.class);
+                            String myThumb = snap.child("thumbUrl").getValue(String.class);
+                            String myAvatar = (myThumb != null && !myThumb.isEmpty()) ? myThumb : myPhoto;
                             PushNotify.notifyStatusReply(
                                 toUid,
                                 myUid,
                                 myName  != null ? myName  : "Someone",
-                                myPhoto != null ? myPhoto : "",
+                                myAvatar != null ? myAvatar : "",
                                 finalMsg,
                                 finalChatId
                             );

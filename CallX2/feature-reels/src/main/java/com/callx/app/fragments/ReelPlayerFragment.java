@@ -95,7 +95,7 @@ public class ReelPlayerFragment extends Fragment {
     private ImageView       ivPlayPauseIndicator;
     private CircleImageView ivOwnerAvatar;
     private ImageView       ivOwnerStoryRing;
-    private TextView        tvOwnerName, tvCaption, tvMusicName, tvViews;
+    private TextView        tvOwnerName, tvCaption, tvMusicName;
     private TextView        tvLikesCount, tvCommentsCount, tvSharesCount;
     private TextView        tvFollowBtn;
     private ImageButton     btnLike, btnComment, btnShare, btnSave, btnMute, btnMore, btnDownload;
@@ -120,6 +120,15 @@ public class ReelPlayerFragment extends Fragment {
     private View            btnFollowOverlay;
 
     private ProgressBar     progressVideo, progressBuffering;
+
+    // ── Floating Liker Avatars ─────────────────────────────────────────────
+    private android.widget.FrameLayout llLikersAvatarRow;
+    private CircleImageView ivLiker1, ivLiker2, ivLiker3;
+    private TextView        tvHeart1, tvHeart2, tvHeart3;
+    private View            flLiker1, flLiker2, flLiker3;
+    private String[]        likerUidCache = new String[3]; // for click → UserReelsActivity
+    private ValueEventListener likersListener;
+    private ObjectAnimator  floatAnim1, floatAnim2, floatAnim3;
 
     // ── State ──────────────────────────────────────────────────────────────
     private ReelModel reel;
@@ -238,6 +247,10 @@ public class ReelPlayerFragment extends Fragment {
         uiHandler.removeCallbacksAndMessages(null);
         removeFirebaseListeners();
         releasePlayer();
+        // Cancel liker float animations
+        if (floatAnim1 != null) { floatAnim1.cancel(); floatAnim1 = null; }
+        if (floatAnim2 != null) { floatAnim2.cancel(); floatAnim2 = null; }
+        if (floatAnim3 != null) { floatAnim3.cancel(); floatAnim3 = null; }
         super.onDestroyView();
     }
 
@@ -269,21 +282,20 @@ public class ReelPlayerFragment extends Fragment {
         if (rightActions != null) {
             ViewCompat.setOnApplyWindowInsetsListener(rightActions, (view, insets) -> {
                 int navBarHeight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-                // base 80dp bottom padding + navBarHeight
-                int basePx = (int)(80 * view.getResources().getDisplayMetrics().density);
+                // base 8dp bottom padding + navBarHeight
+                int basePx = (int)(8 * view.getResources().getDisplayMetrics().density);
                 view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
                     view.getPaddingRight(), basePx + navBarHeight);
                 return insets;
             });
         }
-        // bottom_info: same treatment — paddingBottom = 22dp base + navBarHeight
+        // bottom_info: paddingBottom = navBarHeight only — strip sits at very bottom of screen
         View bottomInfo = v.findViewById(R.id.bottom_info);
         if (bottomInfo != null) {
             ViewCompat.setOnApplyWindowInsetsListener(bottomInfo, (view, insets) -> {
                 int navBarHeight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-                int basePx = (int)(22 * view.getResources().getDisplayMetrics().density);
                 view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
-                    view.getPaddingRight(), basePx + navBarHeight);
+                    view.getPaddingRight(), navBarHeight);
                 return insets;
             });
         }
@@ -292,11 +304,22 @@ public class ReelPlayerFragment extends Fragment {
         tvOwnerName       = v.findViewById(R.id.tv_owner_name);
         tvCaption         = v.findViewById(R.id.tv_caption);
         tvMusicName       = v.findViewById(R.id.tv_music_name);
-        tvViews           = v.findViewById(R.id.tv_views);
         tvLikesCount      = v.findViewById(R.id.tv_likes_count);
         tvCommentsCount   = v.findViewById(R.id.tv_comments_count);
         tvSharesCount     = v.findViewById(R.id.tv_shares_count);
         tvFollowBtn       = v.findViewById(R.id.tv_follow_btn);
+
+        // Likers avatar row
+        llLikersAvatarRow = v.findViewById(R.id.ll_likers_avatar_row);
+        ivLiker1          = v.findViewById(R.id.iv_liker_1);
+        ivLiker2          = v.findViewById(R.id.iv_liker_2);
+        ivLiker3          = v.findViewById(R.id.iv_liker_3);
+        tvHeart1          = v.findViewById(R.id.tv_heart_1);
+        tvHeart2          = v.findViewById(R.id.tv_heart_2);
+        tvHeart3          = v.findViewById(R.id.tv_heart_3);
+        flLiker1          = v.findViewById(R.id.fl_liker_1);
+        flLiker2          = v.findViewById(R.id.fl_liker_2);
+        flLiker3          = v.findViewById(R.id.fl_liker_3);
 
         // FIXED: View, not ImageButton
         btnFollowOverlay  = v.findViewById(R.id.btn_follow_overlay);
@@ -358,7 +381,6 @@ public class ReelPlayerFragment extends Fragment {
         tvLikesCount.setText(formatCount(reel.likesCount));
         tvCommentsCount.setText(formatCount(reel.commentsCount));
         tvSharesCount.setText(formatCount(reel.sharesCount));
-        tvViews.setText(formatCount(reel.viewsCount) + " views");
 
         // FIX #5: initial repost count
         if (tvRepostCount != null)
@@ -421,6 +443,9 @@ public class ReelPlayerFragment extends Fragment {
         }
 
         renderHashtags();
+
+        // Load likers avatars (Instagram-style) below owner name
+        if (reel.reelId != null) fetchLikerAvatars();
     }
 
     // ── Hashtag rendering ─────────────────────────────────────────────────
@@ -458,6 +483,170 @@ public class ReelPlayerFragment extends Fragment {
             });
             containerHashtags.addView(chip);
         }
+    }
+
+    // ── Likers Avatar Row ─────────────────────────────────────────────────
+
+    /**
+     * Fetches up to 3 recent likers from Firebase and shows their circular
+     * profile pictures in the Instagram-style avatar row above the owner name.
+     */
+    private void fetchLikerAvatars() {
+        if (!isAdded() || getContext() == null || reel == null || reel.reelId == null) return;
+
+        // Remove any previous listener
+        if (likersListener != null) {
+            FirebaseUtils.getReelLikesRef(reel.reelId)
+                .removeEventListener(likersListener);
+            likersListener = null;
+        }
+
+        DatabaseReference likesRef = FirebaseUtils.getReelLikesRef(reel.reelId);
+
+        likersListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snapshot) {
+                if (!isAdded() || getContext() == null) return;
+
+                long total = snapshot.getChildrenCount();
+                if (total == 0) {
+                    if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.GONE);
+                    return;
+                }
+
+                // Collect up to 3 liker UIDs
+                java.util.List<String> likerUids = new java.util.ArrayList<>();
+                for (com.google.firebase.database.DataSnapshot child : snapshot.getChildren()) {
+                    likerUids.add(child.getKey());
+                    if (likerUids.size() == 3) break;
+                }
+
+                // Show the floating container
+                if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.VISIBLE);
+
+                CircleImageView[] avatarViews = {ivLiker1, ivLiker2, ivLiker3};
+                for (CircleImageView av : avatarViews) {
+                    if (av != null) av.setVisibility(View.GONE);
+                }
+
+                // Cache UIDs for click handlers
+                likerUidCache = new String[3];
+                for (int i = 0; i < likerUids.size(); i++) {
+                    likerUidCache[i] = likerUids.get(i);
+                }
+
+                // Fetch each liker's thumbUrl and load into floating avatar views
+                for (int i = 0; i < likerUids.size(); i++) {
+                    final CircleImageView targetView = avatarViews[i];
+                    if (targetView == null) continue;
+                    final boolean isLast = (i == likerUids.size() - 1);
+
+                    FirebaseUtils.getUserRef(likerUids.get(i)).child("thumbUrl")
+                        .get().addOnSuccessListener(ds -> {
+                            if (!isAdded() || getContext() == null) return;
+                            targetView.setVisibility(View.VISIBLE);
+                            String url = ds.getValue(String.class);
+                            if (url != null && !url.isEmpty()) {
+                                Glide.with(requireContext())
+                                    .load(url)
+                                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                                    .placeholder(R.drawable.ic_person)
+                                    .error(R.drawable.ic_person)
+                                    .into(targetView);
+                            } else {
+                                targetView.setImageResource(R.drawable.ic_person);
+                            }
+                            if (isLast) startLikerFloatAnimations();
+                        });
+                }
+
+                // Show hearts on all visible avatars
+                if (tvHeart1 != null) tvHeart1.setVisibility(likerUids.size() >= 1 ? View.VISIBLE : View.GONE);
+                if (tvHeart2 != null) tvHeart2.setVisibility(likerUids.size() >= 2 ? View.VISIBLE : View.GONE);
+                if (tvHeart3 != null) tvHeart3.setVisibility(likerUids.size() >= 3 ? View.VISIBLE : View.GONE);
+
+                // Per-avatar click → open that liker's UserReelsActivity
+                View[] flViews = {flLiker1, flLiker2, flLiker3};
+                for (int i = 0; i < flViews.length; i++) {
+                    final int idx = i;
+                    if (flViews[i] != null) {
+                        flViews[i].setOnClickListener(v -> openLikerProfile(idx));
+                    }
+                }
+            }
+
+            @Override
+            public void onCancelled(@NonNull com.google.firebase.database.DatabaseError error) {
+                // silently ignore
+            }
+        };
+
+        likesRef.addValueEventListener(likersListener);
+    }
+
+    /**
+     * Starts gentle independent float (translateY) animations on each liker avatar.
+     * Each avatar bobs up and down at a slightly different speed/offset — Instagram explore style.
+     */
+    private void startLikerFloatAnimations() {
+        if (!isAdded() || getContext() == null) return;
+
+        // Stop any existing animations
+        if (floatAnim1 != null) floatAnim1.cancel();
+        if (floatAnim2 != null) floatAnim2.cancel();
+        if (floatAnim3 != null) floatAnim3.cancel();
+
+        float amplitude = dpToPx(5); // float up/down by 5dp (container has 16dp top padding buffer)
+
+        if (ivLiker1 != null && ivLiker1.getVisibility() == View.VISIBLE) {
+            floatAnim1 = ObjectAnimator.ofFloat(ivLiker1, "translationY", 0f, -amplitude, 0f);
+            floatAnim1.setDuration(2200);
+            floatAnim1.setRepeatCount(ObjectAnimator.INFINITE);
+            floatAnim1.setRepeatMode(ObjectAnimator.REVERSE);
+            floatAnim1.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            floatAnim1.setStartDelay(0);
+            floatAnim1.start();
+        }
+        if (ivLiker2 != null && ivLiker2.getVisibility() == View.VISIBLE) {
+            floatAnim2 = ObjectAnimator.ofFloat(ivLiker2, "translationY", 0f, -amplitude, 0f);
+            floatAnim2.setDuration(2600);
+            floatAnim2.setRepeatCount(ObjectAnimator.INFINITE);
+            floatAnim2.setRepeatMode(ObjectAnimator.REVERSE);
+            floatAnim2.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            floatAnim2.setStartDelay(300);
+            floatAnim2.start();
+        }
+        if (ivLiker3 != null && ivLiker3.getVisibility() == View.VISIBLE) {
+            floatAnim3 = ObjectAnimator.ofFloat(ivLiker3, "translationY", 0f, -amplitude, 0f);
+            floatAnim3.setDuration(2400);
+            floatAnim3.setRepeatCount(ObjectAnimator.INFINITE);
+            floatAnim3.setRepeatMode(ObjectAnimator.REVERSE);
+            floatAnim3.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            floatAnim3.setStartDelay(600);
+            floatAnim3.start();
+        }
+    }
+
+    /**
+     * Opens UserReelsActivity for the liker at the given index (0,1,2).
+     * Fetches name + photo from Firebase before launching.
+     */
+    private void openLikerProfile(int idx) {
+        if (!isAdded() || getContext() == null) return;
+        if (likerUidCache == null || idx >= likerUidCache.length || likerUidCache[idx] == null) return;
+        String uid = likerUidCache[idx];
+        FirebaseUtils.getUserRef(uid).get().addOnSuccessListener(ds -> {
+            if (!isAdded() || getContext() == null) return;
+            String name  = ds.child("name").getValue(String.class);
+            String photo = ds.child("thumbUrl").getValue(String.class);
+            if (name == null) name = "";
+            if (photo == null) photo = "";
+            Intent intent = new Intent(getActivity(), UserReelsActivity.class);
+            intent.putExtra(UserReelsActivity.EXTRA_UID,   uid);
+            intent.putExtra(UserReelsActivity.EXTRA_NAME,  name);
+            intent.putExtra(UserReelsActivity.EXTRA_PHOTO, photo);
+            startActivity(intent);
+        });
     }
 
     // ── Click listeners ───────────────────────────────────────────────────
@@ -522,6 +711,9 @@ public class ReelPlayerFragment extends Fragment {
     private void startPlayback() {
         if (!isAdded() || getContext() == null) return;
         if (reel == null || reel.videoUrl == null || reel.videoUrl.isEmpty()) return;
+        // CRASH FIX: playerView is null if view hasn't been created yet
+        // (setUserVisibleHint can fire before onCreateView in ViewPager2)
+        if (playerView == null) return;
 
         if (player == null) {
             player = new ExoPlayer.Builder(requireContext()).build();
@@ -998,14 +1190,10 @@ public class ReelPlayerFragment extends Fragment {
 
     private void shareReel() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        ReelShareSheetFragment.newInstance(
-                reel.reelId,
-                reel.videoUrl,
-                reel.thumbUrl,
-                reel.caption,
-                reel.uid,          // ownerUid = uid in ReelModel
-                reel.allowReposts
-        ).show(getChildFragmentManager(), "share_sheet");
+        ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                reel.reelId, reel.videoUrl, reel.thumbUrl,
+                reel.caption, reel.uid, reel.allowReposts);
+        showBottomSheet(sheet, "share_sheet");
     }
 
     // ── Download ──────────────────────────────────────────────────────────
@@ -1035,42 +1223,32 @@ public class ReelPlayerFragment extends Fragment {
 
     private void openLikesSheet() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        try {
-            com.callx.app.ui.ReelLikesBottomSheet sheet =
-                    com.callx.app.ui.ReelLikesBottomSheet.newInstance(
-                            reel.reelId,
-                            reel.likesCount,
-                            reel.viewsCount);
-            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelLikesBottomSheet.TAG);
-        } catch (Exception ignored) {}
+        com.callx.app.ui.ReelLikesBottomSheet sheet =
+                com.callx.app.ui.ReelLikesBottomSheet.newInstance(
+                        reel.reelId, reel.likesCount, reel.viewsCount);
+        showBottomSheet(sheet, com.callx.app.ui.ReelLikesBottomSheet.TAG);
     }
 
     // ── Shares bottom sheet ───────────────────────────────────────────────
 
     private void openSharesSheet() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        try {
-            com.callx.app.ui.ReelSharesBottomSheet sheet =
-                    com.callx.app.ui.ReelSharesBottomSheet.newInstance(
-                            reel.reelId,
-                            reel.sharesCount,
-                            reel.repostCount);
-            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelSharesBottomSheet.TAG);
-        } catch (Exception ignored) {}
+        com.callx.app.ui.ReelSharesBottomSheet sheet =
+                com.callx.app.ui.ReelSharesBottomSheet.newInstance(
+                        reel.reelId, reel.sharesCount, reel.repostCount);
+        showBottomSheet(sheet, com.callx.app.ui.ReelSharesBottomSheet.TAG);
     }
 
     // ── Comments bottom sheet ─────────────────────────────────────────────
 
     private void openCommentsSheet() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;
-        try {
-            com.callx.app.ui.ReelCommentsBottomSheet sheet =
-                    com.callx.app.ui.ReelCommentsBottomSheet.newInstance(
-                            reel.reelId,
-                            reel.uid != null ? reel.uid : "",
-                            reel.commentsCount);
-            sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelCommentsBottomSheet.TAG);
-        } catch (Exception ignored) {}
+        com.callx.app.ui.ReelCommentsBottomSheet sheet =
+                com.callx.app.ui.ReelCommentsBottomSheet.newInstance(
+                        reel.reelId,
+                        reel.uid != null ? reel.uid : "",
+                        reel.commentsCount);
+        showBottomSheet(sheet, com.callx.app.ui.ReelCommentsBottomSheet.TAG);
     }
 
     // ── Comments ──────────────────────────────────────────────────────────
@@ -1392,7 +1570,6 @@ public class ReelPlayerFragment extends Fragment {
                 if (likes    != null) tvLikesCount.setText(formatCount(likes.intValue()));
                 if (comments != null) tvCommentsCount.setText(formatCount(comments.intValue()));
                 if (shares   != null) tvSharesCount.setText(formatCount(shares.intValue()));
-                if (views    != null) tvViews.setText(formatCount(views.intValue()) + " views");
                 if (reposts  != null && tvRepostCount != null)
                     tvRepostCount.setText(formatCount(reposts.intValue()));
             }
@@ -1420,6 +1597,12 @@ public class ReelPlayerFragment extends Fragment {
             FirebaseUtils.db().getReference("reelReposts")
                 .child(reel.reelId).child(myUid)
                 .removeEventListener(repostListener);
+
+        // Remove likers avatar listener
+        if (likersListener != null && reel != null && reel.reelId != null)
+            FirebaseUtils.getReelLikesRef(reel.reelId)
+                .removeEventListener(likersListener);
+        likersListener = null;
     }
 
     // ── View count ────────────────────────────────────────────────────────
@@ -1464,6 +1647,31 @@ public class ReelPlayerFragment extends Fragment {
     private String safeMyUid() {
         try { return FirebaseUtils.getCurrentUid(); }
         catch (Exception e) { return null; }
+    }
+
+
+    /**
+     * Safe show for BottomSheetDialogFragment.
+     * DialogFragment MUST be shown via sheet.show(fm, tag) — not beginTransaction().add().
+     * show() sets internal flags (mDismissed=false, mShownByMe=true) required for
+     * the dialog window to actually appear.
+     */
+    private void showBottomSheet(androidx.fragment.app.DialogFragment sheet, String tag) {
+        if (!isAdded()) return;
+        androidx.fragment.app.FragmentManager fm = getChildFragmentManager();
+        if (fm.isDestroyed()) return;
+        androidx.fragment.app.Fragment existing = fm.findFragmentByTag(tag);
+        if (existing != null) {
+            try {
+                fm.beginTransaction().remove(existing).commitAllowingStateLoss();
+                fm.executePendingTransactions();
+            } catch (Exception ignored) {}
+        }
+        try {
+            sheet.show(fm, tag);
+        } catch (Exception e) {
+            try { sheet.showNow(fm, tag); } catch (Exception ignored) {}
+        }
     }
 
     private String formatCount(int n) {

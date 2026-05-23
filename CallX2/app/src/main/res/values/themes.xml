@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+
+    <!-- WhatsApp/Instagram style slide transition — right se aao, left ko jao -->
+    <style name="ActivitySlideTransition">
+        <item name="android:activityOpenEnterAnimation">@anim/slide_in_right</item>
+        <item name="android:activityOpenExitAnimation">@anim/slide_out_left</item>
+        <item name="android:activityCloseEnterAnimation">@anim/slide_in_left</item>
+        <item name="android:activityCloseExitAnimation">@anim/slide_out_right</item>
+    </style>
+
     <style name="Theme.CallX" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
@@ -12,7 +21,15 @@
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
         <item name="android:windowLightStatusBar">true</item>
+        <!-- Global slide transition — every activity open/close will slide 50ms -->
+        <item name="android:windowAnimationStyle">@style/ActivitySlideTransition</item>
     </style>
+
+    <!-- Tab-level screens: instant open + close (0ms) — tab switch jaisa feel -->
+    <style name="Theme.CallX.NoTransition" parent="Theme.CallX">
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
     <style name="Theme.CallX.Fullscreen" parent="Theme.CallX">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/black</item>

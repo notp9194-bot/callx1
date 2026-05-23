@@ -80,47 +80,8 @@
         android:layout_gravity="end|bottom"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:paddingBottom="80dp"
+        android:paddingBottom="8dp"
         android:paddingEnd="4dp">
-
-        <!-- Owner avatar -->
-        <FrameLayout
-            android:layout_width="48dp"
-            android:layout_height="56dp"
-            android:layout_marginBottom="16dp">
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_owner_avatar"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_gravity="top|center_horizontal"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="2dp"
-                app:civ_border_color="@color/white"/>
-
-            <!-- Story ring around owner avatar -->
-            <ImageView
-                android:id="@+id/iv_owner_story_ring"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:layout_gravity="top|center_horizontal"
-                android:background="@drawable/circle_status_unseen"
-                android:clickable="true"
-                android:focusable="true"
-                android:visibility="gone"/>
-
-            <TextView
-                android:id="@+id/btn_follow_overlay"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:layout_gravity="bottom|center_horizontal"
-                android:text="+"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp"
-                android:gravity="center"
-                android:background="@color/brand_primary"
-                android:visibility="visible"/>
-        </FrameLayout>
 
         <!-- Like -->
         <ImageButton
@@ -163,7 +124,14 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="12dp"/>
+            android:layout_marginBottom="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"/>
 
         <!-- Share -->
         <ImageButton
@@ -219,7 +187,7 @@
     </LinearLayout>
 
     <!-- Bottom info strip
-         paddingBottom is set in code: bottomNavHeight + navBarHeight
+         paddingBottom is set in code: navBarHeight only — strip sits at very bottom
     -->
     <LinearLayout
         android:id="@+id/bottom_info"
@@ -229,14 +197,54 @@
         android:orientation="vertical"
         android:paddingStart="12dp"
         android:paddingEnd="72dp"
-        android:paddingBottom="22dp">
+        android:paddingBottom="0dp">
 
-        <!-- Owner name + follow button -->
+        <!-- Owner avatar + name + follow button -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:layout_marginTop="6dp">
+
+            <!-- Owner avatar with story ring -->
+            <FrameLayout
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginEnd="8dp">
+
+                <ImageView
+                    android:id="@+id/iv_owner_story_ring"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/circle_status_unseen"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:visibility="gone"/>
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_owner_avatar"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_person"
+                    app:civ_border_width="1.5dp"
+                    app:civ_border_color="@color/white"/>
+
+                <TextView
+                    android:id="@+id/btn_follow_overlay"
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_gravity="bottom|end"
+                    android:text="+"
+                    android:textColor="#FFFFFF"
+                    android:textSize="9sp"
+                    android:gravity="center"
+                    android:background="@color/brand_primary"
+                    android:visibility="visible"/>
+            </FrameLayout>
+
             <TextView
                 android:id="@+id/tv_owner_name"
                 android:layout_width="wrap_content"
@@ -270,7 +278,7 @@
             android:text=""
             android:textColor="#FFFFFFEE"
             android:textSize="13sp"
-            android:maxLines="3"
+            android:maxLines="1"
             android:ellipsize="end"/>
 
         <!-- Hashtag chips -->
@@ -298,7 +306,7 @@
             android:background="@drawable/bg_music_ticker"
             android:paddingStart="8dp"
             android:paddingEnd="10dp"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="2dp">
 
             <ImageView
                 android:id="@+id/iv_music_disc"
@@ -320,8 +328,7 @@
                 android:marqueeRepeatLimit="marquee_forever"
                 android:scrollHorizontally="true"
                 android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:selected="true"/>
+                android:focusableInTouchMode="true"/>
         </LinearLayout>
 
         <!-- Live Reaction Counts -->
@@ -333,16 +340,131 @@
             android:layout_marginTop="6dp"
             android:visibility="gone"/>
 
-        <!-- Views count -->
-        <TextView
-            android:id="@+id/tv_views"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="0 views"
-            android:textColor="#AAFFFFFF"
-            android:textSize="11sp"/>
     </LinearLayout>
+
+
+    <!-- ── Floating Liker Avatars (Instagram explore style) ────────────────
+         3 large circular avatars floating above bottom-left info strip.
+         Gentle float animation applied in ReelPlayerFragment.
+         visibility=gone until at least 1 liker loads.
+         Tapping opens ReelLikesBottomSheet.
+    -->
+    <!-- outer wrapper: extra padding so float animation + hearts never clip -->
+    <FrameLayout
+        android:id="@+id/ll_likers_avatar_row"
+        android:layout_width="180dp"
+        android:layout_height="120dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="8dp"
+        android:layout_marginBottom="120dp"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:paddingTop="16dp"
+        android:visibility="gone">
+
+        <!-- Liker avatar 1 — left, bottom -->
+        <FrameLayout
+            android:id="@+id/fl_liker_1"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_gravity="bottom|start"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_1"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_gravity="top|start"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#FFFFFF"
+                android:elevation="2dp"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/tv_heart_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:text="&#x2764;&#xFE0F;"
+                android:textSize="14sp"
+                android:elevation="4dp"
+                android:visibility="gone"/>
+        </FrameLayout>
+
+        <!-- Liker avatar 2 — center, top -->
+        <FrameLayout
+            android:id="@+id/fl_liker_2"
+            android:layout_width="58dp"
+            android:layout_height="58dp"
+            android:layout_gravity="top|center_horizontal"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_2"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="top|start"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#FFFFFF"
+                android:elevation="3dp"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/tv_heart_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:text="&#x2764;&#xFE0F;"
+                android:textSize="14sp"
+                android:elevation="4dp"
+                android:visibility="gone"/>
+        </FrameLayout>
+
+        <!-- Liker avatar 3 — right, bottom -->
+        <FrameLayout
+            android:id="@+id/fl_liker_3"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_gravity="bottom|end"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_liker_3"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_gravity="top|start"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#FFFFFF"
+                android:elevation="2dp"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/tv_heart_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:text="&#x2764;&#xFE0F;"
+                android:textSize="14sp"
+                android:elevation="4dp"
+                android:visibility="gone"/>
+        </FrameLayout>
+
+    </FrameLayout>
 
     <!-- Video progress bar — pinned to very bottom of video (0dp margin) -->
     <ProgressBar

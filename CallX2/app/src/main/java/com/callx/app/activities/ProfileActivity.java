@@ -84,8 +84,10 @@ public class ProfileActivity extends AppCompatActivity {
                         binding.tvCallxId.setText(orEmpty(cached.callxId));
                         binding.tvEmail.setText(orEmpty(cached.email));
                         currentPhoto = orEmpty(cached.photoUrl);
-                        if (!currentPhoto.isEmpty()) {
-                            Glide.with(ProfileActivity.this).load(currentPhoto)
+                        String cachedThumb = orEmpty(cached.thumbUrl);
+                        String cacheDisplayUrl = !cachedThumb.isEmpty() ? cachedThumb : currentPhoto;
+                        if (!cacheDisplayUrl.isEmpty()) {
+                            Glide.with(ProfileActivity.this).load(cacheDisplayUrl)
                                 .into(binding.ivAvatar);
                         }
                     });
@@ -108,6 +110,7 @@ public class ProfileActivity extends AppCompatActivity {
                     String callxId   = orEmpty(s.child("callxId").getValue(String.class));
                     String email     = isOwnProfile ? orEmpty(s.child("email").getValue(String.class)) : "";
                     String photo     = orEmpty(s.child("photoUrl").getValue(String.class));
+                    String thumb     = orEmpty(s.child("thumbUrl").getValue(String.class));
 
                     binding.etName.setText(name);
                     binding.etAbout.setText(about);
@@ -120,8 +123,9 @@ public class ProfileActivity extends AppCompatActivity {
                     binding.tvCallxId.setText(callxId);
                     if (isOwnProfile) binding.tvEmail.setText(email);
                     currentPhoto = photo;
-                    if (!photo.isEmpty()) {
-                        Glide.with(ProfileActivity.this).load(photo)
+                    String displayThumb = !thumb.isEmpty() ? thumb : photo;
+                    if (!displayThumb.isEmpty()) {
+                        Glide.with(ProfileActivity.this).load(displayThumb)
                             .into(binding.ivAvatar);
                     }
 
@@ -207,6 +211,7 @@ public class ProfileActivity extends AppCompatActivity {
         }
         Map<String, Object> updates = new HashMap<>();
         updates.put("name",      name);
+        updates.put("nameLower", name.toLowerCase(java.util.Locale.getDefault()));
         updates.put("about",     about);
         updates.put("bio",       bio);
         updates.put("phone",     phone);

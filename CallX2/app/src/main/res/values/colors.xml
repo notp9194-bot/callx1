@@ -21,15 +21,49 @@
     <color name="text_primary">#0F172A</color>
     <color name="text_secondary">#64748B</color>
     <color name="text_muted">#94A3B8</color>
+    <color name="chat_time_color">#333333</color>
     <color name="text_on_primary">#FFFFFF</color>
 
-    <!-- Bubbles -->
-    <color name="bubble_sent">#00C853</color>
-    <color name="bubble_sent_end">#00E676</color>
-    <color name="bubble_sent_text">#000000</color>
-    <color name="bubble_received">#4B0082</color>
-    <color name="bubble_received_end">#6A0DAD</color>
-    <color name="bubble_received_text">#FFFFFF</color>
+    <!-- Bubbles — Hybrid: Magenta-Orange Sent + Gold-Green Received (default) -->
+    <color name="bubble_sent">#FF0080</color>
+    <color name="bubble_sent_end">#FF6B00</color>
+    <color name="bubble_sent_text">#FFFFFF</color>
+    <color name="bubble_received">#FFD700</color>
+    <color name="bubble_received_end">#00E676</color>
+    <color name="bubble_received_text">#1A1A1A</color>
+
+    <!-- Chat Theme palette (reference — runtime values via ChatThemeManager) -->
+    <!-- Ocean -->
+    <color name="theme_ocean_sent_s">#0EA5E9</color>
+    <color name="theme_ocean_sent_e">#6366F1</color>
+    <color name="theme_ocean_recv_s">#38BDF8</color>
+    <color name="theme_ocean_recv_e">#22D3EE</color>
+    <!-- Forest -->
+    <color name="theme_forest_sent_s">#16A34A</color>
+    <color name="theme_forest_sent_e">#0D9488</color>
+    <color name="theme_forest_recv_s">#86EFAC</color>
+    <color name="theme_forest_recv_e">#6EE7B7</color>
+    <!-- Sunset -->
+    <color name="theme_sunset_sent_s">#F97316</color>
+    <color name="theme_sunset_sent_e">#EF4444</color>
+    <color name="theme_sunset_recv_s">#FBBF24</color>
+    <color name="theme_sunset_recv_e">#F87171</color>
+    <!-- Lavender -->
+    <color name="theme_lavender_sent_s">#7C3AED</color>
+    <color name="theme_lavender_sent_e">#DB2777</color>
+    <color name="theme_lavender_recv_s">#A78BFA</color>
+    <color name="theme_lavender_recv_e">#F0ABFC</color>
+    <!-- Midnight -->
+    <color name="theme_midnight_sent_s">#1E293B</color>
+    <color name="theme_midnight_sent_e">#0F172A</color>
+    <color name="theme_midnight_recv_s">#334155</color>
+    <color name="theme_midnight_recv_e">#1E293B</color>
+    <!-- Classic -->
+    <color name="theme_classic_sent">#25D366</color>
+    <color name="theme_classic_recv">#FFFFFF</color>
+    <!-- Mono -->
+    <color name="theme_mono_sent">#374151</color>
+    <color name="theme_mono_recv">#E5E7EB</color>
 
     <!-- Status / actions -->
     <color name="status_online">#15803D</color>
@@ -39,13 +73,13 @@
     <color name="action_danger">#EF4444</color>
     <color name="divider">#E2E8F0</color>
 
-    <color name="white">#FFFFFF</color>
-    <color name="black">#000000</color>
-    <color name="transparent">#00000000</color>
-
-    <!-- Password strength meter -->
+    <!-- Password strength indicator -->
     <color name="strength_weak">#EF4444</color>
     <color name="strength_fair">#F97316</color>
     <color name="strength_good">#EAB308</color>
     <color name="strength_strong">#22C55E</color>
+
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
 </resources>

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
+    <application>
+
+        <activity
+            android:name="com.callx.app.activities.XActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity
+            android:name="com.callx.app.activities.XComposeActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity
+            android:name="com.callx.app.activities.XTweetDetailActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName="com.callx.app.activities.XActivity"/>
+
+        <activity
+            android:name="com.callx.app.activities.XProfileActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:parentActivityName="com.callx.app.activities.XActivity"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSearchActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustPan"/>
+
+        <activity
+            android:name="com.callx.app.activities.XHashtagActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"/>
+
+        <activity
+            android:name="com.callx.app.activities.XBookmarksActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"/>
+
+        <activity
+            android:name="com.callx.app.activities.XDMConversationActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- New activities added in this update -->
+        <activity
+            android:name="com.callx.app.activities.XEditProfileActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName="com.callx.app.activities.XProfileActivity"/>
+
+        <activity
+            android:name="com.callx.app.activities.XImageViewerActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"/>
+
+        <activity
+            android:name="com.callx.app.activities.XVideoPlayerActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"/>
+
+    </application>
+
+</manifest>

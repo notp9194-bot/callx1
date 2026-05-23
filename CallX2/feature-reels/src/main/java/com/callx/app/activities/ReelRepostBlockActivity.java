@@ -147,7 +147,10 @@ public class ReelRepostBlockActivity extends AppCompatActivity {
                                     if (n == null) n = u.child("displayName").getValue();
                                     item.name    = n != null ? n.toString() : item.uid;
                                     Object p = u.child("photoUrl").getValue();
-                                    item.photoUrl= p != null ? p.toString() : null;
+                                    Object t = u.child("thumbUrl").getValue();
+                                    String thumb = t != null ? t.toString() : null;
+                                    String photo = p != null ? p.toString() : null;
+                                    item.photoUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                                     adapter.notifyDataSetChanged();
                                 }
                                 @Override public void onCancelled(@NonNull DatabaseError e) {}
