@@ -153,16 +153,6 @@
         android:visibility="gone"
         android:progressTint="@color/yt_red"/>
 
-    
-    <Button
-        android:id="@+id/btn_yt_upload_schedule"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:text="Schedule for Later"
-        android:textColor="@color/yt_text_primary"
-        android:backgroundTint="@color/yt_surface"
-        android:layout_marginBottom="4dp"/>
-
     <Button
         android:id="@+id/btn_yt_upload_submit"
         android:layout_width="match_parent"

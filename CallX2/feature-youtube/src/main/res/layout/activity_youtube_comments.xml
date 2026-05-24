@@ -14,14 +14,15 @@
         android:paddingStart="4dp"
         android:paddingEnd="12dp"
         android:background="@color/yt_bg">
+
         <ImageButton
             android:id="@+id/btn_yt_comments_back"
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:src="@drawable/ic_yt_back"
             android:background="?attr/selectableItemBackgroundBorderless"/>
+
         <TextView
-            android:id="@+id/tv_yt_comment_count"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -29,47 +30,10 @@
             android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:textStyle="bold"/>
-        <TextView
-            android:id="@+id/tv_yt_comment_sort"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Top"
-            android:textColor="#3EA6FF"
-            android:textSize="13sp"
-            android:padding="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"/>
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/yt_divider"/>
-
-    <!-- Reply-to bar (hidden by default) -->
-    <LinearLayout
-        android:id="@+id/layout_yt_reply_bar"
-        android:layout_width="match_parent"
-        android:layout_height="36dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="4dp"
-        android:background="@color/yt_surface"
-        android:visibility="gone">
-        <TextView
-            android:id="@+id/tv_yt_replying_to"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp"/>
-        <ImageButton
-            android:id="@+id/btn_yt_cancel_reply"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_yt_back"
-            android:rotation="90"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="#AAAAAA"/>
-    </LinearLayout>
 
     <!-- Comment list -->
     <androidx.recyclerview.widget.RecyclerView
@@ -89,6 +53,7 @@
         android:gravity="center_vertical"
         android:padding="8dp"
         android:background="@color/yt_bg">
+
         <EditText
             android:id="@+id/et_yt_comment"
             android:layout_width="0dp"
@@ -102,6 +67,7 @@
             android:paddingEnd="16dp"
             android:inputType="text"
             android:singleLine="true"/>
+
         <ImageButton
             android:id="@+id/btn_yt_send_comment"
             android:layout_width="40dp"

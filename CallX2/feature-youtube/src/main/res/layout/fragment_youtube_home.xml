@@ -1,50 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@color/yt_bg">
-
-    <!-- Category chips row -->
-    <HorizontalScrollView
-        android:id="@+id/layout_yt_home_chips"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:scrollbars="none"
-        android:background="@color/yt_bg"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"/>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@color/yt_divider"/>
 
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/srl_yt_home"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_height="match_parent">
 
-        <FrameLayout
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_yt_home_feed"
             android:layout_width="match_parent"
-            android:layout_height="match_parent">
+            android:layout_height="match_parent"
+            android:background="@color/yt_bg"
+            android:clipToPadding="false"
+            android:paddingBottom="8dp"/>
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_yt_home_feed"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:paddingBottom="8dp"/>
-
-            <TextView
-                android:id="@+id/tv_yt_home_empty"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:text="No videos yet"
-                android:textColor="#717171"
-                android:textSize="16sp"
-                android:visibility="gone"/>
-        </FrameLayout>
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-</LinearLayout>
+    <!-- Loading Spinner -->
+    <ProgressBar
+        android:id="@+id/pb_yt_home"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="center"
+        android:visibility="visible"/>
+
+    <!-- Empty State -->
+    <LinearLayout
+        android:id="@+id/ll_yt_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_youtube_logo"
+            android:alpha="0.4"
+            android:contentDescription="No videos"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Koi video nahi mila"
+            android:textColor="@color/yt_text_secondary"
+            android:textSize="16sp"
+            android:gravity="center"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Pehle koi video upload karo"
+            android:textColor="@color/yt_text_secondary"
+            android:textSize="13sp"
+            android:gravity="center"/>
+
+    </LinearLayout>
+
+</FrameLayout>

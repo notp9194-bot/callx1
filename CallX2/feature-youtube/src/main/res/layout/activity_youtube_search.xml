@@ -14,12 +14,14 @@
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
         android:background="@color/yt_bg">
+
         <ImageButton
             android:id="@+id/btn_yt_search_back"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_yt_back"
             android:background="?attr/selectableItemBackgroundBorderless"/>
+
         <EditText
             android:id="@+id/et_yt_search"
             android:layout_width="0dp"
@@ -40,37 +42,9 @@
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/yt_divider"/>
 
-    <!-- Search History (shown when query is empty) -->
-    <LinearLayout
-        android:id="@+id/layout_yt_search_history"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:visibility="gone"/>
-
-    <!-- Suggestions (shown while typing) -->
-    <LinearLayout
-        android:id="@+id/layout_yt_search_suggestions"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:visibility="gone"/>
-
-    <!-- Filter chips -->
-    <HorizontalScrollView
-        android:id="@+id/layout_yt_search_filters"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:scrollbars="none"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:visibility="gone"/>
-
-    <!-- Results -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_yt_search_results"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"/>
+        android:layout_height="match_parent"/>
 
 </LinearLayout>

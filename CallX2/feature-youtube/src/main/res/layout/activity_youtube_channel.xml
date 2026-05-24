@@ -85,27 +85,12 @@
                         android:textSize="18sp"
                         android:textStyle="bold"/>
 
-                    <LinearLayout
+                    <TextView
+                        android:id="@+id/tv_yt_channel_handle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:id="@+id/tv_yt_channel_handle"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textColor="#AAAAAA"
-                            android:textSize="13sp"/>
-
-                        <ImageView
-                            android:id="@+id/iv_yt_verified_badge"
-                            android:layout_width="14dp"
-                            android:layout_height="14dp"
-                            android:layout_marginStart="4dp"
-                            android:src="@drawable/bg_yt_badge"
-                            android:visibility="gone"/>
-                    </LinearLayout>
+                        android:textColor="#AAAAAA"
+                        android:textSize="13sp"/>
 
                     <LinearLayout
                         android:layout_width="wrap_content"
@@ -128,20 +113,6 @@
 
                         <TextView
                             android:id="@+id/tv_yt_video_count"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textColor="#AAAAAA"
-                            android:textSize="12sp"/>
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text=" · "
-                            android:textColor="#717171"
-                            android:textSize="12sp"/>
-
-                        <TextView
-                            android:id="@+id/tv_yt_total_views"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:textColor="#AAAAAA"
@@ -191,22 +162,9 @@
             <View android:layout_width="match_parent" android:layout_height="1dp"
                 android:background="@color/yt_divider"/>
 
-            <!-- Tab layout for Videos/Playlists/Community -->
-            <com.google.android.material.tabs.TabLayout
-                android:id="@+id/tab_yt_channel"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="@color/yt_bg"
-                app:tabTextColor="#AAAAAA"
-                app:tabSelectedTextColor="#FFFFFF"
-                app:tabIndicatorColor="@color/yt_red"/>
-
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:background="@color/yt_divider"/>
-
-            <!-- Video / content grid -->
+            <!-- Video grid -->
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_yt_channel_content"
+                android:id="@+id/rv_yt_channel_videos"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:nestedScrollingEnabled="false"/>
