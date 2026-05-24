@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="12dp">
+
+        <ImageButton
+            android:id="@+id/btn_yt_edit_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_yt_back"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Edit Channel"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"/>
+
+        <Button
+            android:id="@+id/btn_yt_save_channel"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Save"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="@color/yt_red"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"/>
+    </LinearLayout>
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Banner -->
+            <ImageView
+                android:id="@+id/iv_yt_edit_banner"
+                android:layout_width="match_parent"
+                android:layout_height="100dp"
+                android:scaleType="centerCrop"
+                android:background="@color/yt_surface"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Avatar -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_yt_edit_avatar"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:layout_gravity="center_horizontal"
+                android:src="@drawable/ic_person"
+                android:layout_marginBottom="16dp"/>
+
+            <EditText
+                android:id="@+id/et_yt_channel_name"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:hint="Channel Name"
+                android:hintTextColor="@color/yt_text_muted"
+                android:textColor="@color/yt_text_primary"
+                android:background="@color/yt_surface"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginBottom="8dp"
+                android:inputType="textCapWords"/>
+
+            <EditText
+                android:id="@+id/et_yt_channel_handle"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:hint="Handle (e.g. myhandle)"
+                android:hintTextColor="@color/yt_text_muted"
+                android:textColor="@color/yt_text_primary"
+                android:background="@color/yt_surface"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginBottom="8dp"/>
+
+            <EditText
+                android:id="@+id/et_yt_channel_bio"
+                android:layout_width="match_parent"
+                android:layout_height="100dp"
+                android:hint="Channel description"
+                android:hintTextColor="@color/yt_text_muted"
+                android:textColor="@color/yt_text_primary"
+                android:background="@color/yt_surface"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:gravity="top"
+                android:inputType="textMultiLine"/>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

@@ -38,6 +38,9 @@ import android.animation.ObjectAnimator;
   import com.callx.app.activities.XActivity;
   import com.callx.app.notifications.XNotificationWorker;
   import com.callx.app.utils.XFirebaseUtils;
+  import com.callx.app.activities.YouTubeActivity;
+  import com.callx.app.notifications.YouTubeNotificationWorker;
+  import com.callx.app.utils.YouTubeFirebaseUtils;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -51,6 +54,10 @@ public class MainActivity extends AppCompatActivity {
       // ── X Module ────────────────────────────────────────────────────────────────
       private ValueEventListener xNotifBadgeListener;
       private int xUnreadCount = 0;
+
+      // ── YouTube Module ───────────────────────────────────────────────────────
+      private ValueEventListener ytNotifBadgeListener;
+      private int ytUnreadCount = 0;
 
     // Notification badge counter
     private int totalNotifUnread = 0;
@@ -108,6 +115,10 @@ public class MainActivity extends AppCompatActivity {
 
           // ── X Module: animated entry button ─────────────────────────────────────
           setupXEntryButton();
+          // ────────────────────────────────────────────────────────────────────────
+
+          // ── YouTube Module: animated entry button ─────────────────────────────
+          setupYouTubeEntryButton();
           // ────────────────────────────────────────────────────────────────────────
 
         binding.btnSearchToolbar.setOnClickListener(v -> {
@@ -533,6 +544,81 @@ public class MainActivity extends AppCompatActivity {
             };
             XFirebaseUtils.xUnreadNotifCountRef(uid).addValueEventListener(xNotifBadgeListener);
         }
+    }
+
+    
+    // ── YouTube Module entry button ───────────────────────────────────────────
+    private void setupYouTubeEntryButton() {
+        View ytEntryRoot = findViewById(R.id.include_yt_entry);
+        if (ytEntryRoot == null) return;
+
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+            ytEntryRoot.findViewById(com.callx.app.youtube.R.id.iv_yt_entry_avatar);
+        View stripView =
+            ytEntryRoot.findViewById(com.callx.app.youtube.R.id.ll_yt_entry_strip);
+        TextView tvBadge =
+            ytEntryRoot.findViewById(com.callx.app.youtube.R.id.tv_yt_entry_badge);
+
+        // Load current user avatar into the YouTube entry circle
+        String uid = currentUid();
+        if (uid != null && ivAvatar != null) {
+            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(
+                new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(
+                            @androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                        String thumbUrl = snap.child("thumbUrl").getValue(String.class);
+                        String photoUrl = snap.child("photoUrl").getValue(String.class);
+                        String url = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
+                        if (url != null && !url.isEmpty())
+                            Glide.with(MainActivity.this).load(url)
+                                .apply(new RequestOptions().circleCrop())
+                                .placeholder(R.drawable.ic_person)
+                                .into(ivAvatar);
+                    }
+                    @Override public void onCancelled(
+                            @androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                });
+        }
+
+        // Slide-in animation — strip slides RIGHT from behind the avatar
+        if (stripView != null) {
+            stripView.setTranslationX(-200f);
+            android.animation.ObjectAnimator
+                .ofFloat(stripView, "translationX", -200f, 0f)
+                .setDuration(500)
+                .start();
+        }
+
+        // Tap → open YouTubeActivity
+        ytEntryRoot.setOnClickListener(v ->
+            startActivity(new Intent(this, YouTubeActivity.class)));
+
+        // Live badge listener — count unread YouTube notifications
+        if (uid != null && tvBadge != null) {
+            final TextView badge = tvBadge;
+            ytNotifBadgeListener = new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    long unread = 0;
+                    for (DataSnapshot ds : snap.getChildren()) {
+                        Boolean read = ds.child("read").getValue(Boolean.class);
+                        if (read == null || !read) unread++;
+                    }
+                    ytUnreadCount = (int) unread;
+                    if (unread > 0) {
+                        badge.setVisibility(View.VISIBLE);
+                        badge.setText(unread > 99 ? "99+" : String.valueOf(unread));
+                    } else {
+                        badge.setVisibility(View.GONE);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            };
+            YouTubeFirebaseUtils.notificationsRef(uid)
+                .addValueEventListener(ytNotifBadgeListener);
+        }
+
+        // Schedule background notification worker
+        YouTubeNotificationWorker.schedule(this);
     }
 
     /** Real-time badge on the 🔔 notification icon in the main toolbar */

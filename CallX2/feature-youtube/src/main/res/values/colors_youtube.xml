@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- YouTube Brand -->
+    <color name="yt_red">#FF0000</color>
+    <color name="yt_dark_red">#CC0000</color>
+    <color name="yt_bg">#0F0F0F</color>
+    <color name="yt_bg_secondary">#1A1A1A</color>
+    <color name="yt_surface">#212121</color>
+    <color name="yt_surface_elevated">#2D2D2D</color>
+    <color name="yt_divider">#333333</color>
+
+    <!-- Text -->
+    <color name="yt_text_primary">#FFFFFF</color>
+    <color name="yt_text_secondary">#AAAAAA</color>
+    <color name="yt_text_muted">#717171</color>
+
+    <!-- Icons -->
+    <color name="yt_icon_active">#FFFFFF</color>
+    <color name="yt_icon_inactive">#717171</color>
+
+    <!-- Badges -->
+    <color name="yt_badge_bg">#FF0000</color>
+    <color name="yt_badge_text">#FFFFFF</color>
+
+    <!-- Subscribe button -->
+    <color name="yt_subscribe_bg">#FFFFFF</color>
+    <color name="yt_subscribe_text">#0F0F0F</color>
+    <color name="yt_subscribed_bg">#3D3D3D</color>
+    <color name="yt_subscribed_text">#FFFFFF</color>
+
+    <!-- Player -->
+    <color name="yt_player_bg">#000000</color>
+    <color name="yt_progress_played">#FF0000</color>
+    <color name="yt_progress_buffered">#888888</color>
+    <color name="yt_progress_bg">#333333</color>
+
+    <!-- Chip / tag -->
+    <color name="yt_chip_bg">#3D3D3D</color>
+    <color name="yt_chip_text">#FFFFFF</color>
+    <color name="yt_chip_active_bg">#FFFFFF</color>
+    <color name="yt_chip_active_text">#0F0F0F</color>
+
+    <!-- Entry button (in CallX header) -->
+    <color name="yt_entry_stripe_bg">#FF0000</color>
+    <color name="yt_entry_badge_bg">#FF0000</color>
+    <color name="yt_entry_text">#FFFFFF</color>
+</resources>

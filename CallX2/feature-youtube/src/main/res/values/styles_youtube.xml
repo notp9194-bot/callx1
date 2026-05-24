@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="YouTubeActivity.Theme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/yt_red</item>
+        <item name="colorPrimaryDark">@color/yt_bg</item>
+        <item name="colorAccent">@color/yt_red</item>
+        <item name="android:windowBackground">@color/yt_bg</item>
+        <item name="android:statusBarColor">@color/yt_bg</item>
+        <item name="android:navigationBarColor">@color/yt_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="YouTubeActivity.Theme.Player">
+        <item name="android:windowBackground">@color/yt_player_bg</item>
+        <item name="android:statusBarColor">@color/yt_player_bg</item>
+        <item name="android:navigationBarColor">@color/yt_player_bg</item>
+    </style>
+</resources>

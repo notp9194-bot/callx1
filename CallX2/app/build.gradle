@@ -137,6 +137,7 @@ dependencies {
     implementation project(':feature-reels')
     implementation project(':feature-calls')
     implementation project(':feature-x')
+    implementation project(':feature-youtube')
     implementation project(':feature-status')
     implementation project(':patternlockview')
 

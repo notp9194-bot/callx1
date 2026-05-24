@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/yt_bg">
+
+    <!-- YouTube Header -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/yt_app_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/yt_bg"
+        app:elevation="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp">
+
+            <!-- YouTube Logo (left) -->
+            <ImageView
+                android:layout_width="90dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_youtube_logo"
+                android:scaleType="fitStart"
+                android:contentDescription="YouTube"/>
+
+            <View android:layout_width="0dp" android:layout_height="0dp"
+                android:layout_weight="1"/>
+
+            <!-- Search -->
+            <ImageButton
+                android:id="@+id/btn_yt_search"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_yt_search"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Search"/>
+
+            <!-- Notifications with badge -->
+            <FrameLayout
+                android:layout_width="44dp"
+                android:layout_height="44dp">
+
+                <ImageButton
+                    android:id="@+id/btn_yt_notifications"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_yt_notifications"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Notifications"/>
+
+                <TextView
+                    android:id="@+id/tv_yt_notif_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|end"
+                    android:minWidth="16dp"
+                    android:minHeight="16dp"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:paddingTop="1dp"
+                    android:paddingBottom="1dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="9sp"
+                    android:gravity="center"
+                    android:background="@drawable/bg_yt_badge"
+                    android:visibility="gone"/>
+            </FrameLayout>
+
+            <!-- Upload -->
+            <ImageButton
+                android:id="@+id/btn_yt_upload"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_yt_upload"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Upload"/>
+
+            <!-- My channel avatar -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_yt_header_avatar"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_person"
+                android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        </LinearLayout>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- Fragment Container -->
+    <FrameLayout
+        android:id="@+id/yt_fragment_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="56dp"
+        android:layout_marginBottom="56dp"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior"/>
+
+    <!-- Bottom Navigation -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/yt_bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_gravity="bottom"
+        android:background="@color/yt_bg"
+        app:menu="@menu/youtube_bottom_nav"
+        app:itemIconTint="@color/yt_icon_inactive"
+        app:itemTextColor="@color/yt_icon_inactive"
+        app:labelVisibilityMode="labeled"/>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

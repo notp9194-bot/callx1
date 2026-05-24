@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yt_app_name">YouTube</string>
+    <string name="yt_subscribe">Subscribe</string>
+    <string name="yt_subscribed">Subscribed</string>
+    <string name="yt_like">Like</string>
+    <string name="yt_dislike">Dislike</string>
+    <string name="yt_share">Share</string>
+    <string name="yt_comments">Comments</string>
+    <string name="yt_upload">Upload</string>
+    <string name="yt_search_hint">Search YouTube</string>
+    <string name="yt_no_subscriptions">Subscribe to channels to see their videos here</string>
+    <string name="yt_home">Home</string>
+    <string name="yt_shorts">Shorts</string>
+    <string name="yt_subscriptions">Subscriptions</string>
+    <string name="yt_library">Library</string>
+    <string name="yt_explore">Explore</string>
+    <string name="yt_history">History</string>
+    <string name="yt_watch_later">Watch Later</string>
+    <string name="yt_liked_videos">Liked Videos</string>
+    <string name="yt_notifications">Notifications</string>
+    <string name="yt_channel">Channel</string>
+    <string name="yt_views">views</string>
+    <string name="yt_no_videos">No videos yet</string>
+    <string name="yt_upload_video">Upload Video</string>
+    <string name="yt_title_hint">Title (required)</string>
+    <string name="yt_description_hint">Description</string>
+    <string name="yt_pick_video">Pick Video</string>
+    <string name="yt_pick_thumbnail">Pick Thumbnail</string>
+    <string name="yt_category">Category</string>
+    <string name="yt_is_short">This is a YouTube Short</string>
+    <string-array name="yt_categories">
+        <item>Gaming</item>
+        <item>Music</item>
+        <item>News</item>
+        <item>Sports</item>
+        <item>Technology</item>
+        <item>Education</item>
+        <item>Entertainment</item>
+        <item>Travel</item>
+        <item>Food</item>
+        <item>Beauty</item>
+        <item>Science</item>
+        <item>Comedy</item>
+        <item>General</item>
+    </string-array>
+    <string-array name="yt_visibility_options">
+        <item>Public</item>
+        <item>Unlisted</item>
+        <item>Private</item>
+    </string-array>
+</resources>

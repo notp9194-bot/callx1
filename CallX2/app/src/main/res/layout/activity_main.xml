@@ -93,6 +93,18 @@
                   android:layout_height="match_parent"
                   android:layout_gravity="start"
                   android:layout_marginStart="4dp"/>
+
+              <!-- ╔═══════════════════════════════════════════════════════════╗
+                   ║  YouTube Entry Button — animated slide-out strip          ║
+                   ║  Avatar + red strip with YouTube icon + notification badge║
+                   ╚═══════════════════════════════════════════════════════════╝ -->
+              <include
+                  android:id="@+id/include_yt_entry"
+                  layout="@layout/layout_youtube_entry_button"
+                  android:layout_width="wrap_content"
+                  android:layout_height="match_parent"
+                  android:layout_gravity="start"
+                  android:layout_marginStart="4dp"/>
         </androidx.appcompat.widget.Toolbar>
     </com.google.android.material.appbar.AppBarLayout>
 
