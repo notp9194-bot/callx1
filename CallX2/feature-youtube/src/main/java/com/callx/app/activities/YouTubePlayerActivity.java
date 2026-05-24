@@ -43,7 +43,8 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private ExoPlayer    player;
     private PlayerView   playerView;
     private TextView     tvTitle, tvChannelName, tvViews, tvLikes, tvDesc;
-    private ImageButton  btnLike, btnDislike, btnSubscribe, btnShare;
+    private ImageButton  btnLike, btnDislike, btnShare;
+    private android.widget.Button btnSubscribe;
     private CircleImageView ivChannelAvatar;
     private RecyclerView rvRelated;
     private YouTubeVideoAdapter relatedAdapter;

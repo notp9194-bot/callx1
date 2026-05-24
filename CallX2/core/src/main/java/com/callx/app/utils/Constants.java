@@ -11,6 +11,7 @@ public class Constants {
     // Server pe ye link callx:// pe redirect karta hai → seedha app mein khulta hai
     public static final String DEEP_LINK_BASE_URL = "https://callx-server.onrender.com";
     public static final String CLOUDINARY_CLOUD_NAME = "dvqqgqdls";
+    public static final String CLOUDINARY_PRESET     = "callx_upload";
 
     // ── Notification channels ────────────────────────────────────────────
     public static final String CHANNEL_CALLS          = "callx_calls";
