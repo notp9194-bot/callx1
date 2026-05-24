@@ -2,7 +2,6 @@ package com.callx.app.activities;
 
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
-import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
@@ -14,38 +13,32 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import com.callx.app.models.YouTubeVideo;
+import com.callx.app.utils.YouTubeCloudinaryUtils;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
-import com.cloudinary.android.MediaManager;
-import com.cloudinary.android.callback.ErrorInfo;
-import com.cloudinary.android.callback.UploadCallback;
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.database.DataSnapshot;
-import com.google.firebase.database.DatabaseError;
-import com.google.firebase.database.ValueEventListener;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
-import java.util.Map;
 
 /**
  * Schedule a video upload for a future date/time.
  * - Pick video file
  * - Set title, description, tags, category
  * - Pick publish date + time
- * - Upload to Cloudinary in background
+ * - Upload via YouTubeCloudinaryUtils (project's own util, no sdk dependency)
  * - Saves to Firebase with visibility="scheduled" + scheduledAt timestamp
  */
 public class YouTubeScheduleUploadActivity extends AppCompatActivity {
 
-    private EditText   etTitle, etDescription, etTags, etCategory;
-    private TextView   tvPickedDate, tvPickedVideo;
-    private View       btnPickVideo, btnPickDate, btnSchedule;
-    private Uri        selectedVideoUri;
-    private Calendar   scheduledCal = Calendar.getInstance();
-    private String     myUid, myName, myPhoto;
+    private EditText  etTitle, etDescription, etTags, etCategory;
+    private TextView  tvPickedDate, tvPickedVideo;
+    private View      btnPickVideo, btnPickDate, btnSchedule, progressView;
+    private Uri       selectedVideoUri;
+    private Calendar  scheduledCal = Calendar.getInstance();
+    private String    myUid, myName, myPhoto;
 
-    private ActivityResultLauncher<String> videoPicker =
+    private final ActivityResultLauncher<String> videoPicker =
         registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri != null) {
                 selectedVideoUri = uri;
@@ -76,6 +69,7 @@ public class YouTubeScheduleUploadActivity extends AppCompatActivity {
         btnPickVideo  = findViewById(R.id.btn_yt_pick_video_schedule);
         btnPickDate   = findViewById(R.id.btn_yt_pick_date);
         btnSchedule   = findViewById(R.id.btn_yt_schedule_confirm);
+        progressView  = findViewById(R.id.pb_yt_schedule);
 
         updateDateLabel();
 
@@ -114,40 +108,37 @@ public class YouTubeScheduleUploadActivity extends AppCompatActivity {
             Toast.makeText(this, "Schedule time must be in the future",
                 Toast.LENGTH_SHORT).show(); return; }
 
-        Toast.makeText(this, "Uploading video...", Toast.LENGTH_SHORT).show();
+        setLoading(true);
+        Toast.makeText(this, "Uploading video…", Toast.LENGTH_SHORT).show();
 
-        MediaManager.get().upload(selectedVideoUri)
-            .unsigned("callx_unsigned")
-            .option("resource_type", "video")
-            .callback(new UploadCallback() {
-                @Override public void onStart(String reqId) {}
-                @Override public void onProgress(String reqId, long bytes, long total) {}
-                @Override public void onSuccess(String reqId, Map res) {
-                    String videoUrl = (String) res.get("secure_url");
-                    saveScheduledVideo(title, videoUrl);
+        YouTubeCloudinaryUtils.uploadVideo(this, selectedVideoUri, myUid,
+            new YouTubeCloudinaryUtils.UploadCallback() {
+                @Override public void onProgress(int pct) { /* progress bar optional */ }
+                @Override public void onSuccess(String secureUrl, String publicId, long durationSecs) {
+                    saveScheduledVideo(title, secureUrl, durationSecs);
                 }
-                @Override public void onError(String reqId, ErrorInfo err) {
-                    runOnUiThread(() -> Toast.makeText(YouTubeScheduleUploadActivity.this,
-                        "Upload error: " + err.getDescription(), Toast.LENGTH_LONG).show());
+                @Override public void onError(String errorMsg) {
+                    setLoading(false);
+                    Toast.makeText(YouTubeScheduleUploadActivity.this,
+                        "Upload failed: " + errorMsg, Toast.LENGTH_LONG).show();
                 }
-                @Override public void onReschedule(String reqId, ErrorInfo err) {}
-            }).dispatch();
+            });
     }
 
-    private void saveScheduledVideo(String title, String videoUrl) {
+    private void saveScheduledVideo(String title, String videoUrl, long durationSecs) {
         if (myUid.isEmpty()) return;
         String vidId = YouTubeFirebaseUtils.videosRef().push().getKey();
-        if (vidId == null) return;
+        if (vidId == null) { setLoading(false); return; }
 
-        String desc  = etDescription != null ? etDescription.getText().toString().trim() : "";
-        String tags  = etTags        != null ? etTags.getText().toString().trim() : "";
-        String cat   = etCategory    != null ? etCategory.getText().toString().trim() : "";
+        String desc = etDescription != null ? etDescription.getText().toString().trim() : "";
+        String tags = etTags        != null ? etTags.getText().toString().trim()        : "";
+        String cat  = etCategory    != null ? etCategory.getText().toString().trim()    : "";
 
         YouTubeVideo v = new YouTubeVideo(vidId, myUid, myName, myPhoto, title, desc,
-            videoUrl, null, cat, 0, System.currentTimeMillis(), false);
-        v.visibility   = "scheduled";
-        v.scheduledAt  = scheduledCal.getTimeInMillis();
-        v.tags         = tags;
+            videoUrl, null, cat, durationSecs, System.currentTimeMillis(), false);
+        v.visibility  = "scheduled";
+        v.scheduledAt = scheduledCal.getTimeInMillis();
+        v.tags        = tags;
 
         YouTubeFirebaseUtils.videoRef(vidId).setValue(v);
         YouTubeFirebaseUtils.userVideosRef(myUid).child(vidId)
@@ -155,12 +146,15 @@ public class YouTubeScheduleUploadActivity extends AppCompatActivity {
         YouTubeFirebaseUtils.videoScheduledRef(myUid).child(vidId)
             .setValue(scheduledCal.getTimeInMillis());
 
-        runOnUiThread(() -> {
-            Toast.makeText(this, "Video scheduled for "
-                + new java.text.SimpleDateFormat("MMM dd, HH:mm",
-                    java.util.Locale.getDefault()).format(scheduledCal.getTime()),
-                Toast.LENGTH_LONG).show();
-            finish();
-        });
+        setLoading(false);
+        SimpleDateFormat sdf = new SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault());
+        Toast.makeText(this, "Scheduled for " + sdf.format(scheduledCal.getTime()),
+            Toast.LENGTH_LONG).show();
+        finish();
+    }
+
+    private void setLoading(boolean on) {
+        if (btnSchedule  != null) btnSchedule.setEnabled(!on);
+        if (progressView != null) progressView.setVisibility(on ? View.VISIBLE : View.GONE);
     }
 }
