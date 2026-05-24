@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="4dp" android:paddingEnd="8dp">
+        <ImageButton
+            android:id="@+id/btn_yt_community_back"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_yt_back"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+        <TextView
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Community"
+            android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold"/>
+        <Button
+            android:id="@+id/btn_yt_community_post"
+            android:layout_width="wrap_content" android:layout_height="36dp"
+            android:text="Post"
+            android:textColor="#FFFFFF" android:backgroundTint="@color/yt_red"/>
+    </LinearLayout>
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_yt_community"
+        android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1"/>
+    <LinearLayout
+        android:id="@+id/layout_yt_post_composer"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="12dp"
+        android:background="@color/yt_surface"
+        android:visibility="gone">
+        <EditText
+            android:id="@+id/et_yt_post_text"
+            android:layout_width="match_parent" android:layout_height="80dp"
+            android:hint="Write a post…"
+            android:textColorHint="#717171" android:textColor="#FFFFFF"
+            android:background="@android:color/transparent"
+            android:inputType="textMultiLine" android:gravity="top"/>
+        <Button
+            android:id="@+id/btn_yt_post_submit"
+            android:layout_width="wrap_content" android:layout_height="40dp"
+            android:layout_gravity="end"
+            android:text="Publish"
+            android:textColor="#FFFFFF" android:backgroundTint="@color/yt_red"/>
+    </LinearLayout>
+</LinearLayout>

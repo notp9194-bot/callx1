@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="4dp" android:paddingEnd="12dp"
+        android:background="#CC000000">
+        <ImageButton
+            android:id="@+id/btn_yt_live_back"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_yt_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"/>
+        <TextView
+            android:id="@+id/tv_yt_live_title"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF" android:textSize="15sp" android:textStyle="bold"/>
+        <TextView
+            android:id="@+id/tv_yt_live_viewers"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="#AAAAAA" android:textSize="12sp"
+            android:layout_marginEnd="8dp"/>
+        <Button
+            android:id="@+id/btn_yt_live_toggle"
+            android:layout_width="wrap_content" android:layout_height="36dp"
+            android:text="Go Live"
+            android:textColor="#FFFFFF" android:backgroundTint="@color/yt_red"/>
+    </LinearLayout>
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/pv_yt_live"
+        android:layout_width="match_parent" android:layout_height="220dp"/>
+    <LinearLayout
+        android:id="@+id/layout_yt_live_setup"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="16dp">
+        <EditText
+            android:id="@+id/et_yt_live_title"
+            android:layout_width="match_parent" android:layout_height="56dp"
+            android:hint="Stream title"
+            android:textColorHint="#717171" android:textColor="#FFFFFF"
+            android:background="@color/yt_surface"
+            android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:layout_marginBottom="8dp"/>
+        <EditText
+            android:id="@+id/et_yt_live_description"
+            android:layout_width="match_parent" android:layout_height="80dp"
+            android:hint="Description"
+            android:textColorHint="#717171" android:textColor="#FFFFFF"
+            android:background="@color/yt_surface"
+            android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:gravity="top" android:inputType="textMultiLine"/>
+    </LinearLayout>
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_yt_live_chat"
+        android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1"/>
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:padding="8dp" android:background="@color/yt_bg">
+        <EditText
+            android:id="@+id/et_yt_live_chat"
+            android:layout_width="0dp" android:layout_height="40dp"
+            android:layout_weight="1"
+            android:hint="Chat..."
+            android:textColorHint="#717171" android:textColor="#FFFFFF"
+            android:background="@color/yt_surface"
+            android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:singleLine="true"/>
+        <ImageButton
+            android:id="@+id/btn_yt_live_send"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_yt_send"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/yt_red"/>
+    </LinearLayout>
+</LinearLayout>

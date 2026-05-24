@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingStart="48dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_yt_reply_avatar"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:src="@drawable/ic_person"/>
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="10dp">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <TextView
+                android:id="@+id/tv_yt_reply_author"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold"/>
+            <TextView
+                android:id="@+id/tv_yt_reply_owner"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:paddingStart="6dp" android:paddingEnd="6dp"
+                android:paddingTop="1dp" android:paddingBottom="1dp"
+                android:text="Creator"
+                android:textColor="@color/yt_red" android:textSize="11sp"
+                android:background="@drawable/bg_yt_badge"
+                android:visibility="gone"/>
+            <TextView
+                android:id="@+id/tv_yt_reply_time"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:textColor="#717171" android:textSize="11sp"
+                android:gravity="end"/>
+        </LinearLayout>
+        <TextView
+            android:id="@+id/tv_yt_reply_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#E0E0E0" android:textSize="13sp"/>
+    </LinearLayout>
+</LinearLayout>

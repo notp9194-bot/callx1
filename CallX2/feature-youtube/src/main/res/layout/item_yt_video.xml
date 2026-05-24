@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="?attr/selectableItemBackground">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="200dp">
+        <ImageView
+            android:id="@+id/iv_yt_thumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:background="@drawable/bg_yt_thumb_placeholder"/>
+        <TextView
+            android:id="@+id/tv_yt_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="6dp"
+            android:paddingStart="6dp" android:paddingEnd="6dp"
+            android:paddingTop="2dp" android:paddingBottom="2dp"
+            android:textColor="#FFFFFF" android:textSize="11sp" android:textStyle="bold"
+            android:background="#CC000000"/>
+        <TextView
+            android:id="@+id/tv_yt_live_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="6dp"
+            android:paddingStart="8dp" android:paddingEnd="8dp"
+            android:paddingTop="2dp" android:paddingBottom="2dp"
+            android:text="LIVE"
+            android:textColor="#FFFFFF" android:textSize="10sp" android:textStyle="bold"
+            android:background="@color/yt_red"
+            android:visibility="gone"/>
+        <TextView
+            android:id="@+id/tv_yt_shorts_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_margin="6dp"
+            android:paddingStart="8dp" android:paddingEnd="8dp"
+            android:paddingTop="2dp" android:paddingBottom="2dp"
+            android:text="SHORT"
+            android:textColor="#FFFFFF" android:textSize="10sp" android:textStyle="bold"
+            android:background="#CC8B0000"
+            android:visibility="gone"/>
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="10dp">
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_yt_video_avatar"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_person"/>
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="10dp">
+            <TextView
+                android:id="@+id/tv_yt_video_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold"
+                android:maxLines="2" android:ellipsize="end"/>
+            <TextView
+                android:id="@+id/tv_yt_channel_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#AAAAAA" android:textSize="12sp"/>
+            <TextView
+                android:id="@+id/tv_yt_video_meta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#717171" android:textSize="12sp"/>
+        </LinearLayout>
+        <ImageButton
+            android:id="@+id/btn_yt_video_more"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_yt_more"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="More options"/>
+    </LinearLayout>
+</LinearLayout>
