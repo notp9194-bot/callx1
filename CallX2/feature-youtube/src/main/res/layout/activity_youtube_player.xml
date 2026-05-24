@@ -21,8 +21,10 @@
                 android:id="@+id/yt_player_view"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                app:surface_type="texture_view"
                 app:resize_mode="fit"
                 app:use_controller="true"
+                app:show_buffering="when_playing"
                 app:controller_layout_id="@layout/yt_custom_player_controls"/>
 
             <!-- Loading spinner over player -->

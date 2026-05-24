@@ -193,31 +193,32 @@ public class YouTubePlayerActivity extends AppCompatActivity {
      *   IN:  https://res.cloudinary.com/demo/video/upload/v123/myvideo
      *   OUT: https://res.cloudinary.com/demo/video/upload/f_mp4/v123/myvideo.mp4
      */
+    /**
+     * Cloudinary URL ensure karo ki MP4 deliver ho.
+     * URL already .mp4 ho toh bhi f_mp4 transformation add karo —
+     * kuch Cloudinary accounts mein bina transformation ke video serve nahi hoti.
+     *
+     * Input:  .../video/upload/v123/youtube/{uid}/abc.mp4
+     * Output: .../video/upload/f_mp4/v123/youtube/{uid}/abc.mp4
+     */
     private String ensureMp4Delivery(String url) {
-        if (url == null) return url;
-
-        // Already has a known playable extension
-        if (url.matches(".*\\.(mp4|webm|m3u8|mkv)(\\?.*)?$")) return url;
+        if (url == null || url.trim().isEmpty()) return url;
 
         if (url.contains("cloudinary.com") && url.contains("/video/upload/")) {
-            // Add f_mp4 format transformation if not already present
-            if (!url.contains("/f_mp4") && !url.contains("/f_auto")) {
+            // f_mp4 transformation nahi hai toh add karo
+            if (!url.contains("/f_mp4") && !url.contains("/f_auto") && !url.contains("/f_")) {
                 url = url.replace("/video/upload/", "/video/upload/f_mp4/");
             }
-            // Append .mp4 if URL has no extension at end
-            String path = url.contains("?") ? url.substring(0, url.indexOf('?')) : url;
-            if (!path.endsWith(".mp4")) {
-                url = url.contains("?")
-                    ? path + ".mp4?" + url.substring(url.indexOf('?') + 1)
-                    : url + ".mp4";
+            // .mp4 extension ensure karo
+            String urlNoQuery = url.contains("?") ? url.substring(0, url.indexOf('?')) : url;
+            if (!urlNoQuery.toLowerCase().endsWith(".mp4")) {
+                url = urlNoQuery + ".mp4" +
+                      (url.contains("?") ? "?" + url.substring(url.indexOf('?') + 1) : "");
             }
             return url;
         }
 
-        // Non-Cloudinary URL: try appending .mp4
-        if (!url.contains(".")) {
-            return url + ".mp4";
-        }
+        // Non-Cloudinary: return as-is
         return url;
     }
 
@@ -234,14 +235,19 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(20_000)
-            .setUserAgent("CallX/1.0 (Android)");
+            .setUserAgent("ExoPlayer/2.0 (Linux;Android " + android.os.Build.VERSION.RELEASE + ")");
 
         player = new ExoPlayer.Builder(this)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
             .build();
 
+        // texture_view ke saath VIDEO_SCALING_MODE_SCALE_TO_FIT zaroori hai
+        player.setVideoScalingMode(androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+
         playerView.setPlayer(player);
-        player.setMediaItem(MediaItem.fromUri(url));
+        playerView.setUseController(true);
+
+        player.setMediaItem(MediaItem.fromUri(android.net.Uri.parse(url)));
         player.prepare();
         player.setPlayWhenReady(true);
 

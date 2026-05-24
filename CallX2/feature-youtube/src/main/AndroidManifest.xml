@@ -24,6 +24,7 @@
             android:name="com.callx.app.activities.YouTubePlayerActivity"
             android:theme="@style/YouTubeActivity.Theme"
             android:exported="false"
+            android:hardwareAccelerated="true"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="sensor"
             android:parentActivityName="com.callx.app.activities.YouTubeActivity"/>
