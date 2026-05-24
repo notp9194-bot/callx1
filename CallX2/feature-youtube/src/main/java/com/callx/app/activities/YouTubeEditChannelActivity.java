@@ -102,6 +102,7 @@ public class YouTubeEditChannelActivity extends AppCompatActivity {
                     @Override public void onProgress(int p) {}
                     @Override public void onSuccess(String url, String pid, long durationSecs) {
                         existingAvatar = url;
+                        if (bannerUri != null) uploadBannerThenSave(name, handle, bio);
                         else persistToFirebase(name, handle, bio);
                     }
                     @Override public void onError(String e) { persistToFirebase(name, handle, bio); }
@@ -119,6 +120,7 @@ public class YouTubeEditChannelActivity extends AppCompatActivity {
                 @Override public void onProgress(int p) {}
                 @Override public void onSuccess(String url, String pid, long durationSecs) {
                     existingBanner = url;
+                    persistToFirebase(name, handle, bio);
                 }
                 @Override public void onError(String e) { persistToFirebase(name, handle, bio); }
             });
