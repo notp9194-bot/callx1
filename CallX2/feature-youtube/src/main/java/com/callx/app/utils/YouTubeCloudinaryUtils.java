@@ -22,22 +22,22 @@ import java.util.concurrent.TimeUnit;
 /**
  * YouTubeCloudinaryUtils — Cloudinary upload helper for YouTube module.
  *
- * UPDATED: Now uses core's ImageCompressor + VideoCompressor before uploading.
- *   • uploadVideo()  → VideoCompressor (STANDARD quality) → Cloudinary
- *   • uploadImage()  → ImageCompressor (WebP, max 1280px)  → Cloudinary (fullFile)
+ * SIGNED UPLOAD (same as core CloudinaryUploader):
+ *   Step 1 → GET signature from server  (Constants.SERVER_URL + /cloudinary/sign)
+ *   Step 2 → POST file directly to Cloudinary using signature + api_key + timestamp
+ *   No upload_preset needed — server signs with Cloudinary API secret.
  *
- * Progress reporting:
- *   Video:  0–40% compression  |  40–100% Cloudinary upload
- *   Image:  0–20% compression  |  20–100% Cloudinary upload
+ * Media compression:
+ *   uploadVideo() → VideoCompressor (STANDARD)  → signed Cloudinary upload
+ *   uploadImage() → ImageCompressor (WebP 1280px) → signed Cloudinary upload
+ *
+ * Progress:
+ *   Video:  0–40% compression  |  40–100% upload
+ *   Image:  0–20% compression  |  20–100% upload
  */
 public class YouTubeCloudinaryUtils {
 
     private static final String TAG = "YTCloudinaryUtils";
-
-    private static final String CLOUD_NAME    = Constants.CLOUDINARY_CLOUD_NAME;
-    private static final String UPLOAD_PRESET = Constants.CLOUDINARY_PRESET;
-    private static final String BASE_URL =
-        "https://api.cloudinary.com/v1_1/" + CLOUD_NAME;
 
     private static final OkHttpClient client = new OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -47,7 +47,7 @@ public class YouTubeCloudinaryUtils {
 
     private static final Handler UI = new Handler(Looper.getMainLooper());
 
-    // ── Callback ──────────────────────────────────────────────────────────────
+    // ── Callback ─────────────────────────────────────────────────────────────
 
     public interface UploadCallback {
         void onProgress(int percent);
@@ -55,59 +55,58 @@ public class YouTubeCloudinaryUtils {
         void onError(String errorMsg);
     }
 
-    // ── Upload Video (compress first, then upload) ────────────────────────────
+    // ── Upload Video ─────────────────────────────────────────────────────────
 
     public static void uploadVideo(Context ctx, Uri videoUri,
                                    String folder, UploadCallback cb) {
         new Thread(() -> {
             try {
-                // Step 1: Compress video using core VideoCompressor (0–40%)
+                // Step 1: Compress (0–40%)
                 postProgress(cb, 2);
-                Log.d(TAG, "Starting video compression...");
-
-                VideoCompressor.Result result = VideoCompressor.compressSync(
-                    ctx,
-                    videoUri,
+                Log.d(TAG, "Compressing video...");
+                VideoCompressor.Result compressed = VideoCompressor.compressSync(
+                    ctx, videoUri,
                     VideoQualityPreferences.Quality.STANDARD,
-                    pct -> postProgress(cb, (int)(pct * 0.40f))  // map 0–100 → 0–40%
+                    pct -> postProgress(cb, (int)(pct * 0.40f))
                 );
-
-                Log.d(TAG, "Video compressed: " + result.compressionSummary());
+                Log.d(TAG, "Video compressed: " + compressed.compressionSummary());
                 postProgress(cb, 40);
 
-                // Step 2: Upload compressed video to Cloudinary (40–100%)
-                File videoFile = result.videoFile;
-                RequestBody body = new MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addFormDataPart("file", videoFile.getName(),
-                        RequestBody.create(videoFile, MediaType.parse("video/mp4")))
-                    .addFormDataPart("upload_preset", UPLOAD_PRESET)
-                    .addFormDataPart("folder", "youtube/" + folder)
-                    .addFormDataPart("resource_type", "video")
-                    .build();
+                // Step 2: Sign (from server)
+                String ytFolder = "youtube/" + folder;
+                JSONObject signJson = getSignature(ytFolder, "video");
+                if (signJson == null) { postError(cb, "Server se signature nahi mila. Server check karo."); return; }
 
                 postProgress(cb, 45);
 
-                Request req = new Request.Builder()
-                    .url(BASE_URL + "/video/upload")
-                    .post(body)
+                // Step 3: Upload to Cloudinary
+                File videoFile = compressed.videoFile;
+                String cloudName = signJson.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
+                String upUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/video/upload";
+
+                MultipartBody body = new MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("file", videoFile.getName(),
+                        RequestBody.create(videoFile, MediaType.parse("video/mp4")))
+                    .addFormDataPart("api_key",   signJson.getString("api_key"))
+                    .addFormDataPart("timestamp", signJson.getString("timestamp"))
+                    .addFormDataPart("signature", signJson.getString("signature"))
+                    .addFormDataPart("folder",    signJson.optString("folder", ytFolder))
                     .build();
 
+                Request req = new Request.Builder().url(upUrl).post(body).build();
                 try (Response resp = client.newCall(req).execute()) {
                     String json = resp.body() != null ? resp.body().string() : "";
+                    Log.d(TAG, "Video upload response: " + json);
                     JSONObject obj = new JSONObject(json);
                     if (obj.has("secure_url")) {
                         postProgress(cb, 100);
-                        String url = obj.getString("secure_url");
-                        String pid = obj.optString("public_id", "");
-                        postSuccess(cb, url, pid);
+                        postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""));
                     } else {
                         postError(cb, obj.optString("error", "Video upload failed"));
                     }
                 }
-
-                // Cleanup compressed temp file
-                VideoCompressor.safeDelete(result.videoFile);
+                VideoCompressor.safeDelete(compressed.videoFile);
 
             } catch (Exception e) {
                 Log.e(TAG, "uploadVideo failed", e);
@@ -116,13 +115,12 @@ public class YouTubeCloudinaryUtils {
         }).start();
     }
 
-    // ── Upload Image (compress first, then upload) ────────────────────────────
+    // ── Upload Image ─────────────────────────────────────────────────────────
 
     public static void uploadImage(Context ctx, Uri imageUri,
                                    String folder, UploadCallback cb) {
-        // ImageCompressor runs on bg thread internally; we wrap in thread for consistency
         postProgress(cb, 2);
-        Log.d(TAG, "Starting image compression...");
+        Log.d(TAG, "Compressing image...");
 
         ImageCompressor.compress(ctx, imageUri, new ImageCompressor.Callback() {
 
@@ -131,39 +129,44 @@ public class YouTubeCloudinaryUtils {
                 postProgress(cb, 20);
                 Log.d(TAG, "Image compressed: " + result.summary());
 
-                // Upload compressed full image to Cloudinary on bg thread
                 new Thread(() -> {
                     try {
-                        File imgFile = result.fullFile;
-                        RequestBody body = new MultipartBody.Builder()
-                            .setType(MultipartBody.FORM)
-                            .addFormDataPart("file", imgFile.getName(),
-                                RequestBody.create(imgFile, MediaType.parse("image/webp")))
-                            .addFormDataPart("upload_preset", UPLOAD_PRESET)
-                            .addFormDataPart("folder", "youtube/" + folder)
-                            .build();
+                        // Sign
+                        String ytFolder = "youtube/" + folder;
+                        JSONObject signJson = getSignature(ytFolder, "image");
+                        if (signJson == null) { postError(cb, "Server se signature nahi mila. Server check karo."); return; }
 
                         postProgress(cb, 30);
 
-                        Request req = new Request.Builder()
-                            .url(BASE_URL + "/image/upload")
-                            .post(body)
+                        // Upload
+                        File imgFile = result.fullFile;
+                        String cloudName = signJson.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
+                        String upUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/image/upload";
+
+                        MultipartBody body = new MultipartBody.Builder()
+                            .setType(MultipartBody.FORM)
+                            .addFormDataPart("file", imgFile.getName(),
+                                RequestBody.create(imgFile, MediaType.parse("image/webp")))
+                            .addFormDataPart("api_key",   signJson.getString("api_key"))
+                            .addFormDataPart("timestamp", signJson.getString("timestamp"))
+                            .addFormDataPart("signature", signJson.getString("signature"))
+                            .addFormDataPart("folder",    signJson.optString("folder", ytFolder))
                             .build();
 
+                        Request req = new Request.Builder().url(upUrl).post(body).build();
                         try (Response resp = client.newCall(req).execute()) {
                             String json = resp.body() != null ? resp.body().string() : "";
+                            Log.d(TAG, "Image upload response: " + json);
                             JSONObject obj = new JSONObject(json);
                             if (obj.has("secure_url")) {
                                 postProgress(cb, 100);
-                                postSuccess(cb, obj.getString("secure_url"),
-                                    obj.optString("public_id", ""));
+                                postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""));
                             } else {
                                 postError(cb, obj.optString("error", "Image upload failed"));
                             }
                         }
 
-                        // Cleanup temp compressed files
-                        if (result.fullFile != null)  result.fullFile.delete();
+                        if (result.fullFile  != null) result.fullFile.delete();
                         if (result.thumbFile != null) result.thumbFile.delete();
 
                     } catch (Exception e) {
@@ -175,8 +178,7 @@ public class YouTubeCloudinaryUtils {
 
             @Override
             public void onError(Exception e) {
-                Log.e(TAG, "Image compression failed, uploading original", e);
-                // Fallback: upload original without compression
+                Log.w(TAG, "Image compression failed, uploading original: " + e.getMessage());
                 uploadImageDirect(ctx, imageUri, folder, cb);
             }
         });
@@ -189,26 +191,30 @@ public class YouTubeCloudinaryUtils {
         new Thread(() -> {
             try {
                 File tmpFile = VideoCompressor.copyUriToFile(ctx, imageUri);
-                RequestBody body = new MultipartBody.Builder()
+                String ytFolder = "youtube/" + folder;
+                JSONObject signJson = getSignature(ytFolder, "image");
+                if (signJson == null) { postError(cb, "Server se signature nahi mila."); return; }
+
+                String cloudName = signJson.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
+                String upUrl = "https://api.cloudinary.com/v1_1/" + cloudName + "/image/upload";
+
+                MultipartBody body = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", tmpFile.getName(),
                         RequestBody.create(tmpFile, MediaType.parse("image/jpeg")))
-                    .addFormDataPart("upload_preset", UPLOAD_PRESET)
-                    .addFormDataPart("folder", "youtube/" + folder)
+                    .addFormDataPart("api_key",   signJson.getString("api_key"))
+                    .addFormDataPart("timestamp", signJson.getString("timestamp"))
+                    .addFormDataPart("signature", signJson.getString("signature"))
+                    .addFormDataPart("folder",    signJson.optString("folder", ytFolder))
                     .build();
 
-                Request req = new Request.Builder()
-                    .url(BASE_URL + "/image/upload")
-                    .post(body)
-                    .build();
-
+                Request req = new Request.Builder().url(upUrl).post(body).build();
                 try (Response resp = client.newCall(req).execute()) {
                     String json = resp.body() != null ? resp.body().string() : "";
                     JSONObject obj = new JSONObject(json);
                     if (obj.has("secure_url")) {
                         postProgress(cb, 100);
-                        postSuccess(cb, obj.getString("secure_url"),
-                            obj.optString("public_id", ""));
+                        postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""));
                     } else {
                         postError(cb, obj.optString("error", "Upload failed"));
                     }
@@ -220,7 +226,38 @@ public class YouTubeCloudinaryUtils {
         }).start();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Signed upload helper ─────────────────────────────────────────────────
+
+    /**
+     * Server se Cloudinary signature lo.
+     * Returns JSONObject with: signature, timestamp, api_key, cloud_name, folder
+     * Returns null if server unreachable or error.
+     */
+    private static JSONObject getSignature(String folder, String resourceType) {
+        try {
+            JSONObject payload = new JSONObject()
+                .put("folder", folder)
+                .put("resource_type", resourceType);
+            Request req = new Request.Builder()
+                .url(Constants.SERVER_URL + "/cloudinary/sign")
+                .post(RequestBody.create(payload.toString(),
+                    MediaType.parse("application/json")))
+                .build();
+            try (Response resp = client.newCall(req).execute()) {
+                String body = resp.body() != null ? resp.body().string() : "";
+                if (!resp.isSuccessful()) {
+                    Log.e(TAG, "Sign request failed (" + resp.code() + "): " + body);
+                    return null;
+                }
+                return new JSONObject(body);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "getSignature error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // ── UI thread helpers ─────────────────────────────────────────────────────
 
     private static void postProgress(UploadCallback cb, int pct) {
         UI.post(() -> cb.onProgress(pct));
