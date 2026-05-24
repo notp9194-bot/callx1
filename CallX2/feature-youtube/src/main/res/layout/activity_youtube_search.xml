@@ -29,7 +29,7 @@
             android:layout_weight="1"
             android:layout_marginStart="8dp"
             android:hint="Search YouTube"
-            android:hintTextColor="@color/yt_text_muted"
+            android:textColorHint="@color/yt_text_muted"
             android:textColor="@color/yt_text_primary"
             android:background="@color/yt_surface"
             android:paddingStart="12dp"
