@@ -26,28 +26,40 @@
     </LinearLayout>
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/yt_divider"/>
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_yt_community"
+    <FrameLayout
         android:layout_width="match_parent" android:layout_height="0dp"
-        android:layout_weight="1"/>
+        android:layout_weight="1">
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_yt_community_posts"
+            android:layout_width="match_parent" android:layout_height="match_parent"/>
+        <TextView
+            android:id="@+id/tv_yt_community_empty"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="No posts yet"
+            android:textColor="#717171" android:textSize="16sp"
+            android:visibility="gone"/>
+    </FrameLayout>
     <LinearLayout
-        android:id="@+id/layout_yt_post_composer"
+        android:id="@+id/layout_yt_community_create"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:padding="12dp"
         android:background="@color/yt_surface"
         android:visibility="gone">
         <EditText
-            android:id="@+id/et_yt_post_text"
+            android:id="@+id/et_yt_community_post"
             android:layout_width="match_parent" android:layout_height="80dp"
             android:hint="Write a post…"
             android:textColorHint="#717171" android:textColor="#FFFFFF"
             android:background="@android:color/transparent"
             android:inputType="textMultiLine" android:gravity="top"/>
-        <Button
-            android:id="@+id/btn_yt_post_submit"
-            android:layout_width="wrap_content" android:layout_height="40dp"
+        <ImageButton
+            android:id="@+id/btn_yt_community_submit"
+            android:layout_width="40dp" android:layout_height="40dp"
             android:layout_gravity="end"
-            android:text="Publish"
-            android:textColor="#FFFFFF" android:backgroundTint="@color/yt_red"/>
+            android:src="@drawable/ic_yt_send"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/yt_red"
+            android:contentDescription="Post"/>
     </LinearLayout>
 </LinearLayout>

@@ -21,25 +21,38 @@
             android:layout_weight="1"
             android:textColor="#FFFFFF" android:textSize="15sp" android:textStyle="bold"/>
         <TextView
+            android:id="@+id/tv_yt_live_status"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="#FF4444" android:textSize="12sp" android:textStyle="bold"
+            android:text="OFFLINE"
+            android:layout_marginEnd="8dp"/>
+        <TextView
             android:id="@+id/tv_yt_live_viewers"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:textColor="#AAAAAA" android:textSize="12sp"
             android:layout_marginEnd="8dp"/>
         <Button
-            android:id="@+id/btn_yt_live_toggle"
+            android:id="@+id/btn_yt_live_start"
             android:layout_width="wrap_content" android:layout_height="36dp"
             android:text="Go Live"
-            android:textColor="#FFFFFF" android:backgroundTint="@color/yt_red"/>
+            android:textColor="#FFFFFF" android:backgroundTint="@color/yt_red"
+            android:layout_marginEnd="4dp"/>
+        <Button
+            android:id="@+id/btn_yt_live_stop"
+            android:layout_width="wrap_content" android:layout_height="36dp"
+            android:text="Stop"
+            android:textColor="#FFFFFF" android:backgroundTint="#444444"
+            android:visibility="gone"/>
     </LinearLayout>
     <androidx.media3.ui.PlayerView
         android:id="@+id/pv_yt_live"
         android:layout_width="match_parent" android:layout_height="220dp"/>
     <LinearLayout
-        android:id="@+id/layout_yt_live_setup"
+        android:id="@+id/layout_yt_live_host_setup"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:padding="16dp">
         <EditText
-            android:id="@+id/et_yt_live_title"
+            android:id="@+id/et_yt_live_stream_title"
             android:layout_width="match_parent" android:layout_height="56dp"
             android:hint="Stream title"
             android:textColorHint="#717171" android:textColor="#FFFFFF"
@@ -73,7 +86,7 @@
             android:paddingStart="12dp" android:paddingEnd="12dp"
             android:singleLine="true"/>
         <ImageButton
-            android:id="@+id/btn_yt_live_send"
+            android:id="@+id/btn_yt_live_send_chat"
             android:layout_width="40dp" android:layout_height="40dp"
             android:layout_marginStart="8dp"
             android:src="@drawable/ic_yt_send"

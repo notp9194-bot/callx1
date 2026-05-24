@@ -91,5 +91,13 @@
             android:src="@drawable/ic_yt_more"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="More options"/>
+        <ImageButton
+            android:id="@+id/btn_yt_download_delete"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@android:drawable/ic_menu_delete"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Delete download"
+            android:visibility="gone"/>
     </LinearLayout>
 </LinearLayout>

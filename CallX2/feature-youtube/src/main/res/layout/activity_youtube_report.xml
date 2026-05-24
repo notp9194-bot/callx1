@@ -22,7 +22,7 @@
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/yt_divider"/>
     <RadioGroup
-        android:id="@+id/rg_yt_report_reasons"
+        android:id="@+id/rg_yt_report_reason"
         android:layout_width="match_parent" android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="vertical"
@@ -35,7 +35,7 @@
             android:layout_width="wrap_content" android:layout_height="48dp"
             android:text="Hateful or abusive content"
             android:textColor="#FFFFFF" android:buttonTint="@color/yt_red"/>
-        <RadioButton android:id="@+id/rb_yt_report_violence"
+        <RadioButton android:id="@+id/rb_yt_report_violent"
             android:layout_width="wrap_content" android:layout_height="48dp"
             android:text="Violent or repulsive content"
             android:textColor="#FFFFFF" android:buttonTint="@color/yt_red"/>
@@ -47,11 +47,33 @@
             android:layout_width="wrap_content" android:layout_height="48dp"
             android:text="Copyright infringement"
             android:textColor="#FFFFFF" android:buttonTint="@color/yt_red"/>
+        <RadioButton android:id="@+id/rb_yt_report_dangerous"
+            android:layout_width="wrap_content" android:layout_height="48dp"
+            android:text="Dangerous or harmful acts"
+            android:textColor="#FFFFFF" android:buttonTint="@color/yt_red"/>
+        <RadioButton android:id="@+id/rb_yt_report_child"
+            android:layout_width="wrap_content" android:layout_height="48dp"
+            android:text="Child safety"
+            android:textColor="#FFFFFF" android:buttonTint="@color/yt_red"/>
+        <RadioButton android:id="@+id/rb_yt_report_privacy"
+            android:layout_width="wrap_content" android:layout_height="48dp"
+            android:text="Privacy violation"
+            android:textColor="#FFFFFF" android:buttonTint="@color/yt_red"/>
         <RadioButton android:id="@+id/rb_yt_report_other"
             android:layout_width="wrap_content" android:layout_height="48dp"
             android:text="Other"
             android:textColor="#FFFFFF" android:buttonTint="@color/yt_red"/>
     </RadioGroup>
+    <EditText
+        android:id="@+id/et_yt_report_details"
+        android:layout_width="match_parent" android:layout_height="80dp"
+        android:hint="Additional details (optional)"
+        android:textColorHint="#717171" android:textColor="#FFFFFF"
+        android:background="@color/yt_surface"
+        android:paddingStart="12dp" android:paddingEnd="12dp"
+        android:gravity="top" android:inputType="textMultiLine"
+        android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+        android:layout_marginBottom="8dp"/>
     <Button
         android:id="@+id/btn_yt_report_submit"
         android:layout_width="match_parent" android:layout_height="56dp"

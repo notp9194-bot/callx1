@@ -145,13 +145,28 @@
                     </LinearLayout>
 
                     <!-- Dislike -->
-                    <ImageButton
-                        android:id="@+id/btn_yt_dislike"
+                    <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="28dp"
+                        android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:src="@drawable/ic_yt_dislike"
-                        android:background="?attr/selectableItemBackgroundBorderless"/>
+                        android:orientation="horizontal"
+                        android:gravity="center">
+
+                        <ImageButton
+                            android:id="@+id/btn_yt_dislike"
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:src="@drawable/ic_yt_dislike"
+                            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+                        <TextView
+                            android:id="@+id/tv_yt_dislikes"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:textColor="@color/yt_text_secondary"
+                            android:textSize="13sp"/>
+                    </LinearLayout>
 
                     <!-- Share -->
                     <LinearLayout
@@ -195,6 +210,133 @@
                             android:textSize="10sp"/>
                     </LinearLayout>
 
+                    <!-- More -->
+                    <ImageButton
+                        android:id="@+id/btn_yt_more"
+                        android:layout_width="0dp"
+                        android:layout_height="28dp"
+                        android:layout_weight="1"
+                        android:src="@drawable/ic_yt_more"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="More"/>
+
+                </LinearLayout>
+
+                <!-- Secondary actions: Save, Watch Later, PiP, Speed, Quality, Add Playlist -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="4dp">
+
+                    <TextView
+                        android:id="@+id/tv_yt_subscribe_bell"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textColor="@color/yt_text_secondary"
+                        android:textSize="11sp"
+                        android:gravity="center"
+                        android:text="🔔"/>
+
+                    <ImageButton
+                        android:id="@+id/btn_yt_add_playlist"
+                        android:layout_width="0dp"
+                        android:layout_height="28dp"
+                        android:layout_weight="1"
+                        android:src="@drawable/ic_yt_library"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Save to playlist"/>
+
+                    <ImageButton
+                        android:id="@+id/btn_yt_watch_later"
+                        android:layout_width="0dp"
+                        android:layout_height="28dp"
+                        android:layout_weight="1"
+                        android:src="@drawable/ic_yt_library"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Watch later"/>
+
+                    <ImageButton
+                        android:id="@+id/btn_yt_pip"
+                        android:layout_width="0dp"
+                        android:layout_height="28dp"
+                        android:layout_weight="1"
+                        android:src="@android:drawable/ic_media_play"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Picture in picture"/>
+
+                    <ImageButton
+                        android:id="@+id/btn_yt_speed"
+                        android:layout_width="0dp"
+                        android:layout_height="28dp"
+                        android:layout_weight="1"
+                        android:src="@android:drawable/ic_media_ff"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Playback speed"/>
+
+                    <ImageButton
+                        android:id="@+id/btn_yt_quality"
+                        android:layout_width="0dp"
+                        android:layout_height="28dp"
+                        android:layout_weight="1"
+                        android:src="@android:drawable/ic_menu_manage"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Video quality"/>
+
+                </LinearLayout>
+
+                <!-- Autoplay / Loop toggles -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="4dp">
+
+                    <CheckBox
+                        android:id="@+id/cb_yt_autoplay"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Autoplay"
+                        android:textColor="@color/yt_text_secondary"
+                        android:textSize="12sp"
+                        android:buttonTint="@color/yt_red"/>
+
+                    <CheckBox
+                        android:id="@+id/cb_yt_loop"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Loop"
+                        android:textColor="@color/yt_text_secondary"
+                        android:textSize="12sp"
+                        android:buttonTint="@color/yt_red"/>
+                </LinearLayout>
+
+                <!-- Chapters -->
+                <LinearLayout
+                    android:id="@+id/layout_yt_chapters"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Chapters"
+                        android:textColor="@color/yt_text_primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="4dp"/>
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rv_yt_chapters"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:nestedScrollingEnabled="false"/>
                 </LinearLayout>
 
                 <!-- Description (collapsible) -->
