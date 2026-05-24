@@ -20,12 +20,18 @@ import com.google.firebase.database.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Vertical snap-scroll feed for YouTube Shorts (videos ≤60s). */
+/**
+ * Vertical snap-scroll feed for YouTube Shorts (videos ≤60s).
+ *
+ * FIX: Firebase RTDB mein boolean field pe orderByChild().equalTo(true) kaam
+ * nahi karta reliably — instead globalFeedRef se saara data lo aur client-side
+ * filter karo isShort==true ke liye.
+ */
 public class YouTubeShortsFragment extends Fragment {
 
-    private RecyclerView       rvShorts;
+    private RecyclerView        rvShorts;
     private YouTubeVideoAdapter adapter;
-    private ValueEventListener shortsListener;
+    private ValueEventListener  shortsListener;
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inf, @Nullable ViewGroup parent,
@@ -38,7 +44,6 @@ public class YouTubeShortsFragment extends Fragment {
 
         rvShorts = view.findViewById(R.id.rv_yt_shorts);
 
-        // Vertical snap-scroll like TikTok / Instagram Reels
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());
         rvShorts.setLayoutManager(llm);
         PagerSnapHelper snapHelper = new PagerSnapHelper();
@@ -53,21 +58,24 @@ public class YouTubeShortsFragment extends Fragment {
     }
 
     private void loadShorts() {
+        // FIX: equalTo(true) on boolean doesn't work in RTDB — client-side filter karo
         shortsListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 List<YouTubeVideo> list = new ArrayList<>();
                 for (DataSnapshot ds : snap.getChildren()) {
                     YouTubeVideo v = ds.getValue(YouTubeVideo.class);
-                    if (v != null && v.isShort && "public".equals(v.visibility))
+                    if (v != null && v.isShort && "public".equals(v.visibility)
+                            && v.videoUrl != null && !v.videoUrl.trim().isEmpty())
                         list.add(0, v);
                 }
                 adapter.setData(list);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
+        // globalFeedRef se lo — isShort field pe filter client-side
         YouTubeFirebaseUtils.globalFeedRef()
-            .orderByChild("isShort").equalTo(true)
-            .limitToLast(30)
+            .orderByChild("uploadedAt")
+            .limitToLast(50)
             .addValueEventListener(shortsListener);
     }
 
