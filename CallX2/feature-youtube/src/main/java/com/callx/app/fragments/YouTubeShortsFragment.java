@@ -1,6 +1,5 @@
 package com.callx.app.fragments;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -11,8 +10,7 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.PagerSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
-import com.callx.app.activities.YouTubePlayerActivity;
-import com.callx.app.adapters.YouTubeVideoAdapter;
+import com.callx.app.adapters.YouTubeShortsAdapter;
 import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
@@ -20,34 +18,43 @@ import com.google.firebase.database.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Vertical snap-scroll feed for YouTube Shorts (videos ≤60s). */
+/**
+ * Full-screen immersive Shorts feed using YouTubeShortsAdapter.
+ * Each item has an ExoPlayer, like/dislike/comment/share overlay buttons,
+ * channel name, title, and progress bar — all within the card.
+ */
 public class YouTubeShortsFragment extends Fragment {
 
-    private RecyclerView       rvShorts;
-    private YouTubeVideoAdapter adapter;
+    private RecyclerView      rvShorts;
+    private YouTubeShortsAdapter adapter;
     private ValueEventListener shortsListener;
 
     @Nullable @Override
-    public View onCreateView(@NonNull LayoutInflater inf, @Nullable ViewGroup parent,
-                             @Nullable Bundle state) {
-        return inf.inflate(R.layout.fragment_youtube_shorts, parent, false);
+    public View onCreateView(@NonNull LayoutInflater inf, @Nullable ViewGroup p,
+                             @Nullable Bundle s) {
+        return inf.inflate(R.layout.fragment_youtube_shorts, p, false);
     }
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         super.onViewCreated(view, state);
 
         rvShorts = view.findViewById(R.id.rv_yt_shorts);
+        adapter  = new YouTubeShortsAdapter(requireContext(), new ArrayList<>());
 
-        // Vertical snap-scroll like TikTok / Instagram Reels
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());
         rvShorts.setLayoutManager(llm);
-        PagerSnapHelper snapHelper = new PagerSnapHelper();
-        snapHelper.attachToRecyclerView(rvShorts);
-
-        adapter = new YouTubeVideoAdapter(requireContext(), new ArrayList<>(), video ->
-            startActivity(new Intent(requireContext(), YouTubePlayerActivity.class)
-                .putExtra("video_id", video.videoId)));
+        new PagerSnapHelper().attachToRecyclerView(rvShorts);
         rvShorts.setAdapter(adapter);
+
+        rvShorts.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    int pos = ((LinearLayoutManager) rv.getLayoutManager())
+                        .findFirstCompletelyVisibleItemPosition();
+                    adapter.playAt(pos);
+                }
+            }
+        });
 
         loadShorts();
     }
@@ -62,17 +69,33 @@ public class YouTubeShortsFragment extends Fragment {
                         list.add(0, v);
                 }
                 adapter.setData(list);
+                adapter.playAt(0);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         YouTubeFirebaseUtils.globalFeedRef()
             .orderByChild("isShort").equalTo(true)
-            .limitToLast(30)
+            .limitToLast(50)
             .addValueEventListener(shortsListener);
+    }
+
+    @Override public void onPause() {
+        super.onPause();
+        adapter.pauseAll();
+    }
+
+    @Override public void onResume() {
+        super.onResume();
+        if (rvShorts != null) {
+            int pos = ((LinearLayoutManager) rvShorts.getLayoutManager())
+                .findFirstCompletelyVisibleItemPosition();
+            adapter.playAt(pos);
+        }
     }
 
     @Override public void onDestroyView() {
         super.onDestroyView();
+        adapter.releaseAll();
         if (shortsListener != null)
             YouTubeFirebaseUtils.globalFeedRef().removeEventListener(shortsListener);
     }
