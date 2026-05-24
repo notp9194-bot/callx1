@@ -28,6 +28,7 @@ public class YouTubeUploadActivity extends AppCompatActivity {
 
     private Uri     videoUri, thumbUri;
     private String  uploadedVideoUrl, uploadedThumbUrl;
+    private long    uploadedVideoDuration = 0; // seconds, from Cloudinary response
 
     private EditText  etTitle, etDescription, etTags;
     private Spinner   spCategory, spVisibility;
@@ -114,8 +115,9 @@ public class YouTubeUploadActivity extends AppCompatActivity {
                 @Override public void onProgress(int p) {
                     progressBar.setProgress(p / 2); // video = first half
                 }
-                @Override public void onSuccess(String url, String pid) {
+                @Override public void onSuccess(String url, String pid, long durationSecs) {
                     uploadedVideoUrl = url;
+                    uploadedVideoDuration = durationSecs;
                     if (thumbUri != null) uploadThumbnail();
                     else saveToFirebase();
                 }
@@ -131,7 +133,7 @@ public class YouTubeUploadActivity extends AppCompatActivity {
         YouTubeCloudinaryUtils.uploadImage(this, thumbUri, myUid + "/thumbs",
             new YouTubeCloudinaryUtils.UploadCallback() {
                 @Override public void onProgress(int p) { progressBar.setProgress(50 + p / 2); } // thumb = second half
-                @Override public void onSuccess(String url, String pid) {
+                @Override public void onSuccess(String url, String pid, long durationSecs) {
                     uploadedThumbUrl = url;
                     saveToFirebase();
                 }
@@ -157,7 +159,7 @@ public class YouTubeUploadActivity extends AppCompatActivity {
         YouTubeVideo video = new YouTubeVideo(
             videoId, myUid, myName, myPhotoUrl,
             title, desc, uploadedVideoUrl, uploadedThumbUrl,
-            cat, 0, System.currentTimeMillis(), isShort);
+            cat, uploadedVideoDuration, System.currentTimeMillis(), isShort);
         video.tags       = tags;
         video.visibility = vis.toLowerCase();
 

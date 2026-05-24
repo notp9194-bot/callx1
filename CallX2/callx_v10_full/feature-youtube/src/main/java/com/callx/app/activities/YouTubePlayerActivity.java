@@ -142,8 +142,13 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                     startActivity(new Intent(YouTubePlayerActivity.this,
                         YouTubeChannelActivity.class).putExtra("uid", v.uploaderUid)));
 
-                // Init ExoPlayer
-                initPlayer(v.videoUrl);
+                // Init ExoPlayer (only if URL is available)
+                if (v.videoUrl != null && !v.videoUrl.trim().isEmpty()) {
+                    initPlayer(v.videoUrl);
+                } else {
+                    Toast.makeText(YouTubePlayerActivity.this,
+                        "Video file not available", Toast.LENGTH_SHORT).show();
+                }
 
                 // Increment view count
                 incrementViews(v.viewCount);
@@ -154,6 +159,10 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     }
 
     private void initPlayer(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            Toast.makeText(this, "Video URL unavailable", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (player != null) player.release();
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);

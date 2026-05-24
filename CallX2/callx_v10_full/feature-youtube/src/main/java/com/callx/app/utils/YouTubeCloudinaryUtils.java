@@ -51,7 +51,8 @@ public class YouTubeCloudinaryUtils {
 
     public interface UploadCallback {
         void onProgress(int percent);
-        void onSuccess(String secureUrl, String publicId);
+        /** @param durationSecs video duration in seconds (0 for images) */
+        void onSuccess(String secureUrl, String publicId, long durationSecs);
         void onError(String errorMsg);
     }
 
@@ -101,7 +102,8 @@ public class YouTubeCloudinaryUtils {
                     JSONObject obj = new JSONObject(json);
                     if (obj.has("secure_url")) {
                         postProgress(cb, 100);
-                        postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""));
+                        long durSecs = Math.round(obj.optDouble("duration", 0));
+                        postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""), durSecs);
                     } else {
                         postError(cb, obj.optString("error", "Video upload failed"));
                     }
@@ -160,7 +162,7 @@ public class YouTubeCloudinaryUtils {
                             JSONObject obj = new JSONObject(json);
                             if (obj.has("secure_url")) {
                                 postProgress(cb, 100);
-                                postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""));
+                                postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""), 0);
                             } else {
                                 postError(cb, obj.optString("error", "Image upload failed"));
                             }
@@ -214,7 +216,7 @@ public class YouTubeCloudinaryUtils {
                     JSONObject obj = new JSONObject(json);
                     if (obj.has("secure_url")) {
                         postProgress(cb, 100);
-                        postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""));
+                        postSuccess(cb, obj.getString("secure_url"), obj.optString("public_id", ""), 0);
                     } else {
                         postError(cb, obj.optString("error", "Upload failed"));
                     }
@@ -263,8 +265,8 @@ public class YouTubeCloudinaryUtils {
         UI.post(() -> cb.onProgress(pct));
     }
 
-    private static void postSuccess(UploadCallback cb, String url, String pid) {
-        UI.post(() -> cb.onSuccess(url, pid));
+    private static void postSuccess(UploadCallback cb, String url, String pid, long durationSecs) {
+        UI.post(() -> cb.onSuccess(url, pid, durationSecs));
     }
 
     private static void postError(UploadCallback cb, String msg) {
