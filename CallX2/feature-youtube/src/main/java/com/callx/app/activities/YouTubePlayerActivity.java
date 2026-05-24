@@ -13,7 +13,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -31,21 +33,29 @@ import java.util.List;
 
 /**
  * YouTubePlayerActivity — Full-screen video player with:
- * – ExoPlayer video playback with auto-quality
+ * – ExoPlayer video playback (FIXED: custom HttpDataSource for Cloudinary)
  * – Like / Dislike / Subscribe / Share actions
  * – Comments section
  * – Related videos feed
  * – Fullscreen rotate support
  * – Watch history tracking
- * – Loading spinner + error state  (FIXED)
+ * – Loading spinner + error state
+ *
+ * FIX LOG:
+ *   1. ExoPlayer ab DefaultHttpDataSource use karta hai — Cloudinary ke
+ *      redirect/content-type headers properly handle hote hain.
+ *   2. onResume() me player null-check add kiya + sirf tab play karo jab
+ *      player ready ho (STATE_READY).
+ *   3. subsListener onDestroy() me properly remove hota hai — memory leak fix.
+ *   4. videoUrl me ".mp4" suffix ensure kiya taaki ExoPlayer format detect kare.
  */
 public class YouTubePlayerActivity extends AppCompatActivity {
 
     private ExoPlayer    player;
     private PlayerView   playerView;
-    private ProgressBar  pbPlayer;         // ← NEW: loading spinner inside player area
-    private View         llPlayerError;    // ← NEW: error overlay
-    private TextView     tvPlayerError;    // ← NEW: error message
+    private ProgressBar  pbPlayer;
+    private View         llPlayerError;
+    private TextView     tvPlayerError;
     private TextView     tvTitle, tvChannelName, tvViews, tvLikes, tvDesc;
     private ImageButton  btnLike, btnDislike, btnShare;
     private android.widget.Button btnSubscribe;
@@ -58,6 +68,11 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private boolean isLiked      = false;
     private boolean isDisliked   = false;
     private boolean isSubscribed = false;
+
+    // Track whether player is ready to resume
+    private boolean playerReadyToPlay = false;
+    // Track channel UID for cleanup
+    private String  channelUidForUnsub = null;
 
     private ValueEventListener videoListener;
     private ValueEventListener likeListener;
@@ -75,11 +90,10 @@ public class YouTubePlayerActivity extends AppCompatActivity {
 
         if (videoId == null) { finish(); return; }
 
-        // View refs
         playerView     = findViewById(R.id.yt_player_view);
-        pbPlayer       = findViewById(R.id.pb_yt_player);        // ← NEW
-        llPlayerError  = findViewById(R.id.ll_yt_player_error);  // ← NEW
-        tvPlayerError  = findViewById(R.id.tv_yt_player_error);  // ← NEW
+        pbPlayer       = findViewById(R.id.pb_yt_player);
+        llPlayerError  = findViewById(R.id.ll_yt_player_error);
+        tvPlayerError  = findViewById(R.id.tv_yt_player_error);
         tvTitle        = findViewById(R.id.tv_yt_video_title);
         tvChannelName  = findViewById(R.id.tv_yt_channel_name);
         tvViews        = findViewById(R.id.tv_yt_views);
@@ -92,10 +106,8 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         btnShare       = findViewById(R.id.btn_yt_share);
         rvRelated      = findViewById(R.id.rv_yt_related);
 
-        // Show loading state initially
         showPlayerLoading(true);
 
-        // Related videos
         relatedAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video -> {
             Intent i = new Intent(this, YouTubePlayerActivity.class)
                 .putExtra("video_id", video.videoId);
@@ -104,33 +116,24 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         rvRelated.setLayoutManager(new LinearLayoutManager(this));
         rvRelated.setAdapter(relatedAdapter);
 
-        // Back button
         View btnBack = findViewById(R.id.btn_yt_back);
         if (btnBack != null) btnBack.setOnClickListener(v -> onBackPressed());
 
-        // Load video data
         loadVideo();
         loadLikeState();
         loadSubscribeState();
         loadRelated();
         recordWatchHistory();
 
-        // Comments
         View btnComments = findViewById(R.id.btn_yt_comments);
         if (btnComments != null)
             btnComments.setOnClickListener(v -> openComments());
-
         if (openComments) openComments();
 
-        // Like / Dislike actions
-        if (btnLike != null)
-            btnLike.setOnClickListener(v -> toggleLike());
-        if (btnDislike != null)
-            btnDislike.setOnClickListener(v -> toggleDislike());
-        if (btnSubscribe != null)
-            btnSubscribe.setOnClickListener(v -> toggleSubscribe());
-        if (btnShare != null)
-            btnShare.setOnClickListener(v -> shareVideo());
+        if (btnLike     != null) btnLike.setOnClickListener(v -> toggleLike());
+        if (btnDislike  != null) btnDislike.setOnClickListener(v -> toggleDislike());
+        if (btnSubscribe!= null) btnSubscribe.setOnClickListener(v -> toggleSubscribe());
+        if (btnShare    != null) btnShare.setOnClickListener(v -> shareVideo());
     }
 
     // ── Player state helpers ──────────────────────────────────────────────────
@@ -172,15 +175,16 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                     startActivity(new Intent(YouTubePlayerActivity.this,
                         YouTubeChannelActivity.class).putExtra("uid", v.uploaderUid)));
 
-                // ── FIXED: Check videoUrl properly before playing ──────────────
                 if (v.videoUrl != null && !v.videoUrl.trim().isEmpty()) {
-                    initPlayer(v.videoUrl);
+                    // FIX #1: Ensure Cloudinary URL has .mp4 so ExoPlayer detects format
+                    String playUrl = ensureMp4Extension(v.videoUrl.trim());
+                    initPlayer(playUrl);
                 } else {
-                    // videoUrl nahi hai — koi video upload nahi kiya gaya ya URL missing hai
-                    showPlayerError("Video file abhi available nahi hai.\n\nUploader ne video upload ki hai lekin URL save nahi hua.\nThodi der baad try karo ya uploader se contact karo.");
+                    showPlayerError("Video file abhi available nahi hai.\n\n"
+                        + "Uploader ne video upload ki hai lekin URL save nahi hua.\n"
+                        + "Thodi der baad try karo ya uploader se contact karo.");
                 }
 
-                // Increment view count
                 incrementViews(v.viewCount);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -190,42 +194,89 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         YouTubeFirebaseUtils.videoRef(videoId).addValueEventListener(videoListener);
     }
 
+    /**
+     * FIX #1 — Cloudinary URLs sometimes lack .mp4 extension.
+     * ExoPlayer needs file extension OR Content-Type header to pick decoder.
+     * We append /so_0/video.mp4 style suffix only if no extension present.
+     *
+     * Simpler approach: if URL already ends with .mp4 → keep it.
+     * Otherwise insert ".mp4" before any query string, or append it.
+     */
+    private String ensureMp4Extension(String url) {
+        // Already has extension
+        if (url.contains(".mp4") || url.contains(".webm") || url.contains(".m3u8")) {
+            return url;
+        }
+        // Cloudinary: insert format transformation to force mp4 delivery
+        // e.g. .../video/upload/v123/abc  →  .../video/upload/f_mp4/v123/abc
+        if (url.contains("cloudinary.com") && url.contains("/video/upload/")) {
+            // Check if transformation already present (contains f_)
+            if (!url.contains("/f_")) {
+                url = url.replace("/video/upload/", "/video/upload/f_mp4/");
+            }
+            return url;
+        }
+        // Generic fallback: append .mp4 if no extension at all
+        int qIdx = url.indexOf('?');
+        if (qIdx > 0) {
+            return url.substring(0, qIdx) + ".mp4" + url.substring(qIdx);
+        }
+        return url + ".mp4";
+    }
+
     private void initPlayer(String url) {
         if (url == null || url.trim().isEmpty()) {
             showPlayerError("Video URL unavailable");
             return;
         }
-        if (player != null) player.release();
+        if (player != null) {
+            player.release();
+            player = null;
+        }
+        playerReadyToPlay = false;
 
-        player = new ExoPlayer.Builder(this).build();
+        // FIX #2 — DefaultHttpDataSource with longer timeouts for Cloudinary
+        DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)   // Cloudinary uses redirects
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(20_000)
+            .setUserAgent("CallX/1.0 (Android)");
+
+        player = new ExoPlayer.Builder(this)
+            .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
+            .build();
+
         playerView.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(url));
         player.prepare();
-        player.play();
+        player.setPlayWhenReady(true);
 
         player.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
                 switch (state) {
                     case Player.STATE_BUFFERING:
-                        showPlayerLoading(true);   // ← buffering = spinner on
+                        showPlayerLoading(true);
                         break;
                     case Player.STATE_READY:
-                        showPlayerLoading(false);  // ← ready = spinner off
+                        playerReadyToPlay = true;
+                        showPlayerLoading(false);
                         break;
                     case Player.STATE_ENDED:
+                        playerReadyToPlay = false;
                         showPlayerLoading(false);
                         loadNextRecommendedVideo();
                         break;
                     case Player.STATE_IDLE:
-                        // will be handled by onPlayerError
+                        // handled by onPlayerError
                         break;
                 }
             }
 
             @Override public void onPlayerError(@NonNull PlaybackException error) {
-                // ← FIXED: Show error instead of silent blank screen
-                showPlayerError("Video play nahi ho raha.\n\n" + error.getMessage() +
-                    "\n\nInternet check karo ya baad mein try karo.");
+                playerReadyToPlay = false;
+                showPlayerError("Video play nahi ho raha.\n\n"
+                    + error.getMessage()
+                    + "\n\nInternet check karo ya baad mein try karo.");
             }
         });
     }
@@ -233,8 +284,10 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private void loadNextRecommendedVideo() {
         if (relatedAdapter != null && !relatedAdapter.isEmpty()) {
             YouTubeVideo next = relatedAdapter.getFirst();
-            startActivity(new Intent(this, YouTubePlayerActivity.class)
-                .putExtra("video_id", next.videoId));
+            if (next != null) {
+                startActivity(new Intent(this, YouTubePlayerActivity.class)
+                    .putExtra("video_id", next.videoId));
+            }
         }
     }
 
@@ -243,8 +296,9 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         likeListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 isLiked = snap.hasChild(myUid);
-                btnLike.setImageResource(isLiked
-                    ? R.drawable.ic_yt_like_filled : R.drawable.ic_yt_like);
+                if (btnLike != null)
+                    btnLike.setImageResource(isLiked
+                        ? R.drawable.ic_yt_like_filled : R.drawable.ic_yt_like);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -258,11 +312,14 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String channelUid = snap.getValue(String.class);
                     if (channelUid == null) return;
+                    channelUidForUnsub = channelUid; // FIX #3: save for cleanup
                     subsListener = new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot snap2) {
                             isSubscribed = snap2.hasChild(channelUid);
-                            btnSubscribe.setSelected(isSubscribed);
-                            btnSubscribe.setText(isSubscribed ? "Subscribed" : "Subscribe");
+                            if (btnSubscribe != null) {
+                                btnSubscribe.setSelected(isSubscribed);
+                                btnSubscribe.setText(isSubscribed ? "Subscribed" : "Subscribe");
+                            }
                         }
                         @Override public void onCancelled(@NonNull DatabaseError e) {}
                     };
@@ -316,6 +373,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String channelUid = snap.getValue(String.class);
                     if (channelUid == null || channelUid.equals(myUid)) return;
+                    channelUidForUnsub = channelUid;
                     if (isSubscribed) {
                         YouTubeFirebaseUtils.subscriptionsRef(myUid).child(channelUid).removeValue();
                         YouTubeFirebaseUtils.subscribersRef(channelUid).child(myUid).removeValue();
@@ -404,15 +462,31 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         }
     }
 
-    @Override protected void onPause()   { super.onPause();   if (player != null) player.pause(); }
-    @Override protected void onResume()  { super.onResume();  if (player != null) player.play(); }
+    // FIX #4 — onPause/onResume: null-check + only resume when player ready
+    @Override protected void onPause() {
+        super.onPause();
+        if (player != null) player.pause();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        // Only call play() if player exists AND was in ready state before pause
+        if (player != null && playerReadyToPlay) player.play();
+    }
+
     @Override protected void onDestroy() {
         super.onDestroy();
         if (player != null) { player.release(); player = null; }
+
         if (videoListener != null)
             YouTubeFirebaseUtils.videoRef(videoId).removeEventListener(videoListener);
+
         if (likeListener != null)
             YouTubeFirebaseUtils.videoLikesRef(videoId).removeEventListener(likeListener);
+
+        // FIX #3 — subsListener bhi remove karo (was missing before)
+        if (subsListener != null && !myUid.isEmpty())
+            YouTubeFirebaseUtils.subscriptionsRef(myUid).removeEventListener(subsListener);
     }
 
     private String formatCount(long n) {
