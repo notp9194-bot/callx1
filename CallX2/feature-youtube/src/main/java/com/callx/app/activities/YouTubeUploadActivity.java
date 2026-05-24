@@ -105,12 +105,14 @@ public class YouTubeUploadActivity extends AppCompatActivity {
         if (videoUri == null) { Toast.makeText(this, "Pick a video first", Toast.LENGTH_SHORT).show(); return; }
 
         setLoading(true);
+        progressBar.setMax(100);
+        progressBar.setProgress(0);
 
-        // Step 1: Upload video
+        // Step 1: Compress + Upload video (progress 0–100% handled inside utils)
         YouTubeCloudinaryUtils.uploadVideo(this, videoUri, myUid,
             new YouTubeCloudinaryUtils.UploadCallback() {
                 @Override public void onProgress(int p) {
-                    progressBar.setProgress(p / 2);
+                    progressBar.setProgress(p / 2); // video = first half
                 }
                 @Override public void onSuccess(String url, String pid) {
                     uploadedVideoUrl = url;
@@ -128,7 +130,7 @@ public class YouTubeUploadActivity extends AppCompatActivity {
     private void uploadThumbnail() {
         YouTubeCloudinaryUtils.uploadImage(this, thumbUri, myUid + "/thumbs",
             new YouTubeCloudinaryUtils.UploadCallback() {
-                @Override public void onProgress(int p) { progressBar.setProgress(50 + p / 2); }
+                @Override public void onProgress(int p) { progressBar.setProgress(50 + p / 2); } // thumb = second half
                 @Override public void onSuccess(String url, String pid) {
                     uploadedThumbUrl = url;
                     saveToFirebase();
