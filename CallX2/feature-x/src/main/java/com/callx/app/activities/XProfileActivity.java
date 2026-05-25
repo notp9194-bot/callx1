@@ -91,7 +91,7 @@ public class XProfileActivity extends AppCompatActivity {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null && xProfile != null)
                 cm.setPrimaryClip(ClipData.newPlainText("Profile",
-                    "https://callx.app/x/@" + xProfile.handle));
+                    "https://callx.app/x/@" + (xProfile.handle != null ? xProfile.handle : "")));
             Toast.makeText(this, "Profile link copied", Toast.LENGTH_SHORT).show();
         });
 
@@ -138,6 +138,7 @@ public class XProfileActivity extends AppCompatActivity {
         XProfileManager.stopObserving(targetUid, profileListener);
 
         profileListener = XProfileManager.observe(targetUid, profile -> {
+            if (isDestroyed() || isFinishing()) return;
             if (profile == null) {
                 if (pbProfile != null) pbProfile.setVisibility(View.GONE);
                 return;
@@ -168,13 +169,13 @@ public class XProfileActivity extends AppCompatActivity {
                 .apply(new RequestOptions().centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
                 .into(ivBanner);
 
-        if (ivAvatar != null)
+        if (ivAvatar != null && xProfile.avatarForList() != null)
             Glide.with(this).load(xProfile.avatarForList())
                 .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
                 .into(ivAvatar);
 
-        if (tvName    != null) tvName.setText(xProfile.name);
-        if (tvHandle  != null) tvHandle.setText("@" + xProfile.handle);
+        if (tvName    != null) tvName.setText(xProfile.name != null ? xProfile.name : "");
+        if (tvHandle  != null) tvHandle.setText(xProfile.handle != null ? "@" + xProfile.handle : "");
         if (tvBio     != null) tvBio.setText(xProfile.bio != null ? xProfile.bio : "");
         if (tvFollowers != null) tvFollowers.setText(fmt(xProfile.followerCount) + "\nFollowers");
         if (tvFollowing != null) tvFollowing.setText(fmt(xProfile.followingCount) + "\nFollowing");
