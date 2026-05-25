@@ -117,10 +117,14 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
             });
         }
 
-        // Watch Later
-        // Download
+        // In-App Download (Offline — Library me)
         view.findViewById(R.id.btn_yt_option_download).setOnClickListener(v -> {
             downloadVideo(); dismiss();
+        });
+
+        // Gallery Download (Phone ki Gallery me save)
+        view.findViewById(R.id.btn_yt_option_download_gallery).setOnClickListener(v -> {
+            downloadToGallery(); dismiss();
         });
 
         view.findViewById(R.id.btn_yt_option_watch_later).setOnClickListener(v -> {
@@ -259,6 +263,24 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
                 @Override public void onCompleted(String path) { toast("✅ Download complete!"); }
                 @Override public void onAlreadyDownloaded(String path) { toast("✅ Pehle se downloaded!"); }
                 @Override public void onError(String e) { toast("❌ Download fail: " + e); }
+            });
+    }
+
+    private void downloadToGallery() {
+        if (getContext() == null) return;
+        com.callx.app.models.YouTubeVideo v = new com.callx.app.models.YouTubeVideo();
+        v.videoId      = videoId;
+        v.title        = title;
+        v.videoUrl     = videoUrl;
+        v.thumbnailUrl = thumbUrl;
+        v.uploaderName = channel;
+        v.uploaderUid  = uploaderUid;
+        YouTubeDownloadManager.saveToGallery(getContext(), v,
+            new YouTubeDownloadManager.GalleryCallback() {
+                @Override public void onStarted()       { toast("📥 Gallery me save ho raha hai..."); }
+                @Override public void onProgress(int p) {}
+                @Override public void onCompleted()     { toast("✅ Gallery me save ho gaya! Photos app me dekho 📱"); }
+                @Override public void onError(String e) { toast("❌ Gallery save fail: " + e); }
             });
     }
 

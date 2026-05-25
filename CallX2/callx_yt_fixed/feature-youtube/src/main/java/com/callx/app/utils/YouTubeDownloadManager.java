@@ -2,10 +2,14 @@ package com.callx.app.utils;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ContentValues;
 import android.content.Context;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
@@ -18,6 +22,7 @@ import com.google.firebase.database.ValueEventListener;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashMap;
@@ -195,6 +200,138 @@ public class YouTubeDownloadManager {
             }
         }
         return ids;
+    }
+
+    // ── Gallery Save ──────────────────────────────────────────────────────────
+
+    /**
+     * Video ko phone ki Gallery/MediaStore me save karo.
+     * API 29+ : MediaStore.Video.Media (scoped storage — permission nahi chahiye)
+     * API < 29: Environment.DIRECTORY_MOVIES me direct file write (WRITE_EXTERNAL_STORAGE chahiye)
+     *
+     * Callback main thread pe aata hai.
+     */
+    public static void saveToGallery(Context ctx, YouTubeVideo video,
+                                     GalleryCallback callback) {
+        if (video == null || video.videoUrl == null || video.videoUrl.trim().isEmpty()) {
+            toast(ctx, "❌ Video URL nahi mili");
+            if (callback != null) callback.onError("No URL");
+            return;
+        }
+
+        String dlUrl   = ensureMp4(video.videoUrl.trim());
+        String safeTitle = (video.title != null && !video.title.isEmpty())
+            ? video.title.replaceAll("[^a-zA-Z0-9_\\- ]", "").trim()
+            : video.videoId;
+        String fileName = safeTitle + "_" + System.currentTimeMillis() + ".mp4";
+
+        createNotifChannel(ctx);
+        toast(ctx, "📥 Gallery me save ho raha hai...\n\"" + video.title + "\"");
+        if (callback != null) callback.onStarted();
+
+        int notifId = (int)(System.currentTimeMillis() % 100000) + 50000;
+
+        executor.submit(() -> {
+            OutputStream out = null;
+            Uri insertedUri = null;
+            try {
+                HttpURLConnection conn = (HttpURLConnection) new URL(dlUrl).openConnection();
+                conn.setConnectTimeout(15_000);
+                conn.setReadTimeout(30_000);
+                conn.setRequestProperty("User-Agent",
+                    "ExoPlayer/2.0 (Linux;Android " + Build.VERSION.RELEASE + ")");
+                conn.setInstanceFollowRedirects(true);
+                conn.connect();
+
+                int responseCode = conn.getResponseCode();
+                if (responseCode / 100 != 2) throw new Exception("HTTP " + responseCode);
+
+                long total = conn.getContentLengthLong();
+                InputStream in = conn.getInputStream();
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // API 29+ — MediaStore (no permission needed)
+                    ContentValues cv = new ContentValues();
+                    cv.put(MediaStore.Video.Media.DISPLAY_NAME, fileName);
+                    cv.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                    cv.put(MediaStore.Video.Media.RELATIVE_PATH,
+                        Environment.DIRECTORY_MOVIES + "/CallX");
+                    cv.put(MediaStore.Video.Media.IS_PENDING, 1);
+
+                    insertedUri = ctx.getContentResolver()
+                        .insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv);
+                    if (insertedUri == null) throw new Exception("MediaStore insert fail");
+                    out = ctx.getContentResolver().openOutputStream(insertedUri);
+                } else {
+                    // API < 29 — direct file
+                    File moviesDir = new File(
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+                        "CallX");
+                    if (!moviesDir.exists()) moviesDir.mkdirs();
+                    File outFile = new File(moviesDir, fileName);
+                    out = new FileOutputStream(outFile);
+                }
+
+                if (out == null) throw new Exception("Output stream null");
+
+                byte[] buf = new byte[8192];
+                long downloaded = 0;
+                int read;
+                int lastPct = 0;
+                while ((read = in.read(buf)) != -1) {
+                    out.write(buf, 0, read);
+                    downloaded += read;
+                    if (total > 0) {
+                        int pct = (int)(downloaded * 100 / total);
+                        if (pct - lastPct >= 10) {
+                            lastPct = pct;
+                            showProgress(ctx, notifId, video.title + " (Gallery)", pct);
+                            int fp = pct;
+                            mainHandler.post(() -> { if (callback != null) callback.onProgress(fp); });
+                        }
+                    }
+                }
+                out.flush();
+                out.close();
+                in.close();
+                conn.disconnect();
+
+                // API 29+: IS_PENDING clear karo
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && insertedUri != null) {
+                    ContentValues cv2 = new ContentValues();
+                    cv2.put(MediaStore.Video.Media.IS_PENDING, 0);
+                    ctx.getContentResolver().update(insertedUri, cv2, null, null);
+                }
+
+                cancelNotif(ctx, notifId);
+                showCompleteNotif(ctx, video.title + " — Gallery me save hua!");
+
+                mainHandler.post(() -> {
+                    toast(ctx, "✅ Gallery me save ho gaya!\n\"" + video.title + "\"\nPhotos/Gallery app me dekho 📱");
+                    if (callback != null) callback.onCompleted();
+                });
+
+            } catch (Exception e) {
+                Log.e(TAG, "Gallery save failed: " + e.getMessage());
+                // Cleanup pending MediaStore entry
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && insertedUri != null) {
+                    ctx.getContentResolver().delete(insertedUri, null, null);
+                }
+                cancelNotif(ctx, notifId);
+                mainHandler.post(() -> {
+                    toast(ctx, "❌ Gallery save fail: " + e.getMessage());
+                    if (callback != null) callback.onError(e.getMessage());
+                });
+            }
+        });
+    }
+
+    /** Gallery save callback */
+    public interface GalleryCallback {
+        void onStarted();
+        void onProgress(int percent);
+        void onCompleted();
+        void onError(String error);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
