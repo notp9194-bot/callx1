@@ -274,7 +274,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
             .show();
     }
 
-
+    private void downloadVideo() {
         if (getContext() == null) return;
         com.callx.app.models.YouTubeVideo v = new com.callx.app.models.YouTubeVideo();
         v.videoId     = videoId;
