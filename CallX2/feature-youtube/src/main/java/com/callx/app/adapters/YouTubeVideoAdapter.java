@@ -34,7 +34,7 @@ public class YouTubeVideoAdapter
     private List<YouTubeVideo> data;
     private final OnVideoClickListener listener;
 
-    // Optional: callback when user marks "not interested" so feed can remove the item
+    // Optional callback for feed-level actions (not interested / deleted)
     private YouTubeVideoOptionsSheet.OptionsCallback optionsCallback;
 
     public YouTubeVideoAdapter(Context ctx, List<YouTubeVideo> data,
@@ -92,6 +92,16 @@ public class YouTubeVideoAdapter
 
     @Override public int getItemCount() { return data == null ? 0 : data.size(); }
 
+    private void removeVideoById(String vid) {
+        for (int i = 0; i < data.size(); i++) {
+            if (vid != null && vid.equals(data.get(i).videoId)) {
+                data.remove(i);
+                notifyItemRemoved(i);
+                return;
+            }
+        }
+    }
+
     // ── Options Sheet ─────────────────────────────────────────────────────────
 
     private void showOptionsSheet(YouTubeVideo video, int position) {
@@ -101,17 +111,18 @@ public class YouTubeVideoAdapter
 
         YouTubeVideoOptionsSheet sheet = YouTubeVideoOptionsSheet.newInstance(video);
 
-        // Wire "Not Interested" → remove from adapter list
-        sheet.setCallback(videoId -> {
-            int idx = -1;
-            for (int i = 0; i < data.size(); i++) {
-                if (videoId.equals(data.get(i).videoId)) { idx = i; break; }
+        // Wire callbacks → remove from adapter list on Not Interested or Delete
+        sheet.setCallback(new YouTubeVideoOptionsSheet.OptionsCallback() {
+            @Override
+            public void onNotInterested(String vid) {
+                removeVideoById(vid);
+                if (optionsCallback != null) optionsCallback.onNotInterested(vid);
             }
-            if (idx >= 0) {
-                data.remove(idx);
-                notifyItemRemoved(idx);
+            @Override
+            public void onVideoDeleted(String vid) {
+                removeVideoById(vid);
+                if (optionsCallback != null) optionsCallback.onVideoDeleted(vid);
             }
-            if (optionsCallback != null) optionsCallback.onNotInterested(videoId);
         });
 
         sheet.show(fm, "yt_video_options");

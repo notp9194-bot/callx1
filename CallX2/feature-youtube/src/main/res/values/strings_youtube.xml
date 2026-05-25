@@ -53,4 +53,10 @@
     <string name="yt_comment_options">Comment Options</string>
     <string name="yt_watch_later_saved">Watch Later me save ho gaya</string>
     <string name="yt_not_interested">Ye video nahi dikhega</string>
+    <string name="yt_download">Download</string>
+    <string name="yt_download_offline">Offline dekho</string>
+    <string name="yt_download_success">Download ho gaya! Offline dekh sakte ho.</string>
+    <string name="yt_download_fail">Download nahi hua. Dobara try karo.</string>
+    <string name="yt_downloading">Download ho raha hai...</string>
+    <string name="yt_already_downloaded">Ye video pehle se download hai!</string>
 </resources>

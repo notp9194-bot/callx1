@@ -276,6 +276,29 @@
                             android:textSize="10sp"/>
                     </LinearLayout>
 
+                    <!-- Download -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <ImageButton
+                            android:id="@+id/btn_yt_download"
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:src="@drawable/ic_yt_download"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="Download"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Download"
+                            android:textColor="@color/yt_text_secondary"
+                            android:textSize="10sp"/>
+                    </LinearLayout>
+
+
                 </LinearLayout>
 
                 <!-- Description (collapsible) -->

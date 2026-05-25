@@ -75,6 +75,8 @@ public class YouTubeFirebaseUtils {
     public static DatabaseReference notInterestedRef(String uid, String videoId) {
         return root().child("not_interested").child(uid).child(videoId);
     }
+    public static DatabaseReference downloadsRef(String uid) { return root().child("downloads").child(uid); }
+
     public static DatabaseReference reportsRef(String videoId, String uid) {
         return root().child("reports").child(videoId).child(uid);
     }

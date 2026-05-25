@@ -1,5 +1,6 @@
 package com.callx.app.sheets;
 
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -17,34 +18,39 @@ import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import com.callx.app.utils.YouTubeDownloadManager;
 import com.google.firebase.auth.FirebaseAuth;
 
 /**
  * YouTubeVideoOptionsSheet
  * 3-dot menu bottom sheet for any video card in the YouTube section.
  *
- * Options:
+ * Options (everyone):
  *  - Watch Later me Save karo
  *  - Playlist me add karo
  *  - Share karo
  *  - Channel dekho
  *  - Pasand nahi
  *  - Report karo
+ *
+ * Options (video owner only):
+ *  - Video delete karo  ← sirf apna video
  */
 public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
 
-    private static final String ARG_VIDEO_ID        = "video_id";
-    private static final String ARG_TITLE           = "title";
-    private static final String ARG_CHANNEL         = "channel";
-    private static final String ARG_THUMB           = "thumb";
-    private static final String ARG_UPLOADER_UID    = "uploader_uid";
+    private static final String ARG_VIDEO_ID     = "video_id";
+    private static final String ARG_TITLE        = "title";
+    private static final String ARG_CHANNEL      = "channel";
+    private static final String ARG_THUMB        = "thumb";
+    private static final String ARG_UPLOADER_UID = "uploader_uid";
+    private static final String ARG_VIDEO_URL   = "video_url";
 
-    private String videoId, title, channel, thumbUrl, uploaderUid;
+    private String videoId, title, channel, thumbUrl, uploaderUid, videoUrl;
     private String myUid = "";
 
-    // Callback for things like "remove from feed" if caller wants to act
     public interface OptionsCallback {
         void onNotInterested(String videoId);
+        void onVideoDeleted(String videoId);
     }
 
     private OptionsCallback callback;
@@ -57,6 +63,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         args.putString(ARG_CHANNEL,      video.uploaderName);
         args.putString(ARG_THUMB,        video.thumbnailUrl);
         args.putString(ARG_UPLOADER_UID, video.uploaderUid);
+        args.putString(ARG_VIDEO_URL,    video.videoUrl);
         sheet.setArguments(args);
         return sheet;
     }
@@ -74,6 +81,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
             channel     = getArguments().getString(ARG_CHANNEL, "");
             thumbUrl    = getArguments().getString(ARG_THUMB, "");
             uploaderUid = getArguments().getString(ARG_UPLOADER_UID, "");
+            videoUrl    = getArguments().getString(ARG_VIDEO_URL, "");
         }
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
@@ -99,62 +107,102 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         if (thumbUrl != null && !thumbUrl.isEmpty())
             Glide.with(this).load(thumbUrl).centerCrop().into(ivThumb);
 
+        // ── Owner-only: Delete option ──────────────────────────────────────
+        LinearLayout btnDelete = view.findViewById(R.id.btn_yt_option_delete);
+        if (!myUid.isEmpty() && myUid.equals(uploaderUid) && btnDelete != null) {
+            btnDelete.setVisibility(View.VISIBLE);
+            btnDelete.setOnClickListener(v -> {
+                dismiss();
+                confirmAndDeleteVideo();
+            });
+        }
+
         // Watch Later
+        // Download
+        view.findViewById(R.id.btn_yt_option_download).setOnClickListener(v -> {
+            downloadVideo(); dismiss();
+        });
+
         view.findViewById(R.id.btn_yt_option_watch_later).setOnClickListener(v -> {
-            addToWatchLater();
-            dismiss();
+            addToWatchLater(); dismiss();
         });
 
         // Playlist
         view.findViewById(R.id.btn_yt_option_playlist).setOnClickListener(v -> {
-            addToPlaylist();
-            dismiss();
+            addToPlaylist(); dismiss();
         });
 
         // Share
         view.findViewById(R.id.btn_yt_option_share).setOnClickListener(v -> {
-            shareVideo();
-            dismiss();
+            shareVideo(); dismiss();
         });
 
         // Channel
         view.findViewById(R.id.btn_yt_option_channel).setOnClickListener(v -> {
-            goToChannel();
-            dismiss();
+            goToChannel(); dismiss();
         });
 
         // Not Interested
         view.findViewById(R.id.btn_yt_option_not_interested).setOnClickListener(v -> {
-            markNotInterested();
-            dismiss();
+            markNotInterested(); dismiss();
         });
 
         // Report
         view.findViewById(R.id.btn_yt_option_report).setOnClickListener(v -> {
-            reportVideo();
-            dismiss();
+            reportVideo(); dismiss();
         });
     }
 
-    // ── Actions ───────────────────────────────────────────────────────────────
+    // ── Delete Video ──────────────────────────────────────────────────────────
+
+    private void confirmAndDeleteVideo() {
+        if (getActivity() == null) return;
+        new AlertDialog.Builder(getActivity())
+            .setTitle("Video Delete karo?")
+            .setMessage("\"" + title + "\"\n\nYe video permanently delete ho jayega. Kya aap sure hain?")
+            .setPositiveButton("Delete karo", (d, w) -> deleteVideo())
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void deleteVideo() {
+        if (videoId == null || videoId.isEmpty()) return;
+
+        // 1. Main video record
+        YouTubeFirebaseUtils.videoRef(videoId).removeValue();
+
+        // 2. Global feed entry
+        YouTubeFirebaseUtils.globalFeedRef().child(videoId).removeValue();
+
+        // 3. User videos index
+        if (!uploaderUid.isEmpty())
+            YouTubeFirebaseUtils.userVideosRef(uploaderUid).child(videoId).removeValue();
+
+        // 4. Likes / dislikes / views nodes
+        YouTubeFirebaseUtils.videoLikesRef(videoId).removeValue();
+        YouTubeFirebaseUtils.videoDislikesRef(videoId).removeValue();
+        YouTubeFirebaseUtils.videoViewsRef(videoId).removeValue();
+
+        // 5. Comments
+        YouTubeFirebaseUtils.commentsRef(videoId).removeValue();
+
+        toast("🗑️ Video delete ho gaya");
+
+        if (callback != null) callback.onVideoDeleted(videoId);
+    }
+
+    // ── Other Actions ─────────────────────────────────────────────────────────
 
     private void addToWatchLater() {
-        if (myUid.isEmpty()) {
-            toast("⚠️ Watch Later ke liye login karo");
-            return;
-        }
+        if (myUid.isEmpty()) { toast("⚠️ Watch Later ke liye login karo"); return; }
         YouTubeFirebaseUtils.watchLaterRef(myUid).child(videoId)
             .setValue(System.currentTimeMillis())
             .addOnSuccessListener(v -> toast("✅ Watch Later me save ho gaya"))
-            .addOnFailureListener(e -> toast("❌ Save nahi hua: " + e.getMessage()));
+            .addOnFailureListener(e -> toast("❌ Save nahi hua"));
     }
 
     private void addToPlaylist() {
-        if (myUid.isEmpty()) {
-            toast("⚠️ Playlist ke liye login karo");
-            return;
-        }
-        // Save under user's "liked_videos" playlist for now
+        if (myUid.isEmpty()) { toast("⚠️ Playlist ke liye login karo"); return; }
         YouTubeFirebaseUtils.likedVideosRef(myUid).child(videoId)
             .setValue(System.currentTimeMillis())
             .addOnSuccessListener(v -> toast("✅ Playlist me add ho gaya"))
@@ -173,35 +221,31 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
     }
 
     private void goToChannel() {
-        if (uploaderUid == null || uploaderUid.isEmpty()) {
-            toast("Channel info nahi mili");
-            return;
-        }
-        if (getActivity() != null) {
+        if (uploaderUid == null || uploaderUid.isEmpty()) { toast("Channel info nahi mili"); return; }
+        if (getActivity() != null)
             startActivity(new Intent(getActivity(), YouTubeChannelActivity.class)
                 .putExtra("uid", uploaderUid));
-        }
     }
 
     private void markNotInterested() {
-        // Save in Firebase so feed can filter later
-        if (!myUid.isEmpty()) {
+        if (!myUid.isEmpty())
             YouTubeFirebaseUtils.notInterestedRef(myUid, videoId)
                 .setValue(System.currentTimeMillis());
-        }
         toast("Ye video feed me nahi dikhega");
         if (callback != null) callback.onNotInterested(videoId);
     }
 
     private void reportVideo() {
-        if (myUid.isEmpty()) {
-            toast("⚠️ Report ke liye login karo");
-            return;
-        }
+        if (myUid.isEmpty()) { toast("⚠️ Report ke liye login karo"); return; }
         YouTubeFirebaseUtils.reportsRef(videoId, myUid)
             .setValue(System.currentTimeMillis())
             .addOnSuccessListener(v -> toast("✅ Report submit ho gaya — shukriya"))
             .addOnFailureListener(e -> toast("❌ Report nahi ho saka"));
+    }
+
+    private void downloadVideo() {
+        if (getContext() == null) return;
+        YouTubeDownloadManager.startDownload(getContext(), videoId, videoUrl, title);
     }
 
     private void toast(String msg) {

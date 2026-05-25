@@ -27,6 +27,7 @@ import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
 import com.callx.app.sheets.YouTubeVideoOptionsSheet;
+import com.callx.app.utils.YouTubeDownloadManager;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -56,6 +57,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private TextView     tvTitle, tvChannelName, tvViews, tvLikes, tvDesc;
     private ImageButton  btnLike, btnDislike, btnShare;
     private android.widget.Button btnSubscribe;
+    private android.widget.ImageButton btnDownload;
     private CircleImageView ivChannelAvatar;
     private RecyclerView rvRelated;
     private YouTubeVideoAdapter relatedAdapter;
@@ -145,6 +147,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (btnDislike   != null) btnDislike.setOnClickListener(v -> toggleDislike());
         if (btnSubscribe != null) btnSubscribe.setOnClickListener(v -> toggleSubscribe());
         if (btnShare     != null) btnShare.setOnClickListener(v -> shareVideo());
+        if (btnDownload  != null) btnDownload.setOnClickListener(v -> downloadCurrentVideo());
 
         // 3-dot more options button
         View btnPlayerMore = findViewById(R.id.btn_yt_player_more);
@@ -158,7 +161,6 @@ public class YouTubePlayerActivity extends AppCompatActivity {
 
     private void showPlayerOptionsSheet() {
         if (currentVideo == null) {
-            // Build minimal video from available data if currentVideo not set
             YouTubeVideo v = new YouTubeVideo();
             v.videoId     = videoId;
             v.title       = tvTitle != null ? tvTitle.getText().toString() : "";
@@ -167,6 +169,15 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             currentVideo  = v;
         }
         YouTubeVideoOptionsSheet sheet = YouTubeVideoOptionsSheet.newInstance(currentVideo);
+        sheet.setCallback(new YouTubeVideoOptionsSheet.OptionsCallback() {
+            @Override
+            public void onNotInterested(String vid) { /* no-op on player screen */ }
+            @Override
+            public void onVideoDeleted(String vid) {
+                // Video delete ho gaya — player band karo
+                finish();
+            }
+        });
         sheet.show(getSupportFragmentManager(), "yt_player_options");
     }
 
@@ -585,6 +596,12 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 Log.e(TAG, "Watch Later fail: " + e.getMessage());
                 Toast.makeText(this, "❌ Watch Later fail: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             });
+    }
+
+    private void downloadCurrentVideo() {
+        String dlUrl   = currentVideo != null ? currentVideo.videoUrl : null;
+        String dlTitle = currentVideo != null ? currentVideo.title  : (tvTitle != null ? tvTitle.getText().toString() : videoId);
+        YouTubeDownloadManager.startDownload(this, videoId, dlUrl, dlTitle);
     }
 
     private void shareVideo() {
