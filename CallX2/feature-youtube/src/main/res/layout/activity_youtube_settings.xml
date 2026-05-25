@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_yt_settings"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="24dp">
+
+            <!-- ACCOUNT SECTION -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Account"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"/>
+
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_general"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_switch_account"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_family_center"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_notifications"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_purchases"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_billing"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_manage_history"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_your_data"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_privacy"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_connected_apps"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_experimental"/>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#1AFFFFFF" android:layout_marginTop="8dp"/>
+
+            <!-- VIDEO AND AUDIO PREFERENCES SECTION -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Video and audio preferences"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"/>
+
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_video_quality"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_playback"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_captions"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_data_saving"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_downloads"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_live_chat"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_accessibility"/>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#1AFFFFFF" android:layout_marginTop="8dp"/>
+
+            <!-- HELP AND POLICY SECTION -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Help and policy"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"/>
+
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_help"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_tos"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_feedback"/>
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_about"/>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#1AFFFFFF" android:layout_marginTop="8dp"/>
+
+            <!-- DEVELOPER PREFERENCES SECTION -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Developer preferences"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"/>
+
+            <include layout="@layout/item_yt_settings_row"
+                android:id="@+id/row_yt_developer"/>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@color/yt_bg">
+    <androidx.appcompat.widget.Toolbar android:id="@+id/toolbar_yt_accessibility"
+        android:layout_width="match_parent" android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg" android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingTop="16dp" android:paddingBottom="8dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Hide gesture education" android:textColor="#FFFFFF" android:textSize="14sp"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Hides gesture navigation tutorials in the player"
+                android:textColor="#AAAAAA" android:textSize="12sp" android:layout_marginTop="2dp"/>
+        </LinearLayout>
+        <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_yt_hide_gesture_edu"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    </LinearLayout>
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1AFFFFFF"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp">
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:text="Reduce animations" android:textColor="#FFFFFF" android:textSize="14sp"/>
+        <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_yt_reduce_animations"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    </LinearLayout>
+</LinearLayout>

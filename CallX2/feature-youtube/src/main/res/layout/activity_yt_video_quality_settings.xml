@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/yt_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_yt_video_quality"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/yt_bg"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingBottom="24dp">
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Select your default streaming quality for all videos. You can change streaming quality in player options for single videos."
+                android:textColor="#AAAAAA" android:textSize="13sp"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="16dp" android:paddingBottom="16dp"/>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#1AFFFFFF"/>
+
+            <!-- Mobile Networks section -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="VIDEO QUALITY ON MOBILE NETWORKS"
+                android:textColor="#AAAAAA" android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="16dp" android:paddingTop="20dp" android:paddingBottom="12dp"/>
+
+            <RadioGroup android:id="@+id/rg_yt_mobile_quality"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="8dp" android:paddingEnd="16dp">
+
+                <RadioButton android:id="@+id/rb_yt_mobile_auto"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingStart="8dp" android:paddingTop="12dp" android:paddingBottom="4dp"
+                    android:text="Auto (recommended)"
+                    android:textColor="#FFFFFF" android:textSize="14sp"
+                    android:buttonTint="#FF0000"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Adjusts to give you the best experience for your conditions"
+                    android:textColor="#AAAAAA" android:textSize="12sp"
+                    android:paddingStart="40dp" android:paddingBottom="8dp"/>
+
+                <RadioButton android:id="@+id/rb_yt_mobile_higher"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingStart="8dp" android:paddingTop="12dp" android:paddingBottom="4dp"
+                    android:text="Higher picture quality"
+                    android:textColor="#FFFFFF" android:textSize="14sp"
+                    android:buttonTint="#FF0000"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Uses more data"
+                    android:textColor="#AAAAAA" android:textSize="12sp"
+                    android:paddingStart="40dp" android:paddingBottom="8dp"/>
+
+                <RadioButton android:id="@+id/rb_yt_mobile_data_saver"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingStart="8dp" android:paddingTop="12dp" android:paddingBottom="4dp"
+                    android:text="Data saver"
+                    android:textColor="#FFFFFF" android:textSize="14sp"
+                    android:buttonTint="#FF0000"
+                    android:checked="true"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Lower picture quality"
+                    android:textColor="#AAAAAA" android:textSize="12sp"
+                    android:paddingStart="40dp" android:paddingBottom="8dp"/>
+
+            </RadioGroup>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#1AFFFFFF" android:layout_marginTop="8dp"/>
+
+            <!-- Wi-Fi section -->
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="VIDEO QUALITY ON WI-FI"
+                android:textColor="#AAAAAA" android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="16dp" android:paddingTop="20dp" android:paddingBottom="12dp"/>
+
+            <RadioGroup android:id="@+id/rg_yt_wifi_quality"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="8dp" android:paddingEnd="16dp">
+
+                <RadioButton android:id="@+id/rb_yt_wifi_auto"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingStart="8dp" android:paddingTop="12dp" android:paddingBottom="4dp"
+                    android:text="Auto (recommended)"
+                    android:textColor="#FFFFFF" android:textSize="14sp"
+                    android:buttonTint="#FF0000"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Adjusts to give you the best experience for your conditions"
+                    android:textColor="#AAAAAA" android:textSize="12sp"
+                    android:paddingStart="40dp" android:paddingBottom="8dp"/>
+
+                <RadioButton android:id="@+id/rb_yt_wifi_higher"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingStart="8dp" android:paddingTop="12dp" android:paddingBottom="4dp"
+                    android:text="Higher picture quality"
+                    android:textColor="#FFFFFF" android:textSize="14sp"
+                    android:buttonTint="#FF0000"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Uses more data"
+                    android:textColor="#AAAAAA" android:textSize="12sp"
+                    android:paddingStart="40dp" android:paddingBottom="8dp"/>
+
+                <RadioButton android:id="@+id/rb_yt_wifi_data_saver"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingStart="8dp" android:paddingTop="12dp" android:paddingBottom="4dp"
+                    android:text="Data saver"
+                    android:textColor="#FFFFFF" android:textSize="14sp"
+                    android:buttonTint="#FF0000"
+                    android:checked="true"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Lower picture quality"
+                    android:textColor="#AAAAAA" android:textSize="12sp"
+                    android:paddingStart="40dp" android:paddingBottom="8dp"/>
+
+            </RadioGroup>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
