@@ -96,7 +96,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int TAB_CHATS  = 0;
     private static final int TAB_STATUS = 1;
     private static final int TAB_GROUPS = 2;
-    private static final int TAB_CALLS  = 3;
+    private static final int TAB_REELS  = 3;
+    private static final int TAB_CALLS  = 4;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -163,13 +164,16 @@ public class MainActivity extends AppCompatActivity {
                     R.id.nav_chats,
                     R.id.nav_status,
                     R.id.nav_groups,
+                    R.id.nav_reels,
                     R.id.nav_calls
                 };
                 if (position >= 0 && position < ids.length)
                     binding.bottomNav.setSelectedItemId(ids[position]);
                 updateFab(position);
-                // ── Reel playback: pause/resume based on header entry button navigation ──
-                // Reels tab is no longer in bottom nav — entry button handles it
+                // Hide main bottom nav + FAB when Reels tab is active
+                setMainNavVisible(position != TAB_REELS);
+                // ── Reel playback: pause when leaving, resume when entering ──
+                notifyReelsTabVisibility(position == TAB_REELS);
             }
         });
 
@@ -188,6 +192,10 @@ public class MainActivity extends AppCompatActivity {
                 binding.viewPager.setCurrentItem(TAB_GROUPS, false);
                 clearBadge(R.id.nav_groups);
             }
+            else if (id == R.id.nav_reels)  {
+                binding.viewPager.setCurrentItem(TAB_REELS, false);
+                clearBadge(R.id.nav_reels);
+            }
             else if (id == R.id.nav_calls)  {
                 binding.viewPager.setCurrentItem(TAB_CALLS, false);
                 // Mark missed calls as seen
@@ -203,11 +211,12 @@ public class MainActivity extends AppCompatActivity {
             if      (pos == TAB_CHATS)  startActivity(new Intent(this, SearchActivity.class));
             else if (pos == TAB_STATUS) startActivity(new Intent(this, NewStatusActivity.class));
             else if (pos == TAB_GROUPS) startActivity(new Intent(this, NewGroupActivity.class));
+            else if (pos == TAB_REELS)  startActivity(new Intent(this, ReelUploadActivity.class));
             else                        startActivity(new Intent(this, SearchActivity.class));
         });
 
         loadMyAvatar();
-        // loadReelsAvatarIntoNavTab() — moved to setupReelsEntryButton() (header entry button)
+        loadReelsAvatarIntoNavTab();  // Reels nav tab mein Reels profile avatar dikhao
         refreshFcmToken();
         startBadgeListeners();
         // ── In-App Update Check — Firebase se version compare karta hai ──
@@ -256,7 +265,13 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         loadMyAvatar();
-        setupReelsEntryButton();  // Reels entry avatar reload on resume
+        loadReelsAvatarIntoNavTab();  // Reels profile update hone par nav tab refresh
+        // FIX #3: When MainActivity resumes (e.g. after returning from any activity launched
+        // from a non-Reels tab), notify the ReelsFragment of the actual current tab state.
+        // Without this, onTabPaused() is never called when leaving from other tabs, so
+        // isTabActive stays true and reels keep playing in the background.
+        boolean isReelsTab = binding.viewPager.getCurrentItem() == TAB_REELS;
+        notifyReelsTabVisibility(isReelsTab);
     }
 
     @Override protected void onDestroy() {
@@ -325,7 +340,7 @@ public class MainActivity extends AppCompatActivity {
             case TAB_CHATS:  binding.fabAction.setImageResource(R.drawable.ic_status_add); break;
             case TAB_STATUS: binding.fabAction.setImageResource(R.drawable.ic_camera);     break;
             case TAB_GROUPS: binding.fabAction.setImageResource(R.drawable.ic_group);      break;
-            // Reels tab removed from bottom nav — FAB for reels not needed here
+            case TAB_REELS:  binding.fabAction.setImageResource(R.drawable.ic_add_reels);  break;
             case TAB_CALLS:  binding.fabAction.setImageResource(R.drawable.ic_phone);      break;
         }
     }
@@ -469,7 +484,7 @@ public class MainActivity extends AppCompatActivity {
         };
         FirebaseUtils.getUserGroupsRef(uid).addValueEventListener(unreadGroupsListener);
 
-        // 5. Unread reel notifications → reels header entry button badge
+        // 5. Unread reel notifications → nav_reels badge
         unreadReelNotifsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 int unread = 0;
@@ -477,7 +492,7 @@ public class MainActivity extends AppCompatActivity {
                     Boolean read = n.child("read").getValue(Boolean.class);
                     if (read == null || !read) unread++;
                 }
-                updateReelsEntryBadge(unread);
+                setBadge(R.id.nav_reels, unread);
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
@@ -513,16 +528,9 @@ public class MainActivity extends AppCompatActivity {
                                     @Nullable Transition<? super Bitmap> transition) {
                                 android.graphics.drawable.Drawable d =
                                     new BitmapDrawable(getResources(), resource);
-                                // Avatar now shown in header reels entry button
-                                // (nav_reels removed from bottom nav)
-                                if (reelsEntryBadgeView != null) {
-                                    View root = (View) reelsEntryBadgeView.getParent();
-                                    if (root != null) {
-                                        View av = root.findViewById(R.id.iv_reels_entry_avatar);
-                                        if (av instanceof de.hdodenhof.circleimageview.CircleImageView)
-                                            ((de.hdodenhof.circleimageview.CircleImageView) av).setImageBitmap(resource);
-                                    }
-                                }
+                                binding.bottomNav.getMenu()
+                                    .findItem(R.id.nav_reels)
+                                    .setIcon(d);
                             }
                             @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
                         });
@@ -663,7 +671,7 @@ public class MainActivity extends AppCompatActivity {
         YouTubeNotificationWorker.schedule(this);
     }
 
-    // ── Reels Module entry button ────────────────────────────────────────────
+    // ── Reels Entry Button ──────────────────────────────────────────────────
     private TextView reelsEntryBadgeView = null;
 
     private void setupReelsEntryButton() {
@@ -708,29 +716,35 @@ public class MainActivity extends AppCompatActivity {
                 .start();
         }
 
-        // Tap → open UserReelsActivity for current user (full-screen reels profile)
+        // Tap → open Reels system (nav_reels tab pe jump karo)
         reelsEntryRoot.setOnClickListener(v -> {
-            try {
-                String currentUid = currentUid();
-                Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
-                Intent i = new Intent(this, cls);
-                if (currentUid != null) i.putExtra("uid", currentUid);
-                startActivity(i);
-                overridePendingTransition(0, 0);
-            } catch (ClassNotFoundException e) {
-                android.util.Log.e("MainActivity", "UserReelsActivity not found", e);
-            }
+            binding.viewPager.setCurrentItem(TAB_REELS, false);
+            binding.bottomNav.setSelectedItemId(R.id.nav_reels);
         });
-    }
 
-    /** Update the reels entry button notification badge count */
-    private void updateReelsEntryBadge(int unread) {
-        if (reelsEntryBadgeView == null) return;
-        if (unread > 0) {
-            reelsEntryBadgeView.setVisibility(View.VISIBLE);
-            reelsEntryBadgeView.setText(unread > 99 ? "99+" : String.valueOf(unread));
-        } else {
-            reelsEntryBadgeView.setVisibility(View.GONE);
+        // Live badge — unread reel notifications
+        if (uid != null && reelsEntryBadgeView != null) {
+            final TextView badge = reelsEntryBadgeView;
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("reel_notifications").child(uid)
+                .addValueEventListener(new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(
+                            @androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                        int unread = 0;
+                        for (com.google.firebase.database.DataSnapshot n : snap.getChildren()) {
+                            Boolean read = n.child("read").getValue(Boolean.class);
+                            if (read == null || !read) unread++;
+                        }
+                        if (unread > 0) {
+                            badge.setVisibility(View.VISIBLE);
+                            badge.setText(unread > 99 ? "99+" : String.valueOf(unread));
+                        } else {
+                            badge.setVisibility(View.GONE);
+                        }
+                    }
+                    @Override public void onCancelled(
+                            @androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                });
         }
     }
 
@@ -917,7 +931,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private void notifyReelsTabVisibility(boolean isReelsTabActive) {
         androidx.fragment.app.Fragment f = getSupportFragmentManager()
-                .findFragmentByTag(""); // Reels tab removed from ViewPager — no-op
+                .findFragmentByTag("f" + binding.viewPager.getAdapter().getItemId(TAB_REELS));
         if (f instanceof ReelsFragment) {
             if (isReelsTabActive) {
                 ((ReelsFragment) f).onTabResumed();

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Reels Entry Button — animated strip that slides out from the avatar in CallX header.
-  Mirrors the same pattern as layout_youtube_entry_button.xml.
-  The purple strip slides out to the right from behind the avatar on first load.
+  Same pattern as layout_youtube_entry_button.xml.
+  Purple strip slides out to the right from behind the avatar on load.
 -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -23,10 +23,7 @@
         app:civ_border_width="2dp"
         app:civ_border_color="@color/brand_primary"/>
 
-    <!--
-      Animated purple strip — slides RIGHT from behind avatar.
-      Initially translationX = -200dp → animates to 0.
-    -->
+    <!-- Purple strip — slides RIGHT from behind avatar (translationX -200 → 0) -->
     <LinearLayout
         android:id="@+id/ll_reels_entry_strip"
         android:layout_width="wrap_content"
@@ -52,10 +49,7 @@
 
     </LinearLayout>
 
-    <!--
-      Notification badge — shows unread Reels notification count.
-      Positioned at top-right of the Reels icon area.
-    -->
+    <!-- Notification badge -->
     <TextView
         android:id="@+id/tv_reels_entry_badge"
         android:layout_width="wrap_content"
