@@ -49,4 +49,8 @@
         <item>Unlisted</item>
         <item>Private</item>
     </string-array>
+    <string name="yt_video_options">Video Options</string>
+    <string name="yt_comment_options">Comment Options</string>
+    <string name="yt_watch_later_saved">Watch Later me save ho gaya</string>
+    <string name="yt_not_interested">Ye video nahi dikhega</string>
 </resources>

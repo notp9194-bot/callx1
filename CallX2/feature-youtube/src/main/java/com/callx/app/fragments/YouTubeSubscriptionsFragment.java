@@ -54,7 +54,7 @@ public class YouTubeSubscriptionsFragment extends Fragment {
         rvSubs  = view.findViewById(R.id.rv_yt_subs_feed);
         tvEmpty = view.findViewById(R.id.tv_yt_subs_empty);
 
-        adapter = new YouTubeVideoAdapter(requireContext(), new ArrayList<>(), video ->
+        adapter = new YouTubeVideoAdapter(requireActivity(), new ArrayList<>(), video ->
             startActivity(new Intent(requireContext(), YouTubePlayerActivity.class)
                 .putExtra("video_id", video.videoId)));
         rvSubs.setLayoutManager(new LinearLayoutManager(requireContext()));

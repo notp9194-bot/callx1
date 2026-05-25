@@ -49,7 +49,7 @@ public class YouTubeShortsFragment extends Fragment {
         PagerSnapHelper snapHelper = new PagerSnapHelper();
         snapHelper.attachToRecyclerView(rvShorts);
 
-        adapter = new YouTubeVideoAdapter(requireContext(), new ArrayList<>(), video ->
+        adapter = new YouTubeVideoAdapter(requireActivity(), new ArrayList<>(), video ->
             startActivity(new Intent(requireContext(), YouTubePlayerActivity.class)
                 .putExtra("video_id", video.videoId)));
         rvShorts.setAdapter(adapter);

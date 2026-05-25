@@ -44,7 +44,7 @@ public class YouTubeHomeFragment extends Fragment {
         pbLoading    = view.findViewById(R.id.pb_yt_home);
         llEmpty      = view.findViewById(R.id.ll_yt_empty);
 
-        adapter = new YouTubeVideoAdapter(requireContext(), new ArrayList<>(), video ->
+        adapter = new YouTubeVideoAdapter(requireActivity(), new ArrayList<>(), video ->
             startActivity(new Intent(requireContext(), YouTubePlayerActivity.class)
                 .putExtra("video_id", video.videoId)));
         rvFeed.setLayoutManager(new LinearLayoutManager(requireContext()));

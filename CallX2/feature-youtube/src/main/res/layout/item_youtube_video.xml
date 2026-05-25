@@ -85,11 +85,14 @@
 
         <!-- More options -->
         <ImageButton
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:id="@+id/btn_yt_video_more"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:layout_gravity="top"
+            android:padding="4dp"
             android:src="@drawable/ic_yt_more"
-            android:background="?attr/selectableItemBackgroundBorderless"/>
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="More options"/>
     </LinearLayout>
 
 </LinearLayout>

@@ -70,4 +70,12 @@ public class YouTubeFirebaseUtils {
 
     // ── Search ────────────────────────────────────────────────────────────────
     public static DatabaseReference searchHistoryRef(String uid)      { return root().child("search_history").child(uid); }
+
+    // ── Not Interested / Reports ───────────────────────────────────────────────
+    public static DatabaseReference notInterestedRef(String uid, String videoId) {
+        return root().child("not_interested").child(uid).child(videoId);
+    }
+    public static DatabaseReference reportsRef(String videoId, String uid) {
+        return root().child("reports").child(videoId).child(uid);
+    }
 }

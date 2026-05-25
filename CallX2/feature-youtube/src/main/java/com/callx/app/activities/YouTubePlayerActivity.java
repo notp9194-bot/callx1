@@ -26,6 +26,7 @@ import com.callx.app.models.YouTubeNotification;
 import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
+import com.callx.app.sheets.YouTubeVideoOptionsSheet;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -144,6 +145,29 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (btnDislike   != null) btnDislike.setOnClickListener(v -> toggleDislike());
         if (btnSubscribe != null) btnSubscribe.setOnClickListener(v -> toggleSubscribe());
         if (btnShare     != null) btnShare.setOnClickListener(v -> shareVideo());
+
+        // 3-dot more options button
+        View btnPlayerMore = findViewById(R.id.btn_yt_player_more);
+        if (btnPlayerMore != null)
+            btnPlayerMore.setOnClickListener(v -> showPlayerOptionsSheet());
+    }
+
+    // ── 3-dot Options Sheet ───────────────────────────────────────────────────
+
+    private YouTubeVideo currentVideo = null; // hold current video for sheet
+
+    private void showPlayerOptionsSheet() {
+        if (currentVideo == null) {
+            // Build minimal video from available data if currentVideo not set
+            YouTubeVideo v = new YouTubeVideo();
+            v.videoId     = videoId;
+            v.title       = tvTitle != null ? tvTitle.getText().toString() : "";
+            v.uploaderName= tvChannelName != null ? tvChannelName.getText().toString() : "";
+            v.uploaderUid = channelUidForUnsub != null ? channelUidForUnsub : "";
+            currentVideo  = v;
+        }
+        YouTubeVideoOptionsSheet sheet = YouTubeVideoOptionsSheet.newInstance(currentVideo);
+        sheet.show(getSupportFragmentManager(), "yt_player_options");
     }
 
     // ── Player helpers ────────────────────────────────────────────────────────
@@ -194,6 +218,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 Log.d(TAG, "  viewCount   : " + v.viewCount);
                 Log.d(TAG, "  likeCount   : " + v.likeCount);
 
+                currentVideo = v;
                 tvTitle.setText(v.title);
                 tvChannelName.setText(v.uploaderName);
                 tvViews.setText(formatCount(v.viewCount) + " views");

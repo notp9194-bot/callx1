@@ -4,16 +4,27 @@ import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
+import androidx.fragment.app.FragmentActivity;
+import androidx.fragment.app.FragmentManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.models.YouTubeVideo;
+import com.callx.app.sheets.YouTubeVideoOptionsSheet;
 import com.callx.app.youtube.R;
 import de.hdodenhof.circleimageview.CircleImageView;
+import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * YouTubeVideoAdapter
+ *
+ * FIX: 3-dot (more options) button properly wired to YouTubeVideoOptionsSheet
+ * — BottomSheetDialogFragment with Watch Later, Share, Channel, Report options.
+ */
 public class YouTubeVideoAdapter
     extends RecyclerView.Adapter<YouTubeVideoAdapter.VH> {
 
@@ -23,15 +34,22 @@ public class YouTubeVideoAdapter
     private List<YouTubeVideo> data;
     private final OnVideoClickListener listener;
 
+    // Optional: callback when user marks "not interested" so feed can remove the item
+    private YouTubeVideoOptionsSheet.OptionsCallback optionsCallback;
+
     public YouTubeVideoAdapter(Context ctx, List<YouTubeVideo> data,
                                OnVideoClickListener listener) {
         this.ctx      = ctx;
-        this.data     = data;
+        this.data     = data != null ? new ArrayList<>(data) : new ArrayList<>();
         this.listener = listener;
     }
 
+    public void setOptionsCallback(YouTubeVideoOptionsSheet.OptionsCallback cb) {
+        this.optionsCallback = cb;
+    }
+
     public void setData(List<YouTubeVideo> data) {
-        this.data = data;
+        this.data = data != null ? new ArrayList<>(data) : new ArrayList<>();
         notifyDataSetChanged();
     }
 
@@ -58,20 +76,54 @@ public class YouTubeVideoAdapter
             formatAge(video.uploadedAt));
         h.tvDuration.setText(formatDuration(video.duration));
 
-        if (video.uploaderPhotoUrl != null)
+        if (video.uploaderPhotoUrl != null && !video.uploaderPhotoUrl.isEmpty())
             Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().into(h.ivAvatar);
+        else
+            h.ivAvatar.setImageResource(R.drawable.ic_person);
 
+        // Video click → play
         h.itemView.setOnClickListener(v -> {
             if (listener != null) listener.onClick(video);
         });
+
+        // 3-dot click → open BottomSheet options
+        h.btnMore.setOnClickListener(v -> showOptionsSheet(video, pos));
     }
 
     @Override public int getItemCount() { return data == null ? 0 : data.size(); }
+
+    // ── Options Sheet ─────────────────────────────────────────────────────────
+
+    private void showOptionsSheet(YouTubeVideo video, int position) {
+        // Need FragmentManager → ctx must be FragmentActivity
+        if (!(ctx instanceof FragmentActivity)) return;
+        FragmentManager fm = ((FragmentActivity) ctx).getSupportFragmentManager();
+
+        YouTubeVideoOptionsSheet sheet = YouTubeVideoOptionsSheet.newInstance(video);
+
+        // Wire "Not Interested" → remove from adapter list
+        sheet.setCallback(videoId -> {
+            int idx = -1;
+            for (int i = 0; i < data.size(); i++) {
+                if (videoId.equals(data.get(i).videoId)) { idx = i; break; }
+            }
+            if (idx >= 0) {
+                data.remove(idx);
+                notifyItemRemoved(idx);
+            }
+            if (optionsCallback != null) optionsCallback.onNotInterested(videoId);
+        });
+
+        sheet.show(fm, "yt_video_options");
+    }
+
+    // ── ViewHolder ────────────────────────────────────────────────────────────
 
     static class VH extends RecyclerView.ViewHolder {
         ImageView       ivThumbnail;
         CircleImageView ivAvatar;
         TextView        tvTitle, tvChannel, tvMeta, tvDuration;
+        ImageButton     btnMore;
 
         VH(@NonNull View v) {
             super(v);
@@ -81,8 +133,11 @@ public class YouTubeVideoAdapter
             tvChannel   = v.findViewById(R.id.tv_yt_video_channel);
             tvMeta      = v.findViewById(R.id.tv_yt_video_meta);
             tvDuration  = v.findViewById(R.id.tv_yt_video_duration);
+            btnMore     = v.findViewById(R.id.btn_yt_video_more);
         }
     }
+
+    // ── Formatters ────────────────────────────────────────────────────────────
 
     private String formatCount(long n) {
         if (n >= 1_000_000_000) return String.format("%.1fB", n / 1_000_000_000.0);
@@ -93,7 +148,7 @@ public class YouTubeVideoAdapter
 
     private String formatDuration(long seconds) {
         long m = seconds / 60, s = seconds % 60;
-        if (m >= 60) { long h = m / 60; m %= 60; return h + ":" + pad(m) + ":" + pad(s); }
+        if (m >= 60) { long hr = m / 60; m %= 60; return hr + ":" + pad(m) + ":" + pad(s); }
         return m + ":" + pad(s);
     }
 

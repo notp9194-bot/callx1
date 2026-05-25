@@ -36,7 +36,7 @@ public class YouTubeExploreFragment extends Fragment {
         super.onViewCreated(view, state);
 
         rvTrending = view.findViewById(R.id.rv_yt_trending);
-        adapter = new YouTubeVideoAdapter(requireContext(), new ArrayList<>(), video ->
+        adapter = new YouTubeVideoAdapter(requireActivity(), new ArrayList<>(), video ->
             startActivity(new Intent(requireContext(), YouTubePlayerActivity.class)
                 .putExtra("video_id", video.videoId)));
         rvTrending.setLayoutManager(new LinearLayoutManager(requireContext()));
