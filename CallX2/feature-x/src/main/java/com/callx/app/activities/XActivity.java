@@ -52,7 +52,7 @@ public class XActivity extends AppCompatActivity {
         CircleImageView ivMyAvatar = findViewById(R.id.iv_x_header_avatar);
         if (ivMyAvatar != null) {
             ivMyAvatar.setOnClickListener(v ->
-                XProfileSheet.show(getSupportFragmentManager(), myUid));
+                XProfileSheet.showProfile(getSupportFragmentManager(), myUid));
             loadMyAvatar(ivMyAvatar);
         }
 

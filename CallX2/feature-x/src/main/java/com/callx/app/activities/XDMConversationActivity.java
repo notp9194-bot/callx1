@@ -115,7 +115,7 @@ public class XDMConversationActivity extends AppCompatActivity {
             if (url != null) Glide.with(this).load(url).circleCrop().into(ivAvatar);
             if (otherUid != null)
                 ivAvatar.setOnClickListener(v ->
-                    XProfileSheet.show(getSupportFragmentManager(), otherUid));
+                    XProfileSheet.showProfile(getSupportFragmentManager(), otherUid));
         }
         View btnBack = findViewById(R.id.btn_dm_conv_back);
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());

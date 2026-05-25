@@ -101,7 +101,7 @@ public class XNotificationAdapter extends RecyclerView.Adapter<XNotificationAdap
                         .putExtra("tweet_id", n.tweetId));
                 } else if (n.fromUid != null && !n.fromUid.isEmpty()) {
                     if (ctx instanceof FragmentActivity)
-                        XProfileSheet.show(
+                        XProfileSheet.showProfile(
                             ((FragmentActivity) ctx).getSupportFragmentManager(), n.fromUid);
                 }
             });

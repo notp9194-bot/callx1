@@ -211,7 +211,7 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                 .into(ivAvatar);
             ivAvatar.setOnClickListener(v -> {
                 if (ctx instanceof FragmentActivity)
-                    XProfileSheet.show(
+                    XProfileSheet.showProfile(
                         ((FragmentActivity) ctx).getSupportFragmentManager(), tweet.authorUid);
             });
 
@@ -379,7 +379,7 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
 
                     case 1: // View Profile
                         if (ctx instanceof FragmentActivity)
-                            XProfileSheet.show(
+                            XProfileSheet.showProfile(
                                 ((FragmentActivity) ctx).getSupportFragmentManager(),
                                 tweet.authorUid);
                         return true;
@@ -680,7 +680,7 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                             .addOnSuccessListener(snap -> {
                                 for (DataSnapshot ds : snap.getChildren()) {
                                     if (ctx instanceof FragmentActivity)
-                                        XProfileSheet.show(
+                                        XProfileSheet.showProfile(
                                             ((FragmentActivity) ctx).getSupportFragmentManager(),
                                             ds.getKey());
                                     return;

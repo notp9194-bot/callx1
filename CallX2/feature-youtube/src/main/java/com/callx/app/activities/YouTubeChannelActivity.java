@@ -89,12 +89,15 @@ public class YouTubeChannelActivity extends AppCompatActivity {
             });
         }
 
-        // Card 2: X — opens XProfileSheet (profile now shown as BottomSheetDialogFragment)
+        // Card 2: X profile — launched via XActivity (XProfileActivity replaced by XProfileSheet)
         View cardX = findViewById(R.id.card_yt_profile_x);
-        if (cardX != null) {
-            cardX.setOnClickListener(v ->
-                com.callx.app.activities.XProfileSheet.show(
-                    getSupportFragmentManager(), channelUid));
+        if (cardX != null && channelUid != null) {
+            cardX.setOnClickListener(v -> {
+                Intent xi = new Intent();
+                xi.setClassName(getPackageName(), "com.callx.app.activities.XActivity");
+                xi.putExtra("open_profile_uid", channelUid);
+                startActivity(xi);
+            });
         }
 
         // Card 3: Chat — opens MainActivity on Chats tab (cross-module via className)

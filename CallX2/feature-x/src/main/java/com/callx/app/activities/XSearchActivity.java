@@ -153,7 +153,7 @@ public class XSearchActivity extends AppCompatActivity {
                                 .putExtra("other_photo", u.photoUrl)
                                 .putExtra("other_thumb", u.thumbUrl != null ? u.thumbUrl : ""));
                         } else {
-                            XProfileSheet.show(getSupportFragmentManager(), uid);
+                            XProfileSheet.showProfile(getSupportFragmentManager(), uid);
                         }
                     });
                     llUserResults.addView(row);

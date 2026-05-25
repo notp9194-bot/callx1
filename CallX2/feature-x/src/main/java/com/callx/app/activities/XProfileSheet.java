@@ -40,7 +40,7 @@ import java.util.Locale;
  *   - @mention click in tweet text
  *   - Own avatar tap in XActivity header
  *
- * Entry point:  XProfileSheet.show(fragmentManager, uid)
+ * Entry point:  XProfileSheet.showProfile(fragmentManager, uid)
  */
 public class XProfileSheet extends BottomSheetDialogFragment {
 
@@ -53,7 +53,7 @@ public class XProfileSheet extends BottomSheetDialogFragment {
 
     // ── Static entry point ────────────────────────────────────────────────────
 
-    public static void show(@NonNull FragmentManager fm, @Nullable String uid) {
+    public static void showProfile(@NonNull FragmentManager fm, @Nullable String uid) {
         if (uid == null || uid.isEmpty()) return;
         if (fm.findFragmentByTag("x_profile_sheet") != null) return;
         XProfileSheet sheet = new XProfileSheet();

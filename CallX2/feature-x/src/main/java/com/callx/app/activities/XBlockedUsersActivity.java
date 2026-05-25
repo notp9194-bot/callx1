@@ -8,6 +8,7 @@ import android.view.ViewGroup;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
@@ -151,7 +152,7 @@ public class XBlockedUsersActivity extends AppCompatActivity {
                 }
                 itemView.setOnClickListener(v -> {
                     if (v.getContext() instanceof FragmentActivity)
-                        XProfileSheet.show(
+                        XProfileSheet.showProfile(
                             ((FragmentActivity) v.getContext()).getSupportFragmentManager(),
                             user.uid);
                 });
