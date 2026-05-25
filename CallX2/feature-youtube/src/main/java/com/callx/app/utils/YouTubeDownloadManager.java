@@ -1,267 +1,293 @@
 package com.callx.app.utils;
 
-import android.app.DownloadManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.database.Cursor;
-import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
-import androidx.core.content.ContextCompat;
+import com.callx.app.models.YouTubeVideo;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
-import com.google.firebase.database.ServerValue;
+import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * YouTubeDownloadManager
+ * YouTubeDownloadManager — In-App Offline Downloads
  *
- * Real YouTube jaisi download functionality:
- *  - Android DownloadManager use karta hai (background download, progress notification)
- *  - Download folder: Movies/CallXYouTube/<title>.mp4
- *  - Firebase me download track karta hai: youtube/downloads/{uid}/{videoId}
- *  - Duplicate download check
- *  - Offline access ke liye local path save karta hai
- *  - Download complete notification
+ * Real YouTube jaisi behaviour:
+ *  - Internal storage me save (gallery me nahi dikhta)
+ *  - App ke Downloads folder: getFilesDir()/yt_downloads/<videoId>.mp4
+ *  - Firebase me metadata save: youtube/downloads/{uid}/{videoId}
+ *  - Progress notification (DownloadManager ki jagah manual OkHttp)
+ *  - Offline player ke liye local path return karta hai
+ *  - Download cancel / delete support
  */
 public class YouTubeDownloadManager {
 
-    private static final String TAG              = "YT_DOWNLOAD";
-    private static final String CHANNEL_ID       = "yt_download_channel";
-    private static final String CHANNEL_NAME     = "YouTube Downloads";
-    private static final String DOWNLOAD_FOLDER  = "CallXYouTube";
+    private static final String TAG          = "YT_DOWNLOAD";
+    private static final String CHANNEL_ID   = "yt_dl_channel";
+    private static final String DL_DIR       = "yt_downloads";
 
-    /** Start download — returns downloadId or -1 on failure */
-    public static long startDownload(Context ctx, String videoId,
-                                     String videoUrl, String title) {
+    private static final ExecutorService executor = Executors.newFixedThreadPool(2);
+    private static final Handler mainHandler     = new Handler(Looper.getMainLooper());
 
-        if (videoUrl == null || videoUrl.trim().isEmpty()) {
-            Toast.makeText(ctx, "❌ Video URL nahi mili — download nahi ho sakta", Toast.LENGTH_SHORT).show();
-            Log.e(TAG, "startDownload — videoUrl null/empty");
-            return -1L;
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /** Download start karo. Callback on main thread. */
+    public static void startDownload(Context ctx, YouTubeVideo video,
+                                     DownloadCallback callback) {
+        if (video == null || video.videoUrl == null || video.videoUrl.trim().isEmpty()) {
+            toast(ctx, "❌ Video URL nahi mili");
+            if (callback != null) callback.onError("No URL");
+            return;
         }
 
-        String uid = FirebaseAuth.getInstance().getCurrentUser() != null
-            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+        String uid = currentUid();
+        String dlUrl = ensureMp4(video.videoUrl.trim());
+        File outFile = getLocalFile(ctx, video.videoId);
 
-        // MP4 URL ensure karo (Cloudinary)
-        String dlUrl = ensureMp4Url(videoUrl);
-
-        // Safe filename
-        String safeTitle = title != null && !title.trim().isEmpty()
-            ? title.trim().replaceAll("[\\\\/:*?\"<>|]", "_")
-            : "video_" + videoId;
-        if (!safeTitle.toLowerCase().endsWith(".mp4"))
-            safeTitle += ".mp4";
-
-        // Check already downloaded
-        if (isAlreadyDownloaded(ctx, safeTitle)) {
-            Toast.makeText(ctx, "✅ Ye video pehle se download hai!", Toast.LENGTH_SHORT).show();
-            return -1L;
+        // Already downloaded?
+        if (outFile.exists() && outFile.length() > 1024) {
+            toast(ctx, "✅ Ye video pehle se download hai!");
+            if (callback != null) callback.onAlreadyDownloaded(outFile.getAbsolutePath());
+            return;
         }
 
-        // Create notification channel
-        createNotificationChannel(ctx);
+        createNotifChannel(ctx);
+        toast(ctx, "⬇️ Download shuru...\n\"" + video.title + "\"");
+        if (callback != null) callback.onStarted();
 
-        // DownloadManager request
-        DownloadManager dm = (DownloadManager) ctx.getSystemService(Context.DOWNLOAD_SERVICE);
-        if (dm == null) {
-            Toast.makeText(ctx, "❌ Download Manager available nahi hai", Toast.LENGTH_SHORT).show();
-            return -1L;
+        // Firebase: status = downloading
+        if (!uid.isEmpty()) saveRecord(uid, video, "downloading", null);
+
+        int notifId = (int)(System.currentTimeMillis() % 100000);
+
+        executor.submit(() -> {
+            try {
+                // Create dir
+                File dir = outFile.getParentFile();
+                if (dir != null && !dir.exists()) dir.mkdirs();
+
+                // Open connection
+                HttpURLConnection conn = (HttpURLConnection) new URL(dlUrl).openConnection();
+                conn.setConnectTimeout(15_000);
+                conn.setReadTimeout(30_000);
+                conn.setRequestProperty("User-Agent",
+                    "ExoPlayer/2.0 (Linux;Android " + Build.VERSION.RELEASE + ")");
+                conn.setInstanceFollowRedirects(true);
+                conn.connect();
+
+                int responseCode = conn.getResponseCode();
+                if (responseCode / 100 != 2) {
+                    throw new Exception("HTTP " + responseCode);
+                }
+
+                long total = conn.getContentLengthLong();
+                InputStream in = conn.getInputStream();
+                FileOutputStream out = new FileOutputStream(outFile);
+
+                byte[] buf = new byte[8192];
+                long downloaded = 0;
+                int read;
+                int lastPct = 0;
+
+                while ((read = in.read(buf)) != -1) {
+                    out.write(buf, 0, read);
+                    downloaded += read;
+                    if (total > 0) {
+                        int pct = (int)(downloaded * 100 / total);
+                        if (pct - lastPct >= 10) {
+                            lastPct = pct;
+                            int finalPct = pct;
+                            showProgress(ctx, notifId, video.title, pct);
+                            mainHandler.post(() -> {
+                                if (callback != null) callback.onProgress(finalPct);
+                            });
+                        }
+                    }
+                }
+                out.flush();
+                out.close();
+                in.close();
+                conn.disconnect();
+
+                String localPath = outFile.getAbsolutePath();
+                Log.d(TAG, "Download complete: " + localPath);
+
+                // Firebase update
+                if (!uid.isEmpty()) saveRecord(uid, video, "completed", localPath);
+
+                cancelNotif(ctx, notifId);
+                showCompleteNotif(ctx, video.title);
+
+                mainHandler.post(() -> {
+                    toast(ctx, "✅ Download complete!\n\"" + video.title + "\"\nOffline dekh sakte ho 📱");
+                    if (callback != null) callback.onCompleted(localPath);
+                });
+
+            } catch (Exception e) {
+                Log.e(TAG, "Download failed: " + e.getMessage());
+                outFile.delete(); // cleanup partial file
+                if (!uid.isEmpty()) saveRecord(uid, video, "failed", null);
+                cancelNotif(ctx, notifId);
+                mainHandler.post(() -> {
+                    toast(ctx, "❌ Download fail: " + e.getMessage());
+                    if (callback != null) callback.onError(e.getMessage());
+                });
+            }
+        });
+    }
+
+    /** Local file path return karo agar download hua hai */
+    public static String getOfflinePath(Context ctx, String videoId) {
+        File f = getLocalFile(ctx, videoId);
+        return (f.exists() && f.length() > 1024) ? f.getAbsolutePath() : null;
+    }
+
+    /** Check agar video downloaded hai */
+    public static boolean isDownloaded(Context ctx, String videoId) {
+        return getOfflinePath(ctx, videoId) != null;
+    }
+
+    /** Download delete karo */
+    public static void deleteDownload(Context ctx, String videoId) {
+        File f = getLocalFile(ctx, videoId);
+        if (f.exists()) f.delete();
+        String uid = currentUid();
+        if (!uid.isEmpty())
+            YouTubeFirebaseUtils.downloadsRef(uid).child(videoId).removeValue();
+        toast(ctx, "🗑️ Download delete ho gaya");
+    }
+
+    /** Firebase se downloaded videos list fetch karo */
+    public static void loadDownloadedVideos(ValueEventListener listener) {
+        String uid = currentUid();
+        if (uid.isEmpty()) return;
+        YouTubeFirebaseUtils.downloadsRef(uid)
+            .orderByChild("savedAt")
+            .addListenerForSingleValueEvent(listener);
+    }
+
+    /** Get all downloaded video IDs (local files jo exist karti hain) */
+    public static java.util.List<String> getLocalDownloadedIds(Context ctx) {
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        File dir = new File(ctx.getFilesDir(), DL_DIR);
+        if (!dir.exists()) return ids;
+        File[] files = dir.listFiles();
+        if (files == null) return ids;
+        for (File f : files) {
+            if (f.getName().endsWith(".mp4") && f.length() > 1024) {
+                ids.add(f.getName().replace(".mp4", ""));
+            }
         }
-
-        DownloadManager.Request req = new DownloadManager.Request(Uri.parse(dlUrl));
-        req.setTitle(title != null ? title : "CallX YouTube Video");
-        req.setDescription("Downloading...");
-        req.setMimeType("video/mp4");
-        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-        req.setDestinationInExternalPublicDir(Environment.DIRECTORY_MOVIES,
-            DOWNLOAD_FOLDER + File.separator + safeTitle);
-        req.addRequestHeader("User-Agent",
-            "ExoPlayer/2.0 (Linux;Android " + Build.VERSION.RELEASE + ")");
-        req.setAllowedNetworkTypes(
-            DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE);
-        req.setAllowedOverRoaming(false);
-
-        long downloadId;
-        try {
-            downloadId = dm.enqueue(req);
-        } catch (Exception e) {
-            Log.e(TAG, "DownloadManager.enqueue fail: " + e.getMessage());
-            Toast.makeText(ctx, "❌ Download shuru nahi hua: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-            return -1L;
-        }
-
-        Log.d(TAG, "Download started — downloadId=" + downloadId + " url=" + dlUrl);
-        Toast.makeText(ctx, "⬇️ Download shuru ho gaya!\n\"" + title + "\"", Toast.LENGTH_SHORT).show();
-
-        // Firebase me download track karo
-        if (!uid.isEmpty()) {
-            saveDownloadRecord(uid, videoId, title, dlUrl, downloadId);
-        }
-
-        // Listen for completion
-        listenForCompletion(ctx, downloadId, title, videoId, safeTitle, uid);
-
-        return downloadId;
+        return ids;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private static String ensureMp4Url(String url) {
-        if (url == null) return url;
+    public static File getLocalFile(Context ctx, String videoId) {
+        File dir = new File(ctx.getFilesDir(), DL_DIR);
+        return new File(dir, videoId + ".mp4");
+    }
+
+    private static String ensureMp4(String url) {
         if (url.contains("cloudinary.com") && url.contains("/video/upload/")) {
-            if (!url.contains("/f_mp4") && !url.contains("/f_auto")) {
+            if (!url.contains("/f_mp4") && !url.contains("/f_auto"))
                 url = url.replace("/video/upload/", "/video/upload/f_mp4/");
-            }
             String base = url.contains("?") ? url.substring(0, url.indexOf('?')) : url;
-            if (!base.toLowerCase().endsWith(".mp4")) {
-                url = base + ".mp4";
-            }
+            if (!base.toLowerCase().endsWith(".mp4")) url = base + ".mp4";
         }
         return url;
     }
 
-    private static boolean isAlreadyDownloaded(Context ctx, String fileName) {
-        File dir = new File(Environment.getExternalStoragePublicDirectory(
-            Environment.DIRECTORY_MOVIES), DOWNLOAD_FOLDER);
-        File f = new File(dir, fileName);
-        return f.exists() && f.length() > 0;
+    private static String currentUid() {
+        return FirebaseAuth.getInstance().getCurrentUser() != null
+            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
     }
 
-    private static void saveDownloadRecord(String uid, String videoId,
-                                            String title, String url, long downloadId) {
-        Map<String, Object> record = new HashMap<>();
-        record.put("videoId",    videoId);
-        record.put("title",      title != null ? title : "");
-        record.put("url",        url);
-        record.put("downloadId", downloadId);
-        record.put("status",     "downloading");
-        record.put("savedAt",    System.currentTimeMillis());
-        YouTubeFirebaseUtils.downloadsRef(uid).child(videoId).setValue(record);
-        Log.d(TAG, "Firebase download record saved for videoId=" + videoId);
+    private static void saveRecord(String uid, YouTubeVideo video,
+                                    String status, String localPath) {
+        Map<String, Object> r = new HashMap<>();
+        r.put("videoId",      video.videoId);
+        r.put("title",        video.title != null ? video.title : "");
+        r.put("thumbnailUrl", video.thumbnailUrl != null ? video.thumbnailUrl : "");
+        r.put("channelName",  video.uploaderName != null ? video.uploaderName : "");
+        r.put("duration",     video.duration);
+        r.put("videoUrl",     video.videoUrl != null ? video.videoUrl : "");
+        r.put("status",       status);
+        r.put("savedAt",      System.currentTimeMillis());
+        if (localPath != null) r.put("localPath", localPath);
+        YouTubeFirebaseUtils.downloadsRef(uid).child(video.videoId).setValue(r);
     }
 
-    private static void updateDownloadStatus(String uid, String videoId,
-                                              String status, String localPath) {
-        if (uid == null || uid.isEmpty() || videoId == null) return;
-        Map<String, Object> update = new HashMap<>();
-        update.put("status",      status);
-        update.put("completedAt", System.currentTimeMillis());
-        if (localPath != null) update.put("localPath", localPath);
-        YouTubeFirebaseUtils.downloadsRef(uid).child(videoId).updateChildren(update);
-    }
-
-    private static void listenForCompletion(Context ctx, long downloadId,
-                                             String title, String videoId,
-                                             String fileName, String uid) {
-        BroadcastReceiver receiver = new BroadcastReceiver() {
-            @Override public void onReceive(Context c, Intent intent) {
-                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                if (id != downloadId) return;
-
-                DownloadManager dm = (DownloadManager) c.getSystemService(Context.DOWNLOAD_SERVICE);
-                if (dm == null) return;
-
-                DownloadManager.Query q = new DownloadManager.Query();
-                q.setFilterById(downloadId);
-                Cursor cursor = dm.query(q);
-                if (cursor != null && cursor.moveToFirst()) {
-                    int statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
-                    int status    = statusIdx >= 0 ? cursor.getInt(statusIdx) : -1;
-
-                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                        String localPath = new File(
-                            Environment.getExternalStoragePublicDirectory(
-                                Environment.DIRECTORY_MOVIES),
-                            DOWNLOAD_FOLDER + File.separator + fileName
-                        ).getAbsolutePath();
-
-                        Toast.makeText(ctx, "✅ Download complete!\n\"" + title + "\"\nOffline dekh sakte ho",
-                            Toast.LENGTH_LONG).show();
-                        Log.d(TAG, "Download complete — path=" + localPath);
-
-                        // Firebase status update
-                        if (!uid.isEmpty()) updateDownloadStatus(uid, videoId, "completed", localPath);
-
-                        // Show completion notification
-                        showCompletionNotification(ctx, title);
-
-                    } else if (status == DownloadManager.STATUS_FAILED) {
-                        int reasonIdx  = cursor.getColumnIndex(DownloadManager.COLUMN_REASON);
-                        int reason     = reasonIdx >= 0 ? cursor.getInt(reasonIdx) : -1;
-                        Toast.makeText(ctx, "❌ Download fail hua (reason=" + reason + ")", Toast.LENGTH_SHORT).show();
-                        Log.e(TAG, "Download failed reason=" + reason);
-                        if (!uid.isEmpty()) updateDownloadStatus(uid, videoId, "failed", null);
-                    }
-                    cursor.close();
-                }
-                try { ctx.unregisterReceiver(this); } catch (Exception ignored) {}
-            }
-        };
-
-        IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            ctx.registerReceiver(receiver, filter);
-        }
-    }
-
-    private static void createNotificationChannel(Context ctx) {
+    private static void createNotifChannel(Context ctx) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
-                CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT);
-            ch.setDescription("YouTube video download notifications");
+                CHANNEL_ID, "YouTube Downloads", NotificationManager.IMPORTANCE_LOW);
             NotificationManager nm = ctx.getSystemService(NotificationManager.class);
             if (nm != null) nm.createNotificationChannel(ch);
         }
     }
 
-    private static void showCompletionNotification(Context ctx, String title) {
+    private static void showProgress(Context ctx, int notifId, String title, int pct) {
         NotificationManager nm = (NotificationManager)
             ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("Downloading...")
+            .setContentText("\"" + title + "\"  " + pct + "%")
+            .setProgress(100, pct, false)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW);
+        nm.notify(notifId, b.build());
+    }
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+    private static void showCompleteNotif(Context ctx, String title) {
+        NotificationManager nm = (NotificationManager)
+            ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle("Download Complete")
-            .setContentText("\"" + title + "\" download ho gaya — offline dekh sakte ho!")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true);
-
-        nm.notify((int) System.currentTimeMillis(), builder.build());
+            .setContentTitle("Download Complete ✅")
+            .setContentText("\"" + title + "\" — offline dekh sakte ho!")
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+        nm.notify((int)(System.currentTimeMillis() % 100000), b.build());
     }
 
-    /**
-     * Check if a video is downloaded for offline viewing.
-     * Returns local file path if found, null otherwise.
-     */
-    public static String getOfflinePath(String videoId, String title) {
-        if (title == null || title.trim().isEmpty()) return null;
-        String safeTitle = title.trim().replaceAll("[\\\\/:*?\"<>|]", "_");
-        if (!safeTitle.toLowerCase().endsWith(".mp4")) safeTitle += ".mp4";
-        File f = new File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
-            DOWNLOAD_FOLDER + File.separator + safeTitle);
-        return (f.exists() && f.length() > 0) ? f.getAbsolutePath() : null;
+    private static void cancelNotif(Context ctx, int notifId) {
+        NotificationManager nm = (NotificationManager)
+            ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.cancel(notifId);
     }
 
-    /** Firebase downloads node list lao */
-    public static void loadDownloads(String uid,
-            com.google.firebase.database.ValueEventListener listener) {
-        if (uid == null || uid.isEmpty()) return;
-        YouTubeFirebaseUtils.downloadsRef(uid).addListenerForSingleValueEvent(listener);
+    private static void toast(Context ctx, String msg) {
+        mainHandler.post(() ->
+            Toast.makeText(ctx.getApplicationContext(), msg, Toast.LENGTH_SHORT).show());
+    }
+
+    // ── Callback interface ────────────────────────────────────────────────────
+
+    public interface DownloadCallback {
+        void onStarted();
+        void onProgress(int percent);
+        void onCompleted(String localPath);
+        void onAlreadyDownloaded(String localPath);
+        void onError(String error);
     }
 }

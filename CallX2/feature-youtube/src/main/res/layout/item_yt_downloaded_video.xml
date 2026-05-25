@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="12dp"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical">
+
+    <!-- Thumbnail -->
+    <FrameLayout
+        android:layout_width="120dp"
+        android:layout_height="72dp">
+
+        <ImageView
+            android:id="@+id/iv_yt_dl_thumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:background="@drawable/bg_yt_thumb_placeholder"/>
+
+        <!-- Offline badge bottom-left -->
+        <TextView
+            android:id="@+id/tv_yt_dl_offline_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="4dp"
+            android:text="OFFLINE"
+            android:textColor="#FFFFFF"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            android:background="#CC0066FF"
+            android:paddingStart="5dp"
+            android:paddingEnd="5dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:visibility="gone"/>
+
+    </FrameLayout>
+
+    <!-- Info -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="12dp">
+
+        <TextView
+            android:id="@+id/tv_yt_dl_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="2"
+            android:ellipsize="end"/>
+
+        <TextView
+            android:id="@+id/tv_yt_dl_channel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:textColor="#AAAAAA"
+            android:textSize="11sp"/>
+
+        <TextView
+            android:id="@+id/tv_yt_dl_size"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#666666"
+            android:textSize="11sp"/>
+    </LinearLayout>
+
+    <!-- Delete button -->
+    <ImageButton
+        android:id="@+id/btn_yt_dl_delete"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:src="@drawable/ic_yt_more"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:tint="#888888"
+        android:contentDescription="Delete download"/>
+
+</LinearLayout>

@@ -81,6 +81,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         setContentView(R.layout.activity_youtube_player);
 
         videoId = getIntent().getStringExtra("video_id");
+        String localPath = getIntent().getStringExtra("local_path"); // offline play
         boolean openComments = getIntent().getBooleanExtra("open_comments", false);
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
@@ -132,7 +133,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (btnWatchLater != null)
             btnWatchLater.setOnClickListener(v -> addToWatchLater());
 
-        loadVideo();
+        playLocalIfAvailable();
         loadLikeState();
         loadSubscribeState();
         loadRelated();
@@ -147,7 +148,13 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (btnDislike   != null) btnDislike.setOnClickListener(v -> toggleDislike());
         if (btnSubscribe != null) btnSubscribe.setOnClickListener(v -> toggleSubscribe());
         if (btnShare     != null) btnShare.setOnClickListener(v -> shareVideo());
-        if (btnDownload  != null) btnDownload.setOnClickListener(v -> downloadCurrentVideo());
+        if (btnDownload  != null) {
+            btnDownload.setOnClickListener(v -> downloadCurrentVideo());
+            // Already downloaded? Icon change karo
+            if (YouTubeDownloadManager.isDownloaded(this, videoId)) {
+                btnDownload.setImageResource(R.drawable.ic_yt_download_done);
+            }
+        }
 
         // 3-dot more options button
         View btnPlayerMore = findViewById(R.id.btn_yt_player_more);
@@ -199,6 +206,18 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     }
 
     // ── Load video ────────────────────────────────────────────────────────────
+
+    private void playLocalIfAvailable() {
+        // Agar Downloads screen se aaye hain local_path ke saath
+        String lp = getIntent().getStringExtra("local_path");
+        if (lp != null && new java.io.File(lp).exists()) {
+            Log.d(TAG, "Local path se directly play: " + lp);
+            showPlayerLoading(false);
+            if (!playerInitialized) { playerInitialized = true; initPlayer(lp); }
+            return;
+        }
+        loadVideo();
+    }
 
     private void loadVideo() {
         Log.d(TAG, "loadVideo() — Firebase se video data fetch kar raha hai...");
@@ -252,9 +271,18 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                         "🎬 Video URL ready!\n" + playUrl, Toast.LENGTH_LONG).show();
 
                     // FIX: guard — sirf pehli baar initPlayer() chalao
+                    // Check local offline path first
+                    String offlinePath = YouTubeDownloadManager.getOfflinePath(
+                        YouTubePlayerActivity.this, videoId);
+                    String finalUrl = (offlinePath != null) ? offlinePath : playUrl;
+                    if (offlinePath != null) {
+                        Log.d(TAG, "▶ Offline file milgi — local se play: " + offlinePath);
+                        Toast.makeText(YouTubePlayerActivity.this,
+                            "📱 Offline se play ho raha hai", Toast.LENGTH_SHORT).show();
+                    }
                     if (!playerInitialized) {
                         playerInitialized = true;
-                        initPlayer(playUrl);
+                        initPlayer(finalUrl);
                     } else {
                         Log.d(TAG, "initPlayer() skip — already initialized");
                     }
@@ -599,9 +627,34 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     }
 
     private void downloadCurrentVideo() {
-        String dlUrl   = currentVideo != null ? currentVideo.videoUrl : null;
-        String dlTitle = currentVideo != null ? currentVideo.title  : (tvTitle != null ? tvTitle.getText().toString() : videoId);
-        YouTubeDownloadManager.startDownload(this, videoId, dlUrl, dlTitle);
+        if (currentVideo == null) {
+            // Build minimal video object
+            com.callx.app.models.YouTubeVideo v = new com.callx.app.models.YouTubeVideo();
+            v.videoId   = videoId;
+            v.title     = tvTitle != null ? tvTitle.getText().toString() : videoId;
+            v.videoUrl  = null; // will fail gracefully
+            currentVideo = v;
+        }
+        YouTubeDownloadManager.startDownload(this, currentVideo,
+            new YouTubeDownloadManager.DownloadCallback() {
+                @Override public void onStarted() {
+                    if (btnDownload != null) btnDownload.setAlpha(0.5f);
+                }
+                @Override public void onProgress(int pct) { /* notif handles it */ }
+                @Override public void onCompleted(String path) {
+                    if (btnDownload != null) {
+                        btnDownload.setAlpha(1f);
+                        btnDownload.setImageResource(R.drawable.ic_yt_download_done);
+                    }
+                }
+                @Override public void onAlreadyDownloaded(String path) {
+                    if (btnDownload != null)
+                        btnDownload.setImageResource(R.drawable.ic_yt_download_done);
+                }
+                @Override public void onError(String err) {
+                    if (btnDownload != null) btnDownload.setAlpha(1f);
+                }
+            });
     }
 
     private void shareVideo() {

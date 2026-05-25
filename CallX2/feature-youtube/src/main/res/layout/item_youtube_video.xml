@@ -18,6 +18,18 @@
             android:scaleType="centerCrop"
             android:background="@drawable/bg_yt_thumb_placeholder"/>
 
+
+        <!-- Downloaded badge (gone by default, set visible in adapter if downloaded) -->
+        <TextView
+            android:id="@+id/tv_yt_downloaded_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="8dp"
+            android:text="📥"
+            android:textSize="14sp"
+            android:visibility="gone"/>
+
         <!-- Duration badge -->
         <TextView
             android:id="@+id/tv_yt_video_duration"

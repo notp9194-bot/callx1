@@ -245,7 +245,21 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
 
     private void downloadVideo() {
         if (getContext() == null) return;
-        YouTubeDownloadManager.startDownload(getContext(), videoId, videoUrl, title);
+        com.callx.app.models.YouTubeVideo v = new com.callx.app.models.YouTubeVideo();
+        v.videoId     = videoId;
+        v.title       = title;
+        v.videoUrl    = videoUrl;
+        v.thumbnailUrl = thumbUrl;
+        v.uploaderName = channel;
+        v.uploaderUid  = uploaderUid;
+        YouTubeDownloadManager.startDownload(getContext(), v,
+            new YouTubeDownloadManager.DownloadCallback() {
+                @Override public void onStarted() { toast("⬇️ Download shuru..."); }
+                @Override public void onProgress(int p) {}
+                @Override public void onCompleted(String path) { toast("✅ Download complete!"); }
+                @Override public void onAlreadyDownloaded(String path) { toast("✅ Pehle se downloaded!"); }
+                @Override public void onError(String e) { toast("❌ Download fail: " + e); }
+            });
     }
 
     private void toast(String msg) {

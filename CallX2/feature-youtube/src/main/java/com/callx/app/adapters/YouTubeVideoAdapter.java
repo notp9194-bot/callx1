@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.models.YouTubeVideo;
 import com.callx.app.sheets.YouTubeVideoOptionsSheet;
+import com.callx.app.utils.YouTubeDownloadManager;
 import com.callx.app.youtube.R;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.ArrayList;
@@ -86,6 +87,13 @@ public class YouTubeVideoAdapter
             if (listener != null) listener.onClick(video);
         });
 
+        // Downloaded badge
+        if (h.tvDownloadedBadge != null) {
+            h.tvDownloadedBadge.setVisibility(
+                YouTubeDownloadManager.isDownloaded(ctx, video.videoId)
+                    ? android.view.View.VISIBLE : android.view.View.GONE);
+        }
+
         // 3-dot click → open BottomSheet options
         h.btnMore.setOnClickListener(v -> showOptionsSheet(video, pos));
     }
@@ -135,6 +143,7 @@ public class YouTubeVideoAdapter
         CircleImageView ivAvatar;
         TextView        tvTitle, tvChannel, tvMeta, tvDuration;
         ImageButton     btnMore;
+        android.widget.TextView tvDownloadedBadge;
 
         VH(@NonNull View v) {
             super(v);
@@ -144,7 +153,8 @@ public class YouTubeVideoAdapter
             tvChannel   = v.findViewById(R.id.tv_yt_video_channel);
             tvMeta      = v.findViewById(R.id.tv_yt_video_meta);
             tvDuration  = v.findViewById(R.id.tv_yt_video_duration);
-            btnMore     = v.findViewById(R.id.btn_yt_video_more);
+            btnMore          = v.findViewById(R.id.btn_yt_video_more);
+            tvDownloadedBadge = v.findViewById(R.id.tv_yt_downloaded_badge);
         }
     }
 

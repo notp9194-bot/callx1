@@ -8,6 +8,7 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import com.callx.app.activities.YouTubeDownloadsActivity;
 import com.callx.app.activities.YouTubeHistoryActivity;
 import com.callx.app.activities.YouTubeLikedVideosActivity;
 import com.callx.app.activities.YouTubeWatchLaterActivity;
@@ -24,6 +25,9 @@ public class YouTubeLibraryFragment extends Fragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         super.onViewCreated(view, state);
+
+        view.findViewById(R.id.btn_yt_downloads).setOnClickListener(v ->
+            startActivity(new Intent(requireContext(), YouTubeDownloadsActivity.class)));
 
         view.findViewById(R.id.btn_yt_watch_later).setOnClickListener(v ->
             startActivity(new Intent(requireContext(), YouTubeWatchLaterActivity.class)));
