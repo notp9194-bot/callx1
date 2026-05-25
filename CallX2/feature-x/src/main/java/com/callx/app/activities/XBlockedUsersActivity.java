@@ -149,8 +149,12 @@ public class XBlockedUsersActivity extends AppCompatActivity {
                     btnAction.setText(actionLabel);
                     btnAction.setOnClickListener(v -> action.run(user));
                 }
-                itemView.setOnClickListener(v -> v.getContext().startActivity(
-                    new Intent(v.getContext(), XProfileActivity.class).putExtra("uid", user.uid)));
+                itemView.setOnClickListener(v -> {
+                    if (v.getContext() instanceof FragmentActivity)
+                        XProfileSheet.show(
+                            ((FragmentActivity) v.getContext()).getSupportFragmentManager(),
+                            user.uid);
+                });
             }
         }
     }

@@ -48,11 +48,11 @@ public class XActivity extends AppCompatActivity {
 
         XNotificationChannelManager.ensureChannels(this);
 
-        // Profile avatar in header — tap opens own profile
+        // Profile avatar in header — tap opens own profile sheet
         CircleImageView ivMyAvatar = findViewById(R.id.iv_x_header_avatar);
         if (ivMyAvatar != null) {
             ivMyAvatar.setOnClickListener(v ->
-                startActivity(new Intent(this, XProfileActivity.class).putExtra("uid", myUid)));
+                XProfileSheet.show(getSupportFragmentManager(), myUid));
             loadMyAvatar(ivMyAvatar);
         }
 

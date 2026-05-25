@@ -30,11 +30,7 @@
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName="com.callx.app.activities.XActivity"/>
 
-        <activity
-            android:name="com.callx.app.activities.XProfileActivity"
-            android:theme="@style/XActivity.Theme"
-            android:exported="false"
-            android:parentActivityName="com.callx.app.activities.XActivity"/>
+        <!-- XProfileActivity removed — profile is now shown via XProfileSheet (BottomSheetDialogFragment) -->
 
         <activity
             android:name="com.callx.app.activities.XSearchActivity"
@@ -58,13 +54,13 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
-        <!-- New activities added in this update -->
+        <!-- Edit Profile — parentActivity updated to XActivity (XProfileActivity removed) -->
         <activity
             android:name="com.callx.app.activities.XEditProfileActivity"
             android:theme="@style/XActivity.Theme"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
-            android:parentActivityName="com.callx.app.activities.XProfileActivity"/>
+            android:parentActivityName="com.callx.app.activities.XActivity"/>
 
         <activity
             android:name="com.callx.app.activities.XImageViewerActivity"
@@ -76,8 +72,7 @@
             android:theme="@style/XActivity.Theme"
             android:exported="false"/>
 
-
-        <!-- v10: Block / Mute Screens -->
+        <!-- Block / Mute Screens -->
         <activity
             android:name="com.callx.app.activities.XBlockedUsersActivity"
             android:theme="@style/XActivity.Theme"
@@ -90,7 +85,7 @@
             android:exported="false"
             android:label="Muted Accounts"/>
 
-        <!-- v10: GIF Picker (Tenor) -->
+        <!-- GIF Picker (Tenor) -->
         <activity
             android:name="com.callx.app.activities.XGifPickerActivity"
             android:theme="@style/XActivity.Theme"
@@ -98,7 +93,7 @@
             android:windowSoftInputMode="adjustResize"
             android:label="Choose GIF"/>
 
-        <!-- v10: Thread Composer -->
+        <!-- Thread Composer -->
         <activity
             android:name="com.callx.app.activities.XThreadComposerActivity"
             android:theme="@style/XActivity.Theme"

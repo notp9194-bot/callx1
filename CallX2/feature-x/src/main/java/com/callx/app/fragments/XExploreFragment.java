@@ -205,10 +205,9 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                 }
             });
 
-            // Tap card body → open profile
-            card.setOnClickListener(v -> startActivity(
-                new Intent(requireContext(), XProfileActivity.class)
-                    .putExtra("uid", su.user.uid)));
+            // Tap card body → open profile sheet
+            card.setOnClickListener(v ->
+                XProfileSheet.show(getParentFragmentManager(), su.user.uid));
 
             llWtfCards.addView(card);
         }
@@ -372,8 +371,8 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                     ((TextView) row.findViewById(R.id.tv_x_user_name)).setText(u.name);
                     ((TextView) row.findViewById(R.id.tv_x_user_handle)).setText("@" + u.handle);
                     String uid = u.uid;
-                    row.setOnClickListener(v -> startActivity(
-                        new Intent(requireContext(), XProfileActivity.class).putExtra("uid", uid)));
+                    row.setOnClickListener(v ->
+                        XProfileSheet.show(getParentFragmentManager(), uid));
                     llUserResults.addView(row);
                 }
             });

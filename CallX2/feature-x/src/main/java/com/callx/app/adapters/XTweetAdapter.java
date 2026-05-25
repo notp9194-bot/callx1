@@ -27,11 +27,19 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.widget.ImageButton;
+import android.widget.PopupMenu;
+import androidx.fragment.app.FragmentActivity;
 import com.callx.app.activities.XHashtagActivity;
 import com.callx.app.activities.XImageViewerActivity;
-import com.callx.app.activities.XProfileActivity;
+import com.callx.app.activities.XProfileSheet;
 import com.callx.app.activities.XTweetDetailActivity;
 import com.callx.app.activities.XVideoPlayerActivity;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.MutableData;
+import com.google.firebase.database.Transaction;
 import com.callx.app.models.XPoll;
 import com.callx.app.models.XTweet;
 import com.callx.app.utils.XFirebaseUtils;
@@ -201,8 +209,11 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                 .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(R.drawable.ic_person))
                 .into(ivAvatar);
-            ivAvatar.setOnClickListener(v -> ctx.startActivity(
-                new Intent(ctx, XProfileActivity.class).putExtra("uid", tweet.authorUid)));
+            ivAvatar.setOnClickListener(v -> {
+                if (ctx instanceof FragmentActivity)
+                    XProfileSheet.show(
+                        ((FragmentActivity) ctx).getSupportFragmentManager(), tweet.authorUid);
+            });
 
             // Meta
             tvName.setText(tweet.authorName);
@@ -316,8 +327,7 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
             });
             if (btnShare != null)
                 btnShare.setOnClickListener(v -> { if (listener != null) listener.onShare(tweet); });
-            if (btnMore != null)
-                btnMore.setOnClickListener(v -> { if (listener != null) listener.onMore(tweet, v); });
+            if (btnMore != null) btnMore.setOnClickListener(v -> showMoreMenu(tweet, v));
 
             itemView.setOnClickListener(v -> ctx.startActivity(
                 new Intent(ctx, XTweetDetailActivity.class).putExtra("tweet_id", tweet.id)));
@@ -340,6 +350,88 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
             AnimatorSet downSet = new AnimatorSet(); downSet.playTogether(scaleDown1, scaleDown2);
             set.playSequentially(upSet, downSet);
             set.start();
+        }
+
+        // ── 3-dot (More) popup ────────────────────────────────────────────
+        // Handles "View profile" + tweet-level actions entirely inside the adapter.
+        // OnTweetActionListener.onMore() is intentionally no longer called here.
+
+        private void showMoreMenu(XTweet tweet, View anchor) {
+            PopupMenu menu = new PopupMenu(ctx, anchor);
+            boolean mine = myUid.equals(tweet.authorUid);
+            String handle = tweet.authorHandle != null ? tweet.authorHandle : "user";
+
+            // View profile — always first
+            menu.getMenu().add(0, 1, 0, "View @" + handle + "'s profile");
+
+            if (mine) {
+                menu.getMenu().add(0, 2, 1, "Delete post");
+                menu.getMenu().add(0, 3, 2, tweet.isPinned ? "Unpin from profile" : "Pin to profile");
+            } else {
+                menu.getMenu().add(0, 4, 1, "Block @" + handle);
+                menu.getMenu().add(0, 5, 2, "Mute @"  + handle);
+                menu.getMenu().add(0, 6, 3, "Report post");
+            }
+            menu.getMenu().add(0, 7, 4, "Copy link");
+
+            menu.setOnMenuItemClickListener(item -> {
+                switch (item.getItemId()) {
+
+                    case 1: // View Profile
+                        if (ctx instanceof FragmentActivity)
+                            XProfileSheet.show(
+                                ((FragmentActivity) ctx).getSupportFragmentManager(),
+                                tweet.authorUid);
+                        return true;
+
+                    case 2: // Delete
+                        if (tweet.id == null || myUid.isEmpty()) return false;
+                        XFirebaseUtils.tweetRef(tweet.id).child("isDeleted").setValue(true);
+                        XFirebaseUtils.globalFeedRef().child(tweet.id).removeValue();
+                        XFirebaseUtils.userTweetsRef(myUid).child(tweet.id).removeValue();
+                        return true;
+
+                    case 3: // Pin / Unpin
+                        if (tweet.id == null || myUid.isEmpty()) return false;
+                        boolean nowPinned = !tweet.isPinned;
+                        XFirebaseUtils.tweetRef(tweet.id).child("isPinned").setValue(nowPinned);
+                        if (nowPinned)
+                            XFirebaseUtils.xUserRef(myUid).child("pinnedTweetId").setValue(tweet.id);
+                        else
+                            XFirebaseUtils.xUserRef(myUid).child("pinnedTweetId").removeValue();
+                        tweet.isPinned = nowPinned;
+                        int p = getAdapterPosition();
+                        if (p != RecyclerView.NO_ID) notifyItemChanged(p);
+                        return true;
+
+                    case 4: // Block
+                        if (myUid.isEmpty() || tweet.authorUid == null) return false;
+                        XFirebaseUtils.userBlockedRef(myUid).child(tweet.authorUid).setValue(true);
+                        Toast.makeText(ctx, "@" + handle + " blocked", Toast.LENGTH_SHORT).show();
+                        return true;
+
+                    case 5: // Mute
+                        if (myUid.isEmpty() || tweet.authorUid == null) return false;
+                        XFirebaseUtils.userMutedRef(myUid).child(tweet.authorUid).setValue(true);
+                        Toast.makeText(ctx, "@" + handle + " muted", Toast.LENGTH_SHORT).show();
+                        return true;
+
+                    case 6: // Report
+                        Toast.makeText(ctx, "Post reported. Thank you.", Toast.LENGTH_SHORT).show();
+                        return true;
+
+                    case 7: // Copy link
+                        ClipboardManager cm = (ClipboardManager)
+                            ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+                        if (cm != null && tweet.id != null)
+                            cm.setPrimaryClip(ClipData.newPlainText("Post link",
+                                "https://callx.app/x/post/" + tweet.id));
+                        Toast.makeText(ctx, "Link copied", Toast.LENGTH_SHORT).show();
+                        return true;
+                }
+                return false;
+            });
+            menu.show();
         }
 
         // ── Sensitive content ─────────────────────────────────────────────
@@ -587,7 +679,10 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
                             .orderByChild("handle").equalTo(handle).limitToFirst(1).get()
                             .addOnSuccessListener(snap -> {
                                 for (DataSnapshot ds : snap.getChildren()) {
-                                    ctx.startActivity(new Intent(ctx, XProfileActivity.class).putExtra("uid", ds.getKey()));
+                                    if (ctx instanceof FragmentActivity)
+                                        XProfileSheet.show(
+                                            ((FragmentActivity) ctx).getSupportFragmentManager(),
+                                            ds.getKey());
                                     return;
                                 }
                                 Toast.makeText(ctx, "@" + handle + " not found", Toast.LENGTH_SHORT).show();

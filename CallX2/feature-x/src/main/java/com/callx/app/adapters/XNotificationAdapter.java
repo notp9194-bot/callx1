@@ -8,7 +8,8 @@ import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
-import com.callx.app.activities.XProfileActivity;
+import androidx.fragment.app.FragmentActivity;
+import com.callx.app.activities.XProfileSheet;
 import com.callx.app.activities.XTweetDetailActivity;
 import com.callx.app.models.XNotification;
 import com.callx.app.x.R;
@@ -99,8 +100,9 @@ public class XNotificationAdapter extends RecyclerView.Adapter<XNotificationAdap
                     ctx.startActivity(new Intent(ctx, XTweetDetailActivity.class)
                         .putExtra("tweet_id", n.tweetId));
                 } else if (n.fromUid != null && !n.fromUid.isEmpty()) {
-                    ctx.startActivity(new Intent(ctx, XProfileActivity.class)
-                        .putExtra("uid", n.fromUid));
+                    if (ctx instanceof FragmentActivity)
+                        XProfileSheet.show(
+                            ((FragmentActivity) ctx).getSupportFragmentManager(), n.fromUid);
                 }
             });
         }

@@ -24,11 +24,7 @@
               android:screenOrientation="portrait"
               android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
 
-          <activity
-              android:name="com.callx.app.activities.XProfileActivity"
-              android:exported="false"
-              android:screenOrientation="portrait"
-              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+          <!-- XProfileActivity removed — replaced by XProfileSheet (BottomSheetDialogFragment) -->
 
           <activity
               android:name="com.callx.app.activities.XSearchActivity"

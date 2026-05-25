@@ -146,8 +146,8 @@ public class XTweetDetailActivity extends AppCompatActivity {
                     .placeholder(R.drawable.ic_person))
                 .into(ivAvatar);
             if (rootTweet.authorUid != null)
-                ivAvatar.setOnClickListener(v -> startActivity(
-                    new Intent(this, XProfileActivity.class).putExtra("uid", rootTweet.authorUid)));
+                ivAvatar.setOnClickListener(v ->
+                    XProfileSheet.show(getSupportFragmentManager(), rootTweet.authorUid));
         }
         if (ivVerified != null) ivVerified.setVisibility(rootTweet.authorVerified ? View.VISIBLE : View.GONE);
         if (tvName   != null) tvName.setText(rootTweet.authorName);
