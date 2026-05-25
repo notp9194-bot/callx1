@@ -24,6 +24,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.reels.R;
 import com.callx.app.adapters.ReelGridAdapter;
 import com.callx.app.activities.ReelCreatorDashboardActivity;
+import com.callx.app.activities.ReelEditProfileActivity;
 import com.callx.app.activities.ReelCreatorHubActivity;
 import com.callx.app.fragments.ReelAnalyticsBottomSheet;
 import com.callx.app.models.ReelModel;
@@ -221,12 +222,8 @@ public class UserReelsActivity extends AppCompatActivity
         if (btnSettings != null) {
             btnSettings.setVisibility(isSelf ? View.VISIBLE : View.GONE);
             if (isSelf) btnSettings.setOnClickListener(v -> {
-                try {
-                    Class<?> cls = Class.forName("com.callx.app.activities.AccountMenuActivity");
-                    startActivity(new Intent(this, cls));
-                } catch (ClassNotFoundException e) {
-                    Toast.makeText(this, "Not available", Toast.LENGTH_SHORT).show();
-                }
+                // Reel profile edit — reels/users/{uid} node
+                startActivity(new Intent(this, ReelEditProfileActivity.class));
             });
         }
 

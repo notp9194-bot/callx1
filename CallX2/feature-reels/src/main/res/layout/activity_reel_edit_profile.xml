@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/colorBackground">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Toolbar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="8dp"
+            android:background="?attr/colorSurface"
+            android:elevation="4dp">
+
+            <ImageButton
+                android:id="@+id/btn_reel_edit_back"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_arrow_back"
+                android:contentDescription="Back"/>
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Edit Reel Profile"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:paddingStart="8dp"/>
+
+        </LinearLayout>
+
+        <!-- Banner -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="140dp">
+
+            <ImageView
+                android:id="@+id/iv_reel_edit_banner"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:background="#1A1A2E"
+                android:contentDescription="Banner"/>
+
+            <ProgressBar
+                android:id="@+id/pb_reel_edit_banner"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:visibility="gone"/>
+
+            <Button
+                android:id="@+id/btn_reel_edit_change_banner"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_gravity="end|bottom"
+                android:layout_margin="8dp"
+                android:text="Change Banner"
+                android:textSize="11sp"
+                android:backgroundTint="#AA000000"
+                android:textColor="#FFFFFF"/>
+        </FrameLayout>
+
+        <!-- Avatar row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="16dp"
+            android:gravity="center_vertical">
+
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_reel_edit_avatar"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/ic_person"/>
+
+                <ProgressBar
+                    android:id="@+id/pb_reel_edit_avatar"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:visibility="gone"/>
+            </FrameLayout>
+
+            <Button
+                android:id="@+id/btn_reel_edit_change_avatar"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="16dp"
+                android:text="Change Avatar"
+                android:textSize="13sp"/>
+
+        </LinearLayout>
+
+        <!-- Fields -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="24dp">
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Display Name *" android:textSize="12sp" android:textColor="#888"
+                android:layout_marginTop="8dp"/>
+            <EditText android:id="@+id/et_reel_edit_name"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="Your Reel display name" android:maxLines="1"
+                android:inputType="textPersonName"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Handle *" android:textSize="12sp" android:textColor="#888"
+                android:layout_marginTop="12dp"/>
+            <EditText android:id="@+id/et_reel_edit_handle"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="@yourhandle" android:maxLines="1"
+                android:inputType="text"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Bio" android:textSize="12sp" android:textColor="#888"
+                android:layout_marginTop="12dp"/>
+            <EditText android:id="@+id/et_reel_edit_bio"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="Short bio (150 chars)" android:maxLines="4"
+                android:maxLength="150"
+                android:inputType="textMultiLine|textCapSentences"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Category" android:textSize="12sp" android:textColor="#888"
+                android:layout_marginTop="12dp"/>
+            <EditText android:id="@+id/et_reel_edit_category"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="Entertainment, Music, Comedy..." android:maxLines="1"
+                android:inputType="text"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Website" android:textSize="12sp" android:textColor="#888"
+                android:layout_marginTop="12dp"/>
+            <EditText android:id="@+id/et_reel_edit_website"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="https://yourwebsite.com" android:maxLines="1"
+                android:inputType="textUri"/>
+
+            <!-- Social Links Section -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Social Links"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="4dp"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Instagram Handle" android:textSize="12sp" android:textColor="#888"
+                android:layout_marginTop="8dp"/>
+            <EditText android:id="@+id/et_reel_edit_instagram"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="@instahandle" android:maxLines="1"
+                android:inputType="text"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Twitter / X Handle" android:textSize="12sp" android:textColor="#888"
+                android:layout_marginTop="12dp"/>
+            <EditText android:id="@+id/et_reel_edit_twitter"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="@twitterhandle" android:maxLines="1"
+                android:inputType="text"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="YouTube Channel URL" android:textSize="12sp" android:textColor="#888"
+                android:layout_marginTop="12dp"/>
+            <EditText android:id="@+id/et_reel_edit_youtube"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="https://youtube.com/@channel" android:maxLines="1"
+                android:inputType="textUri"/>
+
+            <Button
+                android:id="@+id/btn_reel_edit_save"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="24dp"
+                android:text="Save"
+                android:textSize="16sp"
+                android:textStyle="bold"/>
+
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

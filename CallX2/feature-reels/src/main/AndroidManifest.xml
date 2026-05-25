@@ -289,6 +289,14 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
 
+                <!-- Reel Profile System -->
+        <activity android:name="com.callx.app.activities.ReelProfileSetupActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.activities.ReelEditProfileActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
         <!-- Services -->
         <service android:name="com.callx.app.services.ReelNotificationService"
             android:exported="false"

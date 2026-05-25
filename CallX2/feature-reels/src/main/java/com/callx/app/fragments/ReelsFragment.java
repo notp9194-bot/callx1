@@ -234,12 +234,35 @@ public class ReelsFragment extends Fragment {
                 suppressNavScrollToTop = true;
                 String myUid  = safeMyUid();
                 String myName = com.callx.app.utils.FirebaseUtils.getCurrentName();
-                Intent i = new Intent(getContext(), com.callx.app.activities.UserReelsActivity.class);
-                i.putExtra("uid",  myUid  != null ? myUid  : "");
-                i.putExtra("name", myName != null ? myName : "");
-                i.putExtra("photo", ""); // UserReelsActivity will load it from Firebase
-                i.putExtra("is_own_profile", true); // signal to show creator hub icon
-                startActivity(i);
+                // Check if Reel profile exists (reels/users/{uid}), else setup pehle
+                com.callx.app.utils.ReelFirebaseUtils.reelUserRef(myUid != null ? myUid : "")
+                    .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                        @Override
+                        public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
+                            if (!snap.exists()) {
+                                // First time — Reel profile setup
+                                startActivity(new Intent(getContext(),
+                                    com.callx.app.activities.ReelProfileSetupActivity.class));
+                            } else {
+                                // Reel profile hai — directly open
+                                Intent i = new Intent(getContext(), com.callx.app.activities.UserReelsActivity.class);
+                                i.putExtra("uid",  myUid  != null ? myUid  : "");
+                                i.putExtra("name", myName != null ? myName : "");
+                                i.putExtra("photo", "");
+                                i.putExtra("is_own_profile", true);
+                                startActivity(i);
+                            }
+                        }
+                        @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {
+                            // Fallback: directly open
+                            Intent i = new Intent(getContext(), com.callx.app.activities.UserReelsActivity.class);
+                            i.putExtra("uid",  myUid  != null ? myUid  : "");
+                            i.putExtra("name", myName != null ? myName : "");
+                            i.putExtra("photo", "");
+                            i.putExtra("is_own_profile", true);
+                            startActivity(i);
+                        }
+                    });
                 reelBottomNav.setSelectedItemId(R.id.reel_nav_feed);
                 return true;
             }

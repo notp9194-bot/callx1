@@ -227,7 +227,12 @@ public class XEditProfileActivity extends AppCompatActivity {
             }
             @Override public void onProgress(int pct) {}
         };
-        XCloudinaryUtils.uploadTweetImage(this, uri, cb);
+        // Avatar → x/avatars/, Banner → x/banners/
+        if (isAvatar) {
+            XCloudinaryUtils.uploadXAvatar(this, uri, cb);
+        } else {
+            XCloudinaryUtils.uploadXBanner(this, uri, cb);
+        }
     }
 
     private void saveProfile() {

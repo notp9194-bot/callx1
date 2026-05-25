@@ -33,6 +33,24 @@ package com.callx.app.utils;
           upload(ctx, videoUri, "video", "x_tweets", listener);
       }
 
+
+      /**
+       * X profile avatar — dual-size upload.
+       * Thumb (100x100 WebP) → x/avatars/thumbs/
+       * Full (800x800 JPEG) → x/avatars/
+       * Uses same XUploadListener but onSuccess fires with full URL.
+       */
+      public static void uploadXAvatar(Context ctx, Uri imageUri, XUploadListener listener) {
+          upload(ctx, imageUri, "image", "x/avatars", listener);
+      }
+
+      /**
+       * X profile banner → x/banners/
+       */
+      public static void uploadXBanner(Context ctx, Uri imageUri, XUploadListener listener) {
+          upload(ctx, imageUri, "image", "x/banners", listener);
+      }
+
       private static void upload(Context ctx, Uri uri, String resourceType,
                                  String folder, XUploadListener listener) {
           new Thread(() -> {
