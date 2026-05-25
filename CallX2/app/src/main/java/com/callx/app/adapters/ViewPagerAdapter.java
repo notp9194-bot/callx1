@@ -14,9 +14,9 @@ public class ViewPagerAdapter extends FragmentStateAdapter {
     @NonNull @Override
     public Fragment createFragment(int position) {
         switch (position) {
-            case 1: return new StatusFragment();
-            case 2: return new GroupsFragment();
-            case 3: return new ReelsFragment();
+            case 1: return new ReelsFragment();
+            case 2: return new StatusFragment();
+            case 3: return new GroupsFragment();
             case 4: return new CallsFragment();
             default: return new ChatsFragment();
         }

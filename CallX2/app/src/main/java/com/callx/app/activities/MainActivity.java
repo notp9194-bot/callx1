@@ -94,9 +94,9 @@ public class MainActivity extends AppCompatActivity {
 
     // Tab indices
     private static final int TAB_CHATS  = 0;
-    private static final int TAB_STATUS = 1;
-    private static final int TAB_GROUPS = 2;
-    private static final int TAB_REELS  = 3;
+    private static final int TAB_REELS  = 1;
+    private static final int TAB_STATUS = 2;
+    private static final int TAB_GROUPS = 3;
     private static final int TAB_CALLS  = 4;
 
     @Override
@@ -130,10 +130,6 @@ public class MainActivity extends AppCompatActivity {
           setupYouTubeEntryButton();
           // ────────────────────────────────────────────────────────────────────────
 
-          // ── Reels Module: animated entry button ───────────────────────────────
-          setupReelsEntryButton();
-          // ────────────────────────────────────────────────────────────────────────
-
         binding.btnSearchToolbar.setOnClickListener(v -> {
             startActivity(new Intent(this, SearchActivity.class));
             overridePendingTransition(0, 0); // Tab switch — instant 0ms
@@ -162,9 +158,9 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onPageSelected(int position) {
                 int[] ids = {
                     R.id.nav_chats,
+                    R.id.nav_reels,
                     R.id.nav_status,
                     R.id.nav_groups,
-                    R.id.nav_reels,
                     R.id.nav_calls
                 };
                 if (position >= 0 && position < ids.length)
@@ -528,9 +524,25 @@ public class MainActivity extends AppCompatActivity {
                                     @Nullable Transition<? super Bitmap> transition) {
                                 android.graphics.drawable.Drawable d =
                                     new BitmapDrawable(getResources(), resource);
-                                binding.bottomNav.getMenu()
-                                    .findItem(R.id.nav_reels)
-                                    .setIcon(d);
+                                android.view.MenuItem mi = binding.bottomNav.getMenu()
+                                    .findItem(R.id.nav_reels);
+                                mi.setIcon(d);
+                                // Tint band karo — warna BottomNav avatar ko grey/tinted kar deta hai
+                                if (binding.bottomNav instanceof com.google.android.material.bottomnavigation.BottomNavigationView) {
+                                    com.google.android.material.bottomnavigation.BottomNavigationMenuView menuView =
+                                        (com.google.android.material.bottomnavigation.BottomNavigationMenuView)
+                                            binding.bottomNav.getChildAt(0);
+                                    for (int i = 0; i < menuView.getChildCount(); i++) {
+                                        com.google.android.material.bottomnavigation.BottomNavigationItemView itemView =
+                                            (com.google.android.material.bottomnavigation.BottomNavigationItemView)
+                                                menuView.getChildAt(i);
+                                        if (itemView.getItemData() != null &&
+                                            itemView.getItemData().getItemId() == R.id.nav_reels) {
+                                            itemView.setIconTintList(null);
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                             @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
                         });
@@ -669,83 +681,6 @@ public class MainActivity extends AppCompatActivity {
 
         // Schedule background notification worker
         YouTubeNotificationWorker.schedule(this);
-    }
-
-    // ── Reels Entry Button ──────────────────────────────────────────────────
-    private TextView reelsEntryBadgeView = null;
-
-    private void setupReelsEntryButton() {
-        View reelsEntryRoot = findViewById(R.id.include_reels_entry);
-        if (reelsEntryRoot == null) return;
-
-        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
-            reelsEntryRoot.findViewById(R.id.iv_reels_entry_avatar);
-        View stripView =
-            reelsEntryRoot.findViewById(R.id.ll_reels_entry_strip);
-        reelsEntryBadgeView =
-            reelsEntryRoot.findViewById(R.id.tv_reels_entry_badge);
-
-        // Load Reels profile avatar from reels/users/{uid}
-        String uid = currentUid();
-        if (uid != null && ivAvatar != null) {
-            com.google.firebase.database.FirebaseDatabase.getInstance()
-                .getReference("reels/users").child(uid)
-                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                    @Override public void onDataChange(
-                            @androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
-                        String thumbUrl = snap.child("thumbUrl").getValue(String.class);
-                        String photoUrl = snap.child("photoUrl").getValue(String.class);
-                        String url = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
-                        if (url != null && !url.isEmpty())
-                            Glide.with(MainActivity.this).load(url)
-                                .apply(new RequestOptions().circleCrop())
-                                .placeholder(R.drawable.ic_person)
-                                .into(ivAvatar);
-                    }
-                    @Override public void onCancelled(
-                            @androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
-                });
-        }
-
-        // Slide-in animation — strip slides RIGHT from behind the avatar
-        if (stripView != null) {
-            stripView.setTranslationX(-200f);
-            android.animation.ObjectAnimator
-                .ofFloat(stripView, "translationX", -200f, 0f)
-                .setDuration(500)
-                .start();
-        }
-
-        // Tap → open Reels system (nav_reels tab pe jump karo)
-        reelsEntryRoot.setOnClickListener(v -> {
-            binding.viewPager.setCurrentItem(TAB_REELS, false);
-            binding.bottomNav.setSelectedItemId(R.id.nav_reels);
-        });
-
-        // Live badge — unread reel notifications
-        if (uid != null && reelsEntryBadgeView != null) {
-            final TextView badge = reelsEntryBadgeView;
-            com.google.firebase.database.FirebaseDatabase.getInstance()
-                .getReference("reel_notifications").child(uid)
-                .addValueEventListener(new com.google.firebase.database.ValueEventListener() {
-                    @Override public void onDataChange(
-                            @androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
-                        int unread = 0;
-                        for (com.google.firebase.database.DataSnapshot n : snap.getChildren()) {
-                            Boolean read = n.child("read").getValue(Boolean.class);
-                            if (read == null || !read) unread++;
-                        }
-                        if (unread > 0) {
-                            badge.setVisibility(View.VISIBLE);
-                            badge.setText(unread > 99 ? "99+" : String.valueOf(unread));
-                        } else {
-                            badge.setVisibility(View.GONE);
-                        }
-                    }
-                    @Override public void onCancelled(
-                            @androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
-                });
-        }
     }
 
     /** Real-time badge on the 🔔 notification icon in the main toolbar */

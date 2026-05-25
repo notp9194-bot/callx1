@@ -105,18 +105,6 @@
                   android:layout_height="match_parent"
                   android:layout_gravity="start"
                   android:layout_marginStart="4dp"/>
-
-              <!-- ╔═══════════════════════════════════════════════════════════╗
-                   ║  Reels Entry Button — animated slide-out strip            ║
-                   ║  Avatar + purple strip with Reels icon + notif badge      ║
-                   ╚═══════════════════════════════════════════════════════════╝ -->
-              <include
-                  android:id="@+id/include_reels_entry"
-                  layout="@layout/layout_reels_entry_button"
-                  android:layout_width="wrap_content"
-                  android:layout_height="match_parent"
-                  android:layout_gravity="start"
-                  android:layout_marginStart="4dp"/>
         </androidx.appcompat.widget.Toolbar>
     </com.google.android.material.appbar.AppBarLayout>
 
