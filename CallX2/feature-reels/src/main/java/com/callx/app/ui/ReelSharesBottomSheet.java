@@ -231,27 +231,31 @@ public class ReelSharesBottomSheet extends BottomSheetDialogFragment {
         for (Map.Entry<String, Long> entry : uidTs.entrySet()) {
             String uid = entry.getKey();
             long   ts  = entry.getValue();
-            FirebaseUtils.getUserRef(uid)
+            // Load Reels profile (reels/users/{uid})
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("reels/users").child(uid)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot s) {
-                            String name     = s.child("name").getValue(String.class);
-                            String username = s.child("username").getValue(String.class);
-                            String photo    = s.child("thumbUrl").getValue(String.class);
-                            Boolean verified = s.child("isVerified").getValue(Boolean.class);
-                            String uid2     = s.getKey();
+                            String name      = s.child("displayName").getValue(String.class);
+                            String username  = s.child("handle").getValue(String.class);
+                            String thumb     = s.child("thumbUrl").getValue(String.class);
+                            String photo     = s.child("photoUrl").getValue(String.class);
+                            String resolvedPhoto = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                            Boolean verified = s.child("verified").getValue(Boolean.class);
+                            String uid2      = uid;
                             boolean isFollowing = Boolean.TRUE.equals(followingMap.get(uid2));
                             pageItems.add(new ShareItem(
                                     uid2,
                                     name     != null ? name     : "User",
                                     username != null ? username : "",
-                                    photo    != null ? photo    : "",
+                                    resolvedPhoto != null ? resolvedPhoto : "",
                                     Boolean.TRUE.equals(verified),
                                     isFollowing,
                                     ts
                             ));
                             if (done.incrementAndGet() >= total && isAdded()) appendPage(pageItems);
                         }
-                        @Override public void onCancelled(@NonNull DatabaseError e) {
+                        @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
                             if (done.incrementAndGet() >= total && isAdded()) appendPage(pageItems);
                         }
                     });

@@ -175,12 +175,13 @@ public class ReelRepostListActivity extends AppCompatActivity {
                     item.timestamp = ts;
                     items.add(item);
 
-                    // Fetch user profile
-                    FirebaseUtils.getUserRef(uid)
+                    // Reels profile se name + photo lo (reels/users/{uid})
+                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                        .getReference("reels/users").child(uid)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
                             @Override public void onDataChange(@NonNull DataSnapshot u) {
                                 if (isFinishing() || isDestroyed()) return;
-                                item.name  = stringVal(u, "name", uid);
+                                item.name  = stringVal(u, "displayName", uid);
                                 String _rlThumb = stringVal(u, "thumbUrl", null);
                                 String _rlPhoto = stringVal(u, "photoUrl", null);
                                 item.photo = (_rlThumb != null && !_rlThumb.isEmpty()) ? _rlThumb : _rlPhoto;

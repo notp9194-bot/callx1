@@ -166,11 +166,16 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
     // ── My avatar ──────────────────────────────────────────────────────────
     private void loadMyAvatar() {
         if (myUid.isEmpty() || ivMyAvatar == null) return;
-        FirebaseUtils.getUserRef(myUid).child("thumbUrl")
+        // Reels profile avatar load karo (reels/users/{uid}) — chat profile nahi
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("reels/users").child(myUid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot s) {
-                        String url = s.getValue(String.class);
-                        myPhoto = url != null ? url : "";
+                        String thumb = s.child("thumbUrl").getValue(String.class);
+                        String photo = s.child("photoUrl").getValue(String.class);
+                        String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        if (url == null) url = "";
+                        myPhoto = url;
                         if (isAdded() && !myPhoto.isEmpty()) {
                             Glide.with(requireContext()).load(myPhoto)
                                     .apply(RequestOptions.circleCropTransform())
@@ -284,14 +289,18 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
                 if (done.incrementAndGet() >= total && isAdded()) appendPage(pageItems, isFirst);
                 continue;
             }
-            FirebaseUtils.getUserRef(item.uid)
+            // Reels profile se photo aur username lo (reels/users/{uid})
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("reels/users").child(item.uid)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot s) {
-                            String photo    = s.child("thumbUrl").getValue(String.class);
-                            String username = s.child("username").getValue(String.class);
-                            Boolean verified = s.child("isVerified").getValue(Boolean.class);
-                            if (photo != null) item.ownerPhoto = photo;
-                            item.username   = username != null ? username : "";
+                            String thumb    = s.child("thumbUrl").getValue(String.class);
+                            String photo    = s.child("photoUrl").getValue(String.class);
+                            String resolvedPhoto = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                            String displayName   = s.child("displayName").getValue(String.class);
+                            Boolean verified     = s.child("verified").getValue(Boolean.class);
+                            if (resolvedPhoto != null) item.ownerPhoto = resolvedPhoto;
+                            item.username   = displayName != null ? displayName : "";
                             item.isVerified = Boolean.TRUE.equals(verified);
                             if (done.incrementAndGet() >= total && isAdded()) appendPage(pageItems, isFirst);
                         }

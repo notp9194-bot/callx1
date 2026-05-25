@@ -279,15 +279,17 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         if (uid == null || uid.isEmpty()) return;
 
-        // Fetch from Firebase asynchronously
-        FirebaseUtils.getUserRef(uid).child("thumbUrl")
+        // Reels profile se avatar fetch karo (reels/users/{uid})
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(uid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot s) {
-                    String p = s.getValue(String.class);
+                    String thumb = s.child("thumbUrl").getValue(String.class);
+                    String photo = s.child("photoUrl").getValue(String.class);
+                    String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                     if (p != null && !p.isEmpty()) {
                         avatarCache.put(uid, p);
-                        // Update if view is still for this uid
                         loadAvatarInto(ctx, iv, p);
                     }
                 }

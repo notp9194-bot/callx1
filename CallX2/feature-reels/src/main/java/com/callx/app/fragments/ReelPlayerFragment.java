@@ -635,18 +635,23 @@ public class ReelPlayerFragment extends Fragment {
         if (!isAdded() || getContext() == null) return;
         if (likerUidCache == null || idx >= likerUidCache.length || likerUidCache[idx] == null) return;
         String uid = likerUidCache[idx];
-        FirebaseUtils.getUserRef(uid).get().addOnSuccessListener(ds -> {
-            if (!isAdded() || getContext() == null) return;
-            String name  = ds.child("name").getValue(String.class);
-            String photo = ds.child("thumbUrl").getValue(String.class);
-            if (name == null) name = "";
-            if (photo == null) photo = "";
-            Intent intent = new Intent(getActivity(), UserReelsActivity.class);
-            intent.putExtra(UserReelsActivity.EXTRA_UID,   uid);
-            intent.putExtra(UserReelsActivity.EXTRA_NAME,  name);
-            intent.putExtra(UserReelsActivity.EXTRA_PHOTO, photo);
-            startActivity(intent);
-        });
+        // Reels profile se name + photo lo (reels/users/{uid})
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(uid)
+            .get().addOnSuccessListener(ds -> {
+                if (!isAdded() || getContext() == null) return;
+                String name  = ds.child("displayName").getValue(String.class);
+                String thumb = ds.child("thumbUrl").getValue(String.class);
+                String photo = ds.child("photoUrl").getValue(String.class);
+                String resolvedPhoto = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                if (name == null) name = "";
+                if (resolvedPhoto == null) resolvedPhoto = "";
+                Intent intent = new Intent(getActivity(), UserReelsActivity.class);
+                intent.putExtra(UserReelsActivity.EXTRA_UID,   uid);
+                intent.putExtra(UserReelsActivity.EXTRA_NAME,  name);
+                intent.putExtra(UserReelsActivity.EXTRA_PHOTO, resolvedPhoto);
+                startActivity(intent);
+            });
     }
 
     // ── Click listeners ───────────────────────────────────────────────────
@@ -929,10 +934,13 @@ public class ReelPlayerFragment extends Fragment {
                 com.callx.app.utils.PushNotify.notifyReelLike(
                     reel.uid, myUid, myName,
                     reel.reelId, reel.thumbUrl != null ? reel.thumbUrl : "");
-                // Fetch own thumbUrl to save as senderPhoto in notification
-                FirebaseUtils.getUserRef(myUid).child("thumbUrl").get()
-                    .addOnSuccessListener(thumbSnap -> {
-                        String myThumb = thumbSnap.getValue(String.class);
+                // Reels profile se apna thumbUrl lo (reels/users/{uid})
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("reels/users").child(myUid)
+                    .get().addOnSuccessListener(reelSnap -> {
+                        String rThumb = reelSnap.child("thumbUrl").getValue(String.class);
+                        String rPhoto = reelSnap.child("photoUrl").getValue(String.class);
+                        String myThumb = (rThumb != null && !rThumb.isEmpty()) ? rThumb : rPhoto;
                         java.util.Map<String, Object> inApp = new java.util.HashMap<>();
                         inApp.put("type",        "like");
                         inApp.put("senderUid",   myUid);

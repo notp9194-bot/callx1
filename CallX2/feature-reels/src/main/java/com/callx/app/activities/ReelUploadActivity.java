@@ -541,7 +541,10 @@ public class ReelUploadActivity extends AppCompatActivity {
 
         WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
 
-        FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+        // Reel post mein owner ka Reels profile avatar store karo (reels/users/{uid})
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snap) {
                 ReelUploadActivity a = ref.get();
@@ -549,7 +552,7 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                 String photo = snap.child("photoUrl").getValue(String.class);
                 String thumb = snap.child("thumbUrl").getValue(String.class);
-                // Use thumbUrl for reel avatar — saves data for all viewers
+                // Reels thumbUrl use karo — saves data for all viewers
                 String safePhoto = (thumb != null && !thumb.isEmpty()) ? thumb : (photo != null ? photo : "");
 
                 ReelModel reel = new ReelModel(

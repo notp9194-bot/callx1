@@ -1103,21 +1103,23 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Profile data ──────────────────────────────────────────────────────
 
     private void loadUserProfile() {
-        FirebaseUtils.getUserRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
+        // Reels profile load karo (reels/users/{uid}) — chat profile nahi
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(targetUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                String name      = snap.child("name").getValue(String.class);
+                String name      = snap.child("displayName").getValue(String.class);
                 String photo     = snap.child("photoUrl").getValue(String.class);
                 String photoThumb = snap.child("thumbUrl").getValue(String.class);
                 String bio       = snap.child("bio").getValue(String.class);
-                String phone     = snap.child("phone").getValue(String.class);
-                String whatsapp  = snap.child("whatsapp").getValue(String.class);
-                String instagram = snap.child("instagram").getValue(String.class);
-                String youtube   = snap.child("youtube").getValue(String.class);
-                String otherLink = snap.child("otherLink").getValue(String.class);
+                String website   = snap.child("website").getValue(String.class);
+                String instagram = snap.child("instagramHandle").getValue(String.class);
+                String youtube   = snap.child("youtubeChannelUrl").getValue(String.class);
+                String twitter   = snap.child("twitterHandle").getValue(String.class);
 
                 if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); }
                 if (photo != null && !photo.isEmpty()) {
-                    targetPhoto = photo; // kept as full URL for zoom dialog
+                    targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
                     Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
@@ -1129,16 +1131,13 @@ public class UserReelsActivity extends AppCompatActivity
                     tvBio.setVisibility(bio != null && !bio.isEmpty() ? View.VISIBLE : View.GONE);
                 }
 
-                // Phone — dial on tap
-                bindSocialRow(layoutPhone, tvPhone, phone,
-                    !isEmpty(phone) ? "tel:" + phone.replaceAll("[^+\\d]", "") : null,
-                    phone);
+                // Website / social links from Reels profile
+                bindSocialRow(layoutPhone, tvPhone, website,
+                    !isEmpty(website) ? (website.startsWith("http") ? website : "https://" + website) : null,
+                    website);
 
-                // WhatsApp — open wa.me link
-                String waNum = !isEmpty(whatsapp) ? whatsapp.replaceAll("[^+\\d]", "") : null;
-                bindSocialRow(layoutWhatsapp, tvWhatsapp, whatsapp,
-                    waNum != null ? "https://wa.me/" + waNum : null,
-                    whatsapp);
+                String waNum = null; // Reels profile mein WhatsApp nahi hota
+                bindSocialRow(layoutWhatsapp, tvWhatsapp, null, null, null);
 
                 // Instagram
                 String igHandle = !isEmpty(instagram)
@@ -1150,11 +1149,11 @@ public class UserReelsActivity extends AppCompatActivity
                 // YouTube
                 bindSocialRow(layoutYoutube, tvYoutube, youtube, youtube, youtube);
 
-                // Other link
-                String otherUrl = !isEmpty(otherLink)
-                    ? (otherLink.startsWith("http") ? otherLink : "https://" + otherLink)
+                // Twitter/X
+                String otherUrl = !isEmpty(twitter)
+                    ? (twitter.startsWith("http") ? twitter : "https://x.com/" + twitter.replace("@",""))
                     : null;
-                bindSocialRow(layoutOtherLink, tvOtherLink, otherLink, otherUrl, otherLink);
+                bindSocialRow(layoutOtherLink, tvOtherLink, twitter, otherUrl, twitter);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });

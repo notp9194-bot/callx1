@@ -239,21 +239,24 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
         final List<UserItem> pageItems = Collections.synchronizedList(new ArrayList<>());
 
         for (String uid : uids) {
-            // Skip current user's own entry
-            FirebaseUtils.getUserRef(uid)
+            // Load Reels profile (reels/users/{uid}) for avatar/name
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("reels/users").child(uid)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot s) {
-                            String name     = s.child("name").getValue(String.class);
-                            String username = s.child("username").getValue(String.class);
-                            String photo    = s.child("thumbUrl").getValue(String.class);
-                            Boolean verified = s.child("isVerified").getValue(Boolean.class);
-                            String uid2     = s.getKey();
+                            String name      = s.child("displayName").getValue(String.class);
+                            String username  = s.child("handle").getValue(String.class);
+                            String thumb     = s.child("thumbUrl").getValue(String.class);
+                            String photo     = s.child("photoUrl").getValue(String.class);
+                            String resolvedPhoto = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                            Boolean verified = s.child("verified").getValue(Boolean.class);
+                            String uid2      = uid;
                             boolean isFollowing = Boolean.TRUE.equals(followingMap.get(uid2));
                             pageItems.add(new UserItem(
                                     uid2,
                                     name     != null ? name     : "User",
                                     username != null ? username : "",
-                                    photo    != null ? photo    : "",
+                                    resolvedPhoto != null ? resolvedPhoto : "",
                                     Boolean.TRUE.equals(verified),
                                     isFollowing
                             ));

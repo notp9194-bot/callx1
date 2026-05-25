@@ -476,22 +476,15 @@ package com.callx.app.activities;
                       .placeholder(R.drawable.ic_person).into(h.ivAvatar);
               } else if (item.senderUid != null && !item.senderUid.isEmpty()) {
                   h.ivAvatar.setImageResource(R.drawable.ic_person);
-                  com.callx.app.utils.FirebaseUtils.getUserRef(item.senderUid)
-                      .child("thumbUrl").get().addOnSuccessListener(snap -> {
-                          String url = snap.getValue(String.class);
-                          if (url == null || url.isEmpty()) {
-                              snap.getRef().getParent().child("photoUrl").get()
-                                  .addOnSuccessListener(s2 -> {
-                                      String u2 = s2.getValue(String.class);
-                                      if (u2 != null && !u2.isEmpty() && !isFinishing()) {
-                                          item.senderPhoto = u2;
-                                          Glide.with(ReelNotificationsActivity.this).load(u2)
-                                              .circleCrop()
-                                              .placeholder(R.drawable.ic_person).into(h.ivAvatar);
-                                      }
-                                  });
-                          } else if (!isFinishing()) {
-                              item.senderPhoto = url; // cache for next bind
+                  // Sender ka Reels profile avatar load karo (reels/users/{uid})
+                  com.google.firebase.database.FirebaseDatabase.getInstance()
+                      .getReference("reels/users").child(item.senderUid)
+                      .get().addOnSuccessListener(snap -> {
+                          String thumb = snap.child("thumbUrl").getValue(String.class);
+                          String photo = snap.child("photoUrl").getValue(String.class);
+                          String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                          if (url != null && !url.isEmpty() && !isFinishing()) {
+                              item.senderPhoto = url;
                               Glide.with(ReelNotificationsActivity.this).load(url)
                                   .circleCrop()
                                   .placeholder(R.drawable.ic_person).into(h.ivAvatar);

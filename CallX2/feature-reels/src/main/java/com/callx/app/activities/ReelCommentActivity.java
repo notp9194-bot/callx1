@@ -376,13 +376,16 @@ public class ReelCommentActivity extends AppCompatActivity {
         showEmpty(filtered.isEmpty());
     }
 
-    /** Fetch profile photo from Firebase users node (FirebaseAuth photo may be stale). */
+    /** Reels profile photo load karo (reels/users/{uid}) — chat profile nahi. */
     private void loadMyPhoto() {
         if (myUid.isEmpty()) return;
-        FirebaseUtils.getUserRef(myUid).child("photoUrl")
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot s) {
-                    String p = s.getValue(String.class);
+                    String thumb = s.child("thumbUrl").getValue(String.class);
+                    String photo = s.child("photoUrl").getValue(String.class);
+                    String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                     if (p != null && !p.isEmpty()) myPhoto = p;
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}

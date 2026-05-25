@@ -1233,12 +1233,17 @@ public class HomeFragment extends Fragment {
     private void loadMyAvatar() {
         String myUid = safeMyUid();
         if (myUid == null || ivMyStoryAvatar == null) return;
-        FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+        // Reels profile avatar load karo (reels/users/{uid})
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!isAdded() || getContext() == null) return;
+                String thumb = snap.child("thumbUrl").getValue(String.class);
                 String photo = snap.child("photoUrl").getValue(String.class);
-                if (photo != null && !photo.isEmpty()) {
-                    Glide.with(requireContext()).load(photo)
+                String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                if (url != null && !url.isEmpty()) {
+                    Glide.with(requireContext()).load(url)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_person)
                         .into(ivMyStoryAvatar);

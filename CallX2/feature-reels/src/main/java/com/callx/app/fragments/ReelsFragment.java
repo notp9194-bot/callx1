@@ -323,12 +323,15 @@ public class ReelsFragment extends Fragment {
         String myUid = safeMyUid();
         if (myUid == null || reelBottomNav == null || !isAdded() || getContext() == null) return;
 
-        FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+        // Reels system ka avatar load karo (reels/users/{uid}) — chat profile nahi
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!isAdded() || getContext() == null || reelBottomNav == null) return;
 
-                // Use thumbUrl (100×100 WebP) — perfect for 28dp BottomNav icon
+                // thumbUrl (100×100 WebP) — perfect for 28dp BottomNav icon
                 String photo = snap.child("thumbUrl").getValue(String.class);
                 if (photo == null || photo.isEmpty()) {
                     photo = snap.child("photoUrl").getValue(String.class);

@@ -41,6 +41,15 @@ import android.animation.ObjectAnimator;
   import com.callx.app.activities.YouTubeActivity;
   import com.callx.app.notifications.YouTubeNotificationWorker;
   import com.callx.app.utils.YouTubeFirebaseUtils;
+  import android.graphics.Bitmap;
+  import android.graphics.BitmapShader;
+  import android.graphics.Canvas;
+  import android.graphics.Paint;
+  import android.graphics.Shader;
+  import android.graphics.drawable.BitmapDrawable;
+  import com.bumptech.glide.request.target.CustomTarget;
+  import com.bumptech.glide.request.transition.Transition;
+  import androidx.annotation.Nullable;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -203,6 +212,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         loadMyAvatar();
+        loadReelsAvatarIntoNavTab();  // Reels nav tab mein Reels profile avatar dikhao
         refreshFcmToken();
         startBadgeListeners();
         // ── In-App Update Check — Firebase se version compare karta hai ──
@@ -251,6 +261,7 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         loadMyAvatar();
+        loadReelsAvatarIntoNavTab();  // Reels profile update hone par nav tab refresh
         // FIX #3: When MainActivity resumes (e.g. after returning from any activity launched
         // from a non-Reels tab), notify the ReelsFragment of the actual current tab state.
         // Without this, onTabPaused() is never called when leaving from other tabs, so
@@ -488,6 +499,42 @@ public class MainActivity extends AppCompatActivity {
         startNotifBadgeListeners(uid);
     }
 
+    /** Reels tab ke bottom nav icon mein Reels profile ka avatar load karo.
+     *  Firebase path: reels/users/{uid} → photoUrl / thumbUrl */
+    private void loadReelsAvatarIntoNavTab() {
+        String uid = currentUid();
+        if (uid == null) return;
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                    String thumbUrl = snap.child("thumbUrl").getValue(String.class);
+                    String photoUrl = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
+                    if (url == null || url.isEmpty()) return;
+                    // Load as circular bitmap, then set as nav tab icon
+                    int iconSizePx = (int) (24 * getResources().getDisplayMetrics().density);
+                    Glide.with(MainActivity.this)
+                        .asBitmap()
+                        .load(url)
+                        .apply(new RequestOptions().circleCrop().override(iconSizePx, iconSizePx))
+                        .into(new CustomTarget<Bitmap>() {
+                            @Override public void onResourceReady(
+                                    @NonNull Bitmap resource,
+                                    @Nullable Transition<? super Bitmap> transition) {
+                                android.graphics.drawable.Drawable d =
+                                    new BitmapDrawable(getResources(), resource);
+                                binding.bottomNav.getMenu()
+                                    .findItem(R.id.nav_reels)
+                                    .setIcon(d);
+                            }
+                            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                        });
+                }
+                @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
+            });
+    }
+
     /** Sets up the animated X entry button in the toolbar */
     private void setupXEntryButton() {
         View xEntryRoot = findViewById(R.id.include_x_entry);
@@ -497,10 +544,10 @@ public class MainActivity extends AppCompatActivity {
         View stripView           = xEntryRoot.findViewById(R.id.ll_x_entry_strip);
         TextView tvBadge         = xEntryRoot.findViewById(R.id.tv_x_entry_badge);
 
-        // Load current user avatar
+        // Load X profile avatar from x/users/{uid} (X ka alag profile)
         String uid = currentUid();
         if (uid != null && ivAvatar != null) {
-            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+            XFirebaseUtils.xUserRef(uid).addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
                 @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
                     String thumb2 = snap.child("thumbUrl").getValue(String.class);
                     String photo2 = snap.child("photoUrl").getValue(String.class);
@@ -559,17 +606,16 @@ public class MainActivity extends AppCompatActivity {
         TextView tvBadge =
             ytEntryRoot.findViewById(com.callx.app.youtube.R.id.tv_yt_entry_badge);
 
-        // Load current user avatar into the YouTube entry circle
+        // Load YouTube channel avatar from youtube/channels/{uid} (YouTube ka alag profile)
         String uid = currentUid();
         if (uid != null && ivAvatar != null) {
-            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(
+            YouTubeFirebaseUtils.channelRef(uid).addListenerForSingleValueEvent(
                 new com.google.firebase.database.ValueEventListener() {
                     @Override public void onDataChange(
                             @androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
-                        String thumbUrl = snap.child("thumbUrl").getValue(String.class);
                         String photoUrl = snap.child("photoUrl").getValue(String.class);
-                        String url = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
-                        if (url != null && !url.isEmpty())
+                        String url = (photoUrl != null && !photoUrl.isEmpty()) ? photoUrl : null;
+                        if (url != null)
                             Glide.with(MainActivity.this).load(url)
                                 .apply(new RequestOptions().circleCrop())
                                 .placeholder(R.drawable.ic_person)

@@ -136,12 +136,16 @@ public class RepostQuoteActivity extends AppCompatActivity {
         avLp.topMargin = dp(2);
         myAvatar.setImageResource(R.drawable.ic_person);
         inputRow.addView(myAvatar, avLp);
-        // Load my avatar async
-        FirebaseUtils.getUserRef(myUid).child("photoUrl").get().addOnSuccessListener(snap -> {
-            String url = snap.getValue(String.class);
-            if (url != null && !url.isEmpty() && !isFinishing())
-                Glide.with(this).load(url).circleCrop().placeholder(R.drawable.ic_person).into(myAvatar);
-        });
+        // Load my Reels avatar (reels/users/{uid})
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(myUid)
+            .get().addOnSuccessListener(snap -> {
+                String thumb = snap.child("thumbUrl").getValue(String.class);
+                String photo = snap.child("photoUrl").getValue(String.class);
+                String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                if (url != null && !url.isEmpty() && !isFinishing())
+                    Glide.with(this).load(url).circleCrop().placeholder(R.drawable.ic_person).into(myAvatar);
+            });
 
         LinearLayout inputCol = new LinearLayout(this);
         inputCol.setOrientation(LinearLayout.VERTICAL);
@@ -311,11 +315,16 @@ public class RepostQuoteActivity extends AppCompatActivity {
 
     private void fetchOwnerAvatar() {
         if (ownerUid == null) return;
-        FirebaseUtils.getUserRef(ownerUid).child("photoUrl").get().addOnSuccessListener(snap -> {
-            String url = snap.getValue(String.class);
-            if (url != null && !url.isEmpty() && !isFinishing() && ivOwnerAvatar != null)
-                Glide.with(this).load(url).circleCrop().placeholder(R.drawable.ic_person).into(ivOwnerAvatar);
-        });
+        // Load owner Reels avatar (reels/users/{uid})
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(ownerUid)
+            .get().addOnSuccessListener(snap -> {
+                String thumb = snap.child("thumbUrl").getValue(String.class);
+                String photo = snap.child("photoUrl").getValue(String.class);
+                String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                if (url != null && !url.isEmpty() && !isFinishing() && ivOwnerAvatar != null)
+                    Glide.with(this).load(url).circleCrop().placeholder(R.drawable.ic_person).into(ivOwnerAvatar);
+            });
     }
 
     private void doPost() {
