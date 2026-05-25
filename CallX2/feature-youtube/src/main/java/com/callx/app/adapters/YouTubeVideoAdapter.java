@@ -38,6 +38,9 @@ public class YouTubeVideoAdapter
     // Optional callback for feed-level actions (not interested / deleted)
     private YouTubeVideoOptionsSheet.OptionsCallback optionsCallback;
 
+    // Playback-in-feeds setting (controlled by YouTubeHomeFragment)
+    private boolean feedAutoplay = false;
+
     public YouTubeVideoAdapter(Context ctx, List<YouTubeVideo> data,
                                OnVideoClickListener listener) {
         this.ctx      = ctx;
@@ -48,6 +51,18 @@ public class YouTubeVideoAdapter
     public void setOptionsCallback(YouTubeVideoOptionsSheet.OptionsCallback cb) {
         this.optionsCallback = cb;
     }
+
+    /**
+     * Control muted autoplay of video thumbnails in the feed.
+     * Called from YouTubeHomeFragment based on "Playback in feeds" setting.
+     * true = autoplay muted previews on scroll; false = static thumbnails.
+     */
+    public void setFeedAutoplay(boolean enable) {
+        this.feedAutoplay = enable;
+        notifyDataSetChanged();
+    }
+
+    public boolean isFeedAutoplay() { return feedAutoplay; }
 
     public void setData(List<YouTubeVideo> data) {
         this.data = data != null ? new ArrayList<>(data) : new ArrayList<>();

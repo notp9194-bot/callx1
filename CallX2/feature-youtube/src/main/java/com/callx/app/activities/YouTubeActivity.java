@@ -16,6 +16,7 @@ import com.callx.app.fragments.YouTubeSubscriptionsFragment;
 import com.callx.app.notifications.YouTubeNotificationChannelManager;
 import com.callx.app.notifications.YouTubeNotificationWorker;
 import com.callx.app.utils.YouTubeFirebaseUtils;
+import com.callx.app.utils.YouTubePrefs;
 import com.callx.app.youtube.R;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.firebase.auth.FirebaseAuth;
@@ -46,6 +47,22 @@ public class YouTubeActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Apply appearance theme from settings BEFORE setContentView
+        YouTubePrefs ytPrefs = new YouTubePrefs(this);
+        int themeMode = ytPrefs.getThemeMode();
+        switch (themeMode) {
+            case 1:
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                    androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO);
+                break;
+            case 2:
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                    androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES);
+                break;
+            default:
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                    androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+        }
         setContentView(R.layout.activity_youtube);
 
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
@@ -82,7 +99,7 @@ public class YouTubeActivity extends AppCompatActivity {
         View btnSettings = findViewById(R.id.btn_yt_settings);
         if (btnSettings != null)
             btnSettings.setOnClickListener(v ->
-                startActivity(new Intent(this, YouTubeSettingsActivity.class)));
+                startActivityForResult(new Intent(this, YouTubeSettingsActivity.class), 1001));
 
         tvYtUnread = findViewById(R.id.tv_yt_notif_badge);
 
@@ -157,6 +174,15 @@ public class YouTubeActivity extends AppCompatActivity {
             tvYtUnread.setText(count > 99 ? "99+" : String.valueOf(count));
         } else {
             tvYtUnread.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 1001) {
+            // Settings screen se wapas aaye — theme change reflect karne ke liye recreate karo
+            recreate();
         }
     }
 

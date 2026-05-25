@@ -28,6 +28,13 @@ import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
 import com.callx.app.sheets.YouTubeVideoOptionsSheet;
 import com.callx.app.utils.YouTubeDownloadManager;
+import com.callx.app.utils.YouTubePrefs;
+import androidx.media3.ui.AspectRatioFrameLayout;
+import androidx.media3.common.TrackSelectionParameters;
+import android.os.Build;
+import android.app.PictureInPictureParams;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -69,6 +76,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private boolean isSubscribed       = false;
     private boolean playerReadyToPlay  = false;
     private boolean playerInitialized  = false; // FIX: ek baar hi initPlayer() chalega
+    private YouTubePrefs ytPrefs;
     private String  channelUidForUnsub = null;
 
     private ValueEventListener videoListener;
@@ -81,6 +89,8 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         setContentView(R.layout.activity_youtube_player);
 
         videoId = getIntent().getStringExtra("video_id");
+        ytPrefs = new YouTubePrefs(this);
+        applyAppearanceTheme();
         String localPath = getIntent().getStringExtra("local_path"); // offline play
         boolean openComments = getIntent().getBooleanExtra("open_comments", false);
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
@@ -385,9 +395,27 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             Log.d(TAG, "  HttpDataSource.Factory use ho rahi hai (remote playback), connect=15s, read=20s");
         }
 
+        long seekMs = ytPrefs.getSeekIncrementMs();
         player = new ExoPlayer.Builder(this)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory))
+            .setSeekForwardIncrementMs(seekMs)
+            .setSeekBackIncrementMs(seekMs)
             .build();
+
+        // Apply zoom-to-fill setting
+        playerView.setResizeMode(ytPrefs.isZoomToFill()
+            ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            : AspectRatioFrameLayout.RESIZE_MODE_FIT);
+
+        // Apply video quality setting
+        boolean onWifi = isOnWifi();
+        int maxHeight = ytPrefs.getEffectiveMaxHeight(onWifi);
+        if (maxHeight < Integer.MAX_VALUE) {
+            player.setTrackSelectionParameters(
+                player.getTrackSelectionParameters().buildUpon()
+                    .setMaxVideoSize(Integer.MAX_VALUE, maxHeight)
+                    .build());
+        }
 
         player.setVideoScalingMode(androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
         playerView.setPlayer(player);
@@ -421,7 +449,12 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                         playerReadyToPlay = false;
                         showPlayerLoading(false);
                         Log.d(TAG, "▶▶ STATE: ENDED");
-                        loadNextRecommendedVideo();
+                        if (ytPrefs.isAutoplay()) {
+                            loadNextRecommendedVideo();
+                            Log.d(TAG, "Autoplay ON — next video load ho raha hai");
+                        } else {
+                            Log.d(TAG, "Autoplay OFF — next video nahi chalega");
+                        }
                         break;
                     case Player.STATE_IDLE:
                         stateStr = "IDLE";
@@ -731,6 +764,18 @@ public class YouTubePlayerActivity extends AppCompatActivity {
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
+    @Override
+    public void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (ytPrefs.isPip() && player != null && player.isPlaying()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+                enterPictureInPictureMode(pipBuilder.build());
+                Log.d(TAG, "PiP mode entered (setting ON)");
+            }
+        }
+    }
+
     @Override public void onConfigurationChanged(@NonNull Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
@@ -768,6 +813,36 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (subsListener != null && !myUid.isEmpty())
             YouTubeFirebaseUtils.subscriptionsRef(myUid).removeEventListener(subsListener);
         Log.d(TAG, "onDestroy — sab cleanup ho gaya");
+    }
+
+    /** Check if device is currently on Wi-Fi */
+    private boolean isOnWifi() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                android.net.Network nw = cm.getActiveNetwork();
+                if (nw == null) return false;
+                NetworkCapabilities caps = cm.getNetworkCapabilities(nw);
+                return caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+            }
+            android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+            return ni != null && ni.getType() == ConnectivityManager.TYPE_WIFI;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Apply dark/light/system theme based on General settings */
+    private void applyAppearanceTheme() {
+        int mode = ytPrefs.getThemeMode();
+        int nightMode;
+        switch (mode) {
+            case 1: nightMode = androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO;  break;
+            case 2: nightMode = androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES; break;
+            default: nightMode = androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM;
+        }
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(nightMode);
     }
 
     private String formatCount(long n) {

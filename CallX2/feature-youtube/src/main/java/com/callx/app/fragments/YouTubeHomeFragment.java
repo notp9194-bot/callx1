@@ -16,6 +16,11 @@ import com.callx.app.activities.YouTubePlayerActivity;
 import com.callx.app.adapters.YouTubeVideoAdapter;
 import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
+import com.callx.app.utils.YouTubePrefs;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
+import android.content.Context;
+import android.os.Build;
 import com.callx.app.youtube.R;
 import com.google.firebase.database.*;
 import java.util.ArrayList;
@@ -29,6 +34,7 @@ public class YouTubeHomeFragment extends Fragment {
     private View                llEmpty;     // ← new
     private YouTubeVideoAdapter adapter;
     private ValueEventListener  feedListener;
+    private YouTubePrefs        ytPrefs;
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inf, @Nullable ViewGroup parent,
@@ -39,6 +45,7 @@ public class YouTubeHomeFragment extends Fragment {
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         super.onViewCreated(view, state);
 
+        ytPrefs      = new YouTubePrefs(requireContext());
         rvFeed       = view.findViewById(R.id.rv_yt_home_feed);
         swipeRefresh = view.findViewById(R.id.srl_yt_home);
         pbLoading    = view.findViewById(R.id.pb_yt_home);
@@ -49,6 +56,7 @@ public class YouTubeHomeFragment extends Fragment {
                 .putExtra("video_id", video.videoId)));
         rvFeed.setLayoutManager(new LinearLayoutManager(requireContext()));
         rvFeed.setAdapter(adapter);
+        applyPlaybackInFeeds();
 
         swipeRefresh.setOnRefreshListener(() -> {
             detachFeedListener();
@@ -63,11 +71,16 @@ public class YouTubeHomeFragment extends Fragment {
         feedListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 List<YouTubeVideo> list = new ArrayList<>();
+                boolean restrictedMode = ytPrefs.isRestrictedMode();
                 for (DataSnapshot ds : snap.getChildren()) {
                     YouTubeVideo v = ds.getValue(YouTubeVideo.class);
-                    if (v != null && !v.isShort && "public".equals(v.visibility)
-                            && v.videoUrl != null && !v.videoUrl.trim().isEmpty())
-                        list.add(0, v);
+                    if (v == null) continue;
+                    if (v.isShort) continue;
+                    if (!"public".equals(v.visibility)) continue;
+                    if (v.videoUrl == null || v.videoUrl.trim().isEmpty()) continue;
+                    // Restricted mode: skip videos marked as mature/age-restricted
+                    if (restrictedMode && v.isAgeRestricted) continue;
+                    list.add(0, v);
                 }
                 adapter.setData(list);
                 showLoading(false);
@@ -103,6 +116,44 @@ public class YouTubeHomeFragment extends Fragment {
         if (feedListener != null)
             YouTubeFirebaseUtils.globalFeedRef().removeEventListener(feedListener);
         feedListener = null;
+    }
+
+    /**
+     * Playback in feeds setting:
+     * 0 = On (always autoplay muted previews)
+     * 1 = Wi-Fi only
+     * 2 = Off (no autoplay in feed)
+     */
+    private void applyPlaybackInFeeds() {
+        if (rvFeed == null || adapter == null) return;
+        int setting = ytPrefs.getPlaybackInFeeds();
+        boolean shouldAutoplay;
+        switch (setting) {
+            case 0: shouldAutoplay = true;               break;
+            case 1: shouldAutoplay = isOnWifi();         break;
+            default: shouldAutoplay = false;             break;
+        }
+        adapter.setFeedAutoplay(shouldAutoplay);
+    }
+
+    private boolean isOnWifi() {
+        try {
+            Context ctx = getContext();
+            if (ctx == null) return false;
+            ConnectivityManager cm = (ConnectivityManager)
+                ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                android.net.Network nw = cm.getActiveNetwork();
+                if (nw == null) return false;
+                NetworkCapabilities caps = cm.getNetworkCapabilities(nw);
+                return caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+            }
+            android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+            return ni != null && ni.getType() == ConnectivityManager.TYPE_WIFI;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Override public void onDestroyView() {

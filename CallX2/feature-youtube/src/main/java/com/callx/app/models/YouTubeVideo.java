@@ -15,7 +15,8 @@ public class YouTubeVideo {
     public long   likeCount;
     public long   commentCount;
     public long   uploadedAt;
-    public boolean isShort;        // true = YouTube Short (<=60s vertical)
+    public boolean isShort;          // true = YouTube Short (<=60s vertical)
+    public boolean isAgeRestricted;  // true = mature/age-restricted content
     public String  visibility;     // "public", "unlisted", "private"
     public boolean isLive;
     public String  liveStreamUrl;
