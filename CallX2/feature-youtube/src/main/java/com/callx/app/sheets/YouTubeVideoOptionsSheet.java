@@ -117,10 +117,14 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
             });
         }
 
-        // Download — click pe choice dialog
+        // In-App Download (Offline — Library me)
         view.findViewById(R.id.btn_yt_option_download).setOnClickListener(v -> {
-            dismiss();
-            showDownloadOptions();
+            downloadVideo(); dismiss();
+        });
+
+        // Gallery Download (Phone ki Gallery me save)
+        view.findViewById(R.id.btn_yt_option_download_gallery).setOnClickListener(v -> {
+            downloadToGallery(); dismiss();
         });
 
         view.findViewById(R.id.btn_yt_option_watch_later).setOnClickListener(v -> {
@@ -241,37 +245,6 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
             .setValue(System.currentTimeMillis())
             .addOnSuccessListener(v -> toast("✅ Report submit ho gaya — shukriya"))
             .addOnFailureListener(e -> toast("❌ Report nahi ho saka"));
-    }
-
-    /**
-     * Download button click pe ye dialog dikhta hai:
-     *  ┌─────────────────────────┐
-     *  │  Download karo          │
-     *  │  ─────────────────────  │
-     *  │  📱 In-App Download     │  ← App ke Library me save, offline play
-     *  │  🖼️ Gallery me Save    │  ← Phone ki Gallery/Photos me
-     *  │  Cancel                 │
-     *  └─────────────────────────┘
-     */
-    private void showDownloadOptions() {
-        if (getActivity() == null) return;
-
-        String[] options = {
-            "📱  In-App Download\n     App ki Library me save — offline dekho",
-            "🖼️  Gallery me Save karo\n     Phone ki Gallery/Photos me dikhega"
-        };
-
-        new android.app.AlertDialog.Builder(getActivity())
-            .setTitle("Download karo")
-            .setItems(options, (dialog, which) -> {
-                if (which == 0) {
-                    downloadVideo();       // In-App (existing working flow)
-                } else {
-                    downloadToGallery();   // Gallery / MediaStore
-                }
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
     }
 
     private void downloadVideo() {
