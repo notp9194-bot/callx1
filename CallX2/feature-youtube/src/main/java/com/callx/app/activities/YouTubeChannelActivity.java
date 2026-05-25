@@ -48,6 +48,12 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         View btnBack = findViewById(R.id.btn_yt_channel_back);
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
+        // Settings button in profile header
+        View btnSettings = findViewById(R.id.btn_yt_profile_settings);
+        if (btnSettings != null)
+            btnSettings.setOnClickListener(v ->
+                startActivityForResult(new Intent(this, YouTubeSettingsActivity.class), 1001));
+
         ivAvatar      = findViewById(R.id.iv_yt_channel_avatar);
         ivBanner      = findViewById(R.id.iv_yt_channel_banner);
         tvChannelName = findViewById(R.id.tv_yt_channel_name);
@@ -67,6 +73,49 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         if (btnEditChannel != null)
             btnEditChannel.setOnClickListener(v ->
                 startActivity(new Intent(this, YouTubeEditChannelActivity.class)));
+
+        // ── 3 Profile Section Cards ─────────────────────────────────────────
+        // Load avatar photo into all 3 card avatars
+        String myPhotoUrl = ""; // will be loaded via loadChannel
+        CircleImageView ivCardReelAvatar = findViewById(R.id.iv_card_reel_avatar);
+        CircleImageView ivCardXAvatar    = findViewById(R.id.iv_card_x_avatar);
+        CircleImageView ivCardChatAvatar = findViewById(R.id.iv_card_chat_avatar);
+
+        // Card 1: Reel — opens UserReelsActivity
+        View cardReel = findViewById(R.id.card_yt_profile_reel);
+        if (cardReel != null) {
+            cardReel.setOnClickListener(v -> {
+                Intent i = new Intent(this,
+                    com.callx.app.activities.UserReelsActivity.class);
+                i.putExtra("uid", channelUid);
+                i.putExtra("name", tvChannelName.getText() != null
+                    ? tvChannelName.getText().toString() : "");
+                startActivity(i);
+            });
+        }
+
+        // Card 2: X — opens XProfileActivity
+        View cardX = findViewById(R.id.card_yt_profile_x);
+        if (cardX != null) {
+            cardX.setOnClickListener(v -> {
+                Intent i = new Intent(this,
+                    com.callx.app.activities.XProfileActivity.class);
+                i.putExtra("uid", channelUid);
+                startActivity(i);
+            });
+        }
+
+        // Card 3: Chat — opens MainActivity on Chats tab
+        View cardChat = findViewById(R.id.card_yt_profile_chat);
+        if (cardChat != null) {
+            cardChat.setOnClickListener(v -> {
+                Intent i = new Intent(this,
+                    com.callx.app.activities.MainActivity.class);
+                i.putExtra("tab", "chats");
+                i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(i);
+            });
+        }
 
         videoAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
             startActivity(new Intent(this, YouTubePlayerActivity.class)
@@ -101,6 +150,16 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                 if (banner != null && !banner.isEmpty())
                     Glide.with(YouTubeChannelActivity.this).load(banner)
                         .centerCrop().into(ivBanner);
+
+                // Load avatar into 3 section cards
+                if (photo != null && !photo.isEmpty()) {
+                    CircleImageView ivR = findViewById(R.id.iv_card_reel_avatar);
+                    CircleImageView ivX = findViewById(R.id.iv_card_x_avatar);
+                    CircleImageView ivC = findViewById(R.id.iv_card_chat_avatar);
+                    if (ivR != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivR);
+                    if (ivX != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivX);
+                    if (ivC != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivC);
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -175,6 +234,12 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         if (n >= 1_000_000) return String.format("%.1fM", n / 1_000_000.0);
         if (n >= 1_000)     return String.format("%.1fK", n / 1_000.0);
         return String.valueOf(n);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 1001) recreate();
     }
 
     @Override protected void onDestroy() {

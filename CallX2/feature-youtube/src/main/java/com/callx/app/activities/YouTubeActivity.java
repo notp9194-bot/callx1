@@ -95,12 +95,6 @@ public class YouTubeActivity extends AppCompatActivity {
             btnUpload.setOnClickListener(v ->
                 startActivity(new Intent(this, YouTubeUploadActivity.class)));
 
-        // ── Settings button ──────────────────────────────────────────────────
-        View btnSettings = findViewById(R.id.btn_yt_settings);
-        if (btnSettings != null)
-            btnSettings.setOnClickListener(v ->
-                startActivityForResult(new Intent(this, YouTubeSettingsActivity.class), 1001));
-
         tvYtUnread = findViewById(R.id.tv_yt_notif_badge);
 
         // ── Fragments ─────────────────────────────────────────────────────────

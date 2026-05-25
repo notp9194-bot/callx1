@@ -102,6 +102,14 @@ public class YouTubeVideoAdapter
             if (listener != null) listener.onClick(video);
         });
 
+        // Avatar click → open YouTubeChannelActivity for the uploader
+        h.ivAvatar.setOnClickListener(v -> {
+            android.content.Intent i = new android.content.Intent(ctx,
+                com.callx.app.activities.YouTubeChannelActivity.class);
+            i.putExtra("uid", video.uploaderUid != null ? video.uploaderUid : "");
+            ctx.startActivity(i);
+        });
+
         // Downloaded badge
         if (h.tvDownloadedBadge != null) {
             h.tvDownloadedBadge.setVisibility(
