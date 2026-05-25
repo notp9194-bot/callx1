@@ -19,6 +19,12 @@ import org.json.JSONObject;
 
 import java.util.concurrent.TimeUnit;
 
+// core module utilities (same base package — explicit imports for clarity & IDE support)
+import com.callx.app.utils.VideoCompressor;
+import com.callx.app.utils.VideoQualityPreferences;
+import com.callx.app.utils.ImageCompressor;
+import com.callx.app.utils.Constants;
+
 /**
  * YouTubeCloudinaryUtils — Cloudinary upload helper for YouTube module.
  *
