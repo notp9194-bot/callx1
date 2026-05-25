@@ -68,6 +68,55 @@
               android:screenOrientation="portrait"
               android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
 
+          <activity
+              android:name="com.callx.app.activities.XEditProfileActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XImageViewerActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XVideoPlayerActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XBlockedUsersActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:label="Blocked Accounts"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XMutedUsersActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:label="Muted Accounts"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XGifPickerActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"
+              android:screenOrientation="portrait"
+              android:label="Choose GIF"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XThreadComposerActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"
+              android:screenOrientation="portrait"
+              android:label="Compose Thread"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
           <!-- X Background Notification Service -->
           <service
               android:name="com.callx.app.notifications.XNotificationService"
