@@ -73,6 +73,10 @@ public class YouTubeDownloadsActivity extends AppCompatActivity {
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     items.clear();
+
+                    // ── FIX: Firebase record + local file dono check karo ─────────
+                    // Step 1: Firebase se completed records lo (metadata ke saath)
+                    java.util.Set<String> firebaseIds = new java.util.HashSet<>();
                     for (DataSnapshot ds : snap.getChildren()) {
                         String status = ds.child("status").getValue(String.class);
                         if (!"completed".equals(status)) continue;
@@ -85,6 +89,8 @@ public class YouTubeDownloadsActivity extends AppCompatActivity {
                             YouTubeDownloadsActivity.this, videoId);
                         if (!f.exists() || f.length() < 1024) continue;
 
+                        firebaseIds.add(videoId);
+
                         DownloadItem item = new DownloadItem();
                         item.videoId      = videoId;
                         item.title        = ds.child("title").getValue(String.class);
@@ -96,6 +102,23 @@ public class YouTubeDownloadsActivity extends AppCompatActivity {
                         item.fileSizeMb   = f.length() / (1024f * 1024f);
                         items.add(0, item); // newest first
                     }
+
+                    // Step 2: Local disk pe jo files hain par Firebase me record nahi —
+                    // unhe bhi dikhao (network fail pe bhi download complete tha)
+                    java.util.List<String> localIds =
+                        YouTubeDownloadManager.getLocalDownloadedIds(YouTubeDownloadsActivity.this);
+                    for (String videoId : localIds) {
+                        if (firebaseIds.contains(videoId)) continue; // already added
+                        File f = YouTubeDownloadManager.getLocalFile(
+                            YouTubeDownloadsActivity.this, videoId);
+                        DownloadItem item = new DownloadItem();
+                        item.videoId   = videoId;
+                        item.title     = videoId; // no metadata available
+                        item.localPath = f.getAbsolutePath();
+                        item.fileSizeMb = f.length() / (1024f * 1024f);
+                        items.add(item);
+                    }
+
                     pbLoading.setVisibility(View.GONE);
                     if (items.isEmpty()) {
                         showEmpty("Koi download nahi hua abhi tak\nVideos download karo offline dekhne ke liye");
@@ -105,7 +128,27 @@ public class YouTubeDownloadsActivity extends AppCompatActivity {
                     }
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    showEmpty("Load nahi hua: " + e.getMessage());
+                    // Firebase fail hua — sirf local files dikhao
+                    items.clear();
+                    java.util.List<String> localIds =
+                        YouTubeDownloadManager.getLocalDownloadedIds(YouTubeDownloadsActivity.this);
+                    for (String videoId : localIds) {
+                        File f = YouTubeDownloadManager.getLocalFile(
+                            YouTubeDownloadsActivity.this, videoId);
+                        DownloadItem item = new DownloadItem();
+                        item.videoId    = videoId;
+                        item.title      = videoId;
+                        item.localPath  = f.getAbsolutePath();
+                        item.fileSizeMb = f.length() / (1024f * 1024f);
+                        items.add(item);
+                    }
+                    pbLoading.setVisibility(View.GONE);
+                    if (items.isEmpty()) {
+                        showEmpty("Load nahi hua: " + e.getMessage());
+                    } else {
+                        tvEmpty.setVisibility(View.GONE);
+                        adapter.notifyDataSetChanged();
+                    }
                 }
             });
     }

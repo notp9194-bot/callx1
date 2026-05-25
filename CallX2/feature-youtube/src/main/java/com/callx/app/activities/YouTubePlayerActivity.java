@@ -356,23 +356,44 @@ public class YouTubePlayerActivity extends AppCompatActivity {
 
         Toast.makeText(this, "⚙️ ExoPlayer initialize ho raha hai...", Toast.LENGTH_SHORT).show();
 
-        DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(20_000)
-            .setUserAgent("ExoPlayer/2.0 (Linux;Android " + android.os.Build.VERSION.RELEASE + ")");
+        // ── FIX: Local file path ko properly Uri me convert karo ──────────────
+        // Agar url local file path hai (starts with "/") to file:// scheme lagao.
+        // Bina iske DefaultHttpDataSource HTTP request karta hai → Timeout Error 2001.
+        android.net.Uri mediaUri;
+        boolean isLocalFile = url.startsWith("/");
+        if (isLocalFile) {
+            mediaUri = android.net.Uri.fromFile(new java.io.File(url));
+            Log.d(TAG, "  LOCAL FILE detected — file:// URI: " + mediaUri);
+        } else {
+            mediaUri = android.net.Uri.parse(url);
+            Log.d(TAG, "  REMOTE URL — URI: " + mediaUri);
+        }
 
-        Log.d(TAG, "  HttpDataSource created — redirects=true, connect=15s, read=20s");
+        // DataSource factory: local file ke liye FileDataSource, remote ke liye Http
+        androidx.media3.datasource.DataSource.Factory dataSourceFactory;
+        if (isLocalFile) {
+            // Local file — sirf FileDataSource chahiye, no HTTP needed
+            dataSourceFactory = new androidx.media3.datasource.FileDataSource.Factory();
+            Log.d(TAG, "  FileDataSource.Factory use ho rahi hai (local playback)");
+        } else {
+            DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15_000)
+                .setReadTimeoutMs(20_000)
+                .setUserAgent("ExoPlayer/2.0 (Linux;Android " + android.os.Build.VERSION.RELEASE + ")");
+            dataSourceFactory = httpFactory;
+            Log.d(TAG, "  HttpDataSource.Factory use ho rahi hai (remote playback), connect=15s, read=20s");
+        }
 
         player = new ExoPlayer.Builder(this)
-            .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
+            .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory))
             .build();
 
         player.setVideoScalingMode(androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
         playerView.setPlayer(player);
         playerView.setUseController(true);
 
-        player.setMediaItem(MediaItem.fromUri(android.net.Uri.parse(url)));
+        player.setMediaItem(MediaItem.fromUri(mediaUri));
         player.prepare();
         player.setPlayWhenReady(true);
 
