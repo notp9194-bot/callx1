@@ -25,16 +25,12 @@ Koi ek system dusre ko overwrite nahi karta.
 
 ---
 
-### 2. Reels Profile (NEW — Separate)
+### 2. Reels Profile (Separate)
 **Firebase node:** `reels/users/{uid}`
 **Activities:** `ReelProfileSetupActivity` (first time) + `ReelEditProfileActivity`
-**Accessible from:** `UserReelsActivity` → Settings button
 **Data:**
-- `displayName`, `handle` (@handle — unique index at `reels/handles/{handle}`)
-- `bio`, `category`, `website`
-- `photoUrl` — Full avatar (800×800 JPEG)
-- `thumbUrl` — Feed avatar (100×100 WebP)
-- `bannerUrl` — Profile banner
+- `displayName`, `handle`, `bio`, `category`, `website`
+- `photoUrl`, `thumbUrl`, `bannerUrl`
 - `instagramHandle`, `twitterHandle`, `youtubeChannelUrl`
 - `followerCount`, `followingCount`, `reelCount`, `totalLikes`
 - `verified`, `privateAccount`, `allowDuet`, `allowStitch`, `allowComments`
@@ -44,29 +40,60 @@ Koi ek system dusre ko overwrite nahi karta.
 - Avatar full  → `callx/reels/avatars/`
 - Banner       → `callx/reels/banners/`
 
-**First-time flow:**
-```
-User taps Reels creator icon 
-  → ReelsFragment checks reels/users/{uid}
-  → Not exists → ReelProfileSetupActivity
-  → Exists → UserReelsActivity
-```
-
 ---
 
-### 3. X (Twitter-like) Profile
+### 3. X (Twitter-like) Profile ← NEW SYSTEM (v18+)
 **Firebase node:** `x/users/{uid}`
+**Model:** `XProfile.java` (replaces old `XUser.java`)
+**Manager:** `XProfileManager.java` (centralized read/write)
 **Activities:** `XProfileActivity` + `XEditProfileActivity`
-**Model:** `XUser.java`
-**Data:**
+
+**Data (XProfile):**
 - `name`, `handle`, `bio`, `website`, `location`, `birthday`, `gender`
-- `photoUrl` — Full avatar
-- `thumbUrl` — Feed avatar
-- `bannerUrl` — Profile banner
+- `photoUrl` — Full avatar → `x/avatars/`
+- `thumbUrl` — Feed avatar → `x/avatars/thumbs/`
+- `bannerUrl` — Banner     → `x/banners/`
 - `verified`, `blueVerified`, `privateAccount`
-- `followerCount`, `followingCount`, `tweetCount`
-- `pinnedTweetId`
+- `followerCount`, `followingCount`, `tweetCount`, `profileViews`
+- `pinnedTweetId`, `joinedTs`, `updatedAt`
 - Handle index → `x/x_handles/{handle} = uid`
+
+**New Architecture:**
+```
+XProfile.java          — Data model (replaces XUser)
+XProfileManager.java   — All Firebase read/write
+XProfileActivity       — View profile (uses XProfile + XProfileManager)
+XEditProfileActivity   — Edit profile (uses XProfile + XProfileManager)
+XCloudinaryUtils       — Avatar/banner upload
+```
+
+**XProfileManager API:**
+```java
+// Load once
+XProfileManager.load(uid, profile -> { ... });
+
+// Real-time
+ValueEventListener l = XProfileManager.observe(uid, profile -> { ... });
+XProfileManager.stopObserving(uid, l); // in onDestroy
+
+// Save editable fields
+XProfileManager.save(uid, profile, oldHandle, callback);
+
+// Update media
+XProfileManager.updateAvatar(uid, photoUrl, thumbUrl);
+XProfileManager.updateBanner(uid, bannerUrl);
+
+// Handle check
+XProfileManager.checkHandleAvailable(handle, uid, available -> { ... });
+
+// Profile view counter
+XProfileManager.incrementProfileViews(uid);
+```
+
+**Migration from XUser:**
+- `XUser` → `XProfile` (XUser is now a deprecated shim that extends XProfile)
+- Direct `xUserRef().setValue()` → `XProfileManager.save()`
+- Direct `xUserRef().addValueEventListener()` → `XProfileManager.observe()`
 
 **Cloudinary folders:**
 - Avatar → `x/avatars/`
@@ -80,97 +107,76 @@ User taps Reels creator icon
 **Model:** `YouTubeChannel.java`
 **Data:**
 - `channelName`, `handle`, `bio`, `country`
-- `photoUrl` — Channel avatar
-- `bannerUrl` — Channel banner
+- `photoUrl`, `bannerUrl`
 - `subscriberCount`, `videoCount`, `totalViews`
 - `isVerified`, `createdAt`
 
-**Cloudinary folders (via YouTubeCloudinaryUtils):**
+**Cloudinary folders:**
 - Avatar → `youtube/{uid}/avatar/`
 - Banner → `youtube/{uid}/banner/`
 
 ---
 
-## Firebase Database Structure (Simplified)
+## Firebase Database Structure
 
 ```
 Firebase Realtime Database Root
-├── users/                          ← CHAT PROFILE (ProfileActivity)
+├── users/                          ← CHAT PROFILE
 │   └── {uid}/
 │       ├── name, about, callxId
 │       ├── photoUrl, thumbUrl
 │       └── phone, whatsapp, instagram, youtube, otherLink
 │
-├── reels/                          ← REELS PROFILE (ReelEditProfileActivity)
+├── reels/                          ← REELS PROFILE
 │   ├── users/{uid}/
 │   │   ├── displayName, handle, bio, category
 │   │   ├── photoUrl, thumbUrl, bannerUrl
-│   │   ├── website, instagramHandle, twitterHandle, youtubeChannelUrl
 │   │   ├── followerCount, followingCount, reelCount
-│   │   ├── verified, privateAccount, allowDuet, allowStitch
-│   │   └── createdAt, updatedAt
-│   ├── handles/{handle} → uid      ← Handle uniqueness index
-│   ├── videos/{reelId}/            ← Reel content
-│   ├── user_videos/{uid}/
-│   ├── user_followers/{uid}/
-│   └── user_following/{uid}/
+│   │   └── verified, privateAccount, allowDuet, allowStitch
+│   └── handles/{handle} → uid
 │
-├── x/                              ← X PROFILE (XEditProfileActivity)
-│   ├── users/{uid}/
+├── x/                              ← X PROFILE (new XProfile system)
+│   ├── users/{uid}/                ← XProfile node
 │   │   ├── name, handle, bio, website, location
 │   │   ├── photoUrl, thumbUrl, bannerUrl
-│   │   ├── followerCount, followingCount, tweetCount
-│   │   └── verified, blueVerified, privateAccount
-│   ├── x_handles/{handle} → uid    ← Handle uniqueness index
+│   │   ├── followerCount, followingCount, tweetCount, profileViews
+│   │   ├── verified, blueVerified, privateAccount
+│   │   ├── pinnedTweetId, joinedTs, updatedAt
+│   │   └── birthday, gender
+│   ├── x_handles/{handle} → uid   ← Handle uniqueness index
 │   ├── tweets/{tweetId}/
 │   ├── user_tweets/{uid}/
 │   └── notifications/{uid}/
 │
-└── youtube/                        ← YOUTUBE PROFILE (YouTubeEditChannelActivity)
+└── youtube/                        ← YOUTUBE PROFILE
     ├── channels/{uid}/
     │   ├── channelName, handle, bio, country
     │   ├── photoUrl, bannerUrl
-    │   ├── subscriberCount, videoCount, totalViews
-    │   └── isVerified, createdAt
+    │   └── subscriberCount, videoCount, totalViews
     ├── videos/{videoId}/
-    ├── user_videos/{uid}/
     └── subscriptions/{uid}/
 ```
 
 ---
 
-## New Files Added
+## New Files (X Profile System)
 
-### core/
-- `models/ReelProfile.java` — Reels profile data model
+### feature-x/ (NEW)
+- `models/XProfile.java` — New X profile data model
+- `utils/XProfileManager.java` — Centralized profile read/write manager
+- `activities/XProfileActivity.java` — Updated to use XProfile + XProfileManager
+- `activities/XEditProfileActivity.java` — Updated to use XProfile + XProfileManager
 
-### feature-reels/
-- `activities/ReelProfileSetupActivity.java` — First-time Reel profile create
-- `activities/ReelEditProfileActivity.java` — Reel profile edit karo
-- `utils/ReelFirebaseUtils.java` — Reels Firebase paths (reels/* root)
-- `utils/ReelCloudinaryUtils.java` — Reels Cloudinary upload (avatar + banner)
-- `res/layout/activity_reel_profile_setup.xml` — Setup screen layout
-- `res/layout/activity_reel_edit_profile.xml` — Edit screen layout
-
-### feature-x/ (Updated)
-- `utils/XCloudinaryUtils.java` — Added `uploadXAvatar()` + `uploadXBanner()` methods
-  - Avatar → `x/avatars/` (was `x_tweets/`)
-  - Banner → `x/banners/` (was `x_tweets/`)
-- `activities/XEditProfileActivity.java` — Now calls correct avatar/banner methods
-
-### feature-reels/ (Updated)
-- `fragments/ReelsFragment.java` — Creator button checks reel profile, shows setup if missing
-- `activities/UserReelsActivity.java` — Settings button opens `ReelEditProfileActivity`
-- `AndroidManifest.xml` — `ReelProfileSetupActivity` + `ReelEditProfileActivity` registered
+### feature-x/ (DEPRECATED)
+- `models/XUser.java` — Deprecated shim (extends XProfile for backward compat)
 
 ---
 
 ## Cloudinary Folder Summary
 
-| System   | Avatar Thumb         | Avatar Full        | Banner              |
-|----------|---------------------|--------------------|---------------------|
-| Chat     | callx/avatars/thumbs | callx/avatars      | —                   |
-| Reels    | callx/reels/avatars/thumbs | callx/reels/avatars | callx/reels/banners |
-| X        | —                   | x/avatars          | x/banners           |
-| YouTube  | —                   | youtube/{uid}/avatar | youtube/{uid}/banner |
-
+| System   | Avatar Thumb               | Avatar Full        | Banner              |
+|----------|---------------------------|--------------------|---------------------|
+| Chat     | callx/avatars/thumbs      | callx/avatars      | —                   |
+| Reels    | callx/reels/avatars/thumbs| callx/reels/avatars| callx/reels/banners |
+| X        | x/avatars/thumbs          | x/avatars          | x/banners           |
+| YouTube  | —                         | youtube/{uid}/avatar| youtube/{uid}/banner|

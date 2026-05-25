@@ -11,33 +11,35 @@ import android.view.View;
 import android.widget.*;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.annotation.NonNull;
 import com.bumptech.glide.Glide;
-import com.callx.app.models.XUser;
+import com.callx.app.models.XProfile;
 import com.callx.app.utils.XCloudinaryUtils;
-import com.callx.app.utils.XFirebaseUtils;
+import com.callx.app.utils.XProfileManager;
 import com.callx.app.x.R;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
-
 import java.util.Calendar;
-import java.util.HashMap;
-import java.util.Map;
 
+/**
+ * XEditProfileActivity — Edit X profile.
+ * Uses new XProfile model + XProfileManager.
+ * Avatar → XCloudinaryUtils.uploadXAvatar() → XProfileManager.updateAvatar()
+ * Banner → XCloudinaryUtils.uploadXBanner()  → XProfileManager.updateBanner()
+ */
 public class XEditProfileActivity extends AppCompatActivity {
 
     private static final int BIO_MAX = 160;
 
     private String myUid;
-    private XUser xUser;
+    private XProfile xProfile;
+    private String originalHandle = "";
+
     private CircleImageView ivAvatar;
     private ImageView ivBanner;
-
     private TextInputEditText etName, etHandle, etBio, etWebsite, etLocation;
     private TextInputLayout tilHandle, tilBio;
     private TextView tvBioCount, tvBirthday;
@@ -46,7 +48,6 @@ public class XEditProfileActivity extends AppCompatActivity {
     private ProgressBar pbSave;
     private boolean pickingAvatar;
 
-    // FIX: launcher must be registered at field level, not inside a method
     private final ActivityResultLauncher<Intent> imagePicker =
         registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == RESULT_OK && result.getData() != null) {
@@ -60,15 +61,11 @@ public class XEditProfileActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_x_edit_profile);
 
-        // FIX: getCurrentUser() can return null briefly on cold launch due to Firebase
-        //      Auth state restore race condition — causes instant finish() crash.
-        //      Use addAuthStateListener to wait for auth to be ready first.
         FirebaseAuth auth = FirebaseAuth.getInstance();
         if (auth.getCurrentUser() != null) {
             myUid = auth.getCurrentUser().getUid();
             initViews();
         } else {
-            // Auth state not yet restored — wait for it
             auth.addAuthStateListener(new FirebaseAuth.AuthStateListener() {
                 @Override public void onAuthStateChanged(@NonNull FirebaseAuth fa) {
                     fa.removeAuthStateListener(this);
@@ -108,7 +105,7 @@ public class XEditProfileActivity extends AppCompatActivity {
         ga.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spGender.setAdapter(ga);
 
-        // Bio character counter
+        // Bio counter
         etBio.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
@@ -116,20 +113,17 @@ public class XEditProfileActivity extends AppCompatActivity {
                 int len = s.length();
                 tvBioCount.setText(len + "/" + BIO_MAX);
                 tvBioCount.setTextColor(len > BIO_MAX
-                    ? 0xFFD32F2F : getResources().getColor(R.color.x_text_secondary, getTheme()));
+                    ? 0xFFD32F2F
+                    : getResources().getColor(R.color.x_text_secondary, getTheme()));
             }
         });
 
-        // Birthday picker
         tvBirthday.setOnClickListener(v -> showDatePicker());
 
-        // Toolbar buttons
-        // FIX: Use XEditProfileActivity.this explicitly — avoids "this" capture issue in lambdas
-        //      that caused crashes when activity was recreated mid-launch
         XEditProfileActivity self = this;
         findViewById(R.id.btn_edit_close).setOnClickListener(v -> self.finish());
         findViewById(R.id.btn_edit_save).setOnClickListener(v -> self.saveProfile());
-        ivAvatar.setOnClickListener(v -> { pickingAvatar = true; pickImage(); });
+        ivAvatar.setOnClickListener(v -> { pickingAvatar = true;  pickImage(); });
         ivBanner.setOnClickListener(v -> { pickingAvatar = false; pickImage(); });
 
         loadProfile();
@@ -143,10 +137,9 @@ public class XEditProfileActivity extends AppCompatActivity {
 
     private void showDatePicker() {
         Calendar cal = Calendar.getInstance();
-        // Pre-fill if birthday already set
-        if (xUser != null && xUser.birthday != null && xUser.birthday.contains("/")) {
+        if (xProfile != null && xProfile.birthday != null && xProfile.birthday.contains("/")) {
             try {
-                String[] parts = xUser.birthday.split("/");
+                String[] parts = xProfile.birthday.split("/");
                 cal.set(Integer.parseInt(parts[2]),
                         Integer.parseInt(parts[1]) - 1,
                         Integer.parseInt(parts[0]));
@@ -155,53 +148,54 @@ public class XEditProfileActivity extends AppCompatActivity {
         new DatePickerDialog(this, (view, year, month, day) -> {
             String dob = String.format("%02d/%02d/%04d", day, month + 1, year);
             tvBirthday.setText(dob);
-            tvBirthday.setTextColor(getResources().getColor(R.color.x_text_primary, getTheme()));
-        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show();
+            tvBirthday.setTextColor(
+                getResources().getColor(R.color.x_text_primary, getTheme()));
+        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH),
+           cal.get(Calendar.DAY_OF_MONTH)).show();
     }
+
+    // ── Load ─────────────────────────────────────────────────────────────────
 
     private void loadProfile() {
-        XFirebaseUtils.xUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                xUser = snap.getValue(XUser.class);
-                if (xUser == null) return;
+        XProfileManager.load(myUid, profile -> {
+            if (profile == null) return;
+            xProfile      = profile;
+            originalHandle = profile.handle != null ? profile.handle : "";
 
-                etName.setText(xUser.name);
-                etHandle.setText(xUser.handle != null ? xUser.handle : "");
-                etBio.setText(xUser.bio != null ? xUser.bio : "");
-                etWebsite.setText(xUser.website != null ? xUser.website : "");
-                etLocation.setText(xUser.location != null ? xUser.location : "");
+            etName.setText(profile.name);
+            etHandle.setText(profile.handle != null ? profile.handle : "");
+            etBio.setText(profile.bio != null ? profile.bio : "");
+            etWebsite.setText(profile.website  != null ? profile.website  : "");
+            etLocation.setText(profile.location != null ? profile.location : "");
 
-                // Birthday
-                if (xUser.birthday != null && !xUser.birthday.isEmpty()) {
-                    tvBirthday.setText(xUser.birthday);
-                    tvBirthday.setTextColor(
-                        getResources().getColor(R.color.x_text_primary, getTheme()));
-                }
+            if (profile.birthday != null && !profile.birthday.isEmpty()) {
+                tvBirthday.setText(profile.birthday);
+                tvBirthday.setTextColor(
+                    getResources().getColor(R.color.x_text_primary, getTheme()));
+            }
 
-                // Gender spinner
-                String[] genders = {"Prefer not to say", "Male", "Female", "Other"};
-                if (xUser.gender != null) {
-                    for (int i = 0; i < genders.length; i++) {
-                        if (genders[i].equals(xUser.gender)) { spGender.setSelection(i); break; }
+            String[] genders = {"Prefer not to say", "Male", "Female", "Other"};
+            if (profile.gender != null) {
+                for (int i = 0; i < genders.length; i++) {
+                    if (genders[i].equals(profile.gender)) {
+                        spGender.setSelection(i); break;
                     }
                 }
-
-                // Private account
-                swPrivate.setChecked(xUser.privateAccount);
-
-                // Avatar / banner
-                if (xUser.photoUrl != null && !xUser.photoUrl.isEmpty()) {
-                    String url = (xUser.thumbUrl != null && !xUser.thumbUrl.isEmpty())
-                        ? xUser.thumbUrl : xUser.photoUrl;
-                    Glide.with(XEditProfileActivity.this).load(url).circleCrop().into(ivAvatar);
-                }
-                if (xUser.bannerUrl != null && !xUser.bannerUrl.isEmpty())
-                    Glide.with(XEditProfileActivity.this).load(xUser.bannerUrl)
-                        .centerCrop().into(ivBanner);
             }
-            @Override public void onCancelled(DatabaseError e) {}
+            swPrivate.setChecked(profile.privateAccount);
+
+            // Avatar
+            String avatarUrl = profile.avatarForList();
+            if (avatarUrl != null && !avatarUrl.isEmpty())
+                Glide.with(this).load(avatarUrl).circleCrop().into(ivAvatar);
+
+            // Banner
+            if (profile.bannerUrl != null && !profile.bannerUrl.isEmpty())
+                Glide.with(this).load(profile.bannerUrl).centerCrop().into(ivBanner);
         });
     }
+
+    // ── Upload ───────────────────────────────────────────────────────────────
 
     private void uploadImage(Uri uri, boolean isAvatar) {
         pbSave.setVisibility(View.VISIBLE);
@@ -211,36 +205,35 @@ public class XEditProfileActivity extends AppCompatActivity {
                     pbSave.setVisibility(View.GONE);
                     if (isAvatar) {
                         Glide.with(XEditProfileActivity.this).load(url).circleCrop().into(ivAvatar);
-                        XFirebaseUtils.xUserRef(myUid).child("photoUrl").setValue(url);
+                        // Save to Firebase via XProfileManager
+                        XProfileManager.updateAvatar(myUid, url, null);
                     } else {
                         Glide.with(XEditProfileActivity.this).load(url).centerCrop().into(ivBanner);
-                        XFirebaseUtils.xUserRef(myUid).child("bannerUrl").setValue(url);
+                        XProfileManager.updateBanner(myUid, url);
                     }
                 });
             }
             @Override public void onError(String msg) {
                 runOnUiThread(() -> {
                     pbSave.setVisibility(View.GONE);
-                    Toast.makeText(XEditProfileActivity.this, "Upload failed: " + msg,
-                        Toast.LENGTH_SHORT).show();
+                    Toast.makeText(XEditProfileActivity.this,
+                        "Upload failed: " + msg, Toast.LENGTH_SHORT).show();
                 });
             }
             @Override public void onProgress(int pct) {}
         };
-        // Avatar → x/avatars/, Banner → x/banners/
-        if (isAvatar) {
-            XCloudinaryUtils.uploadXAvatar(this, uri, cb);
-        } else {
-            XCloudinaryUtils.uploadXBanner(this, uri, cb);
-        }
+        if (isAvatar) XCloudinaryUtils.uploadXAvatar(this, uri, cb);
+        else          XCloudinaryUtils.uploadXBanner(this, uri, cb);
     }
+
+    // ── Save ─────────────────────────────────────────────────────────────────
 
     private void saveProfile() {
         String name   = getText(etName);
         String handle = getText(etHandle).toLowerCase().replaceAll("[^a-z0-9_]", "");
         String bio    = getText(etBio);
 
-        if (name.isEmpty()) { etName.setError("Name required"); return; }
+        if (name.isEmpty())   { etName.setError("Name required"); return; }
         if (handle.isEmpty()) { tilHandle.setError("Handle required"); return; }
         if (handle.length() < 3) { tilHandle.setError("Min 3 characters"); return; }
         if (bio.length() > BIO_MAX) {
@@ -249,62 +242,49 @@ public class XEditProfileActivity extends AppCompatActivity {
 
         pbSave.setVisibility(View.VISIBLE);
 
-        // If handle changed, check uniqueness first
-        String oldHandle = (xUser != null && xUser.handle != null) ? xUser.handle : "";
-        if (!handle.equals(oldHandle)) {
-            XFirebaseUtils.xHandlesRef().child(handle)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(DataSnapshot snap) {
-                        if (snap.exists() && !myUid.equals(snap.getValue(String.class))) {
-                            pbSave.setVisibility(View.GONE);
-                            tilHandle.setError("Handle already taken");
-                        } else {
-                            persistProfile(handle, oldHandle, name, bio);
-                        }
-                    }
-                    @Override public void onCancelled(DatabaseError e) {
-                        pbSave.setVisibility(View.GONE);
-                        Toast.makeText(XEditProfileActivity.this, "Error checking handle",
-                            Toast.LENGTH_SHORT).show();
-                    }
-                });
+        // Build updated XProfile
+        if (xProfile == null) xProfile = new XProfile();
+        xProfile.name           = name;
+        xProfile.handle         = handle;
+        xProfile.bio            = bio;
+        xProfile.website        = getText(etWebsite);
+        xProfile.location       = getText(etLocation);
+        xProfile.gender         = spGender.getSelectedItem().toString();
+        String bday             = tvBirthday.getText().toString();
+        xProfile.birthday       = bday.equals("Tap to set birthday") ? "" : bday;
+        xProfile.privateAccount = swPrivate.isChecked();
+
+        if (!handle.equals(originalHandle)) {
+            // Check handle availability first
+            XProfileManager.checkHandleAvailable(handle, myUid, available -> {
+                if (!available) {
+                    pbSave.setVisibility(View.GONE);
+                    tilHandle.setError("Handle already taken");
+                } else {
+                    persist();
+                }
+            });
         } else {
-            persistProfile(handle, oldHandle, name, bio);
+            persist();
         }
     }
 
-    private void persistProfile(String handle, String oldHandle, String name, String bio) {
-        String gender   = spGender.getSelectedItem().toString();
-        String birthday = tvBirthday.getText().toString();
-        boolean priv    = swPrivate.isChecked();
-
-        Map<String, Object> updates = new HashMap<>();
-        updates.put("name",           name);
-        updates.put("handle",         handle);
-        updates.put("bio",            bio);
-        updates.put("website",        getText(etWebsite));
-        updates.put("location",       getText(etLocation));
-        updates.put("gender",         gender);
-        updates.put("birthday",       birthday.equals("Tap to set birthday") ? "" : birthday);
-        updates.put("privateAccount", priv);
-
-        XFirebaseUtils.xUserRef(myUid).updateChildren(updates).addOnCompleteListener(t -> {
-            if (t.isSuccessful()) {
-                // Update handles index
-                if (!handle.equals(oldHandle)) {
-                    if (!oldHandle.isEmpty())
-                        XFirebaseUtils.xHandlesRef().child(oldHandle).removeValue();
-                    XFirebaseUtils.xHandlesRef().child(handle).setValue(myUid);
+    private void persist() {
+        XProfileManager.save(myUid, xProfile, originalHandle,
+            new XProfileManager.SaveCallback() {
+                @Override public void onSuccess() {
+                    pbSave.setVisibility(View.GONE);
+                    Toast.makeText(XEditProfileActivity.this,
+                        "Profile updated", Toast.LENGTH_SHORT).show();
+                    setResult(RESULT_OK);
+                    finish();
                 }
-                pbSave.setVisibility(View.GONE);
-                Toast.makeText(this, "Profile updated", Toast.LENGTH_SHORT).show();
-                setResult(RESULT_OK);
-                finish();
-            } else {
-                pbSave.setVisibility(View.GONE);
-                Toast.makeText(this, "Save failed", Toast.LENGTH_SHORT).show();
-            }
-        });
+                @Override public void onError(String error) {
+                    pbSave.setVisibility(View.GONE);
+                    Toast.makeText(XEditProfileActivity.this,
+                        "Save failed: " + error, Toast.LENGTH_SHORT).show();
+                }
+            });
     }
 
     private String getText(TextInputEditText field) {

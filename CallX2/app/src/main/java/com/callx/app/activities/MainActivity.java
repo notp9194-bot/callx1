@@ -590,11 +590,6 @@ public class MainActivity extends AppCompatActivity {
         // Click → open XActivity
         xEntryRoot.setOnClickListener(v ->
             startActivity(new Intent(this, XActivity.class)));
-        // Avatar elevated upar hai — uski click bhi handle karo
-        if (ivAvatar != null) {
-            ivAvatar.setOnClickListener(v ->
-                startActivity(new Intent(this, XActivity.class)));
-        }
 
         // Badge: listen for unread X notifications
         if (uid != null && tvBadge != null) {

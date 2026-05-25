@@ -18,9 +18,10 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.adapters.XTweetAdapter;
 import com.callx.app.models.XNotification;
+import com.callx.app.models.XProfile;
 import com.callx.app.models.XTweet;
-import com.callx.app.models.XUser;
 import com.callx.app.utils.XFirebaseUtils;
+import com.callx.app.utils.XProfileManager;
 import com.callx.app.x.R;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.tabs.TabLayout;
@@ -29,26 +30,27 @@ import com.google.firebase.database.*;
 import java.util.*;
 
 /**
- * XProfileActivity — Full profile with Posts / Replies / Media / Likes tabs.
+ * XProfileActivity — Full X profile screen.
+ * Uses the new XProfile model + XProfileManager.
+ * Tabs: Posts / Replies / Media / Likes
  */
 public class XProfileActivity extends AppCompatActivity {
 
-    // Tab indices
     private static final int TAB_POSTS   = 0;
     private static final int TAB_REPLIES = 1;
     private static final int TAB_MEDIA   = 2;
     private static final int TAB_LIKES   = 3;
 
     private String targetUid, myUid;
-    private XUser xUser;
+    private XProfile xProfile;
     private boolean isFollowing;
-    private ValueEventListener userListener;
+    private ValueEventListener profileListener;
+    private int currentTab = TAB_POSTS;
 
     private TabLayout tabLayout;
     private RecyclerView rv;
     private ProgressBar pbProfile;
     private XTweetAdapter adapter;
-    private int currentTab = TAB_POSTS;
 
     private final ActivityResultLauncher<Intent> editProfileLauncher =
         registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -61,7 +63,7 @@ public class XProfileActivity extends AppCompatActivity {
         setContentView(R.layout.activity_x_profile);
 
         targetUid = getIntent().getStringExtra("uid");
-        myUid     = FirebaseAuth.getInstance().getCurrentUser() != null
+        myUid = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
         if (targetUid == null) targetUid = myUid;
 
@@ -75,7 +77,6 @@ public class XProfileActivity extends AppCompatActivity {
 
         findViewById(R.id.btn_x_profile_back).setOnClickListener(v -> finish());
 
-        // Profile stats clicks
         View tvFollowers = findViewById(R.id.tv_x_profile_followers);
         View tvFollowing = findViewById(R.id.tv_x_profile_following);
         if (tvFollowers != null)
@@ -85,34 +86,23 @@ public class XProfileActivity extends AppCompatActivity {
             tvFollowing.setOnClickListener(v ->
                 Toast.makeText(this, "Following list coming soon", Toast.LENGTH_SHORT).show());
 
-        // Share profile
         View btnShare = findViewById(R.id.btn_x_profile_share);
         if (btnShare != null) btnShare.setOnClickListener(v -> {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm != null && xUser != null)
-                cm.setPrimaryClip(ClipData.newPlainText("Profile", "https://callx.app/x/@" + xUser.handle));
+            if (cm != null && xProfile != null)
+                cm.setPrimaryClip(ClipData.newPlainText("Profile",
+                    "https://callx.app/x/@" + xProfile.handle));
             Toast.makeText(this, "Profile link copied", Toast.LENGTH_SHORT).show();
         });
 
-        // Tabs
         setupTabs();
         loadProfile();
-        // Increment profile view count
+
         if (!targetUid.equals(myUid))
-            XFirebaseUtils.userProfileViewsRef(targetUid)
-                .runTransaction(new com.google.firebase.database.Transaction.Handler() {
-                    @NonNull @Override
-                    public com.google.firebase.database.Transaction.Result doTransaction(
-                            @NonNull com.google.firebase.database.MutableData d) {
-                        Long c = d.getValue(Long.class);
-                        d.setValue(c != null ? c + 1 : 1);
-                        return com.google.firebase.database.Transaction.success(d);
-                    }
-                    @Override public void onComplete(DatabaseError e, boolean c, DataSnapshot s) {}
-                });
+            XProfileManager.incrementProfileViews(targetUid);
     }
 
-    // ── Tabs ──────────────────────────────────────────────────────────────────
+    // ── Tabs ─────────────────────────────────────────────────────────────────
 
     private void setupTabs() {
         if (tabLayout == null) return;
@@ -141,27 +131,25 @@ public class XProfileActivity extends AppCompatActivity {
         }
     }
 
-    // ── Profile data ──────────────────────────────────────────────────────────
+    // ── Profile load ──────────────────────────────────────────────────────────
 
     private void loadProfile() {
         if (pbProfile != null) pbProfile.setVisibility(View.VISIBLE);
-        if (userListener != null)
-            XFirebaseUtils.xUserRef(targetUid).removeEventListener(userListener);
-        userListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                xUser = snap.getValue(XUser.class);
-                if (xUser == null) return;
-                xUser.uid = snap.getKey();
-                bindProfile();
+        XProfileManager.stopObserving(targetUid, profileListener);
+
+        profileListener = XProfileManager.observe(targetUid, profile -> {
+            if (profile == null) {
                 if (pbProfile != null) pbProfile.setVisibility(View.GONE);
-                loadCurrentTab();
+                return;
             }
-            @Override public void onCancelled(DatabaseError e) {
-                if (pbProfile != null) pbProfile.setVisibility(View.GONE);
-            }
-        };
-        XFirebaseUtils.xUserRef(targetUid).addValueEventListener(userListener);
+            xProfile = profile;
+            bindProfile();
+            if (pbProfile != null) pbProfile.setVisibility(View.GONE);
+            loadCurrentTab();
+        });
     }
+
+    // ── Profile bind ─────────────────────────────────────────────────────────
 
     private void bindProfile() {
         ImageView ivBanner   = findViewById(R.id.iv_x_profile_banner);
@@ -175,33 +163,29 @@ public class XProfileActivity extends AppCompatActivity {
         TextView  tvTweets   = findViewById(R.id.tv_x_profile_tweet_count);
         MaterialButton btnFollow = findViewById(R.id.btn_x_follow);
 
-        if (xUser.bannerUrl != null && !xUser.bannerUrl.isEmpty() && ivBanner != null)
-            Glide.with(this).load(xUser.bannerUrl)
+        if (xProfile.bannerUrl != null && !xProfile.bannerUrl.isEmpty() && ivBanner != null)
+            Glide.with(this).load(xProfile.bannerUrl)
                 .apply(new RequestOptions().centerCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
                 .into(ivBanner);
 
-        String avatarUrl = (xUser.thumbUrl != null && !xUser.thumbUrl.isEmpty())
-            ? xUser.thumbUrl : xUser.photoUrl;
         if (ivAvatar != null)
-            Glide.with(this).load(avatarUrl)
+            Glide.with(this).load(xProfile.avatarForList())
                 .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL))
                 .into(ivAvatar);
 
-        if (tvName     != null) tvName.setText(xUser.name);
-        if (tvHandle   != null) tvHandle.setText("@" + xUser.handle);
-        if (tvBio      != null) tvBio.setText(xUser.bio != null ? xUser.bio : "");
-        if (tvFollowers!= null) tvFollowers.setText(fmt(xUser.followerCount) + "\nFollowers");
-        if (tvFollowing!= null) tvFollowing.setText(fmt(xUser.followingCount) + "\nFollowing");
-        if (tvTweets   != null) tvTweets.setText(fmt(xUser.tweetCount) + "\nPosts");
+        if (tvName    != null) tvName.setText(xProfile.name);
+        if (tvHandle  != null) tvHandle.setText("@" + xProfile.handle);
+        if (tvBio     != null) tvBio.setText(xProfile.bio != null ? xProfile.bio : "");
+        if (tvFollowers != null) tvFollowers.setText(fmt(xProfile.followerCount) + "\nFollowers");
+        if (tvFollowing != null) tvFollowing.setText(fmt(xProfile.followingCount) + "\nFollowing");
+        if (tvTweets  != null) tvTweets.setText(fmt(xProfile.tweetCount) + "\nPosts");
         if (ivVerified != null) ivVerified.setVisibility(
-            (xUser.verified || xUser.blueVerified) ? View.VISIBLE : View.GONE);
+            (xProfile.verified || xProfile.blueVerified) ? View.VISIBLE : View.GONE);
 
-        // Meta
         bindMeta();
 
-        // Lock / private indicator
         View ivLock = findViewById(R.id.iv_x_profile_lock);
-        if (ivLock != null) ivLock.setVisibility(xUser.privateAccount ? View.VISIBLE : View.GONE);
+        if (ivLock != null) ivLock.setVisibility(xProfile.privateAccount ? View.VISIBLE : View.GONE);
 
         if (targetUid.equals(myUid)) {
             if (btnFollow != null) {
@@ -225,22 +209,27 @@ public class XProfileActivity extends AppCompatActivity {
         TextView tvLocation = findViewById(R.id.tv_x_profile_location);
         TextView tvWebsite  = findViewById(R.id.tv_x_profile_website);
         TextView tvJoined   = findViewById(R.id.tv_x_profile_joined);
+
         if (tvLocation != null) {
-            if (xUser.location != null && !xUser.location.isEmpty()) {
-                tvLocation.setText("📍 " + xUser.location); tvLocation.setVisibility(View.VISIBLE);
+            if (xProfile.location != null && !xProfile.location.isEmpty()) {
+                tvLocation.setText("📍 " + xProfile.location);
+                tvLocation.setVisibility(View.VISIBLE);
             } else tvLocation.setVisibility(View.GONE);
         }
         if (tvWebsite != null) {
-            if (xUser.website != null && !xUser.website.isEmpty()) {
-                tvWebsite.setText("🔗 " + xUser.website); tvWebsite.setVisibility(View.VISIBLE);
+            if (xProfile.website != null && !xProfile.website.isEmpty()) {
+                tvWebsite.setText("🔗 " + xProfile.website);
+                tvWebsite.setVisibility(View.VISIBLE);
                 tvWebsite.setOnClickListener(v ->
                     startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(
-                        xUser.website.startsWith("http") ? xUser.website : "https://" + xUser.website))));
+                        xProfile.website.startsWith("http")
+                            ? xProfile.website : "https://" + xProfile.website))));
             } else tvWebsite.setVisibility(View.GONE);
         }
-        if (tvJoined != null && xUser.joinedTs > 0) {
-            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMMM yyyy", Locale.getDefault());
-            tvJoined.setText("📅 Joined " + sdf.format(new Date(xUser.joinedTs)));
+        if (tvJoined != null && xProfile.joinedTs > 0) {
+            java.text.SimpleDateFormat sdf =
+                new java.text.SimpleDateFormat("MMMM yyyy", Locale.getDefault());
+            tvJoined.setText("📅 Joined " + sdf.format(new Date(xProfile.joinedTs)));
             tvJoined.setVisibility(View.VISIBLE);
         }
     }
@@ -248,103 +237,123 @@ public class XProfileActivity extends AppCompatActivity {
     // ── Tabs: Posts / Replies / Media / Likes ─────────────────────────────────
 
     private void loadPosts() {
-        XFirebaseUtils.userTweetsRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                List<XTweet> list = new ArrayList<>();
-                for (DataSnapshot ds : snap.getChildren()) {
-                    XTweet t = ds.getValue(XTweet.class);
-                    if (t != null && !t.isDeleted) { t.id = ds.getKey(); list.add(t); }
+        XFirebaseUtils.userTweetsRef(targetUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    List<XTweet> list = new ArrayList<>();
+                    for (DataSnapshot ds : snap.getChildren()) {
+                        XTweet t = ds.getValue(XTweet.class);
+                        if (t != null && !t.isDeleted) { t.id = ds.getKey(); list.add(t); }
+                    }
+                    sortWithPinned(list);
+                    adapter.setTweets(list);
+                    if (pbProfile != null) pbProfile.setVisibility(View.GONE);
                 }
-                sortWithPinned(list);
-                adapter.setTweets(list);
-                if (pbProfile != null) pbProfile.setVisibility(View.GONE);
-            }
-            @Override public void onCancelled(DatabaseError e) {
-                if (pbProfile != null) pbProfile.setVisibility(View.GONE);
-            }
-        });
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (pbProfile != null) pbProfile.setVisibility(View.GONE);
+                }
+            });
     }
 
     private void loadReplies() {
-        XFirebaseUtils.userRepliesRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                List<XTweet> list = new ArrayList<>();
-                long[] pending = {snap.getChildrenCount()};
-                if (pending[0] == 0) { adapter.setTweets(list); if (pbProfile != null) pbProfile.setVisibility(View.GONE); return; }
-                for (DataSnapshot ds : snap.getChildren()) {
-                    String id = ds.getKey();
-                    if (id == null) { pending[0]--; continue; }
-                    XFirebaseUtils.tweetRef(id).addListenerForSingleValueEvent(new ValueEventListener() {
-                        @Override public void onDataChange(DataSnapshot ts) {
-                            XTweet t = ts.getValue(XTweet.class);
-                            if (t != null && !t.isDeleted && t.replyToTweetId != null) {
-                                t.id = ts.getKey(); list.add(t);
-                            }
-                            if (--pending[0] <= 0) {
-                                list.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
-                                adapter.setTweets(list);
-                                if (pbProfile != null) pbProfile.setVisibility(View.GONE);
-                            }
-                        }
-                        @Override public void onCancelled(DatabaseError e) {
-                            if (--pending[0] <= 0) { adapter.setTweets(list); if (pbProfile != null) pbProfile.setVisibility(View.GONE); }
-                        }
-                    });
+        XFirebaseUtils.userRepliesRef(targetUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    List<XTweet> list = new ArrayList<>();
+                    long[] pending = {snap.getChildrenCount()};
+                    if (pending[0] == 0) {
+                        adapter.setTweets(list);
+                        if (pbProfile != null) pbProfile.setVisibility(View.GONE);
+                        return;
+                    }
+                    for (DataSnapshot ds : snap.getChildren()) {
+                        String id = ds.getKey();
+                        if (id == null) { pending[0]--; continue; }
+                        XFirebaseUtils.tweetRef(id)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot ts) {
+                                    XTweet t = ts.getValue(XTweet.class);
+                                    if (t != null && !t.isDeleted && t.replyToTweetId != null) {
+                                        t.id = ts.getKey(); list.add(t);
+                                    }
+                                    if (--pending[0] <= 0) finish(list);
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {
+                                    if (--pending[0] <= 0) finish(list);
+                                }
+                                private void finish(List<XTweet> l) {
+                                    l.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                                    adapter.setTweets(l);
+                                    if (pbProfile != null) pbProfile.setVisibility(View.GONE);
+                                }
+                            });
+                    }
                 }
-            }
-            @Override public void onCancelled(DatabaseError e) { if (pbProfile != null) pbProfile.setVisibility(View.GONE); }
-        });
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (pbProfile != null) pbProfile.setVisibility(View.GONE);
+                }
+            });
     }
 
     private void loadMedia() {
-        // Load from user_tweets but filter for tweets with media
-        XFirebaseUtils.userTweetsRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                List<XTweet> list = new ArrayList<>();
-                for (DataSnapshot ds : snap.getChildren()) {
-                    XTweet t = ds.getValue(XTweet.class);
-                    if (t != null && !t.isDeleted && t.isMedia()) { t.id = ds.getKey(); list.add(t); }
+        XFirebaseUtils.userTweetsRef(targetUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    List<XTweet> list = new ArrayList<>();
+                    for (DataSnapshot ds : snap.getChildren()) {
+                        XTweet t = ds.getValue(XTweet.class);
+                        if (t != null && !t.isDeleted && t.isMedia()) { t.id = ds.getKey(); list.add(t); }
+                    }
+                    list.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                    adapter.setTweets(list);
+                    if (pbProfile != null) pbProfile.setVisibility(View.GONE);
                 }
-                list.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
-                adapter.setTweets(list);
-                if (pbProfile != null) pbProfile.setVisibility(View.GONE);
-            }
-            @Override public void onCancelled(DatabaseError e) { if (pbProfile != null) pbProfile.setVisibility(View.GONE); }
-        });
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (pbProfile != null) pbProfile.setVisibility(View.GONE);
+                }
+            });
     }
 
     private void loadLikes() {
         XFirebaseUtils.userLikedTweetsRef(targetUid).limitToLast(50)
             .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(DataSnapshot snap) {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     List<XTweet> list = new ArrayList<>();
                     long[] pending = {snap.getChildrenCount()};
-                    if (pending[0] == 0) { adapter.setTweets(list); if (pbProfile != null) pbProfile.setVisibility(View.GONE); return; }
+                    if (pending[0] == 0) {
+                        adapter.setTweets(list);
+                        if (pbProfile != null) pbProfile.setVisibility(View.GONE);
+                        return;
+                    }
                     for (DataSnapshot ds : snap.getChildren()) {
                         String id = ds.getKey();
                         if (id == null) { pending[0]--; continue; }
-                        XFirebaseUtils.tweetRef(id).addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(DataSnapshot ts) {
-                                XTweet t = ts.getValue(XTweet.class);
-                                if (t != null && !t.isDeleted) { t.id = ts.getKey(); list.add(t); }
-                                if (--pending[0] <= 0) {
-                                    list.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
-                                    adapter.setTweets(list);
+                        XFirebaseUtils.tweetRef(id)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot ts) {
+                                    XTweet t = ts.getValue(XTweet.class);
+                                    if (t != null && !t.isDeleted) { t.id = ts.getKey(); list.add(t); }
+                                    if (--pending[0] <= 0) finish(list);
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {
+                                    if (--pending[0] <= 0) finish(list);
+                                }
+                                private void finish(List<XTweet> l) {
+                                    l.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                                    adapter.setTweets(l);
                                     if (pbProfile != null) pbProfile.setVisibility(View.GONE);
                                 }
-                            }
-                            @Override public void onCancelled(DatabaseError e) {
-                                if (--pending[0] <= 0) { adapter.setTweets(list); if (pbProfile != null) pbProfile.setVisibility(View.GONE); }
-                            }
-                        });
+                            });
                     }
                 }
-                @Override public void onCancelled(DatabaseError e) { if (pbProfile != null) pbProfile.setVisibility(View.GONE); }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (pbProfile != null) pbProfile.setVisibility(View.GONE);
+                }
             });
     }
 
     private void sortWithPinned(List<XTweet> list) {
-        String pinned = xUser != null ? xUser.pinnedTweetId : null;
+        String pinned = xProfile != null ? xProfile.pinnedTweetId : null;
         list.sort((a, b) -> {
             if (pinned != null && pinned.equals(a.id)) return -1;
             if (pinned != null && pinned.equals(b.id)) return 1;
@@ -357,8 +366,9 @@ public class XProfileActivity extends AppCompatActivity {
     private void toggleFollow(MaterialButton btn) {
         isFollowing = !isFollowing;
         btn.setText(isFollowing ? "Following" : "Follow");
+        final boolean followed = isFollowing;
 
-        if (isFollowing) {
+        if (followed) {
             XFirebaseUtils.userFollowersRef(targetUid).child(myUid).setValue(true);
             XFirebaseUtils.userFollowingRef(myUid).child(targetUid).setValue(true);
         } else {
@@ -366,8 +376,6 @@ public class XProfileActivity extends AppCompatActivity {
             XFirebaseUtils.userFollowingRef(myUid).child(targetUid).removeValue();
         }
 
-        // Transaction-safe count updates
-        final boolean followed = isFollowing;
         XFirebaseUtils.xUserRef(targetUid).child("followerCount")
             .runTransaction(txHandler(followed));
         XFirebaseUtils.xUserRef(myUid).child("followingCount")
@@ -376,14 +384,13 @@ public class XProfileActivity extends AppCompatActivity {
         if (followed) pushFollowNotif();
     }
 
-    private com.google.firebase.database.Transaction.Handler txHandler(boolean increment) {
-        return new com.google.firebase.database.Transaction.Handler() {
+    private Transaction.Handler txHandler(boolean increment) {
+        return new Transaction.Handler() {
             @NonNull @Override
-            public com.google.firebase.database.Transaction.Result doTransaction(
-                    @NonNull com.google.firebase.database.MutableData d) {
+            public Transaction.Result doTransaction(@NonNull MutableData d) {
                 Long c = d.getValue(Long.class);
                 d.setValue(Math.max(0, (c != null ? c : 0) + (increment ? 1 : -1)));
-                return com.google.firebase.database.Transaction.success(d);
+                return Transaction.success(d);
             }
             @Override public void onComplete(DatabaseError e, boolean c, DataSnapshot s) {}
         };
@@ -411,7 +418,7 @@ public class XProfileActivity extends AppCompatActivity {
             });
     }
 
-    // ── Tweet action listener ─────────────────────────────────────────────────
+    // ── Tweet actions ─────────────────────────────────────────────────────────
 
     private XTweetAdapter.OnTweetActionListener makeTweetListener() {
         return new XTweetAdapter.OnTweetActionListener() {
@@ -427,7 +434,8 @@ public class XProfileActivity extends AppCompatActivity {
             }
             @Override public void onReply(XTweet tweet) {
                 startActivity(new Intent(XProfileActivity.this, XComposeActivity.class)
-                    .putExtra("reply_to_id", tweet.id).putExtra("reply_to_handle", tweet.authorHandle));
+                    .putExtra("reply_to_id", tweet.id)
+                    .putExtra("reply_to_handle", tweet.authorHandle));
             }
             @Override public void onQuote(XTweet tweet) {
                 startActivity(new Intent(XProfileActivity.this, XComposeActivity.class)
@@ -446,7 +454,8 @@ public class XProfileActivity extends AppCompatActivity {
                 startActivity(Intent.createChooser(share, "Share post"));
             }
             @Override public void onMore(XTweet tweet, View anchor) {
-                android.widget.PopupMenu menu = new android.widget.PopupMenu(XProfileActivity.this, anchor);
+                android.widget.PopupMenu menu =
+                    new android.widget.PopupMenu(XProfileActivity.this, anchor);
                 boolean mine = myUid.equals(tweet.authorUid);
                 if (mine) {
                     menu.getMenu().add(0, 1, 0, "Delete post");
@@ -464,14 +473,17 @@ public class XProfileActivity extends AppCompatActivity {
                         case 2:
                             boolean pin = !tweet.isPinned;
                             XFirebaseUtils.tweetRef(tweet.id).child("isPinned").setValue(pin);
-                            XFirebaseUtils.xUserRef(myUid).child("pinnedTweetId").setValue(pin ? tweet.id : null);
+                            XFirebaseUtils.xUserRef(myUid).child("pinnedTweetId")
+                                .setValue(pin ? tweet.id : null);
                             break;
                         case 3:
-                            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                            ClipboardManager cm =
+                                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                             if (cm != null)
                                 cm.setPrimaryClip(ClipData.newPlainText("link",
                                     "https://callx.app/x/tweet/" + tweet.id));
-                            Toast.makeText(XProfileActivity.this, "Link copied", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(XProfileActivity.this, "Link copied",
+                                Toast.LENGTH_SHORT).show();
                             break;
                     }
                     return true;
@@ -489,6 +501,6 @@ public class XProfileActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         super.onDestroy();
-        if (userListener != null) XFirebaseUtils.xUserRef(targetUid).removeEventListener(userListener);
+        XProfileManager.stopObserving(targetUid, profileListener);
     }
 }
