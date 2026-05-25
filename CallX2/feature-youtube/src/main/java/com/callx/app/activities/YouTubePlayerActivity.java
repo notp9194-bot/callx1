@@ -61,10 +61,11 @@ public class YouTubePlayerActivity extends AppCompatActivity {
 
     private String  videoId;
     private String  myUid;
-    private boolean isLiked           = false;
-    private boolean isDisliked        = false;
-    private boolean isSubscribed      = false;
-    private boolean playerReadyToPlay = false;
+    private boolean isLiked            = false;
+    private boolean isDisliked         = false;
+    private boolean isSubscribed       = false;
+    private boolean playerReadyToPlay  = false;
+    private boolean playerInitialized  = false; // FIX: ek baar hi initPlayer() chalega
     private String  channelUidForUnsub = null;
 
     private ValueEventListener videoListener;
@@ -169,7 +170,11 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         Log.d(TAG, "  Firebase path: youtube/videos/" + videoId);
         Toast.makeText(this, "🔄 Firebase se video data le raha hai...", Toast.LENGTH_SHORT).show();
 
-        videoListener = new ValueEventListener() {
+        // FIX: SingleValueEvent use karo — addValueEventListener viewCount/likeCount
+        // change hone par bhi fire hota hai, jisse initPlayer() baar baar call hota tha
+        // aur ExoPlayer baar baar restart hota tha → video kabhi play nahi hoti thi.
+        YouTubeFirebaseUtils.videoRef(videoId).addListenerForSingleValueEvent(
+            new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 Log.d(TAG, "Firebase onDataChange — snap exists: " + snap.exists());
 
@@ -183,11 +188,11 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 }
 
                 Log.d(TAG, "✅ Video data mila!");
-                Log.d(TAG, "  title      : " + v.title);
+                Log.d(TAG, "  title       : " + v.title);
                 Log.d(TAG, "  uploaderName: " + v.uploaderName);
-                Log.d(TAG, "  videoUrl   : " + v.videoUrl);
-                Log.d(TAG, "  viewCount  : " + v.viewCount);
-                Log.d(TAG, "  likeCount  : " + v.likeCount);
+                Log.d(TAG, "  videoUrl    : " + v.videoUrl);
+                Log.d(TAG, "  viewCount   : " + v.viewCount);
+                Log.d(TAG, "  likeCount   : " + v.likeCount);
 
                 tvTitle.setText(v.title);
                 tvChannelName.setText(v.uploaderName);
@@ -209,7 +214,14 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                     Log.d(TAG, "  playUrl    : " + playUrl);
                     Toast.makeText(YouTubePlayerActivity.this,
                         "🎬 Video URL ready!\n" + playUrl, Toast.LENGTH_LONG).show();
-                    initPlayer(playUrl);
+
+                    // FIX: guard — sirf pehli baar initPlayer() chalao
+                    if (!playerInitialized) {
+                        playerInitialized = true;
+                        initPlayer(playUrl);
+                    } else {
+                        Log.d(TAG, "initPlayer() skip — already initialized");
+                    }
                 } else {
                     String msg = "❌ videoUrl NULL/EMPTY — Firebase me save nahi hua\nvideoId: " + videoId;
                     Log.e(TAG, msg);
@@ -227,8 +239,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 Log.e(TAG, msg);
                 showPlayerError("Network error: " + e.getMessage());
             }
-        };
-        YouTubeFirebaseUtils.videoRef(videoId).addValueEventListener(videoListener);
+        });
     }
 
     /**
@@ -633,6 +644,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     @Override protected void onDestroy() {
         super.onDestroy();
         if (player != null) { player.release(); player = null; }
+        // videoListener ab SingleValueEvent hai — remove ki zarurat nahi, but safe guard
         if (videoListener != null)
             YouTubeFirebaseUtils.videoRef(videoId).removeEventListener(videoListener);
         if (likeListener != null)
