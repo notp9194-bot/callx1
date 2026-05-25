@@ -219,6 +219,16 @@ public class XProfileSheet extends BottomSheetDialogFragment {
                     dismiss();
                 });
             }
+
+            // Settings row — only shown on own profile
+            View llSettings = root.findViewById(R.id.ll_xps_settings);
+            if (llSettings != null) {
+                llSettings.setVisibility(View.VISIBLE);
+                llSettings.setOnClickListener(v -> {
+                    startActivity(new Intent(requireContext(), XSettingsActivity.class));
+                    dismiss();
+                });
+            }
         } else {
             if (llEdit != null) llEdit.setVisibility(View.GONE);
 

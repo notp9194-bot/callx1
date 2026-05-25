@@ -276,6 +276,35 @@
             android:text="Edit profile"/>
     </LinearLayout>
 
+
+    <!-- Settings row (shown only for own profile) -->
+    <LinearLayout
+        android:id="@+id/ll_xps_settings"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_x_settings"
+            android:tint="@color/x_text_primary"
+            android:contentDescription="Settings"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:textColor="@color/x_text_primary"
+            android:textSize="15sp"
+            android:text="Settings and support"/>
+    </LinearLayout>
     <!-- Bottom safe-area padding -->
     <View
         android:layout_width="match_parent"

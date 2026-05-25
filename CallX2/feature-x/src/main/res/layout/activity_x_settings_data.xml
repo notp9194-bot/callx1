@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/x_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_x_data"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/x_bg"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingBottom="24dp">
+
+            <!-- Data saver mode -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="12dp" android:paddingBottom="12dp">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Data saver"
+                        android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Reduce data usage — videos load at lower quality, images load only when tapped"
+                        android:textColor="@color/x_text_secondary" android:textSize="12sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_data_saver"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Video autoplay on mobile -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="12dp" android:paddingBottom="12dp">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Video autoplay on mobile data"
+                        android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Autoplay videos when using mobile data"
+                        android:textColor="@color/x_text_secondary" android:textSize="12sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_autoplay_mobile"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- High-quality images on Wi-Fi only -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="12dp" android:paddingBottom="12dp">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="High-quality images on Wi-Fi only"
+                        android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_hq_wifi"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Image upload quality -->
+            <LinearLayout android:id="@+id/row_x_upload_quality"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="16dp" android:paddingBottom="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Image upload quality"
+                        android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                </LinearLayout>
+                <TextView android:id="@+id/tv_x_upload_quality_val"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Automatic" android:textColor="@color/x_text_secondary" android:textSize="13sp"/>
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

@@ -101,6 +101,62 @@
             android:windowSoftInputMode="adjustResize"
             android:label="Compose Thread"/>
 
+
+        <!-- X Settings System -->
+        <activity
+            android:name="com.callx.app.activities.XSettingsActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Settings"
+            android:parentActivityName="com.callx.app.activities.XActivity"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsAccountActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Your account"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsSecurityActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Security and account access"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsPrivacyActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Privacy and safety"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsNotifActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Notifications"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsDisplayActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Display and sound"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsAccessibilityActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Accessibility"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsDataActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Data usage"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsAboutActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="About"/>
     </application>
 
 </manifest>

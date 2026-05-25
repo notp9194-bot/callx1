@@ -26,4 +26,13 @@
       <string name="x_poll">Add poll</string>
       <string name="x_gif">GIF</string>
       <string name="x_schedule">Schedule</string>
-  </resources>
+      <string name="x_settings">Settings</string>
+    <string name="x_settings_account">Your account</string>
+    <string name="x_settings_security">Security and account access</string>
+    <string name="x_settings_privacy">Privacy and safety</string>
+    <string name="x_settings_notifications">Notifications</string>
+    <string name="x_settings_display">Display and sound</string>
+    <string name="x_settings_accessibility">Accessibility</string>
+    <string name="x_settings_data">Data usage</string>
+    <string name="x_settings_about">About</string>
+</resources>

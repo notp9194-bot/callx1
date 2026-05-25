@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/x_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_x_notif"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/x_bg"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingBottom="24dp">
+
+            <!-- Push notifications master switch -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="12dp" android:paddingBottom="12dp">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Push notifications"
+                        android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Get notified when you're not on X"
+                        android:textColor="@color/x_text_secondary" android:textSize="12sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_notif_push"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Notify me about"
+                android:textColor="@color/x_text_secondary" android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="16dp" android:paddingTop="16dp" android:paddingBottom="8dp"/>
+
+            <!-- Likes -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Likes" android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_notif_likes"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Reposts -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Reposts" android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_notif_reposts"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- New followers -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="New followers" android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_notif_follow"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Replies -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Replies and mentions"
+                    android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_notif_reply"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- DM notifications -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Direct messages"
+                    android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_notif_dm"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Sound -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Notification sound"
+                    android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_notif_sound"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Vibration -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Vibrate"
+                    android:textColor="@color/x_text_primary" android:textSize="15sp"/>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/sw_x_notif_vibrate"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

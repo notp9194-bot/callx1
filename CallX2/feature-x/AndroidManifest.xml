@@ -78,5 +78,61 @@
               android:exported="false"
               tools:node="remove"/>
 
+
+          <!-- X Settings System -->
+          <activity
+              android:name="com.callx.app.activities.XSettingsActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:label="Settings"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSettingsAccountActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSettingsSecurityActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSettingsPrivacyActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSettingsNotifActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSettingsDisplayActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSettingsAccessibilityActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSettingsDataActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
+
+          <activity
+              android:name="com.callx.app.activities.XSettingsAboutActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"
+              android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
       </application>
   </manifest>
