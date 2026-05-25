@@ -108,7 +108,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="MP4"
-            android:textColor="@color/yt_brand_red"
+            android:textColor="@color/yt_red"
             android:textSize="10sp"
             android:textStyle="bold"
             android:background="@drawable/bg_yt_badge"
