@@ -149,7 +149,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (btnSubscribe != null) btnSubscribe.setOnClickListener(v -> toggleSubscribe());
         if (btnShare     != null) btnShare.setOnClickListener(v -> shareVideo());
         if (btnDownload  != null) {
-            btnDownload.setOnClickListener(v -> downloadCurrentVideo());
+            btnDownload.setOnClickListener(v -> showDownloadOptions());
             // Already downloaded? Icon change karo
             if (YouTubeDownloadManager.isDownloaded(this, videoId)) {
                 btnDownload.setImageResource(R.drawable.ic_yt_download_done);
@@ -647,15 +647,33 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             });
     }
 
-    private void downloadCurrentVideo() {
+    private void showDownloadOptions() {
         if (currentVideo == null) {
-            // Build minimal video object
+            // Build minimal video object from current screen data
             com.callx.app.models.YouTubeVideo v = new com.callx.app.models.YouTubeVideo();
-            v.videoId   = videoId;
-            v.title     = tvTitle != null ? tvTitle.getText().toString() : videoId;
-            v.videoUrl  = null; // will fail gracefully
+            v.videoId  = videoId;
+            v.title    = tvTitle != null ? tvTitle.getText().toString() : videoId;
+            v.videoUrl = null;
             currentVideo = v;
         }
+
+        String[] options = {
+            "📱  In-App Download\n     App ki Library me save — offline dekho",
+            "🖼️  Gallery me Save karo\n     Phone ki Gallery/Photos me dikhega"
+        };
+
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Download karo")
+            .setItems(options, (dialog, which) -> {
+                if (which == 0) downloadCurrentVideo();
+                else           downloadToGallery();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void downloadCurrentVideo() {
+        if (currentVideo == null) return;
         YouTubeDownloadManager.startDownload(this, currentVideo,
             new YouTubeDownloadManager.DownloadCallback() {
                 @Override public void onStarted() {
@@ -674,6 +692,24 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 }
                 @Override public void onError(String err) {
                     if (btnDownload != null) btnDownload.setAlpha(1f);
+                }
+            });
+    }
+
+    private void downloadToGallery() {
+        if (currentVideo == null) return;
+        YouTubeDownloadManager.saveToGallery(this, currentVideo,
+            new YouTubeDownloadManager.GalleryCallback() {
+                @Override public void onStarted()       { /* notif handles it */ }
+                @Override public void onProgress(int p) { /* notif handles it */ }
+                @Override public void onCompleted()     {
+                    Toast.makeText(YouTubePlayerActivity.this,
+                        "✅ Gallery me save ho gaya! Photos app me dekho 📱",
+                        Toast.LENGTH_SHORT).show();
+                }
+                @Override public void onError(String e) {
+                    Toast.makeText(YouTubePlayerActivity.this,
+                        "❌ Gallery save fail: " + e, Toast.LENGTH_SHORT).show();
                 }
             });
     }
