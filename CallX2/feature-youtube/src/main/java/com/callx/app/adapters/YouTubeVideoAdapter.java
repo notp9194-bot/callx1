@@ -102,7 +102,7 @@ public class YouTubeVideoAdapter
             if (listener != null) listener.onClick(video);
         });
 
-        // Avatar click → open YouTubeChannelActivity for the uploader
+        // Avatar click → open YouTubeChannelActivity for the uploader (same module, direct ref ok)
         h.ivAvatar.setOnClickListener(v -> {
             android.content.Intent i = new android.content.Intent(ctx,
                 com.callx.app.activities.YouTubeChannelActivity.class);

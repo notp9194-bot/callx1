@@ -75,18 +75,13 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                 startActivity(new Intent(this, YouTubeEditChannelActivity.class)));
 
         // ── 3 Profile Section Cards ─────────────────────────────────────────
-        // Load avatar photo into all 3 card avatars
-        String myPhotoUrl = ""; // will be loaded via loadChannel
-        CircleImageView ivCardReelAvatar = findViewById(R.id.iv_card_reel_avatar);
-        CircleImageView ivCardXAvatar    = findViewById(R.id.iv_card_x_avatar);
-        CircleImageView ivCardChatAvatar = findViewById(R.id.iv_card_chat_avatar);
-
-        // Card 1: Reel — opens UserReelsActivity
+        // Card 1: Reel — opens UserReelsActivity (cross-module via className)
         View cardReel = findViewById(R.id.card_yt_profile_reel);
         if (cardReel != null) {
             cardReel.setOnClickListener(v -> {
-                Intent i = new Intent(this,
-                    com.callx.app.activities.UserReelsActivity.class);
+                Intent i = new Intent();
+                i.setClassName(getPackageName(),
+                    "com.callx.app.activities.UserReelsActivity");
                 i.putExtra("uid", channelUid);
                 i.putExtra("name", tvChannelName.getText() != null
                     ? tvChannelName.getText().toString() : "");
@@ -94,23 +89,25 @@ public class YouTubeChannelActivity extends AppCompatActivity {
             });
         }
 
-        // Card 2: X — opens XProfileActivity
+        // Card 2: X — opens XProfileActivity (cross-module via className)
         View cardX = findViewById(R.id.card_yt_profile_x);
         if (cardX != null) {
             cardX.setOnClickListener(v -> {
-                Intent i = new Intent(this,
-                    com.callx.app.activities.XProfileActivity.class);
+                Intent i = new Intent();
+                i.setClassName(getPackageName(),
+                    "com.callx.app.activities.XProfileActivity");
                 i.putExtra("uid", channelUid);
                 startActivity(i);
             });
         }
 
-        // Card 3: Chat — opens MainActivity on Chats tab
+        // Card 3: Chat — opens MainActivity on Chats tab (cross-module via className)
         View cardChat = findViewById(R.id.card_yt_profile_chat);
         if (cardChat != null) {
             cardChat.setOnClickListener(v -> {
-                Intent i = new Intent(this,
-                    com.callx.app.activities.MainActivity.class);
+                Intent i = new Intent();
+                i.setClassName(getPackageName(),
+                    "com.callx.app.activities.MainActivity");
                 i.putExtra("tab", "chats");
                 i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                 startActivity(i);
