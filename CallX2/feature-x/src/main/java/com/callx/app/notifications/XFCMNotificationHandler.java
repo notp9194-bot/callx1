@@ -92,6 +92,7 @@ public class XFCMNotificationHandler {
 
         final String type          = get(data, "x_notif_type");
         final String fromName      = nonEmpty(get(data, "fromName"), "Someone");
+        final String fromHandle    = get(data, "fromHandle");   // @username
         final String fromPhoto     = get(data, "fromPhoto");
         final String fromUid       = get(data, "fromUid");
         final String tweetId       = get(data, "tweetId");
@@ -122,7 +123,7 @@ public class XFCMNotificationHandler {
                     int net = getNetworkLevel(ctx);
                     Bitmap avatar = (net >= 2)
                             ? downloadCircle(fromPhoto, 100) : null;
-                    showTweetInteractionNotif(ctx, type, fromName, fromUid,
+                    showTweetInteractionNotif(ctx, type, fromName, fromHandle, fromUid,
                             avatar, tweetId);
                 });
                 break;
@@ -134,7 +135,7 @@ public class XFCMNotificationHandler {
                     int net = getNetworkLevel(ctx);
                     Bitmap avatar = (net >= 2)
                             ? downloadCircle(fromPhoto, 100) : null;
-                    showDMNotif(ctx, fromName, fromUid, avatar,
+                    showDMNotif(ctx, fromName, fromHandle, fromUid, avatar,
                             conversationId, otherUid, otherHandle, otherPhoto, preview);
                 });
                 break;
@@ -162,7 +163,7 @@ public class XFCMNotificationHandler {
                     int net = getNetworkLevel(ctx);
                     Bitmap avatar = (net >= 2)
                             ? downloadCircle(fromPhoto, 100) : null;
-                    showCloseFriendPostNotif(ctx, fromName, fromUid, avatar, tweetId);
+                    showCloseFriendPostNotif(ctx, fromName, fromHandle, fromUid, avatar, tweetId);
                 });
                 break;
         }
@@ -171,9 +172,12 @@ public class XFCMNotificationHandler {
     // ── showTweetInteractionNotif ──────────────────────────────────────────────
 
     private static void showTweetInteractionNotif(Context ctx, String type,
-            String fromName, String fromUid, Bitmap avatar, String tweetId) {
+            String fromName, String fromHandle, String fromUid, Bitmap avatar, String tweetId) {
 
         String title = buildTitle(type, fromName);
+        // @handle — subtitle me dikhao agar available ho
+        String body = (fromHandle != null && !fromHandle.isEmpty())
+                ? "@" + fromHandle : "";
 
         Intent tapIntent = tweetId != null && !tweetId.isEmpty()
                 ? new Intent(ctx, XTweetDetailActivity.class)
@@ -192,7 +196,7 @@ public class XFCMNotificationHandler {
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, channel)
                 .setSmallIcon(R.drawable.ic_x_logo)
                 .setContentTitle(title)
-                .setContentText("")
+                .setContentText(body)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH);
@@ -204,9 +208,13 @@ public class XFCMNotificationHandler {
 
     // ── showDMNotif ───────────────────────────────────────────────────────────
 
-    private static void showDMNotif(Context ctx, String fromName, String fromUid,
-            Bitmap avatar, String conversationId, String otherUid,
+    private static void showDMNotif(Context ctx, String fromName, String fromHandle,
+            String fromUid, Bitmap avatar, String conversationId, String otherUid,
             String otherHandle, String otherPhoto, String preview) {
+
+        // Title: "Name (@handle)" agar handle available ho
+        String title = (fromHandle != null && !fromHandle.isEmpty())
+                ? fromName + " (@" + fromHandle + ")" : fromName;
 
         Intent intent = new Intent(ctx, XDMConversationActivity.class)
                 .putExtra("conversation_id", conversationId)
@@ -223,7 +231,7 @@ public class XFCMNotificationHandler {
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx,
                 XNotificationChannelManager.CHANNEL_X_DM)
                 .setSmallIcon(R.drawable.ic_x_dm)
-                .setContentTitle(fromName)
+                .setContentTitle(title)
                 .setContentText(preview != null && !preview.isEmpty() ? preview : "New message")
                 .setContentIntent(pi)
                 .setAutoCancel(true)
@@ -318,7 +326,7 @@ public class XFCMNotificationHandler {
     // ── showCloseFriendPostNotif ──────────────────────────────────────────────
 
     private static void showCloseFriendPostNotif(Context ctx, String fromName,
-            String fromUid, Bitmap avatar, String tweetId) {
+            String fromHandle, String fromUid, Bitmap avatar, String tweetId) {
 
         Intent intent = new Intent(ctx, XTweetDetailActivity.class)
                 .putExtra("tweet_id", tweetId)
@@ -328,11 +336,14 @@ public class XFCMNotificationHandler {
         PendingIntent pi = PendingIntent.getActivity(ctx, reqCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        String body = (fromHandle != null && !fromHandle.isEmpty())
+                ? "@" + fromHandle : "Someone you follow closely posted something new";
+
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx,
                 XNotificationChannelManager.CHANNEL_X_MENTIONS)
                 .setSmallIcon(R.drawable.ic_x_logo)
                 .setContentTitle(fromName + " posted")
-                .setContentText("Someone you follow closely posted something new")
+                .setContentText(body)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH);
