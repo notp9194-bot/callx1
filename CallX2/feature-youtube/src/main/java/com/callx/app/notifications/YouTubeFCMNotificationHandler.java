@@ -26,29 +26,13 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 
 /**
- * YouTubeFCMNotificationHandler — v2 (Heads-Up Notification fix)
+ * YouTubeFCMNotificationHandler — v3 (Like avatar + Like HUN fix)
  *
- * ── Problem jo fix kiya ──────────────────────────────────────────────────────
- *   Background/killed state mein notification aata tha lekin upar se neeche
- *   slide karke (YouTube jaisa heads-up) nahi dikhta tha — sirf notification
- *   tray mein jaata tha.
- *
- *   Root cause:
- *     1. CHANNEL_YT_COMMENTS + CHANNEL_YT_GENERAL = IMPORTANCE_DEFAULT  → no HUN
- *     2. Builder pe setDefaults() missing tha
- *     3. Channel IDs same the isliye Android cached importance use karta tha
- *
- *   Fix:
- *     1. Sabhi channels ab IMPORTANCE_HIGH (v2 IDs ke saath)
- *     2. Har builder pe PRIORITY_HIGH + setDefaults(DEFAULT_ALL) lagaya
- *     3. Likes channel sirf PRIORITY_DEFAULT (spam nahi hona chahiye)
- *
- * ── Background / Killed State ─────────────────────────────────────────────────
- *   X system jaisa exact pattern:
- *   1. CallxMessagingService single FCM entry point (manifest registered).
- *   2. Payload me "yt_notif_type" detect → yahan delegate.
- *   3. Executors.newSingleThreadExecutor() mein wrap — FCM wakelock safe.
- *   4. Avatar/thumbnail network-aware download (2G skip, 3G+ download).
+ * v3 fixes:
+ *   1. showLikeMilestoneNotif() — ab fromPhoto + fromName accept karta hai
+ *   2. TYPE_LIKE_MILESTONE case — Executor pe avatar download karta hai (background/killed safe)
+ *   3. Like notification builder — PRIORITY_HIGH + setDefaults(DEFAULT_ALL) → HUN
+ *   4. CHANNEL_YT_LIKES ab v3 ID use karta hai (IMPORTANCE_HIGH channel)
  *
  * Supported types: new_video, comment, reply, subscribe, live, like_milestone
  */
@@ -63,10 +47,6 @@ public class YouTubeFCMNotificationHandler {
 
     private static final int NOTIF_ID_BASE = 66000;
 
-    /**
-     * Main entry point — CallxMessagingService.onMessageReceived() se call hota hai
-     * jab payload me "yt_notif_type" key detect ho.
-     */
     public static void handle(Context ctx, Map<String, String> data) {
         YouTubeNotificationChannelManager.ensureChannels(ctx);
 
@@ -84,7 +64,6 @@ public class YouTubeFCMNotificationHandler {
 
         switch (type) {
 
-            // ── New video — channel avatar + video thumbnail ───────────────────
             case TYPE_NEW_VIDEO:
                 Executors.newSingleThreadExecutor().execute(() -> {
                     int net = getNetworkLevel(ctx);
@@ -93,7 +72,6 @@ public class YouTubeFCMNotificationHandler {
                 });
                 break;
 
-            // ── Comment on user's video ────────────────────────────────────────
             case TYPE_COMMENT:
                 Executors.newSingleThreadExecutor().execute(() -> {
                     int net = getNetworkLevel(ctx);
@@ -102,7 +80,6 @@ public class YouTubeFCMNotificationHandler {
                 });
                 break;
 
-            // ── Reply to user's comment ────────────────────────────────────────
             case TYPE_REPLY:
                 Executors.newSingleThreadExecutor().execute(() -> {
                     int net = getNetworkLevel(ctx);
@@ -111,7 +88,6 @@ public class YouTubeFCMNotificationHandler {
                 });
                 break;
 
-            // ── New subscriber ─────────────────────────────────────────────────
             case TYPE_SUBSCRIBE:
                 Executors.newSingleThreadExecutor().execute(() -> {
                     int net = getNetworkLevel(ctx);
@@ -120,7 +96,6 @@ public class YouTubeFCMNotificationHandler {
                 });
                 break;
 
-            // ── Live stream started ────────────────────────────────────────────
             case TYPE_LIVE:
                 Executors.newSingleThreadExecutor().execute(() -> {
                     int net = getNetworkLevel(ctx);
@@ -129,10 +104,21 @@ public class YouTubeFCMNotificationHandler {
                 });
                 break;
 
-            // ── Like milestone ─────────────────────────────────────────────────
+            // ── Like milestone — v3 fix: avatar download + HUN ────────────────
             case TYPE_LIKE_MILESTONE:
-                Executors.newSingleThreadExecutor().execute(() ->
-                        showLikeMilestoneNotif(ctx, videoTitle, videoId, likeCount));
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    int net = getNetworkLevel(ctx);
+                    // fromPhoto = liker ka avatar (agar server bhejta hai)
+                    // thumbnailUrl = video ka thumbnail (fallback avatar ke roop mein)
+                    Bitmap avatar = null;
+                    if (net >= 2) {
+                        avatar = downloadCircle(fromPhoto, 100);      // liker avatar (preferred)
+                        if (avatar == null) {
+                            avatar = downloadBitmap(thumbnailUrl);    // video thumb fallback
+                        }
+                    }
+                    showLikeMilestoneNotif(ctx, fromName, videoTitle, videoId, likeCount, avatar);
+                });
                 break;
         }
     }
@@ -157,7 +143,6 @@ public class YouTubeFCMNotificationHandler {
                 .setContentText(videoTitle != null && !videoTitle.isEmpty() ? videoTitle : "")
                 .setContentIntent(pi)
                 .setAutoCancel(true)
-                // ── Heads-up ke liye zaroori ──
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL);
 
@@ -197,7 +182,6 @@ public class YouTubeFCMNotificationHandler {
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(bigText))
                 .setContentIntent(pi)
                 .setAutoCancel(true)
-                // ── Heads-up ke liye zaroori ──
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL);
 
@@ -227,7 +211,6 @@ public class YouTubeFCMNotificationHandler {
                 .setContentText(nonEmpty(replyText, "New reply"))
                 .setContentIntent(pi)
                 .setAutoCancel(true)
-                // ── Heads-up ke liye zaroori ──
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL);
 
@@ -256,7 +239,6 @@ public class YouTubeFCMNotificationHandler {
                 .setContentText("You have a new subscriber!")
                 .setContentIntent(pi)
                 .setAutoCancel(true)
-                // ── Heads-up ke liye zaroori ──
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL);
 
@@ -286,7 +268,6 @@ public class YouTubeFCMNotificationHandler {
                 .setContentText(nonEmpty(streamTitle, "Live stream started"))
                 .setContentIntent(pi)
                 .setAutoCancel(true)
-                // ── Heads-up ke liye zaroori ──
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setCategory(NotificationCompat.CATEGORY_EVENT);
@@ -296,10 +277,10 @@ public class YouTubeFCMNotificationHandler {
         post(ctx, reqCode, b);
     }
 
-    // ── showLikeMilestoneNotif ────────────────────────────────────────────────
+    // ── showLikeMilestoneNotif — v3: avatar param added ───────────────────────
 
-    private static void showLikeMilestoneNotif(Context ctx, String videoTitle,
-            String videoId, String likeCount) {
+    private static void showLikeMilestoneNotif(Context ctx, String fromName,
+            String videoTitle, String videoId, String likeCount, Bitmap avatar) {
 
         Intent intent = new Intent(ctx, YouTubePlayerActivity.class)
                 .putExtra("video_id", videoId)
@@ -310,17 +291,24 @@ public class YouTubeFCMNotificationHandler {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         String count = (likeCount != null && !likeCount.isEmpty()) ? likeCount : "";
-        String title = count.isEmpty() ? "Like milestone reached!" : "🎉 " + count + " likes on your video!";
+        String title = count.isEmpty()
+                ? "Like milestone reached!"
+                : "🎉 " + count + " likes on your video!";
+        String body = nonEmpty(videoTitle, "");
 
-        // Likes = PRIORITY_DEFAULT (spam avoid karne ke liye HUN nahi chahiye)
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx,
                 YouTubeNotificationChannelManager.CHANNEL_YT_LIKES)
                 .setSmallIcon(R.drawable.ic_youtube_logo)
                 .setContentTitle(title)
-                .setContentText(nonEmpty(videoTitle, ""))
+                .setContentText(body)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+                // ── v3 fix: PRIORITY_HIGH + setDefaults → HUN dikhega ──
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setDefaults(NotificationCompat.DEFAULT_ALL);
+
+        // ── v3 fix: avatar set karo ────────────────────────────────────────
+        if (avatar != null) b.setLargeIcon(avatar);
 
         post(ctx, reqCode, b);
     }
@@ -361,7 +349,6 @@ public class YouTubeFCMNotificationHandler {
         return 2;
     }
 
-    /** Circle-crop avatar download */
     public static Bitmap downloadCircle(String photoUrl, int sizePx) {
         if (photoUrl == null || photoUrl.isEmpty()) return null;
         try {
@@ -387,7 +374,6 @@ public class YouTubeFCMNotificationHandler {
         }
     }
 
-    /** Plain bitmap download — thumbnail ke liye */
     public static Bitmap downloadBitmap(String url) {
         if (url == null || url.isEmpty()) return null;
         try {
@@ -404,8 +390,6 @@ public class YouTubeFCMNotificationHandler {
             return null;
         }
     }
-
-    // ── Internal helpers ──────────────────────────────────────────────────────
 
     private static int notifId(String type, String uid, String extra) {
         return NOTIF_ID_BASE + (type + uid + (extra != null ? extra : "")).hashCode();

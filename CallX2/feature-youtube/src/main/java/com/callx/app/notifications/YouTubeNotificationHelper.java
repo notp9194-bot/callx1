@@ -15,18 +15,17 @@ import java.io.InputStream;
 import java.net.URL;
 
 /**
- * YouTubeNotificationHelper — v2 (Heads-Up fix)
+ * YouTubeNotificationHelper — v3 (Like avatar + Like HUN fix)
  *
- * Posts YouTube OS notifications. Used by YouTubeNotificationWorker (killed-state safe).
- *
- * Fix: Sabhi PRIORITY_HIGH + setDefaults(DEFAULT_ALL) lagaya gaya hai taaki
- * background/killed state mein bhi YouTube jaisa heads-up banner aaye.
+ * v3 fix: postLikeMilestone() ab avatarUrl accept karta hai.
+ * Avatar background thread pe load karo aur yahan pass karo.
+ * Builder pe PRIORITY_HIGH + setDefaults → HUN dikhega.
  */
 public class YouTubeNotificationHelper {
 
     private static int notifId = 7000;
 
-    // ── New video from subscribed channel ─────────────────────────────────────
+    // ── New video ─────────────────────────────────────────────────────────────
     public static void postNewVideo(Context ctx, String channelName,
                                     String videoTitle, String thumbnailUrl,
                                     String videoId) {
@@ -58,7 +57,7 @@ public class YouTubeNotificationHelper {
         postNotif(ctx, b.build());
     }
 
-    // ── New comment on user's video ───────────────────────────────────────────
+    // ── Comment ───────────────────────────────────────────────────────────────
     public static void postComment(Context ctx, String commenterName,
                                    String videoId, String videoTitle,
                                    String commentPreview) {
@@ -84,7 +83,7 @@ public class YouTubeNotificationHelper {
             .build());
     }
 
-    // ── Reply to user's comment ───────────────────────────────────────────────
+    // ── Reply ─────────────────────────────────────────────────────────────────
     public static void postReply(Context ctx, String replierName,
                                  String videoId, String replyPreview) {
         Intent intent = new Intent(ctx, YouTubePlayerActivity.class)
@@ -107,7 +106,7 @@ public class YouTubeNotificationHelper {
             .build());
     }
 
-    // ── New subscriber ────────────────────────────────────────────────────────
+    // ── Subscribe ─────────────────────────────────────────────────────────────
     public static void postSubscribe(Context ctx, String subscriberName,
                                      String subscriberPhotoUrl) {
         Intent intent = new Intent(ctx, YouTubeActivity.class)
@@ -128,7 +127,7 @@ public class YouTubeNotificationHelper {
             .build());
     }
 
-    // ── Live stream started ───────────────────────────────────────────────────
+    // ── Live ──────────────────────────────────────────────────────────────────
     public static void postLive(Context ctx, String channelName,
                                 String videoId, String streamTitle) {
         Intent intent = new Intent(ctx, YouTubePlayerActivity.class)
@@ -152,9 +151,14 @@ public class YouTubeNotificationHelper {
             .build());
     }
 
-    // ── Milestone: likes on video ─────────────────────────────────────────────
+    // ── Like milestone — v3: avatarBitmap param added ─────────────────────────
+    /**
+     * @param avatarBitmap  Background thread pe pehle download karo, yahan pass karo.
+     *                      null pass karo agar download fail ho ya network nahi ho.
+     */
     public static void postLikeMilestone(Context ctx, String videoTitle,
-                                         long likeCount, String videoId) {
+                                         long likeCount, String videoId,
+                                         Bitmap avatarBitmap) {
         Intent intent = new Intent(ctx, YouTubePlayerActivity.class)
             .putExtra("video_id", videoId)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -162,16 +166,30 @@ public class YouTubeNotificationHelper {
         PendingIntent pi = PendingIntent.getActivity(ctx, notifId,
             intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Likes = PRIORITY_DEFAULT (spam nahi chahiye)
-        postNotif(ctx, new NotificationCompat.Builder(
+        NotificationCompat.Builder b = new NotificationCompat.Builder(
                 ctx, YouTubeNotificationChannelManager.CHANNEL_YT_LIKES)
             .setSmallIcon(R.drawable.ic_youtube_logo)
             .setContentTitle("🎉 " + likeCount + " likes on your video!")
             .setContentText(videoTitle)
             .setContentIntent(pi)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build());
+            // ── v3 fix: PRIORITY_HIGH → HUN ──
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL);
+
+        // ── v3 fix: avatar set karo ──
+        if (avatarBitmap != null) b.setLargeIcon(avatarBitmap);
+
+        postNotif(ctx, b.build());
+    }
+
+    /**
+     * Legacy overload — purane callers ke liye backward compatible.
+     * Avatar nahi dikhega, HUN dikhega (PRIORITY_HIGH).
+     */
+    public static void postLikeMilestone(Context ctx, String videoTitle,
+                                         long likeCount, String videoId) {
+        postLikeMilestone(ctx, videoTitle, likeCount, videoId, null);
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────

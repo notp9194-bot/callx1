@@ -6,23 +6,21 @@ import android.content.Context;
 import android.os.Build;
 
 /**
- * YouTubeNotificationChannelManager — v2 (Heads-Up fix)
+ * YouTubeNotificationChannelManager — v3 (Like HUN fix)
  *
- * IMPORTANT: Sabhi channels IMPORTANCE_HIGH hain taaki Android system
- * automatically upar se neeche slide karke notification dikhaye
- * (exactly YouTube jaise heads-up notification).
+ * v3 changes:
+ *   - CHANNEL_YT_LIKES: IMPORTANCE_DEFAULT → IMPORTANCE_HIGH (HUN ke liye zaroori)
+ *   - Channel ID "yt_likes_v2" → "yt_likes_v3" (Android cached importance force-refresh)
  *
- * Channel IDs mein "_v2" suffix add kiya gaya hai taaki pehle ke
- * IMPORTANCE_DEFAULT channels override ho jaayein — Android ek baar
- * registered channel ki importance ko update nahi karta, isliye
- * naye channel IDs zaroori hain.
+ * Android ek baar registered channel ki importance update nahi karta.
+ * Isliye jab bhi importance change karni ho, naya channel ID banana padta hai.
  */
 public class YouTubeNotificationChannelManager {
 
-    // v2 channel IDs — importance fix ke liye naye IDs
+    // v3 channel IDs
     public static final String CHANNEL_YT_SUBSCRIPTIONS = "yt_subscriptions_v2";
     public static final String CHANNEL_YT_COMMENTS      = "yt_comments_v2";
-    public static final String CHANNEL_YT_LIKES         = "yt_likes_v2";
+    public static final String CHANNEL_YT_LIKES         = "yt_likes_v3";   // v2→v3: IMPORTANCE_HIGH fix
     public static final String CHANNEL_YT_LIVE          = "yt_live_v2";
     public static final String CHANNEL_YT_GENERAL       = "yt_general_v2";
 
@@ -32,7 +30,7 @@ public class YouTubeNotificationChannelManager {
             (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
 
-        // ── Subscriptions — new video upload ─────────────────────────────────
+        // ── Subscriptions ─────────────────────────────────────────────────────
         NotificationChannel subs = new NotificationChannel(
             CHANNEL_YT_SUBSCRIPTIONS,
             "YouTube — Subscriptions",
@@ -41,24 +39,25 @@ public class YouTubeNotificationChannelManager {
         subs.enableVibration(true);
         subs.setShowBadge(true);
 
-        // ── Comments & Replies — IMPORTANCE_HIGH for heads-up ────────────────
+        // ── Comments & Replies ────────────────────────────────────────────────
         NotificationChannel comments = new NotificationChannel(
             CHANNEL_YT_COMMENTS,
             "YouTube — Comments & Replies",
-            NotificationManager.IMPORTANCE_HIGH);   // was IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH);
         comments.setDescription("Comments and replies on your videos");
         comments.enableVibration(true);
         comments.setShowBadge(true);
 
-        // ── Likes milestone ───────────────────────────────────────────────────
+        // ── Likes milestone — v3: IMPORTANCE_HIGH ────────────────────────────
         NotificationChannel likes = new NotificationChannel(
             CHANNEL_YT_LIKES,
             "YouTube — Likes",
-            NotificationManager.IMPORTANCE_DEFAULT);
+            NotificationManager.IMPORTANCE_HIGH);   // was IMPORTANCE_DEFAULT → HUN fix
         likes.setDescription("Like milestones on your videos");
+        likes.enableVibration(true);
         likes.setShowBadge(true);
 
-        // ── Live streams — IMPORTANCE_HIGH ───────────────────────────────────
+        // ── Live streams ──────────────────────────────────────────────────────
         NotificationChannel live = new NotificationChannel(
             CHANNEL_YT_LIVE,
             "YouTube — Live Streams",
@@ -67,11 +66,11 @@ public class YouTubeNotificationChannelManager {
         live.enableVibration(true);
         live.setShowBadge(true);
 
-        // ── General (subscribe etc.) — IMPORTANCE_HIGH ───────────────────────
+        // ── General ───────────────────────────────────────────────────────────
         NotificationChannel general = new NotificationChannel(
             CHANNEL_YT_GENERAL,
             "YouTube — General",
-            NotificationManager.IMPORTANCE_HIGH);   // was IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH);
         general.setDescription("Subscriber alerts and general YouTube notifications");
         general.enableVibration(true);
         general.setShowBadge(true);
