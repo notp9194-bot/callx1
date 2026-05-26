@@ -60,6 +60,7 @@ plugins {
       implementation 'com.google.firebase:firebase-database'
       implementation 'com.google.firebase:firebase-auth'
       implementation 'com.google.firebase:firebase-storage'
+      implementation 'com.google.firebase:firebase-messaging'
 
       // JSON (for Cloudinary HTTP upload)
       implementation 'org.json:json:20231013'
