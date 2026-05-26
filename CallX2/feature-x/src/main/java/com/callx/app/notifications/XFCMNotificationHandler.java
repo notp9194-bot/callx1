@@ -351,7 +351,7 @@ public class XFCMNotificationHandler {
      *   2 = 3G
      *   3 = 4G / 5G / WiFi
      */
-    static int getNetworkLevel(Context ctx) {
+    public static int getNetworkLevel(Context ctx) {
         ConnectivityManager cm =
                 (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return 0;
@@ -392,7 +392,7 @@ public class XFCMNotificationHandler {
      * Size: 100px (same as reel avatar policy).
      * Returns null on failure — caller handles gracefully.
      */
-    static Bitmap downloadCircle(String photoUrl, int sizePx) {
+    public static Bitmap downloadCircle(String photoUrl, int sizePx) {
         if (photoUrl == null || photoUrl.isEmpty()) return null;
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(photoUrl).openConnection();
