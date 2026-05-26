@@ -75,6 +75,17 @@ public class CallxMessagingService extends FirebaseMessagingService {
         }
         // ───────────────────────────────────────────────────────────────
 
+        // ── X notification system ───────────────────────────────────────────
+        // Bilkul reel_notif_type jaisa pattern.
+        // Payload me "x_notif_type" key detect ho to X handler ko delegate karo.
+        // XFirebaseMessagingService ab deprecated hai — yahi single entry point hai.
+        if (data.containsKey("x_notif_type")) {
+            com.callx.app.notifications.XNotificationChannelManager.ensureChannels(this);
+            com.callx.app.notifications.XFCMNotificationHandler.handle(this, data);
+            return;
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         String type = data.getOrDefault("type", "message");
         if ("call".equals(type) || "video_call".equals(type)) {
             showIncomingCall(data, "video_call".equals(type));
