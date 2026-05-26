@@ -79,4 +79,11 @@ public class XFirebaseUtils {
     public static String urlToKey(String url) {
         return url.replaceAll("[.#$\\[\\]/]", "_");
     }
+
+    // ── Root reference (for batch writes) ────────────────────────────────────
+    public static DatabaseReference root_x()                         { return root(); }
+
+    // ── FCM push token ───────────────────────────────────────────────────────
+    public static DatabaseReference fcmTokenRef(String uid)          { return root().child("fcm_tokens").child(uid); }
+
 }

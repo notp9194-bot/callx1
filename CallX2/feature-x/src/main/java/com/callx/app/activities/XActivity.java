@@ -14,6 +14,7 @@ import com.callx.app.fragments.XHomeFragment;
 import com.callx.app.fragments.XMessagesFragment;
 import com.callx.app.fragments.XNotificationsFragment;
 import com.callx.app.notifications.XNotificationChannelManager;
+import com.callx.app.services.XFirebaseMessagingService;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.x.R;
 import com.google.android.material.badge.BadgeDrawable;
@@ -47,6 +48,7 @@ public class XActivity extends AppCompatActivity {
             ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
 
         XNotificationChannelManager.ensureChannels(this);
+        XFirebaseMessagingService.uploadTokenIfSignedIn();
 
         // Profile avatar in header — tap opens own profile sheet
         CircleImageView ivMyAvatar = findViewById(R.id.iv_x_header_avatar);

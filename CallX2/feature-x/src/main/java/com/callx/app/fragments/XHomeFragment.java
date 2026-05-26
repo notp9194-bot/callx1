@@ -31,6 +31,11 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
 
     private RecyclerView recyclerView;
     private SwipeRefreshLayout swipeRefresh;
+    private View layoutEmpty;
+    private View layoutError;
+    private TextView tvEmptyTitle;
+    private TextView tvEmptySubtitle;
+    private View btnRetry;
     private XTweetAdapter adapter;
     private FloatingActionButton fabCompose;
     private ValueEventListener feedListener;
@@ -64,24 +69,35 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
 
-        recyclerView = view.findViewById(R.id.rv_x_home);
-        swipeRefresh = view.findViewById(R.id.swipe_x_home);
-        fabCompose   = view.findViewById(R.id.fab_x_compose);
+        recyclerView  = view.findViewById(R.id.rv_x_home);
+        swipeRefresh  = view.findViewById(R.id.swipe_x_home);
+        fabCompose    = view.findViewById(R.id.fab_x_compose);
+        layoutEmpty   = view.findViewById(R.id.layout_x_empty);
+        layoutError   = view.findViewById(R.id.layout_x_error);
+        tvEmptyTitle  = view.findViewById(R.id.tv_x_empty_title);
+        tvEmptySubtitle = view.findViewById(R.id.tv_x_empty_subtitle);
+        btnRetry      = view.findViewById(R.id.btn_x_retry);
 
         adapter = new XTweetAdapter(requireContext(), this);
         recyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
         recyclerView.setAdapter(adapter);
+        recyclerView.setItemViewCacheSize(20);
 
+        swipeRefresh.setColorSchemeResources(R.color.x_accent);
         swipeRefresh.setOnRefreshListener(this::refreshFeed);
+
         if (fabCompose != null)
             fabCompose.setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), XComposeActivity.class)));
+
+        if (btnRetry != null)
+            btnRetry.setOnClickListener(v -> refreshFeed());
 
         XTweetCacheManager.init(requireContext());
         mediaPreloader = new XTweetMediaPreloader(requireContext());
         imagePreloader = new XTweetImagePreloader(requireContext());
 
-        // Infinite scroll
+        // Infinite scroll + media preload
         recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 if (dy <= 0) return;
@@ -114,6 +130,40 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         if (view == null) return;
         view.findViewById(R.id.tab_x_for_you).setSelected(activeTab == 0);
         view.findViewById(R.id.tab_x_following).setSelected(activeTab == 1);
+        // Update empty state text based on active tab
+        if (tvEmptyTitle != null)
+            tvEmptyTitle.setText(activeTab == 0 ? "Welcome to X" : "Nothing here yet");
+        if (tvEmptySubtitle != null)
+            tvEmptySubtitle.setText(activeTab == 0
+                ? "Posts from people you follow will appear here. Follow some accounts to get started."
+                : "When you follow someone, their posts show up here. Find people to follow in Explore.");
+    }
+
+    // ── State visibility helpers ─────────────────────────────────────────────
+
+    private void showFeed() {
+        if (recyclerView  != null) recyclerView.setVisibility(View.VISIBLE);
+        if (layoutEmpty   != null) layoutEmpty.setVisibility(View.GONE);
+        if (layoutError   != null) layoutError.setVisibility(View.GONE);
+    }
+
+    private void showEmpty() {
+        if (recyclerView != null) recyclerView.setVisibility(View.GONE);
+        if (layoutEmpty  != null) layoutEmpty.setVisibility(View.VISIBLE);
+        if (layoutError  != null) layoutError.setVisibility(View.GONE);
+        if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+    }
+
+    private void showError() {
+        if (adapter.getItemCount() > 0) {
+            // Already has content — don't replace with error screen, just stop refreshing
+            if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+            return;
+        }
+        if (recyclerView != null) recyclerView.setVisibility(View.GONE);
+        if (layoutEmpty  != null) layoutEmpty.setVisibility(View.GONE);
+        if (layoutError  != null) layoutError.setVisibility(View.VISIBLE);
+        if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
     }
 
     // ── Block / Mute loading ─────────────────────────────────────────────────
@@ -145,6 +195,9 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         isLoadingMore   = false;
         adapter.setTweets(new ArrayList<>());
         if (swipeRefresh != null) swipeRefresh.setRefreshing(true);
+        if (layoutEmpty  != null) layoutEmpty.setVisibility(View.GONE);
+        if (layoutError  != null) layoutError.setVisibility(View.GONE);
+        if (recyclerView != null) recyclerView.setVisibility(View.VISIBLE);
         if (feedListener != null && currentFeedRef != null)
             currentFeedRef.removeEventListener(feedListener);
         loadFeedPage(true);
@@ -155,12 +208,12 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         if (activeTab == 0) {
             query = XFirebaseUtils.globalFeedRef()
                 .orderByChild("timestamp")
-                .endAt(oldestTimestamp == Long.MAX_VALUE ? Double.MAX_VALUE : oldestTimestamp - 1)
+                .endAt(oldestTimestamp == Long.MAX_VALUE ? Double.MAX_VALUE : (double)(oldestTimestamp - 1))
                 .limitToLast(PAGE_SIZE);
         } else {
             query = XFirebaseUtils.userFeedRef(myUid)
                 .orderByChild("timestamp")
-                .endAt(oldestTimestamp == Long.MAX_VALUE ? Double.MAX_VALUE : oldestTimestamp - 1)
+                .endAt(oldestTimestamp == Long.MAX_VALUE ? Double.MAX_VALUE : (double)(oldestTimestamp - 1))
                 .limitToLast(PAGE_SIZE);
         }
         currentFeedRef = query;
@@ -172,10 +225,9 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                     XTweet t = ds.getValue(XTweet.class);
                     if (t == null || t.isDeleted) continue;
                     t.id = ds.getKey();
-                    // Filter blocked + muted users
                     if (blockedUids.contains(t.authorUid)) continue;
-                    if (mutedUids.contains(t.authorUid)) continue;
-                    // Filter non-public for "for you" tab only
+                    if (mutedUids.contains(t.authorUid))   continue;
+                    // For "For You" tab: skip followers-only posts from other accounts
                     if (activeTab == 0 && "followers".equals(t.audience)
                             && !t.authorUid.equals(myUid)) continue;
                     page.add(t);
@@ -192,14 +244,24 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                     merged.addAll(page);
                     adapter.setTweets(merged);
                 }
-                if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+
                 isLoadingMore = false;
-                // Load engagement states
+
+                // Show correct state
+                if (adapter.getItemCount() == 0 && replace) {
+                    showEmpty();
+                } else {
+                    showFeed();
+                }
+
+                if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
                 loadEngagementStates(page);
             }
+
             @Override public void onCancelled(@NonNull DatabaseError e) {
-                if (isAdded() && swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                if (!isAdded()) return;
                 isLoadingMore = false;
+                showError();
             }
         };
         currentFeedRef.addValueEventListener(feedListener);
@@ -365,6 +427,7 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         XFirebaseUtils.userTweetsRef(myUid).child(tweet.id).removeValue();
         XFirebaseUtils.userFeedRef(myUid).child(tweet.id).removeValue();
         adapter.removeTweet(tweet.id);
+        if (adapter.getItemCount() == 0) showEmpty();
         Toast.makeText(requireContext(), "Post deleted", Toast.LENGTH_SHORT).show();
     }
 
@@ -384,7 +447,6 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
     private void followUser(XTweet tweet) {
         XFirebaseUtils.userFollowersRef(tweet.authorUid).child(myUid).setValue(true);
         XFirebaseUtils.userFollowingRef(myUid).child(tweet.authorUid).setValue(true);
-        // Transaction-safe follower count
         XFirebaseUtils.xUserRef(tweet.authorUid).child("followerCount")
             .runTransaction(new com.google.firebase.database.Transaction.Handler() {
                 @NonNull @Override
@@ -404,11 +466,11 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
     private void muteUser(XTweet tweet) {
         XFirebaseUtils.userMutedRef(myUid).child(tweet.authorUid).setValue(true);
         mutedUids.add(tweet.authorUid);
-        // Remove their tweets from current feed
         List<XTweet> filtered = new ArrayList<>();
         for (XTweet t : adapter.getTweets())
             if (!t.authorUid.equals(tweet.authorUid)) filtered.add(t);
         adapter.setTweets(filtered);
+        if (adapter.getItemCount() == 0) showEmpty();
         Toast.makeText(requireContext(), "Muted @" + tweet.authorHandle, Toast.LENGTH_SHORT).show();
     }
 
@@ -420,6 +482,7 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         for (XTweet t : adapter.getTweets())
             if (!t.authorUid.equals(tweet.authorUid)) filtered.add(t);
         adapter.setTweets(filtered);
+        if (adapter.getItemCount() == 0) showEmpty();
         Toast.makeText(requireContext(), "Blocked @" + tweet.authorHandle, Toast.LENGTH_SHORT).show();
     }
 
@@ -458,9 +521,8 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                     n.timestamp    = System.currentTimeMillis();
                     n.read         = false;
                     n.notified     = false;
-                    String targetUid = "follow".equals(type) ? tweet.authorUid : tweet.authorUid;
-                    XFirebaseUtils.xNotificationsRef(targetUid).push().setValue(n);
-                    XFirebaseUtils.xUnreadNotifCountRef(targetUid)
+                    XFirebaseUtils.xNotificationsRef(tweet.authorUid).push().setValue(n);
+                    XFirebaseUtils.xUnreadNotifCountRef(tweet.authorUid)
                         .runTransaction(new com.google.firebase.database.Transaction.Handler() {
                             @NonNull @Override
                             public com.google.firebase.database.Transaction.Result doTransaction(
