@@ -12,12 +12,18 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.adapters.YouTubeCommentAdapter;
 import com.callx.app.models.YouTubeComment;
 import com.callx.app.models.YouTubeNotification;
+import com.callx.app.utils.Constants;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
 
 public class YouTubeCommentsActivity extends AppCompatActivity {
 
@@ -101,21 +107,55 @@ public class YouTubeCommentsActivity extends AppCompatActivity {
     }
 
     private void notifyVideoOwner(String commentText) {
-        YouTubeFirebaseUtils.videoRef(videoId).child("uploaderUid")
-            .addListenerForSingleValueEvent(new ValueEventListener() {
+        YouTubeFirebaseUtils.videoRef(videoId).addListenerForSingleValueEvent(
+            new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    String ownerUid = snap.getValue(String.class);
+                    String ownerUid   = snap.child("uploaderUid").getValue(String.class);
+                    String videoTitle = snap.child("title").getValue(String.class);
                     if (ownerUid == null || ownerUid.equals(myUid)) return;
+
+                    // 1. Firebase DB me save — Worker polling ke liye
                     String nKey = YouTubeFirebaseUtils.notificationsRef(ownerUid).push().getKey();
-                    if (nKey == null) return;
-                    YouTubeNotification n = new YouTubeNotification(
-                        nKey, ownerUid, myUid, myName, myPhoto,
-                        "comment", videoId, null, null);
-                    n.commentText = commentText;
-                    YouTubeFirebaseUtils.notificationsRef(ownerUid).child(nKey).setValue(n);
+                    if (nKey != null) {
+                        YouTubeNotification n = new YouTubeNotification(
+                            nKey, ownerUid, myUid, myName, myPhoto,
+                            "comment", videoId, null, null);
+                        n.commentText = commentText;
+                        YouTubeFirebaseUtils.notificationsRef(ownerUid).child(nKey).setValue(n);
+                    }
+
+                    // 2. FCM push — background/killed state ke liye
+                    String vTitle = videoTitle != null ? videoTitle : "";
+                    Executors.newSingleThreadExecutor().execute(() -> {
+                        try {
+                            String json = "{"
+                                + "\"toUid\":\"" + ownerUid + "\"," 
+                                + "\"fromUid\":\"" + myUid + "\"," 
+                                + "\"fromName\":\"" + escapeJson(myName) + "\"," 
+                                + "\"fromPhoto\":\"" + escapeJson(myPhoto != null ? myPhoto : "") + "\"," 
+                                + "\"type\":\"comment\"," 
+                                + "\"videoId\":\"" + videoId + "\"," 
+                                + "\"videoTitle\":\"" + escapeJson(vTitle) + "\"," 
+                                + "\"commentText\":\"" + escapeJson(commentText) + "\"" 
+                                + "}";
+                            OkHttpClient client = new OkHttpClient();
+                            Request req = new Request.Builder()
+                                .url(Constants.SERVER_URL + "/notify/youtube")
+                                .post(RequestBody.create(json,
+                                    MediaType.parse("application/json")))
+                                .build();
+                            client.newCall(req).execute().close();
+                        } catch (Exception ignored) {}
+                    });
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
+    }
+
+    private static String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r");
     }
 
     @Override protected void onDestroy() {

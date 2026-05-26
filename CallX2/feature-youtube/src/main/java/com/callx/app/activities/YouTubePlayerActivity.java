@@ -589,7 +589,72 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 isDisliked = false;
             }
             Log.d(TAG, "Like added");
+            // FCM push — video owner ko like notification
+            sendLikeNotification();
         }
+    }
+
+    private void sendLikeNotification() {
+        YouTubeFirebaseUtils.videoRef(videoId).addListenerForSingleValueEvent(
+            new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String ownerUid   = snap.child("uploaderUid").getValue(String.class);
+                    String videoTitle = snap.child("title").getValue(String.class);
+                    if (ownerUid == null || ownerUid.equals(myUid)) return;
+
+                    String myDisplayName = snap.child("channelName") != null ? myUid : myUid;
+                    // Get my channel name from Firebase
+                    YouTubeFirebaseUtils.channelRef(myUid).addListenerForSingleValueEvent(
+                        new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot cSnap) {
+                                String fromName  = cSnap.child("channelName").getValue(String.class);
+                                String fromPhoto = cSnap.child("photoUrl").getValue(String.class);
+                                if (fromName == null) fromName = "Someone";
+                                String vTitle = videoTitle != null ? videoTitle : "";
+                                String fn = fromName, fp = fromPhoto != null ? fromPhoto : "";
+
+                                // Firebase DB save
+                                String nKey = YouTubeFirebaseUtils.notificationsRef(ownerUid).push().getKey();
+                                if (nKey != null) {
+                                    YouTubeNotification n = new YouTubeNotification(
+                                        nKey, ownerUid, myUid, fn, fp,
+                                        "like", videoId, null, null);
+                                    YouTubeFirebaseUtils.notificationsRef(ownerUid).child(nKey).setValue(n);
+                                }
+
+                                // FCM push
+                                java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+                                    try {
+                                        String json = "{"
+                                            + "\"toUid\":\"" + ownerUid + "\","
+                                            + "\"fromUid\":\"" + myUid + "\","
+                                            + "\"fromName\":\"" + escapeJson(fn) + "\","
+                                            + "\"fromPhoto\":\"" + escapeJson(fp) + "\","
+                                            + "\"type\":\"like_milestone\","
+                                            + "\"videoId\":\"" + videoId + "\","
+                                            + "\"videoTitle\":\"" + escapeJson(vTitle) + "\""
+                                            + "}";
+                                        okhttp3.OkHttpClient client = new okhttp3.OkHttpClient();
+                                        okhttp3.Request req = new okhttp3.Request.Builder()
+                                            .url(com.callx.app.utils.Constants.SERVER_URL + "/notify/youtube")
+                                            .post(okhttp3.RequestBody.create(json,
+                                                okhttp3.MediaType.parse("application/json")))
+                                            .build();
+                                        client.newCall(req).execute().close();
+                                    } catch (Exception ignored) {}
+                                });
+                            }
+                            @Override public void onCancelled(@NonNull DatabaseError e) {}
+                        });
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    private static String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r");
     }
 
     private void toggleDislike() {
