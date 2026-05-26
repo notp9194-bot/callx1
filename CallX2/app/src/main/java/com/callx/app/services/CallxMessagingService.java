@@ -86,6 +86,16 @@ public class CallxMessagingService extends FirebaseMessagingService {
         }
         // ────────────────────────────────────────────────────────────────────
 
+        // ── YouTube notification system ──────────────────────────────────────
+        // Same pattern as X system — "yt_notif_type" key detect ho to delegate.
+        // Background/killed state safe — YouTubeFCMNotificationHandler Executor use karta hai.
+        if (data.containsKey("yt_notif_type")) {
+            com.callx.app.notifications.YouTubeNotificationChannelManager.ensureChannels(this);
+            com.callx.app.notifications.YouTubeFCMNotificationHandler.handle(this, data);
+            return;
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         String type = data.getOrDefault("type", "message");
         if ("call".equals(type) || "video_call".equals(type)) {
             showIncomingCall(data, "video_call".equals(type));

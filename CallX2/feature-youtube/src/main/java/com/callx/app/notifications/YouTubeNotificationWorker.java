@@ -12,14 +12,19 @@ import androidx.work.WorkerParameters;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
  * YouTubeNotificationWorker — Background WorkManager worker.
  *
- * Polls Firebase every 15 minutes for unread YouTube notifications and posts
- * OS notifications even when the app is fully killed.
- * Mirrors the pattern used by XNotificationWorker and ReelNotificationWorker.
+ * Polls Firebase every 15 minutes for unread YouTube notifications.
+ * Runs even when the app is fully killed (WorkManager survives process death).
+ *
+ * FIX: Ab YouTubeFCMNotificationHandler.handle() use karta hai (X system jaisa pattern):
+ *   → Avatar / thumbnail properly download hota hai Executor thread pe
+ *   → fromName, fromPhoto, videoTitle, commentText sab dikh te hain notification me
  */
 public class YouTubeNotificationWorker extends Worker {
 
@@ -29,7 +34,6 @@ public class YouTubeNotificationWorker extends Worker {
         super(ctx, p);
     }
 
-    /** Schedule (or keep existing schedule) for the periodic poll. */
     public static void schedule(Context ctx) {
         Constraints constraints = new Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -47,7 +51,6 @@ public class YouTubeNotificationWorker extends Worker {
             req);
     }
 
-    /** Cancel any running schedule (e.g. after sign-out). */
     public static void cancel(Context ctx) {
         WorkManager.getInstance(ctx).cancelAllWorkByTag(WORK_TAG);
     }
@@ -69,45 +72,31 @@ public class YouTubeNotificationWorker extends Worker {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot snap) {
                     for (DataSnapshot ds : snap.getChildren()) {
-                        String type        = ds.child("type").getValue(String.class);
-                        String fromName    = ds.child("fromName").getValue(String.class);
-                        String fromPhoto   = ds.child("fromPhotoUrl").getValue(String.class);
-                        String videoId     = ds.child("videoId").getValue(String.class);
-                        String videoTitle  = ds.child("videoTitle").getValue(String.class);
-                        String thumbUrl    = ds.child("thumbnailUrl").getValue(String.class);
-                        String commentText = ds.child("commentText").getValue(String.class);
 
-                        if (fromName == null) fromName = "Someone";
-                        if (videoTitle == null) videoTitle = "";
+                        String type         = safeStr(ds, "type");
+                        String fromName     = safeStr(ds, "fromName");
+                        String fromPhoto    = safeStr(ds, "fromPhotoUrl");
+                        String fromUid      = safeStr(ds, "fromUid");
+                        String videoId      = safeStr(ds, "videoId");
+                        String videoTitle   = safeStr(ds, "videoTitle");
+                        String thumbnailUrl = safeStr(ds, "thumbnailUrl");
+                        String commentText  = safeStr(ds, "commentText");
+                        String likeCount    = safeStr(ds, "likeCount");
 
-                        Context ctx = getApplicationContext();
+                        if (fromName.isEmpty()) fromName = "Someone";
 
-                        switch (type != null ? type : "") {
-                            case "new_video":
-                                YouTubeNotificationHelper.postNewVideo(
-                                    ctx, fromName, videoTitle, thumbUrl, videoId);
-                                break;
-                            case "comment":
-                                YouTubeNotificationHelper.postComment(
-                                    ctx, fromName, videoId, videoTitle,
-                                    commentText != null ? commentText : "");
-                                break;
-                            case "reply":
-                                YouTubeNotificationHelper.postReply(
-                                    ctx, fromName, videoId,
-                                    commentText != null ? commentText : "");
-                                break;
-                            case "subscribe":
-                                YouTubeNotificationHelper.postSubscribe(
-                                    ctx, fromName, fromPhoto);
-                                break;
-                            case "live":
-                                YouTubeNotificationHelper.postLive(
-                                    ctx, fromName, videoId, videoTitle);
-                                break;
-                            default:
-                                break;
-                        }
+                        Map<String, String> data = new HashMap<>();
+                        data.put("yt_notif_type",  type);
+                        data.put("fromName",        fromName);
+                        data.put("fromPhoto",       fromPhoto);
+                        data.put("fromUid",         fromUid);
+                        data.put("videoId",         videoId);
+                        data.put("videoTitle",      videoTitle);
+                        data.put("thumbnailUrl",    thumbnailUrl);
+                        data.put("commentText",     commentText);
+                        data.put("likeCount",       likeCount);
+
+                        YouTubeFCMNotificationHandler.handle(getApplicationContext(), data);
 
                         ds.getRef().child("notified").setValue(true);
                     }
@@ -122,9 +111,14 @@ public class YouTubeNotificationWorker extends Worker {
 
         synchronized (lock) {
             if (!done[0]) {
-                try { lock.wait(10_000); } catch (InterruptedException ignored) {}
+                try { lock.wait(12_000); } catch (InterruptedException ignored) {}
             }
         }
         return Result.success();
+    }
+
+    private static String safeStr(DataSnapshot ds, String key) {
+        String v = ds.child(key).getValue(String.class);
+        return v != null ? v : "";
     }
 }
