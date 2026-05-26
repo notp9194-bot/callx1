@@ -14,7 +14,14 @@ import com.callx.app.youtube.R;
 import java.io.InputStream;
 import java.net.URL;
 
-/** Posts YouTube OS notifications. Used by YouTubeNotificationWorker (killed-state safe). */
+/**
+ * YouTubeNotificationHelper — v2 (Heads-Up fix)
+ *
+ * Posts YouTube OS notifications. Used by YouTubeNotificationWorker (killed-state safe).
+ *
+ * Fix: Sabhi PRIORITY_HIGH + setDefaults(DEFAULT_ALL) lagaya gaya hai taaki
+ * background/killed state mein bhi YouTube jaisa heads-up banner aaye.
+ */
 public class YouTubeNotificationHelper {
 
     private static int notifId = 7000;
@@ -37,7 +44,8 @@ public class YouTubeNotificationHelper {
             .setContentText(videoTitle)
             .setContentIntent(pi)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH);
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL);
 
         Bitmap thumb = loadBitmap(thumbnailUrl);
         if (thumb != null) {
@@ -71,7 +79,8 @@ public class YouTubeNotificationHelper {
                 .bigText("\"" + commentPreview + "\"\n" + videoTitle))
             .setContentIntent(pi)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build());
     }
 
@@ -93,7 +102,8 @@ public class YouTubeNotificationHelper {
             .setContentText(replyPreview)
             .setContentIntent(pi)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build());
     }
 
@@ -113,7 +123,8 @@ public class YouTubeNotificationHelper {
             .setContentText("You have a new subscriber!")
             .setContentIntent(pi)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build());
     }
 
@@ -136,6 +147,7 @@ public class YouTubeNotificationHelper {
             .setContentIntent(pi)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
             .build());
     }
@@ -150,6 +162,7 @@ public class YouTubeNotificationHelper {
         PendingIntent pi = PendingIntent.getActivity(ctx, notifId,
             intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        // Likes = PRIORITY_DEFAULT (spam nahi chahiye)
         postNotif(ctx, new NotificationCompat.Builder(
                 ctx, YouTubeNotificationChannelManager.CHANNEL_YT_LIKES)
             .setSmallIcon(R.drawable.ic_youtube_logo)
@@ -157,7 +170,7 @@ public class YouTubeNotificationHelper {
             .setContentText(videoTitle)
             .setContentIntent(pi)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build());
     }
 
