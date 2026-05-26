@@ -312,6 +312,20 @@
                     android:maxLines="3"
                     android:ellipsize="end"/>
 
+                <!-- FIX #3: Show more / Show less toggle -->
+                <TextView
+                    android:id="@+id/tv_yt_show_more"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Show more"
+                    android:textColor="@color/yt_text_primary"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:background="?attr/selectableItemBackground"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"/>
+
                 <!-- Divider -->
                 <View
                     android:layout_width="match_parent"

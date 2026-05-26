@@ -4,7 +4,6 @@ import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -12,105 +11,82 @@ import com.bumptech.glide.Glide;
 import com.callx.app.models.YouTubeNotification;
 import com.callx.app.youtube.R;
 import de.hdodenhof.circleimageview.CircleImageView;
-import java.util.ArrayList;
 import java.util.List;
 
 public class YouTubeNotificationAdapter
     extends RecyclerView.Adapter<YouTubeNotificationAdapter.VH> {
 
-    public interface OnNotifClick { void onClick(YouTubeNotification n); }
+    public interface OnNotifClickListener { void onClick(YouTubeNotification notif); }
 
     private final Context ctx;
     private List<YouTubeNotification> data;
-    private final OnNotifClick clickListener;
+    private final OnNotifClickListener listener;
 
     public YouTubeNotificationAdapter(Context ctx, List<YouTubeNotification> data,
-                                      OnNotifClick clickListener) {
-        this.ctx           = ctx;
-        this.data          = data != null ? new ArrayList<>(data) : new ArrayList<>();
-        this.clickListener = clickListener;
+                                      OnNotifClickListener listener) {
+        this.ctx      = ctx;
+        this.data     = data;
+        this.listener = listener;
     }
 
-    public void setData(List<YouTubeNotification> d) {
-        this.data = d != null ? new ArrayList<>(d) : new ArrayList<>();
+    public void setData(List<YouTubeNotification> data) {
+        this.data = data;
         notifyDataSetChanged();
     }
 
     @NonNull @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View v = LayoutInflater.from(ctx).inflate(R.layout.item_youtube_notification, parent, false);
+        View v = LayoutInflater.from(ctx).inflate(
+            R.layout.item_youtube_notification, parent, false);
         return new VH(v);
     }
 
     @Override public void onBindViewHolder(@NonNull VH h, int pos) {
         YouTubeNotification n = data.get(pos);
-
-        if (h.tvText   != null) h.tvText.setText(buildText(n));
-        if (h.tvTime   != null) h.tvTime.setText(formatAge(n.timestamp));
-        if (h.ivUnread != null) h.ivUnread.setVisibility(n.read ? View.GONE : View.VISIBLE);
-
-        if (h.ivAvatar != null)
-            Glide.with(ctx).load(n.fromPhotoUrl).circleCrop()
-                .placeholder(R.drawable.ic_person).into(h.ivAvatar);
-
-        if (h.ivThumb != null && n.thumbnailUrl != null)
+        h.tvText.setText(buildText(n));
+        h.tvTime.setText(formatAge(n.timestamp));
+        h.itemView.setAlpha(n.read ? 0.6f : 1.0f);
+        Glide.with(ctx).load(n.fromPhotoUrl).circleCrop()
+            .placeholder(R.drawable.ic_person).into(h.ivAvatar);
+        if (n.thumbnailUrl != null)
             Glide.with(ctx).load(n.thumbnailUrl).centerCrop().into(h.ivThumb);
-
-        h.itemView.setAlpha(n.read ? 0.75f : 1f);
-        h.itemView.setOnClickListener(v -> {
-            if (clickListener != null) clickListener.onClick(n);
-        });
+        h.itemView.setOnClickListener(v -> { if (listener != null) listener.onClick(n); });
     }
 
-    @Override public int getItemCount() { return data.size(); }
+    @Override public int getItemCount() { return data == null ? 0 : data.size(); }
 
     private String buildText(YouTubeNotification n) {
         String name = n.fromName != null ? n.fromName : "Someone";
         switch (n.type != null ? n.type : "") {
-            case "new_video":
-                return name + " posted a new video" +
-                    (n.videoTitle != null ? ": " + n.videoTitle : "");
-            case "comment":
-                return name + " commented" +
-                    (n.commentText != null && !n.commentText.isEmpty()
-                        ? ": " + n.commentText : " on your video");
-            case "reply":
-                return name + " replied to your comment";
-            case "like":
-                return name + " liked your video" +
-                    (n.videoTitle != null ? ": " + n.videoTitle : "");
-            case "subscribe":
-                return name + " subscribed to your channel";
-            case "mention":
-                return name + " mentioned you in a comment";
-            case "live":
-                return name + " is now live!";
-            case "like_milestone":
-                return "Your video just reached " + n.videoTitle + " likes!";
-            default:
-                return name + " sent you a notification";
+            case "new_video":  return name + " uploaded: " + n.videoTitle;
+            case "comment":    return name + " commented on your video";
+            case "reply":      return name + " replied to your comment";
+            case "subscribe":  return name + " subscribed to your channel";
+            case "like":       return name + " liked your video";
+            case "live":       return name + " is live now!";
+            default:           return name + " interacted with your content";
         }
     }
 
     private String formatAge(long ts) {
         long diff = System.currentTimeMillis() - ts;
-        if (diff < 60_000)         return "just now";
-        if (diff < 3_600_000)      return (diff / 60_000) + "m ago";
-        if (diff < 86_400_000)     return (diff / 3_600_000) + "h ago";
-        if (diff < 604_800_000L)   return (diff / 86_400_000) + "d ago";
-        return (diff / 604_800_000L) + "w ago";
+        long mins = diff / 60000;
+        if (mins < 60)   return mins + "m ago";
+        long hrs  = mins / 60;
+        if (hrs  < 24)   return hrs  + "h ago";
+        long days = hrs  / 24;
+        if (days < 30)   return days + "d ago";
+        return (days / 30) + "mo ago";
     }
 
     static class VH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;
-        ImageView       ivThumb, ivUnread;
-        TextView        tvText, tvTime;
-
-        VH(View v) {
+        android.widget.ImageView ivThumb;
+        TextView tvText, tvTime;
+        VH(@NonNull View v) {
             super(v);
             ivAvatar = v.findViewById(R.id.iv_yt_notif_avatar);
             ivThumb  = v.findViewById(R.id.iv_yt_notif_thumb);
-            ivUnread = v.findViewById(R.id.iv_yt_notif_dot);
             tvText   = v.findViewById(R.id.tv_yt_notif_text);
             tvTime   = v.findViewById(R.id.tv_yt_notif_time);
         }

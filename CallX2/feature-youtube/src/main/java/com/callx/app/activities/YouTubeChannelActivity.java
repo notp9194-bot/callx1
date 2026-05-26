@@ -5,18 +5,13 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.adapters.YouTubeVideoAdapter;
-import com.callx.app.models.YouTubeChannel;
-import com.callx.app.models.YouTubeNotification;
 import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
@@ -26,34 +21,20 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Full Channel Page — 4 tabs: Videos | Shorts | Playlists | About
- */
 public class YouTubeChannelActivity extends AppCompatActivity {
 
     private String channelUid, myUid;
     private boolean isSubscribed = false;
+    private long subscriberCount = 0;
 
-    // Header views
-    private ImageView        ivBanner;
-    private CircleImageView  ivAvatar;
-    private TextView         tvName, tvHandle, tvSubs, tvVideoCount, tvAboutBio;
-    private Button           btnSubscribe;
-    private View             btnEdit;
+    private CircleImageView ivAvatar;
+    private ImageView ivBanner;
+    private TextView tvChannelName, tvHandle, tvSubs, tvBio, tvVideoCount;
+    private Button btnSubscribe, btnEditChannel;
+    private RecyclerView rvVideos;
+    private YouTubeVideoAdapter videoAdapter;
 
-    // Tab content
-    private RecyclerView     rvVideos, rvShorts, rvPlaylists;
-    private YouTubeVideoAdapter videosAdapter, shortsAdapter;
-    private LinearLayout     llAbout, llPlaylistsList;
-
-    // Active tab state
-    private static final int TAB_VIDEOS = 0, TAB_SHORTS = 1, TAB_PLAYLISTS = 2, TAB_ABOUT = 3;
-    private int currentTab = TAB_VIDEOS;
-
-    private View[] tabContents = new View[4];
-    private View[] tabButtons  = new View[4];
-
-    private ValueEventListener subListener;
+    private ValueEventListener channelListener, subsListener, videosListener;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -62,220 +43,176 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         channelUid = getIntent().getStringExtra("uid");
         myUid = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
-
-        if (channelUid == null) { finish(); return; }
+        if (channelUid == null) channelUid = myUid;
 
         View btnBack = findViewById(R.id.btn_yt_channel_back);
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
-        // Header
-        ivBanner    = findViewById(R.id.iv_yt_channel_banner);
-        ivAvatar    = findViewById(R.id.iv_yt_channel_avatar);
-        tvName      = findViewById(R.id.tv_yt_channel_name);
-        tvHandle    = findViewById(R.id.tv_yt_channel_handle);
-        tvSubs      = findViewById(R.id.tv_yt_channel_subs);
-        tvVideoCount= findViewById(R.id.tv_yt_video_count);
-        btnSubscribe= findViewById(R.id.btn_yt_channel_subscribe);
-        btnEdit     = findViewById(R.id.btn_yt_edit_channel);
+        // Settings button in profile header
+        View btnSettings = findViewById(R.id.btn_yt_profile_settings);
+        if (btnSettings != null)
+            btnSettings.setOnClickListener(v ->
+                startActivityForResult(new Intent(this, YouTubeSettingsActivity.class), 1001));
 
-        if (btnEdit != null) {
-            btnEdit.setVisibility(myUid.equals(channelUid) ? View.VISIBLE : View.GONE);
-            btnEdit.setOnClickListener(v ->
+        ivAvatar      = findViewById(R.id.iv_yt_channel_avatar);
+        ivBanner      = findViewById(R.id.iv_yt_channel_banner);
+        tvChannelName = findViewById(R.id.tv_yt_channel_name);
+        tvHandle      = findViewById(R.id.tv_yt_channel_handle);
+        tvSubs        = findViewById(R.id.tv_yt_channel_subs);
+        tvBio         = findViewById(R.id.tv_yt_channel_bio);
+        tvVideoCount  = findViewById(R.id.tv_yt_video_count);
+        btnSubscribe  = findViewById(R.id.btn_yt_channel_subscribe);
+        btnEditChannel= findViewById(R.id.btn_yt_edit_channel);
+        rvVideos      = findViewById(R.id.rv_yt_channel_videos);
+
+        // Show/hide edit vs subscribe
+        boolean isMyChannel = channelUid.equals(myUid);
+        if (btnEditChannel != null) btnEditChannel.setVisibility(isMyChannel ? View.VISIBLE : View.GONE);
+        if (btnSubscribe   != null) btnSubscribe.setVisibility(isMyChannel ? View.GONE : View.VISIBLE);
+
+        if (btnEditChannel != null)
+            btnEditChannel.setOnClickListener(v ->
                 startActivity(new Intent(this, YouTubeEditChannelActivity.class)));
+
+        // ── 3 Profile Section Cards ─────────────────────────────────────────
+        // Card 1: Reel — opens UserReelsActivity (cross-module via className)
+        View cardReel = findViewById(R.id.card_yt_profile_reel);
+        if (cardReel != null) {
+            cardReel.setOnClickListener(v -> {
+                Intent i = new Intent();
+                i.setClassName(getPackageName(),
+                    "com.callx.app.activities.UserReelsActivity");
+                i.putExtra("uid", channelUid);
+                i.putExtra("name", tvChannelName.getText() != null
+                    ? tvChannelName.getText().toString() : "");
+                startActivity(i);
+            });
         }
-        if (btnSubscribe != null) btnSubscribe.setOnClickListener(v -> toggleSubscribe());
 
-        // Tab buttons
-        tabButtons[TAB_VIDEOS]    = findViewById(R.id.tab_yt_videos);
-        tabButtons[TAB_SHORTS]    = findViewById(R.id.tab_yt_shorts);
-        tabButtons[TAB_PLAYLISTS] = findViewById(R.id.tab_yt_playlists);
-        tabButtons[TAB_ABOUT]     = findViewById(R.id.tab_yt_about);
+        // Card 2: X profile — launched via XActivity (XProfileActivity replaced by XProfileSheet)
+        View cardX = findViewById(R.id.card_yt_profile_x);
+        if (cardX != null && channelUid != null) {
+            cardX.setOnClickListener(v -> {
+                Intent xi = new Intent();
+                xi.setClassName(getPackageName(), "com.callx.app.activities.XActivity");
+                xi.putExtra("open_profile_uid", channelUid);
+                startActivity(xi);
+            });
+        }
 
-        // Tab content containers
-        tabContents[TAB_VIDEOS]    = findViewById(R.id.v_yt_tab_videos);
-        tabContents[TAB_SHORTS]    = findViewById(R.id.v_yt_tab_shorts);
-        tabContents[TAB_PLAYLISTS] = findViewById(R.id.v_yt_tab_playlists);
-        tabContents[TAB_ABOUT]     = findViewById(R.id.v_yt_tab_about);
+        // Card 3: Chat — opens MainActivity on Chats tab (cross-module via className)
+        View cardChat = findViewById(R.id.card_yt_profile_chat);
+        if (cardChat != null) {
+            cardChat.setOnClickListener(v -> {
+                Intent i = new Intent();
+                i.setClassName(getPackageName(),
+                    "com.callx.app.activities.MainActivity");
+                i.putExtra("tab", "chats");
+                i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(i);
+            });
+        }
 
-        llAbout       = findViewById(R.id.ll_yt_channel_about);
-        tvAboutBio    = findViewById(R.id.tv_yt_channel_bio);
-        llPlaylistsList = findViewById(R.id.ll_yt_channel_playlists);
-
-        // RecyclerViews
-        rvVideos = findViewById(R.id.rv_yt_channel_videos);
-        rvShorts = findViewById(R.id.rv_yt_channel_shorts);
-
-        videosAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
+        videoAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
             startActivity(new Intent(this, YouTubePlayerActivity.class)
                 .putExtra("video_id", video.videoId)));
-        shortsAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
-            startActivity(new Intent(this, YouTubePlayerActivity.class)
-                .putExtra("video_id", video.videoId)));
+        rvVideos.setLayoutManager(new GridLayoutManager(this, 2));
+        rvVideos.setAdapter(videoAdapter);
 
-        if (rvVideos != null) {
-            rvVideos.setLayoutManager(new GridLayoutManager(this, 2));
-            rvVideos.setAdapter(videosAdapter);
-        }
-        if (rvShorts != null) {
-            rvShorts.setLayoutManager(new GridLayoutManager(this, 3));
-            rvShorts.setAdapter(shortsAdapter);
-        }
-
-        for (int i = 0; i < 4; i++) {
-            final int tab = i;
-            if (tabButtons[i] != null)
-                tabButtons[i].setOnClickListener(v -> switchTab(tab));
-        }
-
-        switchTab(TAB_VIDEOS);
-        loadChannelData();
-        loadSubscribeState();
+        loadChannel();
+        loadVideos();
+        if (!isMyChannel) loadSubscribeState();
     }
 
-    private void switchTab(int tab) {
-        currentTab = tab;
-        for (int i = 0; i < 4; i++) {
-            if (tabContents[i] != null)
-                tabContents[i].setVisibility(i == tab ? View.VISIBLE : View.GONE);
-            if (tabButtons[i] != null)
-                tabButtons[i].setSelected(i == tab);
-        }
-        switch (tab) {
-            case TAB_VIDEOS:    loadChannelVideos(); break;
-            case TAB_SHORTS:    loadChannelShorts(); break;
-            case TAB_PLAYLISTS: loadChannelPlaylists(); break;
-            case TAB_ABOUT:     /* bio already loaded */ break;
-        }
-    }
-
-    private void loadChannelData() {
-        YouTubeFirebaseUtils.channelRef(channelUid).addListenerForSingleValueEvent(
-            new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    YouTubeChannel ch = snap.getValue(YouTubeChannel.class);
-                    if (ch == null) return;
-                    if (tvName   != null) tvName.setText(ch.channelName);
-                    if (tvHandle != null) tvHandle.setText("@" + (ch.handle != null ? ch.handle : ""));
-                    if (tvSubs   != null) tvSubs.setText(fmt(ch.subscriberCount) + " subscribers");
-                    if (tvVideoCount != null) tvVideoCount.setText(ch.videoCount + " videos");
-                    if (tvAboutBio   != null) tvAboutBio.setText(ch.bio != null ? ch.bio : "");
-
-                    if (ivBanner != null && ch.bannerUrl != null)
-                        Glide.with(YouTubeChannelActivity.this).load(ch.bannerUrl)
-                            .centerCrop().into(ivBanner);
-                    if (ivAvatar != null)
-                        Glide.with(YouTubeChannelActivity.this).load(ch.photoUrl)
-                            .circleCrop().placeholder(R.drawable.ic_person).into(ivAvatar);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-    }
-
-    private void loadChannelVideos() {
-        if (rvVideos == null) return;
-        YouTubeFirebaseUtils.userVideosRef(channelUid)
-            .orderByValue().limitToLast(24)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    List<String> ids = new ArrayList<>();
-                    for (DataSnapshot ds : snap.getChildren()) ids.add(0, ds.getKey());
-                    fetchAndBind(ids, videosAdapter, false);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-    }
-
-    private void loadChannelShorts() {
-        if (rvShorts == null) return;
-        YouTubeFirebaseUtils.userShortsRef(channelUid)
-            .orderByValue().limitToLast(18)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    List<String> ids = new ArrayList<>();
-                    for (DataSnapshot ds : snap.getChildren()) ids.add(0, ds.getKey());
-                    fetchAndBind(ids, shortsAdapter, true);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-    }
-
-    private void loadChannelPlaylists() {
-        if (llPlaylistsList == null) return;
-        llPlaylistsList.removeAllViews();
-        YouTubeFirebaseUtils.playlistsRef(channelUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (!snap.hasChildren()) {
-                        TextView tv = new TextView(YouTubeChannelActivity.this);
-                        tv.setText("No public playlists.");
-                        tv.setPadding(dp(16), dp(8), dp(16), dp(8));
-                        llPlaylistsList.addView(tv);
-                        return;
-                    }
-                    for (DataSnapshot ds : snap.getChildren()) {
-                        String pid     = ds.getKey();
-                        String title   = ds.child("title").getValue(String.class);
-                        String privacy = ds.child("privacy").getValue(String.class);
-                        if (!"public".equals(privacy) && !myUid.equals(channelUid)) continue;
-                        Long count = ds.child("videoCount").getValue(Long.class);
-
-                        View row = getLayoutInflater().inflate(android.R.layout.simple_list_item_2, llPlaylistsList, false);
-                        TextView t1 = row.findViewById(android.R.id.text1);
-                        TextView t2 = row.findViewById(android.R.id.text2);
-                        if (t1 != null) t1.setText(title != null ? title : "Untitled");
-                        if (t2 != null) t2.setText((count != null ? count : 0) + " videos");
-                        final String playlistId = pid;
-                        row.setOnClickListener(v -> startActivity(
-                            new Intent(YouTubeChannelActivity.this, YouTubePlaylistActivity.class)
-                                .putExtra("owner_uid", channelUid)
-                                .putExtra("playlist_id", playlistId)));
-                        llPlaylistsList.addView(row);
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-    }
-
-    private void fetchAndBind(List<String> ids, YouTubeVideoAdapter adp, boolean shortsOnly) {
-        List<YouTubeVideo> videos = new ArrayList<>();
-        if (ids.isEmpty()) { adp.setData(videos); return; }
-        final int[] count = {0};
-        for (String id : ids) {
-            YouTubeFirebaseUtils.videoRef(id).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    YouTubeVideo v = snap.getValue(YouTubeVideo.class);
-                    if (v != null && (myUid.equals(channelUid) || "public".equals(v.visibility)))
-                        videos.add(v);
-                    count[0]++;
-                    if (count[0] == ids.size()) adp.setData(videos);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    count[0]++;
-                    if (count[0] == ids.size()) adp.setData(videos);
-                }
-            });
-        }
-    }
-
-    // ── Subscribe ─────────────────────────────────────────────────────────────
-
-    private void loadSubscribeState() {
-        if (myUid.isEmpty() || myUid.equals(channelUid)) {
-            if (btnSubscribe != null) btnSubscribe.setVisibility(View.GONE);
-            return;
-        }
-        subListener = new ValueEventListener() {
+    private void loadChannel() {
+        channelListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                isSubscribed = snap.hasChild(channelUid);
-                updateSubBtn();
+                String name  = snap.child("channelName").getValue(String.class);
+                String handle= snap.child("handle").getValue(String.class);
+                String photo = snap.child("photoUrl").getValue(String.class);
+                String banner= snap.child("bannerUrl").getValue(String.class);
+                String bio   = snap.child("bio").getValue(String.class);
+                Long subs    = snap.child("subscriberCount").getValue(Long.class);
+                Long vids    = snap.child("videoCount").getValue(Long.class);
+
+                tvChannelName.setText(name != null ? name : "Channel");
+                tvHandle.setText(handle != null ? "@" + handle : "");
+                tvBio.setText(bio != null ? bio : "");
+                subscriberCount = subs != null ? subs : 0;
+                tvSubs.setText(formatCount(subscriberCount) + " subscribers");
+                tvVideoCount.setText((vids != null ? vids : 0) + " videos");
+
+                Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivAvatar);
+                if (banner != null && !banner.isEmpty())
+                    Glide.with(YouTubeChannelActivity.this).load(banner)
+                        .centerCrop().into(ivBanner);
+
+                // Load avatar into 3 section cards
+                if (photo != null && !photo.isEmpty()) {
+                    CircleImageView ivR = findViewById(R.id.iv_card_reel_avatar);
+                    CircleImageView ivX = findViewById(R.id.iv_card_x_avatar);
+                    CircleImageView ivC = findViewById(R.id.iv_card_chat_avatar);
+                    if (ivR != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivR);
+                    if (ivX != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivX);
+                    if (ivC != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivC);
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
-        YouTubeFirebaseUtils.subscriptionsRef(myUid).addValueEventListener(subListener);
+        YouTubeFirebaseUtils.channelRef(channelUid).addValueEventListener(channelListener);
+    }
+
+    private void loadVideos() {
+        videosListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                List<String> ids = new ArrayList<>();
+                for (DataSnapshot ds : snap.getChildren()) ids.add(0, ds.getKey());
+                fetchVideoDetails(ids);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        YouTubeFirebaseUtils.userVideosRef(channelUid)
+            .orderByValue().limitToLast(30)
+            .addValueEventListener(videosListener);
+    }
+
+    private void fetchVideoDetails(List<String> ids) {
+        List<YouTubeVideo> videos = new ArrayList<>();
+        if (ids.isEmpty()) { videoAdapter.setData(videos); return; }
+        final int[] count = {0};
+        for (String id : ids) {
+            YouTubeFirebaseUtils.videoRef(id)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        YouTubeVideo v = snap.getValue(YouTubeVideo.class);
+                        if (v != null) videos.add(v);
+                        count[0]++;
+                        if (count[0] == ids.size()) videoAdapter.setData(videos);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        count[0]++;
+                        if (count[0] == ids.size()) videoAdapter.setData(videos);
+                    }
+                });
+        }
+    }
+
+    private void loadSubscribeState() {
+        subsListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                isSubscribed = snap.hasChild(channelUid);
+                if (btnSubscribe != null) {
+                    btnSubscribe.setText(isSubscribed ? "Subscribed" : "Subscribe");
+                    btnSubscribe.setOnClickListener(v -> toggleSubscribe());
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        if (!myUid.isEmpty())
+            YouTubeFirebaseUtils.subscriptionsRef(myUid).addValueEventListener(subsListener);
     }
 
     private void toggleSubscribe() {
-        if (myUid.isEmpty()) { Toast.makeText(this,"Sign in first",Toast.LENGTH_SHORT).show(); return; }
         if (isSubscribed) {
             YouTubeFirebaseUtils.subscriptionsRef(myUid).child(channelUid).removeValue();
             YouTubeFirebaseUtils.subscribersRef(channelUid).child(myUid).removeValue();
@@ -286,45 +223,28 @@ public class YouTubeChannelActivity extends AppCompatActivity {
             YouTubeFirebaseUtils.subscribersRef(channelUid).child(myUid).setValue(true);
             YouTubeFirebaseUtils.channelRef(channelUid).child("subscriberCount")
                 .setValue(ServerValue.increment(1));
-            sendSubscribeNotif();
         }
-        isSubscribed = !isSubscribed;
-        updateSubBtn();
     }
 
-    private void updateSubBtn() {
-        if (btnSubscribe != null) btnSubscribe.setText(isSubscribed ? "Subscribed" : "Subscribe");
-    }
-
-    private void sendSubscribeNotif() {
-        YouTubeFirebaseUtils.channelRef(myUid).addListenerForSingleValueEvent(
-            new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    String myName  = snap.child("channelName").getValue(String.class);
-                    String myPhoto = snap.child("photoUrl").getValue(String.class);
-                    String nKey = YouTubeFirebaseUtils.notificationsRef(channelUid).push().getKey();
-                    if (nKey == null) return;
-                    YouTubeNotification n = new YouTubeNotification(nKey, channelUid,
-                        myUid, myName, myPhoto, "subscribe", null, null, null);
-                    YouTubeFirebaseUtils.notificationsRef(channelUid).child(nKey).setValue(n);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-    }
-
-    @Override protected void onDestroy() {
-        super.onDestroy();
-        if (subListener != null && !myUid.isEmpty())
-            YouTubeFirebaseUtils.subscriptionsRef(myUid).removeEventListener(subListener);
-    }
-
-    private String fmt(long n) {
+    private String formatCount(long n) {
         if (n >= 1_000_000) return String.format("%.1fM", n / 1_000_000.0);
         if (n >= 1_000)     return String.format("%.1fK", n / 1_000.0);
         return String.valueOf(n);
     }
 
-    private int dp(int d) {
-        return (int) (d * getResources().getDisplayMetrics().density);
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 1001) recreate();
+    }
+
+    @Override protected void onDestroy() {
+        super.onDestroy();
+        if (channelListener != null)
+            YouTubeFirebaseUtils.channelRef(channelUid).removeEventListener(channelListener);
+        if (videosListener != null)
+            YouTubeFirebaseUtils.userVideosRef(channelUid).removeEventListener(videosListener);
+        if (subsListener != null && !myUid.isEmpty())
+            YouTubeFirebaseUtils.subscriptionsRef(myUid).removeEventListener(subsListener);
     }
 }

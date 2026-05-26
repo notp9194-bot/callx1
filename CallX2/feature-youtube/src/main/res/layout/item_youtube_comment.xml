@@ -2,166 +2,101 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
+    android:orientation="horizontal"
     android:padding="12dp">
 
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_yt_comment_avatar"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:src="@drawable/ic_person"/>
+
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="10dp">
 
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/iv_yt_comment_avatar"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_person"/>
-
-        <LinearLayout
-            android:layout_width="0dp"
+        <!-- Pinned badge -->
+        <TextView
+            android:id="@+id/tv_yt_comment_pinned"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="10dp">
+            android:text="Pinned by creator"
+            android:textColor="#AAAAAA"
+            android:textSize="11sp"
+            android:visibility="gone"
+            android:layout_marginBottom="2dp"/>
 
-            <!-- Pinned badge -->
+        <!-- Author + time -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
             <TextView
-                android:id="@+id/tv_yt_comment_pinned"
+                android:id="@+id/tv_yt_comment_name"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Pinned by creator"
-                android:textColor="#AAAAAA"
-                android:textSize="11sp"
-                android:visibility="gone"
-                android:layout_marginBottom="2dp"/>
-
-            <!-- Author + time row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/tv_yt_comment_author"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#FFFFFF"
-                    android:textSize="13sp"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:id="@+id/tv_yt_comment_time"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:textColor="#717171"
-                    android:textSize="12sp"/>
-
-                <!-- Hearted badge (creator heart) -->
-                <ImageView
-                    android:id="@+id/iv_yt_comment_hearted"
-                    android:layout_width="16dp"
-                    android:layout_height="16dp"
-                    android:layout_marginStart="6dp"
-                    android:src="@drawable/ic_yt_heart"
-                    android:visibility="gone"/>
-
-            </LinearLayout>
-
-            <!-- Comment text -->
-            <TextView
-                android:id="@+id/tv_yt_comment_text"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textColor="#DDDDDD"
-                android:textSize="14sp"
-                android:lineSpacingMultiplier="1.3"/>
-
-            <!-- Edited badge -->
-            <TextView
-                android:id="@+id/tv_yt_comment_edited"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="(edited)"
-                android:textColor="#717171"
-                android:textSize="11sp"
-                android:visibility="gone"
-                android:layout_marginTop="2dp"/>
-
-            <!-- Like row + Reply button -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="6dp">
-
-                <ImageButton
-                    android:id="@+id/btn_yt_comment_like"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_yt_like"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="#717171"
-                    android:contentDescription="Like comment"
-                    android:padding="4dp"/>
-
-                <TextView
-                    android:id="@+id/tv_yt_comment_likes"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:textColor="#717171"
-                    android:textSize="12sp"/>
-
-                <ImageButton
-                    android:id="@+id/btn_yt_comment_reply"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:src="@drawable/ic_yt_reply"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="#717171"
-                    android:contentDescription="Reply to comment"
-                    android:padding="4dp"/>
-
-            </LinearLayout>
-
-            <!-- Replies count / expand -->
-            <TextView
-                android:id="@+id/tv_yt_comment_replies"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:textColor="#3EA6FF"
+                android:textColor="#FFFFFF"
                 android:textSize="13sp"
-                android:textStyle="bold"
-                android:visibility="gone"/>
+                android:textStyle="bold"/>
 
-            <!-- Nested replies RecyclerView -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_yt_comment_replies"
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/tv_yt_comment_time"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:visibility="gone"
-                android:nestedScrollingEnabled="false"/>
-
+                android:layout_marginStart="8dp"
+                android:textColor="#717171"
+                android:textSize="12sp"/>
         </LinearLayout>
 
-        <!-- 3-dot more options for comment -->
-        <ImageButton
-            android:id="@+id/btn_yt_comment_more"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:layout_gravity="top"
-            android:src="@drawable/ic_yt_more"
-            android:tint="@color/yt_text_muted"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Comment options"
-            android:padding="4dp"/>
+        <!-- Comment text -->
+        <TextView
+            android:id="@+id/tv_yt_comment_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="#DDDDDD"
+            android:textSize="14sp"
+            android:lineSpacingMultiplier="1.3"/>
 
+        <!-- Like count -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="6dp">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_yt_like"
+                android:tint="#717171"/>
+
+            <TextView
+                android:id="@+id/tv_yt_comment_likes"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:textColor="#717171"
+                android:textSize="12sp"/>
+        </LinearLayout>
     </LinearLayout>
+
+    <!-- 3-dot more options for comment -->
+    <ImageButton
+        android:id="@+id/btn_yt_comment_more"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="top"
+        android:src="@drawable/ic_yt_more"
+        android:tint="@color/yt_text_muted"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Comment options"
+        android:padding="4dp"/>
 
 </LinearLayout>
