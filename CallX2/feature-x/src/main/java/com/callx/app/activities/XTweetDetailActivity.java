@@ -14,6 +14,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.adapters.XTweetAdapter;
 import com.callx.app.models.XNotification;
 import com.callx.app.models.XTweet;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.x.R;
 import com.google.firebase.auth.FirebaseAuth;
@@ -231,6 +232,10 @@ public class XTweetDetailActivity extends AppCompatActivity {
         XFirebaseUtils.userLikedTweetsRef(myUid).child(tweetId).setValue(liked ? true : null);
         XFirebaseUtils.tweetRef(tweetId).child("likeCount")
             .runTransaction(txCounter(liked));
+        // FCM push — background/killed safe
+        if (liked && rootTweet.authorUid != null && !myUid.equals(rootTweet.authorUid)) {
+            sendXPush(rootTweet.authorUid, "like", tweetId);
+        }
     }
 
     private void toggleRetweet() {
@@ -243,6 +248,10 @@ public class XTweetDetailActivity extends AppCompatActivity {
         XFirebaseUtils.tweetRetweetsRef(tweetId).child(myUid).setValue(rt ? true : null);
         XFirebaseUtils.userRetweetsRef(myUid).child(tweetId).setValue(rt ? true : null);
         XFirebaseUtils.tweetRef(tweetId).child("retweetCount").runTransaction(txCounter(rt));
+        // FCM push — background/killed safe
+        if (rt && rootTweet.authorUid != null && !myUid.equals(rootTweet.authorUid)) {
+            sendXPush(rootTweet.authorUid, "retweet", tweetId);
+        }
     }
 
     private void toggleBookmark() {
@@ -317,10 +326,14 @@ public class XTweetDetailActivity extends AppCompatActivity {
             @Override public void onLike(XTweet t, boolean liked) {
                 XFirebaseUtils.tweetLikesRef(t.id).child(myUid).setValue(liked ? true : null);
                 XFirebaseUtils.tweetRef(t.id).child("likeCount").runTransaction(txCounter(liked));
+                if (liked && t.authorUid != null && !myUid.equals(t.authorUid))
+                    sendXPush(t.authorUid, "like", t.id);
             }
             @Override public void onRetweet(XTweet t, boolean rt) {
                 XFirebaseUtils.tweetRetweetsRef(t.id).child(myUid).setValue(rt ? true : null);
                 XFirebaseUtils.tweetRef(t.id).child("retweetCount").runTransaction(txCounter(rt));
+                if (rt && t.authorUid != null && !myUid.equals(t.authorUid))
+                    sendXPush(t.authorUid, "retweet", t.id);
             }
             @Override public void onReply(XTweet t) {
                 startActivity(new Intent(XTweetDetailActivity.this, XComposeActivity.class)
@@ -343,6 +356,27 @@ public class XTweetDetailActivity extends AppCompatActivity {
             }
             @Override public void onMore(XTweet t, View anchor) {}
         };
+    }
+
+    /**
+     * sendXPush — fetches my display info then fires PushNotify.notifyX().
+     * Shared by toggleLike, toggleRetweet, and the adapter action listener.
+     */
+    private void sendXPush(String toUid, String type, String tweetId) {
+        com.callx.app.utils.FirebaseUtils.getUserRef(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String name  = snap.child("name").getValue(String.class);
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    if (name  == null) name  = "Someone";
+                    if (thumb == null) thumb = "";
+                    if (photo == null) photo = "";
+                    PushNotify.notifyX(toUid, myUid, name,
+                        !thumb.isEmpty() ? thumb : photo, type, tweetId);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
     }
 
     private String fmtFull(long n) {

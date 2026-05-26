@@ -18,6 +18,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.models.XNotification;
 import com.callx.app.models.XProfile;
 import com.callx.app.utils.XFirebaseUtils;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.XProfileManager;
 import com.callx.app.x.R;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
@@ -294,17 +295,28 @@ public class XProfileSheet extends BottomSheetDialogFragment {
         com.callx.app.utils.FirebaseUtils.getUserRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String name  = snap.child("name").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    if (name  == null) name  = "Someone";
+                    if (photo == null) photo = "";
+                    if (thumb == null) thumb = "";
+
+                    // Path 1: Firebase DB (in-app bell)
                     XNotification n   = new XNotification();
                     n.type            = "follow";
                     n.fromUid         = myUid;
-                    n.fromName        = snap.child("name").getValue(String.class);
-                    n.fromPhotoUrl    = snap.child("photoUrl").getValue(String.class);
-                    if (n.fromName == null) n.fromName = "Someone";
+                    n.fromName        = name;
+                    n.fromPhotoUrl    = photo;
                     n.timestamp       = System.currentTimeMillis();
                     n.read            = false;
                     n.notified        = false;
                     XFirebaseUtils.xNotificationsRef(targetUid).push().setValue(n);
                     incRef(XFirebaseUtils.xUnreadNotifCountRef(targetUid), true);
+
+                    // Path 2: FCM push (background/killed safe)
+                    PushNotify.notifyX(targetUid, myUid, name,
+                        !thumb.isEmpty() ? thumb : photo, "follow", "");
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });

@@ -18,6 +18,7 @@ import com.callx.app.activities.*;
 import com.callx.app.adapters.XTweetAdapter;
 import com.callx.app.models.*;
 import com.callx.app.utils.XFirebaseUtils;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.XWhoToFollowManager;
 import com.callx.app.x.R;
 import com.google.firebase.auth.FirebaseAuth;
@@ -193,6 +194,8 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                             XFirebaseUtils.xUserRef(myUid).child("followingCount")
                                 .setValue(c != null ? c + 1 : 1);
                         });
+                    // FCM push (background/killed safe)
+                    sendXPush(targetUid, "follow", "");
                 } else {
                     XFirebaseUtils.userFollowersRef(targetUid).child(myUid).removeValue();
                     XFirebaseUtils.userFollowingRef(myUid).child(targetUid).removeValue();
@@ -399,12 +402,16 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
         XFirebaseUtils.userLikedTweetsRef(myUid).child(tweet.id).setValue(liked ? true : null);
         XFirebaseUtils.tweetRef(tweet.id).child("likeCount")
             .setValue(liked ? tweet.likeCount + 1 : Math.max(0, tweet.likeCount - 1));
+        if (liked && tweet.authorUid != null && !myUid.equals(tweet.authorUid))
+            sendXPush(tweet.authorUid, "like", tweet.id);
     }
     @Override public void onRetweet(XTweet tweet, boolean rt) {
         XFirebaseUtils.tweetRetweetsRef(tweet.id).child(myUid).setValue(rt ? true : null);
         XFirebaseUtils.userRetweetsRef(myUid).child(tweet.id).setValue(rt ? true : null);
         XFirebaseUtils.tweetRef(tweet.id).child("retweetCount")
             .setValue(rt ? tweet.retweetCount + 1 : Math.max(0, tweet.retweetCount - 1));
+        if (rt && tweet.authorUid != null && !myUid.equals(tweet.authorUid))
+            sendXPush(tweet.authorUid, "retweet", tweet.id);
     }
     @Override public void onReply(XTweet tweet) {
         startActivity(new Intent(requireContext(), XComposeActivity.class)
@@ -455,5 +462,26 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
         super.onDestroyView();
         if (trendingFeedListener != null)
             XFirebaseUtils.globalFeedRef().removeEventListener(trendingFeedListener);
+    }
+
+    /**
+     * sendXPush — fetches my display info then fires PushNotify.notifyX().
+     * Used by onLike, onRetweet, and Who-to-Follow button handler.
+     */
+    private void sendXPush(String toUid, String type, String tweetId) {
+        com.callx.app.utils.FirebaseUtils.getUserRef(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String name  = snap.child("name").getValue(String.class);
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    if (name  == null) name  = "Someone";
+                    if (thumb == null) thumb = "";
+                    if (photo == null) photo = "";
+                    PushNotify.notifyX(toUid, myUid, name,
+                        !thumb.isEmpty() ? thumb : photo, type, tweetId);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
     }
 }

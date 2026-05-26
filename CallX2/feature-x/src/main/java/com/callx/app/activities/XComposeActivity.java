@@ -19,6 +19,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.models.XPoll;
 import com.callx.app.models.XTweet;
 import com.callx.app.utils.ImageCompressor;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.XCloudinaryUtils;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.utils.XLinkPreviewHelper;
@@ -707,6 +708,55 @@ public class XComposeActivity extends AppCompatActivity {
 
                 // Fan-out to followers via batch (limited to 500 followers per batch)
                 fanOutToFollowers(tweet);
+
+                // ── FCM push: reply / quote / @mention (background/killed safe) ──────
+                final String fromName  = myName    != null ? myName    : "User";
+                final String fromPhoto = (myThumbUrl != null && !myThumbUrl.isEmpty())
+                        ? myThumbUrl : (myPhotoUrl != null ? myPhotoUrl : "");
+
+                // Reply: notify original tweet author
+                if (replyToId != null && !replyToId.isEmpty()) {
+                    XFirebaseUtils.tweetRef(replyToId)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                                String authorUid = snap.child("authorUid").getValue(String.class);
+                                if (authorUid != null && !myUid.equals(authorUid))
+                                    PushNotify.notifyX(authorUid, myUid, fromName, fromPhoto,
+                                        "reply", replyToId);
+                            }
+                            @Override public void onCancelled(@NonNull DatabaseError e) {}
+                        });
+                }
+
+                // Quote: notify quoted tweet author
+                if (quoteTweetId != null && !quoteTweetId.isEmpty()) {
+                    XFirebaseUtils.tweetRef(quoteTweetId)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                                String authorUid = snap.child("authorUid").getValue(String.class);
+                                if (authorUid != null && !myUid.equals(authorUid))
+                                    PushNotify.notifyX(authorUid, myUid, fromName, fromPhoto,
+                                        "quote", quoteTweetId);
+                            }
+                            @Override public void onCancelled(@NonNull DatabaseError e) {}
+                        });
+                }
+
+                // @mention: notify each mentioned user (handle → UID lookup)
+                if (tweet.mentions != null) {
+                    for (String handle : tweet.mentions) {
+                        XFirebaseUtils.xHandleRef(handle)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                                    String mentionedUid = snap.getValue(String.class);
+                                    if (mentionedUid != null && !myUid.equals(mentionedUid))
+                                        PushNotify.notifyX(mentionedUid, myUid, fromName,
+                                            fromPhoto, "mention", tweet.id);
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {}
+                            });
+                    }
+                }
 
                 setResult(RESULT_OK);
                 finish();

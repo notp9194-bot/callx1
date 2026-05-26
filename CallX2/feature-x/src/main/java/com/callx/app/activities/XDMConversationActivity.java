@@ -21,6 +21,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.adapters.XDMAdapter;
 import com.callx.app.models.XDMMessage;
 import com.callx.app.utils.ImageCompressor;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.XCloudinaryUtils;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.x.R;
@@ -383,6 +384,25 @@ public class XDMConversationActivity extends AppCompatActivity {
                         myHandle!= null ? myHandle: myUid,
                         myPhoto != null ? myPhoto : "",
                         myThumb != null ? myThumb : "", msg, true);
+
+                    // FCM push — background/killed safe
+                    final String preview = msg.text != null && !msg.text.isEmpty()
+                            ? msg.text : (msg.mediaType != null ? "[" + msg.mediaType + "]" : "");
+                    final String avatar  = (myThumb != null && !myThumb.isEmpty())
+                            ? myThumb : (myPhoto != null ? myPhoto : "");
+                    PushNotify.notifyX(
+                        otherUid,
+                        myUid,
+                        myName  != null ? myName  : "User",
+                        avatar,
+                        "dm",
+                        "",           // tweetId — not applicable for DM
+                        convId,       // conversationId
+                        myUid,        // otherUid (from receiver's perspective)
+                        myHandle != null ? myHandle : "",
+                        avatar,
+                        preview
+                    );
                 }
                 @Override public void onCancelled(DatabaseError e) {}
             });
