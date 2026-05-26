@@ -157,7 +157,7 @@ public class YouTubeCreatorStudioActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(20), barH);
                 barLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
                 bar.setLayoutParams(barLp);
-                bar.setBackgroundColor(getResources().getColor(R.color.colorPrimary, getTheme()));
+                bar.setBackgroundColor(getResources().getColor(R.color.yt_red, getTheme()));
                 col.addView(bar);
 
                 // Count label

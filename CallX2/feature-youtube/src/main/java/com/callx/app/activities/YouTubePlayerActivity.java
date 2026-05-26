@@ -389,14 +389,27 @@ public class YouTubePlayerActivity extends AppCompatActivity {
 
     private void downloadCurrentVideo() {
         if (currentVideo == null) return;
-        String url = toPlayableUrl(currentVideo.videoUrl);
-        YouTubeDownloadManager.download(this, videoId, currentVideo.title, url,
-            () -> runOnUiThread(() -> {
-                Toast.makeText(this, "Download complete", Toast.LENGTH_SHORT).show();
-                if (btnDownload != null) btnDownload.setImageResource(R.drawable.ic_yt_download_done);
-            }),
-            err -> runOnUiThread(() ->
-                Toast.makeText(this, "Download failed: " + err, Toast.LENGTH_LONG).show()));
+        YouTubeDownloadManager.startDownload(this, currentVideo,
+            new YouTubeDownloadManager.DownloadCallback() {
+                @Override public void onStarted() {}
+                @Override public void onProgress(int percent) {}
+                @Override public void onCompleted(String localPath) {
+                    runOnUiThread(() -> {
+                        Toast.makeText(YouTubePlayerActivity.this,
+                            "Download complete", Toast.LENGTH_SHORT).show();
+                        if (btnDownload != null)
+                            btnDownload.setImageResource(R.drawable.ic_yt_download_done);
+                    });
+                }
+                @Override public void onAlreadyDownloaded(String localPath) {
+                    runOnUiThread(() -> Toast.makeText(YouTubePlayerActivity.this,
+                        "Already downloaded", Toast.LENGTH_SHORT).show());
+                }
+                @Override public void onError(String error) {
+                    runOnUiThread(() -> Toast.makeText(YouTubePlayerActivity.this,
+                        "Download failed: " + error, Toast.LENGTH_LONG).show());
+                }
+            });
     }
 
     private void showOptionsSheet() {

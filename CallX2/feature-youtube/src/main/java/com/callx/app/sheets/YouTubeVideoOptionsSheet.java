@@ -71,7 +71,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inf, @Nullable ViewGroup parent,
                              @Nullable Bundle state) {
-        return inf.inflate(R.layout.sheet_youtube_video_options, parent, false);
+        return inf.inflate(R.layout.bottom_sheet_yt_video_options, parent, false);
     }
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
@@ -98,7 +98,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         if (tvCh    != null) tvCh.setText(channel);
 
         // Watch Later
-        bindOption(view, R.id.row_yt_opt_watch_later, () -> {
+        bindOption(view, R.id.btn_yt_option_watch_later, () -> {
             if (myUid.isEmpty()) return;
             YouTubeFirebaseUtils.watchLaterRef(myUid).child(videoId)
                 .setValue(System.currentTimeMillis());
@@ -108,7 +108,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         });
 
         // Save to Playlist
-        bindOption(view, R.id.row_yt_opt_save_playlist, () -> {
+        bindOption(view, R.id.btn_yt_option_playlist, () -> {
             if (myUid.isEmpty()) { toast("Sign in first"); return; }
             YouTubeSaveToPlaylistSheet.newInstance(videoId, title)
                 .show(getParentFragmentManager(), "save_playlist");
@@ -116,16 +116,31 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         });
 
         // Download
-        bindOption(view, R.id.row_yt_opt_download, () -> {
+        bindOption(view, R.id.btn_yt_option_download, () -> {
             if (videoUrl == null || videoUrl.isEmpty()) { toast("URL not available"); return; }
-            YouTubeDownloadManager.download(requireContext(), videoId, title, videoUrl,
-                () -> requireActivity().runOnUiThread(() -> toast("Download complete")),
-                err -> requireActivity().runOnUiThread(() -> toast("Download failed")));
-            toast("Download started…");
+            com.callx.app.models.YouTubeVideo dlVideo = new com.callx.app.models.YouTubeVideo();
+            dlVideo.videoId = videoId; dlVideo.title = title;
+            dlVideo.videoUrl = videoUrl; dlVideo.thumbnailUrl = thumbUrl;
+            YouTubeDownloadManager.startDownload(requireContext(), dlVideo,
+                new YouTubeDownloadManager.DownloadCallback() {
+                    @Override public void onStarted() {
+                        requireActivity().runOnUiThread(() -> toast("Download started…"));
+                    }
+                    @Override public void onProgress(int percent) {}
+                    @Override public void onCompleted(String localPath) {
+                        requireActivity().runOnUiThread(() -> toast("Download complete"));
+                    }
+                    @Override public void onAlreadyDownloaded(String localPath) {
+                        requireActivity().runOnUiThread(() -> toast("Already downloaded"));
+                    }
+                    @Override public void onError(String error) {
+                        requireActivity().runOnUiThread(() -> toast("Download failed"));
+                    }
+                });
         });
 
         // Share
-        bindOption(view, R.id.row_yt_opt_share, () -> {
+        bindOption(view, R.id.btn_yt_option_share, () -> {
             String msg = (title != null ? title : "") + "\nhttps://callx.app/watch?v=" + videoId;
             Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain")
                 .putExtra(Intent.EXTRA_TEXT, msg);
@@ -136,7 +151,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         });
 
         // View Channel
-        bindOption(view, R.id.row_yt_opt_view_channel, () -> {
+        bindOption(view, R.id.btn_yt_option_channel, () -> {
             if (uploaderUid == null || uploaderUid.isEmpty()) return;
             startActivity(new Intent(requireContext(), YouTubeChannelActivity.class)
                 .putExtra("uid", uploaderUid));
@@ -144,7 +159,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         });
 
         // Not Interested
-        bindOption(view, R.id.row_yt_opt_not_interested, () -> {
+        bindOption(view, R.id.btn_yt_option_not_interested, () -> {
             if (!myUid.isEmpty())
                 YouTubeFirebaseUtils.notInterestedRef(myUid, videoId).setValue(true);
             if (callback != null) callback.onNotInterested(videoId);
@@ -152,7 +167,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         });
 
         // Report
-        bindOption(view, R.id.row_yt_opt_report, () -> {
+        bindOption(view, R.id.btn_yt_option_report, () -> {
             if (!myUid.isEmpty())
                 YouTubeFirebaseUtils.reportsRef(videoId, myUid).setValue(true);
             toast("Video reported");
@@ -160,7 +175,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
         });
 
         // Delete (owner only)
-        View rowDelete = view.findViewById(R.id.row_yt_opt_delete);
+        View rowDelete = view.findViewById(R.id.btn_yt_option_delete);
         if (rowDelete != null) {
             boolean isOwner = myUid.equals(uploaderUid) && !myUid.isEmpty();
             rowDelete.setVisibility(isOwner ? View.VISIBLE : View.GONE);

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- IDs declared so Java can reference them; views are null at runtime if not in the layout -->
+
+    <!-- Player -->
+    <item name="yt_player_appbar" type="id"/>
+
+    <!-- Video adapter shorts buttons -->
+    <item name="btn_yt_short_like"    type="id"/>
+    <item name="btn_yt_short_comment" type="id"/>
+    <item name="btn_yt_short_share"   type="id"/>
+
+    <!-- Channel activity tabs -->
+    <item name="tab_yt_videos"    type="id"/>
+    <item name="tab_yt_shorts"    type="id"/>
+    <item name="tab_yt_playlists" type="id"/>
+    <item name="tab_yt_about"     type="id"/>
+
+    <!-- Channel activity tab content containers -->
+    <item name="v_yt_tab_videos"    type="id"/>
+    <item name="v_yt_tab_shorts"    type="id"/>
+    <item name="v_yt_tab_playlists" type="id"/>
+    <item name="v_yt_tab_about"     type="id"/>
+
+    <!-- Channel shorts recycler + about section -->
+    <item name="rv_yt_channel_shorts"    type="id"/>
+    <item name="ll_yt_channel_about"     type="id"/>
+    <item name="ll_yt_channel_playlists" type="id"/>
+
+    <!-- Empty state text views -->
+    <item name="tv_yt_history_empty"    type="id"/>
+    <item name="tv_yt_liked_empty"      type="id"/>
+    <item name="tv_yt_watch_later_empty" type="id"/>
+    <item name="tv_yt_notif_empty"      type="id"/>
+
+    <!-- Notifications mark-all button -->
+    <item name="btn_yt_mark_all_read" type="id"/>
+
+    <!-- Library fragment extras -->
+    <item name="btn_yt_creator_studio"   type="id"/>
+    <item name="rv_yt_continue_watching" type="id"/>
+    <item name="ll_yt_playlists"         type="id"/>
+    <item name="tv_yt_playlists_empty"   type="id"/>
+
+    <!-- Playlist row item IDs -->
+    <item name="tv_yt_playlist_row_title" type="id"/>
+    <item name="tv_yt_playlist_row_count" type="id"/>
+</resources>

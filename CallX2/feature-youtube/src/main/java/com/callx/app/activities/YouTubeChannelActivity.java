@@ -6,7 +6,6 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.TabHost;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -75,9 +74,9 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         tvName      = findViewById(R.id.tv_yt_channel_name);
         tvHandle    = findViewById(R.id.tv_yt_channel_handle);
         tvSubs      = findViewById(R.id.tv_yt_channel_subs);
-        tvVideoCount= findViewById(R.id.tv_yt_channel_video_count);
-        btnSubscribe= findViewById(R.id.btn_yt_subscribe);
-        btnEdit     = findViewById(R.id.btn_yt_channel_edit);
+        tvVideoCount= findViewById(R.id.tv_yt_video_count);
+        btnSubscribe= findViewById(R.id.btn_yt_channel_subscribe);
+        btnEdit     = findViewById(R.id.btn_yt_edit_channel);
 
         if (btnEdit != null) {
             btnEdit.setVisibility(myUid.equals(channelUid) ? View.VISIBLE : View.GONE);

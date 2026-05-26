@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/yt_surface"
+    android:paddingBottom="24dp">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_drag_handle"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Save to playlist"
+        android:textColor="@color/yt_text_primary"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <!-- Existing playlists (checkboxes added programmatically) -->
+    <LinearLayout
+        android:id="@+id/ll_yt_playlists_list"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="8dp"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/yt_divider"/>
+
+    <!-- New playlist toggle button -->
+    <LinearLayout
+        android:id="@+id/btn_yt_new_playlist"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="?attr/selectableItemBackground">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_yt_upload"
+            android:tint="@color/yt_text_primary"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:text="New playlist"
+            android:textColor="@color/yt_text_primary"
+            android:textSize="14sp"/>
+    </LinearLayout>
+
+    <!-- New playlist form (hidden by default) -->
+    <LinearLayout
+        android:id="@+id/v_yt_new_playlist_form"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:background="#1E1E1E"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/et_yt_new_playlist_name"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Playlist name"
+            android:textColor="@color/yt_text_primary"
+            android:textColorHint="@color/yt_text_secondary"
+            android:background="@drawable/bg_yt_comment_input"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:inputType="text"
+            android:imeOptions="actionDone"
+            android:maxLines="1"/>
+
+        <RadioGroup
+            android:id="@+id/rg_yt_playlist_privacy"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="10dp">
+
+            <RadioButton
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Private"
+                android:textColor="@color/yt_text_primary"
+                android:checked="true"/>
+
+            <RadioButton
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Public"
+                android:textColor="@color/yt_text_primary"
+                android:layout_marginStart="24dp"/>
+        </RadioGroup>
+
+        <Button
+            android:id="@+id/btn_yt_create_playlist_confirm"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="Create &amp; Save"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="@color/yt_red"
+            android:layout_marginTop="12dp"/>
+    </LinearLayout>
+</LinearLayout>

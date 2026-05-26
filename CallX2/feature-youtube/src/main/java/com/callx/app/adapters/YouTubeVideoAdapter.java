@@ -75,7 +75,7 @@ public class YouTubeVideoAdapter extends RecyclerView.Adapter<YouTubeVideoAdapte
 
         if (h.ivThumb != null)
             Glide.with(ctx).load(v.thumbnailUrl).centerCrop()
-                .placeholder(R.drawable.ic_yt_placeholder).into(h.ivThumb);
+                .into(h.ivThumb);
         if (h.ivAvatar != null && v.uploaderPhotoUrl != null)
             Glide.with(ctx).load(v.uploaderPhotoUrl).circleCrop()
                 .placeholder(R.drawable.ic_person).into(h.ivAvatar);
@@ -143,7 +143,7 @@ public class YouTubeVideoAdapter extends RecyclerView.Adapter<YouTubeVideoAdapte
 
         VH(View v) {
             super(v);
-            ivThumb        = v.findViewById(R.id.iv_yt_video_thumb);
+            ivThumb        = v.findViewById(R.id.iv_yt_thumb);
             ivAvatar       = v.findViewById(R.id.iv_yt_video_avatar);
             tvTitle        = v.findViewById(R.id.tv_yt_video_title);
             tvChannel      = v.findViewById(R.id.tv_yt_video_channel);
