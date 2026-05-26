@@ -74,9 +74,14 @@ public class CallxApp extends Application {
         // Reel notification channels (39 channels register)
         com.callx.app.notifications.ReelNotificationChannelManager.ensureChannels(this);
 
+        // YouTube notification channels
+        com.callx.app.notifications.YouTubeNotificationChannelManager.ensureChannels(this);
+
         // WorkManager workers schedule — sirf enqueue karta hai, heavy nahi
         XNotificationWorker.schedule(this);
         com.callx.app.notifications.ReelNotificationWorker.schedule(this);
+        // YouTube background polling worker — killed/background state notifications
+        com.callx.app.notifications.YouTubeNotificationWorker.schedule(this);
 
         // Activity lifecycle + AppLock wiring — must be main thread
         registerForegroundTracking();
