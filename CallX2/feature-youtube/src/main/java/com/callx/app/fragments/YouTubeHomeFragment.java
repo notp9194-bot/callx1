@@ -5,9 +5,13 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.HorizontalScrollView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -17,10 +21,6 @@ import com.callx.app.adapters.YouTubeVideoAdapter;
 import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.utils.YouTubePrefs;
-import android.net.ConnectivityManager;
-import android.net.NetworkCapabilities;
-import android.content.Context;
-import android.os.Build;
 import com.callx.app.youtube.R;
 import com.google.firebase.database.*;
 import java.util.ArrayList;
@@ -28,13 +28,21 @@ import java.util.List;
 
 public class YouTubeHomeFragment extends Fragment {
 
-    private RecyclerView        rvFeed;
-    private SwipeRefreshLayout  swipeRefresh;
-    private ProgressBar         pbLoading;   // ← new
-    private View                llEmpty;     // ← new
+    private static final String[] CATEGORIES = {
+        "All", "Music", "Gaming", "News", "Sports", "Movies",
+        "Tech", "Education", "Comedy", "Travel", "Food", "Fashion"
+    };
+
+    private RecyclerView       rvFeed;
+    private SwipeRefreshLayout swipeRefresh;
+    private ProgressBar        pbLoading;
+    private View               llEmpty;
+    private LinearLayout       llChips;
     private YouTubeVideoAdapter adapter;
-    private ValueEventListener  feedListener;
-    private YouTubePrefs        ytPrefs;
+    private ValueEventListener feedListener;
+    private YouTubePrefs       ytPrefs;
+    private String             selectedCategory = "All";
+    private List<YouTubeVideo> allVideos = new ArrayList<>();
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inf, @Nullable ViewGroup parent,
@@ -50,6 +58,7 @@ public class YouTubeHomeFragment extends Fragment {
         swipeRefresh = view.findViewById(R.id.srl_yt_home);
         pbLoading    = view.findViewById(R.id.pb_yt_home);
         llEmpty      = view.findViewById(R.id.ll_yt_empty);
+        llChips      = view.findViewById(R.id.ll_yt_category_chips);
 
         adapter = new YouTubeVideoAdapter(requireActivity(), new ArrayList<>(), video ->
             startActivity(new Intent(requireContext(), YouTubePlayerActivity.class)
@@ -57,6 +66,8 @@ public class YouTubeHomeFragment extends Fragment {
         rvFeed.setLayoutManager(new LinearLayoutManager(requireContext()));
         rvFeed.setAdapter(adapter);
         applyPlaybackInFeeds();
+
+        buildCategoryChips();
 
         swipeRefresh.setOnRefreshListener(() -> {
             detachFeedListener();
@@ -66,25 +77,57 @@ public class YouTubeHomeFragment extends Fragment {
         loadFeed();
     }
 
+    // ── Category chips ─────────────────────────────────────────────────────────
+
+    private void buildCategoryChips() {
+        if (llChips == null || !isAdded()) return;
+        llChips.removeAllViews();
+        for (String cat : CATEGORIES) {
+            TextView chip = new TextView(requireContext());
+            chip.setText(cat);
+            chip.setTextSize(13f);
+            chip.setPadding(dpToPx(14), dpToPx(7), dpToPx(14), dpToPx(7));
+            chip.setTextColor(ContextCompat.getColor(requireContext(),
+                cat.equals(selectedCategory) ? android.R.color.white : android.R.color.black));
+            chip.setBackground(ContextCompat.getDrawable(requireContext(),
+                cat.equals(selectedCategory) ? R.drawable.bg_yt_chip_selected : R.drawable.bg_yt_chip));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.setMarginEnd(dpToPx(8));
+            chip.setLayoutParams(lp);
+            chip.setOnClickListener(v -> {
+                selectedCategory = cat;
+                buildCategoryChips();
+                filterAndDisplay();
+            });
+            llChips.addView(chip);
+        }
+    }
+
+    private int dpToPx(int dp) {
+        return (int) (dp * requireContext().getResources().getDisplayMetrics().density);
+    }
+
+    // ── Feed loading ──────────────────────────────────────────────────────────
+
     private void loadFeed() {
         showLoading(true);
+        detachFeedListener();
         feedListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                List<YouTubeVideo> list = new ArrayList<>();
-                boolean restrictedMode = ytPrefs.isRestrictedMode();
+                allVideos.clear();
+                boolean restricted = ytPrefs.isRestrictedMode();
                 for (DataSnapshot ds : snap.getChildren()) {
                     YouTubeVideo v = ds.getValue(YouTubeVideo.class);
                     if (v == null) continue;
                     if (v.isShort) continue;
                     if (!"public".equals(v.visibility)) continue;
                     if (v.videoUrl == null || v.videoUrl.trim().isEmpty()) continue;
-                    // Restricted mode: skip videos marked as mature/age-restricted
-                    if (restrictedMode && v.isAgeRestricted) continue;
-                    list.add(0, v);
+                    if (restricted && v.isAgeRestricted) continue;
+                    allVideos.add(0, v);
                 }
-                adapter.setData(list);
+                filterAndDisplay();
                 showLoading(false);
-                showEmpty(list.isEmpty());
                 if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -94,66 +137,39 @@ public class YouTubeHomeFragment extends Fragment {
             }
         };
         YouTubeFirebaseUtils.globalFeedRef()
-            .orderByChild("uploadedAt").limitToLast(30)
+            .orderByChild("uploadedAt").limitToLast(60)
             .addValueEventListener(feedListener);
     }
 
-    private void showLoading(boolean show) {
-        if (pbLoading != null)
-            pbLoading.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (swipeRefresh != null)
-            swipeRefresh.setVisibility(show ? View.INVISIBLE : View.VISIBLE);
-    }
-
-    private void showEmpty(boolean show) {
-        if (llEmpty != null)
-            llEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (rvFeed != null)
-            rvFeed.setVisibility(show ? View.GONE : View.VISIBLE);
+    private void filterAndDisplay() {
+        List<YouTubeVideo> filtered = new ArrayList<>();
+        for (YouTubeVideo v : allVideos) {
+            if ("All".equals(selectedCategory)
+                    || (v.category != null && v.category.equalsIgnoreCase(selectedCategory))) {
+                filtered.add(v);
+            }
+        }
+        adapter.setData(filtered);
+        showEmpty(filtered.isEmpty());
     }
 
     private void detachFeedListener() {
         if (feedListener != null)
             YouTubeFirebaseUtils.globalFeedRef().removeEventListener(feedListener);
-        feedListener = null;
     }
 
-    /**
-     * Playback in feeds setting:
-     * 0 = On (always autoplay muted previews)
-     * 1 = Wi-Fi only
-     * 2 = Off (no autoplay in feed)
-     */
     private void applyPlaybackInFeeds() {
-        if (rvFeed == null || adapter == null) return;
         int setting = ytPrefs.getPlaybackInFeeds();
-        boolean shouldAutoplay;
-        switch (setting) {
-            case 0: shouldAutoplay = true;               break;
-            case 1: shouldAutoplay = isOnWifi();         break;
-            default: shouldAutoplay = false;             break;
-        }
-        adapter.setFeedAutoplay(shouldAutoplay);
+        boolean autoplay = (setting == 0); // 0=On, 1=Wi-Fi only, 2=Off
+        adapter.setFeedAutoplay(autoplay);
     }
 
-    private boolean isOnWifi() {
-        try {
-            Context ctx = getContext();
-            if (ctx == null) return false;
-            ConnectivityManager cm = (ConnectivityManager)
-                ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return false;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                android.net.Network nw = cm.getActiveNetwork();
-                if (nw == null) return false;
-                NetworkCapabilities caps = cm.getNetworkCapabilities(nw);
-                return caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
-            }
-            android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
-            return ni != null && ni.getType() == ConnectivityManager.TYPE_WIFI;
-        } catch (Exception e) {
-            return false;
-        }
+    private void showLoading(boolean show) {
+        if (pbLoading != null) pbLoading.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
+    private void showEmpty(boolean show) {
+        if (llEmpty != null) llEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     @Override public void onDestroyView() {

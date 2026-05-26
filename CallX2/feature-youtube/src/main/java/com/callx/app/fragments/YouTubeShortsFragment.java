@@ -5,33 +5,35 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageButton;
+import android.widget.TextView;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.PagerSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
+import com.callx.app.activities.YouTubeCommentsActivity;
 import com.callx.app.activities.YouTubePlayerActivity;
 import com.callx.app.adapters.YouTubeVideoAdapter;
 import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
+import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Vertical snap-scroll feed for YouTube Shorts (videos ≤60s).
- *
- * FIX: Firebase RTDB mein boolean field pe orderByChild().equalTo(true) kaam
- * nahi karta reliably — instead globalFeedRef se saara data lo aur client-side
- * filter karo isShort==true ke liye.
+ * Vertical snap-scroll Shorts feed with inline Like / Comment / Share buttons.
  */
 public class YouTubeShortsFragment extends Fragment {
 
-    private RecyclerView        rvShorts;
+    private RecyclerView       rvShorts;
     private YouTubeVideoAdapter adapter;
-    private ValueEventListener  shortsListener;
+    private ValueEventListener shortsListener;
+    private String myUid = "";
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inf, @Nullable ViewGroup parent,
@@ -42,23 +44,66 @@ public class YouTubeShortsFragment extends Fragment {
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         super.onViewCreated(view, state);
 
+        if (FirebaseAuth.getInstance().getCurrentUser() != null)
+            myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+
         rvShorts = view.findViewById(R.id.rv_yt_shorts);
 
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());
         rvShorts.setLayoutManager(llm);
-        PagerSnapHelper snapHelper = new PagerSnapHelper();
-        snapHelper.attachToRecyclerView(rvShorts);
+        new PagerSnapHelper().attachToRecyclerView(rvShorts);
 
         adapter = new YouTubeVideoAdapter(requireActivity(), new ArrayList<>(), video ->
             startActivity(new Intent(requireContext(), YouTubePlayerActivity.class)
                 .putExtra("video_id", video.videoId)));
-        rvShorts.setAdapter(adapter);
 
+        adapter.setShortsCallbacks(new YouTubeVideoAdapter.ShortsCallbacks() {
+            @Override public void onLike(YouTubeVideo video, ImageButton btn) {
+                toggleShortLike(video, btn);
+            }
+            @Override public void onComment(YouTubeVideo video) {
+                startActivity(new Intent(requireContext(), YouTubeCommentsActivity.class)
+                    .putExtra("video_id", video.videoId));
+            }
+            @Override public void onShare(YouTubeVideo video) {
+                String msg = (video.title != null ? video.title : "") +
+                    "\nhttps://callx.app/short?v=" + video.videoId;
+                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, msg);
+                startActivity(Intent.createChooser(share, "Share Short"));
+                YouTubeFirebaseUtils.videoRef(video.videoId).child("shareCount")
+                    .setValue(ServerValue.increment(1));
+            }
+        });
+
+        rvShorts.setAdapter(adapter);
         loadShorts();
     }
 
+    private void toggleShortLike(YouTubeVideo video, ImageButton btn) {
+        if (myUid.isEmpty()) { Toast.makeText(requireContext(),"Sign in",Toast.LENGTH_SHORT).show(); return; }
+        DatabaseReference likeRef = YouTubeFirebaseUtils.videoLikesRef(video.videoId).child(myUid);
+        likeRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (snap.exists()) {
+                    likeRef.removeValue();
+                    YouTubeFirebaseUtils.videoRef(video.videoId).child("likeCount")
+                        .setValue(ServerValue.increment(-1));
+                    if (btn != null) btn.setImageResource(R.drawable.ic_yt_like);
+                } else {
+                    likeRef.setValue(true);
+                    YouTubeFirebaseUtils.likedVideosRef(myUid).child(video.videoId)
+                        .setValue(System.currentTimeMillis());
+                    YouTubeFirebaseUtils.videoRef(video.videoId).child("likeCount")
+                        .setValue(ServerValue.increment(1));
+                    if (btn != null) btn.setImageResource(R.drawable.ic_yt_like_filled);
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
+    }
+
     private void loadShorts() {
-        // FIX: equalTo(true) on boolean doesn't work in RTDB — client-side filter karo
         shortsListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 List<YouTubeVideo> list = new ArrayList<>();
@@ -72,10 +117,8 @@ public class YouTubeShortsFragment extends Fragment {
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
-        // globalFeedRef se lo — isShort field pe filter client-side
         YouTubeFirebaseUtils.globalFeedRef()
-            .orderByChild("uploadedAt")
-            .limitToLast(50)
+            .orderByChild("uploadedAt").limitToLast(50)
             .addValueEventListener(shortsListener);
     }
 
