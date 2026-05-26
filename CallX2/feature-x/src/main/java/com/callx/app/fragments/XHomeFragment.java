@@ -1,4 +1,5 @@
 package com.callx.app.fragments;
+// (PushNotify import added for FCM X notifications — v24 fix)
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -21,6 +22,7 @@ import com.callx.app.cache.XTweetMediaPreloader;
 import com.callx.app.models.XNotification;
 import com.callx.app.models.XTweet;
 import com.callx.app.utils.XFirebaseUtils;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.x.R;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.firebase.auth.FirebaseAuth;
@@ -503,18 +505,36 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         Toast.makeText(requireContext(), "Link copied", Toast.LENGTH_SHORT).show();
     }
 
+    /**
+     * pushNotif — X notification dual-path sender (v24 fix)
+     *
+     * Path 1 (in-app bell):  Firebase Realtime DB  → XNotification node
+     *                         Works only when app is FOREGROUND.
+     *
+     * Path 2 (FCM push):     PushNotify.notifyX()  → POST /notify/x  → FCM
+     *                         Works in BACKGROUND and KILLED state.
+     *
+     * Root cause of original bug: Path 2 was missing — PushNotify.notifyX() was
+     * never called, so background/killed notifications never arrived.
+     */
     private void pushNotif(XTweet tweet, String type) {
         com.callx.app.utils.FirebaseUtils.getUserRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String fromName  = snap.child("name").getValue(String.class);
+                    String fromPhoto = snap.child("photoUrl").getValue(String.class);
+                    String fromThumb = snap.child("thumbUrl").getValue(String.class);
+                    if (fromName  == null) fromName  = "Someone";
+                    if (fromPhoto == null) fromPhoto = "";
+                    if (fromThumb == null) fromThumb = "";
+
+                    // ── Path 1: Firebase DB (in-app bell icon) ─────────────
                     XNotification n = new XNotification();
                     n.type         = type;
                     n.fromUid      = myUid;
-                    n.fromName     = snap.child("name").getValue(String.class);
-                    n.fromPhotoUrl = snap.child("photoUrl").getValue(String.class);
-                    n.fromThumbUrl = snap.child("thumbUrl").getValue(String.class);
-                    if (n.fromName == null) n.fromName = "Someone";
-                    if (n.fromPhotoUrl == null) n.fromPhotoUrl = "";
+                    n.fromName     = fromName;
+                    n.fromPhotoUrl = fromPhoto;
+                    n.fromThumbUrl = fromThumb;
                     n.tweetId      = tweet.id;
                     n.tweetSnippet = tweet.text != null
                         ? tweet.text.substring(0, Math.min(tweet.text.length(), 80)) : "";
@@ -534,6 +554,19 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                             @Override public void onComplete(com.google.firebase.database.DatabaseError e,
                                     boolean c, com.google.firebase.database.DataSnapshot s) {}
                         });
+
+                    // ── Path 2: FCM push (background / killed state) ───────
+                    // Uses thumbUrl (smaller) as avatar — server falls back to
+                    // photoUrl automatically if thumbUrl is empty.
+                    final String avatarUrl = !fromThumb.isEmpty() ? fromThumb : fromPhoto;
+                    PushNotify.notifyX(
+                        tweet.authorUid,   // toUid
+                        myUid,             // fromUid
+                        fromName,          // fromName
+                        avatarUrl,         // fromPhoto
+                        type,              // type: "like" | "retweet" | "follow" | …
+                        tweet.id           // tweetId
+                    );
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });

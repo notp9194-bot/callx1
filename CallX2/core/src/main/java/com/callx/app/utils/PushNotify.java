@@ -410,6 +410,55 @@ public class PushNotify {
           }
       }
   
+    // ── X Feature Notifications (like, retweet, follow, reply, mention, dm…) ──
+    //
+    // Server: POST /notify/x
+    // Android receiver: XFCMNotificationHandler.handle()  (via CallxMessagingService)
+    // Background/killed-safe — FCM data-only payload, high priority.
+    //
+    // @param toUid          notification receiver UID
+    // @param fromUid        actor UID (who liked / followed / etc.)
+    // @param fromName       actor display name
+    // @param fromPhoto      actor avatar URL (optional, server fetches fallback)
+    // @param type           one of: like, retweet, reply, mention, quote, follow,
+    //                       dm, poll_ended, list_added, space_started, close_friend_post
+    // @param tweetId        target tweet ID (for like / retweet / reply / mention / quote)
+    // @param conversationId DM conversation ID (for dm type)
+    // @param otherUid       DM other-party UID (for dm type)
+    // @param otherHandle    DM other-party @handle (for dm type)
+    // @param otherPhoto     DM other-party avatar URL (for dm type)
+    // @param preview        DM message preview text (for dm type)
+
+    public static void notifyX(String toUid, String fromUid, String fromName, String fromPhoto,
+                               String type, String tweetId,
+                               String conversationId, String otherUid,
+                               String otherHandle, String otherPhoto, String preview) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",          toUid          != null ? toUid          : "")
+                .put("fromUid",        fromUid        != null ? fromUid        : "")
+                .put("fromName",       fromName       != null ? fromName       : "")
+                .put("fromPhoto",      fromPhoto      != null ? fromPhoto      : "")
+                .put("type",           type           != null ? type           : "")
+                .put("tweetId",        tweetId        != null ? tweetId        : "")
+                .put("conversationId", conversationId != null ? conversationId : "")
+                .put("otherUid",       otherUid       != null ? otherUid       : "")
+                .put("otherHandle",    otherHandle    != null ? otherHandle    : "")
+                .put("otherPhoto",     otherPhoto     != null ? otherPhoto     : "")
+                .put("preview",        preview        != null ? preview        : "");
+            postAsync(Constants.SERVER_URL + "/notify/x", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyX err: " + e.getMessage());
+        }
+    }
+
+    // Convenience overload — like / retweet / follow (no DM fields needed)
+    public static void notifyX(String toUid, String fromUid, String fromName,
+                               String fromPhoto, String type, String tweetId) {
+        notifyX(toUid, fromUid, fromName, fromPhoto, type, tweetId,
+                "", "", "", "", "");
+    }
+
     // ── Reel Notification: Repost ─────────────────────────────────────────
 
     // ── Internal ──────────────────────────────────────────────────────────
