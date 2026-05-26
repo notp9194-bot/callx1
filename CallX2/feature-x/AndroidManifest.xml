@@ -64,12 +64,12 @@
               android:screenOrientation="portrait"
               android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"/>
 
-          <!-- X Background Notification Service -->
-          <service
-              android:name="com.callx.app.notifications.XNotificationService"
-              android:exported="false"
-              android:foregroundServiceType="dataSync"
-              android:stopWithTask="false"/>
+          <!--
+              X Background Notification Service — REMOVED.
+              XNotificationService class exist nahi karti. Ye entry build warning
+              aur runtime crash ka source thi. X notifications ab
+              CallxMessagingService → XFCMNotificationHandler ke through kaam karti hain.
+          -->
 
           <!-- X WorkManager for killed-state notifications -->
           <provider

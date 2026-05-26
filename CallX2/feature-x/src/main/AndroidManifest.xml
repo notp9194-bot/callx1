@@ -158,14 +158,21 @@
             android:exported="false"
             android:label="About"/>
 
-        <!-- X FCM Push Notification Service -->
+        <!--
+            X FCM Push Notification Service — MESSAGING_EVENT intent-filter HATA DIYA GAYA.
+
+            Reason: Android sirf ek FirebaseMessagingService ko MESSAGING_EVENT de sakta hai.
+            CallxMessagingService (app module) pehle se registered hai aur wahi SINGLE entry
+            point hai. Duplicate registration se Android unpredictably kisi ek ko pick karta
+            tha jisse X notifications background/killed state mein deliver nahi hoti thi.
+
+            Fix: XFirebaseMessagingService ab sirf token-upload ke liye use hota hai.
+            FCM delivery: CallxMessagingService → x_notif_type detect → XFCMNotificationHandler
+        -->
         <service
             android:name="com.callx.app.services.XFirebaseMessagingService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
-            </intent-filter>
-        </service>
+            android:exported="false"/>
+        <!-- NO intent-filter — MESSAGING_EVENT sirf CallxMessagingService ke paas hai -->
     </application>
 
 </manifest>
