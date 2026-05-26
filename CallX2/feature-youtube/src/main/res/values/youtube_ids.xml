@@ -1,48 +1,97 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- IDs declared so Java can reference them; views are null at runtime if not in the layout -->
+    <!-- IDs declared so Java can reference them; views return null at runtime if not in the layout.
+         Declaring here is safe even if the same id exists in a layout file. -->
 
-    <!-- Player -->
+    <!-- ── Player ── -->
     <item name="yt_player_appbar" type="id"/>
 
-    <!-- Video adapter shorts buttons -->
+    <!-- ── VideoAdapter shorts buttons ── -->
     <item name="btn_yt_short_like"    type="id"/>
     <item name="btn_yt_short_comment" type="id"/>
     <item name="btn_yt_short_share"   type="id"/>
 
-    <!-- Channel activity tabs -->
+    <!-- ── Channel activity tab buttons ── -->
     <item name="tab_yt_videos"    type="id"/>
     <item name="tab_yt_shorts"    type="id"/>
     <item name="tab_yt_playlists" type="id"/>
     <item name="tab_yt_about"     type="id"/>
 
-    <!-- Channel activity tab content containers -->
+    <!-- ── Channel activity tab content containers ── -->
     <item name="v_yt_tab_videos"    type="id"/>
     <item name="v_yt_tab_shorts"    type="id"/>
     <item name="v_yt_tab_playlists" type="id"/>
     <item name="v_yt_tab_about"     type="id"/>
 
-    <!-- Channel shorts recycler + about section -->
+    <!-- ── Channel extras ── -->
     <item name="rv_yt_channel_shorts"    type="id"/>
     <item name="ll_yt_channel_about"     type="id"/>
     <item name="ll_yt_channel_playlists" type="id"/>
 
-    <!-- Empty state text views -->
-    <item name="tv_yt_history_empty"    type="id"/>
-    <item name="tv_yt_liked_empty"      type="id"/>
+    <!-- ── Empty state text views ── -->
+    <item name="tv_yt_history_empty"     type="id"/>
+    <item name="tv_yt_liked_empty"       type="id"/>
     <item name="tv_yt_watch_later_empty" type="id"/>
-    <item name="tv_yt_notif_empty"      type="id"/>
+    <item name="tv_yt_notif_empty"       type="id"/>
 
-    <!-- Notifications mark-all button -->
+    <!-- ── Notifications ── -->
     <item name="btn_yt_mark_all_read" type="id"/>
+    <item name="iv_yt_notif_avatar"   type="id"/>
+    <item name="iv_yt_notif_thumb"    type="id"/>
+    <item name="iv_yt_notif_dot"      type="id"/>
+    <item name="tv_yt_notif_text"     type="id"/>
+    <item name="tv_yt_notif_time"     type="id"/>
 
-    <!-- Library fragment extras -->
+    <!-- ── Library fragment extras ── -->
     <item name="btn_yt_creator_studio"   type="id"/>
     <item name="rv_yt_continue_watching" type="id"/>
     <item name="ll_yt_playlists"         type="id"/>
     <item name="tv_yt_playlists_empty"   type="id"/>
 
-    <!-- Playlist row item IDs -->
+    <!-- ── Playlist row item ── -->
     <item name="tv_yt_playlist_row_title" type="id"/>
     <item name="tv_yt_playlist_row_count" type="id"/>
+
+    <!-- ── Comment adapter extras (pinned/edited/hearted/replies) ── -->
+    <item name="tv_yt_comment_pinned"   type="id"/>
+    <item name="iv_yt_comment_hearted"  type="id"/>
+    <item name="tv_yt_comment_edited"   type="id"/>
+    <item name="tv_yt_comment_replies"  type="id"/>
+    <item name="btn_yt_comment_reply"   type="id"/>
+    <item name="rv_yt_comment_replies"  type="id"/>
+
+    <!-- ── Comments activity ── -->
+    <item name="tv_yt_comment_sort" type="id"/>
+
+    <!-- ── Explore fragment ── -->
+    <item name="ll_yt_explore_tabs" type="id"/>
+
+    <!-- ── Subscriptions fragment ── -->
+    <item name="srl_yt_subs" type="id"/>
+    <item name="pb_yt_subs"  type="id"/>
+
+    <!-- ── Home fragment category chips ── -->
+    <item name="ll_yt_category_chips" type="id"/>
+
+    <!-- ── Playlist activity extras ── -->
+    <item name="btn_yt_playlist_edit"    type="id"/>
+    <item name="btn_yt_playlist_share"   type="id"/>
+    <item name="tv_yt_playlist_count"    type="id"/>
+    <item name="tv_yt_playlist_privacy"  type="id"/>
+
+    <!-- ── Upload activity form fields ── -->
+    <item name="et_yt_upload_title"         type="id"/>
+    <item name="et_yt_upload_description"   type="id"/>
+    <item name="et_yt_upload_tags"          type="id"/>
+    <item name="et_yt_upload_location"      type="id"/>
+    <item name="sp_yt_upload_category"      type="id"/>
+    <item name="sp_yt_upload_visibility"    type="id"/>
+    <item name="iv_yt_upload_thumb_preview" type="id"/>
+    <item name="tv_yt_upload_progress"      type="id"/>
+    <item name="btn_yt_select_video"        type="id"/>
+    <item name="btn_yt_select_thumb"        type="id"/>
+
+    <!-- ── Search activity ── -->
+    <item name="ll_yt_search_history"  type="id"/>
+    <item name="v_yt_history_container" type="id"/>
 </resources>
