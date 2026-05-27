@@ -147,17 +147,40 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (btnWatchLater != null)
             btnWatchLater.setOnClickListener(v -> addToWatchLater());
 
-        // FIX #3: Description expand/collapse
-        if (tvShowMore != null) {
-            tvShowMore.setOnClickListener(v -> {
+        // YouTube-style description expand/collapse
+        // Card tap karne pe description open/close hoga — real YouTube jaisa
+        android.view.View llDescCard = findViewById(R.id.ll_yt_desc_card);
+        android.widget.ImageView ivDescArrow = findViewById(R.id.iv_yt_desc_arrow);
+
+        if (llDescCard != null) {
+            llDescCard.setOnClickListener(v -> {
                 if (isDescExpanded) {
+                    // Collapse — 3 lines
                     tvDesc.setMaxLines(3);
-                    tvShowMore.setText("Show more");
+                    tvDesc.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    if (tvShowMore != null) tvShowMore.setText("...more");
+                    // Arrow wapas neeche
+                    if (ivDescArrow != null) {
+                        ivDescArrow.animate().rotation(90f).setDuration(200).start();
+                    }
                 } else {
+                    // Expand — full description
                     tvDesc.setMaxLines(Integer.MAX_VALUE);
-                    tvShowMore.setText("Show less");
+                    tvDesc.setEllipsize(null);
+                    if (tvShowMore != null) tvShowMore.setText("Show less");
+                    // Arrow upar ki taraf
+                    if (ivDescArrow != null) {
+                        ivDescArrow.animate().rotation(270f).setDuration(200).start();
+                    }
                 }
                 isDescExpanded = !isDescExpanded;
+            });
+        }
+
+        // "...more" button bhi tap karne pe expand ho
+        if (tvShowMore != null) {
+            tvShowMore.setOnClickListener(v -> {
+                if (llDescCard != null) llDescCard.performClick();
             });
         }
 
@@ -282,6 +305,17 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 tvViews.setText(formatCount(v.viewCount) + " views");
                 tvLikes.setText(formatCount(v.likeCount));
                 tvDesc.setText(v.description);
+
+                // "...more" button show karo agar description 3 lines se zyada ho
+                if (tvShowMore != null) {
+                    tvDesc.post(() -> {
+                        if (tvDesc.getLineCount() > 3) {
+                            tvShowMore.setVisibility(android.view.View.VISIBLE);
+                        } else {
+                            tvShowMore.setVisibility(android.view.View.GONE);
+                        }
+                    });
+                }
 
                 Glide.with(YouTubePlayerActivity.this)
                     .load(v.uploaderPhotoUrl).circleCrop().into(ivChannelAvatar);
