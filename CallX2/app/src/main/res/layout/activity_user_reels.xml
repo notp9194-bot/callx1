@@ -470,13 +470,11 @@
                 <!-- Avatar peeking out from top — user ki chat profile image -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_chat"
-                    android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="top|end"
-                    android:layout_marginTop="-6dp"
-                    android:layout_marginEnd="-6dp"
+                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_gravity="center"
                     android:elevation="6dp"
                     android:visibility="invisible"
-                    app:civ_border_width="2dp"
+                    app:civ_border_width="2.5dp"
                     app:civ_border_color="@color/brand_primary"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -527,13 +525,11 @@
                 <!-- User ki X profile avatar -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_x"
-                    android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="top|end"
-                    android:layout_marginTop="-6dp"
-                    android:layout_marginEnd="-6dp"
+                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_gravity="center"
                     android:elevation="6dp"
                     android:visibility="invisible"
-                    app:civ_border_width="2dp"
+                    app:civ_border_width="2.5dp"
                     app:civ_border_color="#000000"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -556,13 +552,11 @@
                 <!-- User ki YouTube channel avatar -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_youtube"
-                    android:layout_width="28dp" android:layout_height="28dp"
-                    android:layout_gravity="top|end"
-                    android:layout_marginTop="-6dp"
-                    android:layout_marginEnd="-6dp"
+                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_gravity="center"
                     android:elevation="6dp"
                     android:visibility="invisible"
-                    app:civ_border_width="2dp"
+                    app:civ_border_width="2.5dp"
                     app:civ_border_color="#FF0000"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
