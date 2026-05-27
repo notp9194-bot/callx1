@@ -161,17 +161,10 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     Glide.with(YouTubeChannelActivity.this).load(banner)
                         .centerCrop().into(ivBanner);
 
-                // Load avatar into 3 section cards
-                if (photo != null && !photo.isEmpty()) {
-                    channelPhotoUrl = photo;  // chat intent ke liye save karo
-                    CircleImageView ivR = findViewById(R.id.iv_card_reel_avatar);
-                    CircleImageView ivX = findViewById(R.id.iv_card_x_avatar);
-                    CircleImageView ivC = findViewById(R.id.iv_card_chat_avatar);
-                    if (ivR != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivR);
-                    if (ivX != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivX);
-                    // Chat card avatar sirf doosre user ki profile mein dikhao
-                    if (ivC != null && !isMyChannel) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivC);
-                }
+                // ── Har card ka apna profile source se avatar load karo ──────
+                loadReelCardAvatar();
+                loadXCardAvatar();
+                if (!isMyChannel) loadChatCardAvatar();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -246,6 +239,75 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         if (n >= 1_000_000) return String.format("%.1fM", n / 1_000_000.0);
         if (n >= 1_000)     return String.format("%.1fK", n / 1_000.0);
         return String.valueOf(n);
+    }
+
+    /** Reel Card avatar — Firebase: reels/users/{uid} → thumbUrl / photoUrl */
+    private void loadReelCardAvatar() {
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(channelUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url   = (thumb != null && !thumb.isEmpty()) ? thumb
+                                 : (photo != null && !photo.isEmpty()) ? photo : null;
+                    CircleImageView iv = findViewById(R.id.iv_card_reel_avatar);
+                    if (iv == null) return;
+                    if (url != null) {
+                        Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().into(iv);
+                    } else {
+                        iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    /** X Card avatar — Firebase: x/users/{uid} → thumbUrl / photoUrl */
+    private void loadXCardAvatar() {
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("x/users").child(channelUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url   = (thumb != null && !thumb.isEmpty()) ? thumb
+                                 : (photo != null && !photo.isEmpty()) ? photo : null;
+                    CircleImageView iv = findViewById(R.id.iv_card_x_avatar);
+                    if (iv == null) return;
+                    if (url != null) {
+                        Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().into(iv);
+                    } else {
+                        iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    /** Chat Card avatar — Firebase: users/{uid} (main CallX profile) → thumbUrl / photoUrl
+     *  Sirf doosre user ki profile mein call hoga (isMyChannel check bahar hota hai) */
+    private void loadChatCardAvatar() {
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("users").child(channelUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url   = (thumb != null && !thumb.isEmpty()) ? thumb
+                                 : (photo != null && !photo.isEmpty()) ? photo : null;
+                    // Chat intent ke liye full photo save karo
+                    if (photo != null && !photo.isEmpty()) channelPhotoUrl = photo;
+                    CircleImageView iv = findViewById(R.id.iv_card_chat_avatar);
+                    if (iv == null) return;
+                    if (url != null) {
+                        Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().into(iv);
+                    } else {
+                        iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
     }
 
     @Override
