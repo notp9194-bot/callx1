@@ -766,7 +766,10 @@ public class ChatActivity extends AppCompatActivity {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;
         binding.etMessage.setText("");
-        com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage);
+        // setText ke baad post() se style apply karo — setText typeface disturb karta hai
+        binding.etMessage.post(() ->
+            com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage)
+        );
         clearOurTypingStatus();
         // v18 IMPROVEMENT 2: Message bheja — draft clear karo
         Executors.newSingleThreadExecutor().execute(() -> {
@@ -1858,8 +1861,12 @@ public class ChatActivity extends AppCompatActivity {
                 current,
                 (dialog, which) -> {
                     mgr.setStyle(which);
-                    mgr.applyToInput(binding.etMessage);
                     dialog.dismiss();
+                    // dialog dismiss ke baad post() se apply karo
+                    // warna dismiss ka focus-change typeface reset kar deta hai
+                    binding.etMessage.post(() ->
+                        mgr.applyToInput(binding.etMessage)
+                    );
                 })
             .setNegativeButton("Cancel", null)
             .show();
