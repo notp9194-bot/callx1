@@ -1840,6 +1840,28 @@ public class ChatActivity extends AppCompatActivity {
                 binding.btnMic,
                 binding.fabBackToLatest,
                 replyAccent);
+
+        // Apply saved typing style to input box
+        com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage);
+    }
+
+    // ── Typing Style Picker (10 styles for message input box) ─────────────
+    private void showTypingStylePicker() {
+        com.callx.app.utils.TypingStyleManager mgr =
+                com.callx.app.utils.TypingStyleManager.get(this);
+        int current = mgr.getCurrentStyle();
+        new AlertDialog.Builder(this)
+            .setTitle("✍️ Choose Typing Style")
+            .setSingleChoiceItems(
+                com.callx.app.utils.TypingStyleManager.STYLE_NAMES,
+                current,
+                (dialog, which) -> {
+                    mgr.setStyle(which);
+                    mgr.applyToInput(binding.etMessage);
+                    dialog.dismiss();
+                })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     // ── Chat Bubble Theme Picker ──────────────────────────────────────────
@@ -1895,7 +1917,8 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_mute)        { toggleMute();          return true; }
         if (id == R.id.action_block)       { confirmBlockUser();    return true; }
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
-        if (id == R.id.action_chat_theme)  { showThemePicker();     return true; }
+        if (id == R.id.action_chat_theme)   { showThemePicker();        return true; }
+        if (id == R.id.action_typing_style) { showTypingStylePicker();   return true; }
         return super.onOptionsItemSelected(item);
     }
 

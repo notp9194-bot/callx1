@@ -20,6 +20,11 @@
         android:title="🎨 Chat Theme"
         app:showAsAction="never"/>
 
+    <!-- Typing Style Picker -->
+    <item android:id="@+id/action_typing_style"
+        android:title="✍️ Typing Style"
+        app:showAsAction="never"/>
+
     <item android:id="@+id/action_mute"
         android:title="🔔 Mute"
         app:showAsAction="never"/>
