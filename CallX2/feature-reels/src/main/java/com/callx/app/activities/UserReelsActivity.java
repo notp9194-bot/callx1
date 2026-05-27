@@ -72,7 +72,7 @@ public class UserReelsActivity extends AppCompatActivity
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
-    private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnViewStatus;
+    private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
     private LinearLayout    layoutActions;
     private TabLayout       tabLayout;
     private RecyclerView    rvReels;
@@ -171,7 +171,8 @@ public class UserReelsActivity extends AppCompatActivity
         btnMessage           = findViewById(R.id.btn_message);
         btnAudioCall         = findViewById(R.id.btn_audio_call);
         btnVideoCall         = findViewById(R.id.btn_video_call);
-        btnViewStatus        = findViewById(R.id.btn_view_status);
+        btnOpenX             = findViewById(R.id.btn_open_x);
+        btnOpenYoutube       = findViewById(R.id.btn_open_youtube);
         layoutActions        = findViewById(R.id.layout_actions);
         tabLayout            = findViewById(R.id.tab_layout);
         rvReels              = findViewById(R.id.rv_reels);
@@ -1016,8 +1017,35 @@ public class UserReelsActivity extends AppCompatActivity
                 new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
                 new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, true, orEmpty(cid)});
         });
-        if (btnViewStatus != null) btnViewStatus.setOnClickListener(v -> openStatusIfAvailable());
-        if (btnFollow     != null) btnFollow.setOnClickListener(v -> toggleFollow());
+
+        // X profile button
+        if (btnOpenX != null) btnOpenX.setOnClickListener(v -> {
+            if (targetUid == null || targetUid.isEmpty()) return;
+            try {
+                Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                java.lang.reflect.Method method = cls.getMethod("showProfile",
+                        androidx.fragment.app.FragmentManager.class, String.class);
+                method.invoke(null, getSupportFragmentManager(), targetUid);
+            } catch (Exception e) {
+                Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // YouTube channel button
+        if (btnOpenYoutube != null) btnOpenYoutube.setOnClickListener(v -> {
+            if (targetUid == null || targetUid.isEmpty()) return;
+            try {
+                Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+                Intent i = new Intent(this, cls);
+                i.putExtra("uid",  targetUid);
+                i.putExtra("name", orEmpty(targetName));
+                startActivity(i);
+            } catch (ClassNotFoundException e) {
+                Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        if (btnFollow != null) btnFollow.setOnClickListener(v -> toggleFollow());
     }
 
     private void launchActivity(String className, String[] keys, String[] values) {
