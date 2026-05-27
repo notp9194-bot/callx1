@@ -766,6 +766,7 @@ public class ChatActivity extends AppCompatActivity {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;
         binding.etMessage.setText("");
+        com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage);
         clearOurTypingStatus();
         // v18 IMPROVEMENT 2: Message bheja — draft clear karo
         Executors.newSingleThreadExecutor().execute(() -> {
