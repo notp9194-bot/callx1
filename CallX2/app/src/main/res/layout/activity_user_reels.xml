@@ -496,14 +496,27 @@
 
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageButton android:id="@+id/btn_view_status"
+            <ImageButton android:id="@+id/btn_open_x"
                 android:layout_width="52dp" android:layout_height="52dp"
-                android:src="@drawable/ic_status_add"
-                android:background="@drawable/bg_circle_action"
-                android:tint="@color/brand_primary"
-                android:contentDescription="View Status" android:padding="13dp"/>
+                android:src="@drawable/ic_x_logo"
+                android:background="@drawable/bg_social_x_btn"
+                android:tint="@color/white"
+                android:contentDescription="View X Profile" android:padding="13dp"/>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Status" android:textSize="11sp"
+                android:text="X" android:textSize="11sp"
+                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+            <ImageButton android:id="@+id/btn_open_youtube"
+                android:layout_width="52dp" android:layout_height="52dp"
+                android:src="@drawable/ic_youtube"
+                android:background="@drawable/bg_social_youtube_btn"
+                android:tint="@color/white"
+                android:contentDescription="View YouTube Channel" android:padding="13dp"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="YouTube" android:textSize="11sp"
                 android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
         </LinearLayout>
     </LinearLayout>
