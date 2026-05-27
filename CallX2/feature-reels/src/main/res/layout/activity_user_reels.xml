@@ -474,8 +474,7 @@
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_chat"
                     android:layout_width="24dp" android:layout_height="24dp"
-                    android:layout_gravity="top|center_horizontal"
-                    android:translationY="0dp"
+                    android:layout_gravity="center"
                     android:elevation="4dp"
                     android:visibility="invisible"
                     app:civ_border_width="1.5dp"
@@ -528,8 +527,7 @@
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_x"
                     android:layout_width="24dp" android:layout_height="24dp"
-                    android:layout_gravity="top|center_horizontal"
-                    android:translationY="0dp"
+                    android:layout_gravity="center"
                     android:elevation="4dp"
                     android:visibility="invisible"
                     app:civ_border_width="1.5dp"
@@ -554,8 +552,7 @@
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_youtube"
                     android:layout_width="24dp" android:layout_height="24dp"
-                    android:layout_gravity="top|center_horizontal"
-                    android:translationY="0dp"
+                    android:layout_gravity="center"
                     android:elevation="4dp"
                     android:visibility="invisible"
                     app:civ_border_width="1.5dp"

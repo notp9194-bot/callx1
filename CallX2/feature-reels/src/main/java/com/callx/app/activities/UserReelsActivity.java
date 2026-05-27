@@ -1108,18 +1108,15 @@ public class UserReelsActivity extends AppCompatActivity
         if (animRunning) return;
         animRunning = true;
 
-        // Button height in px — avatar starts fully hidden inside (translationY = 0)
-        // then moves up by -38dp (half out of top edge)
-        float peekDp  = -38f;
-        float hiddenDp = 0f;
-
         CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
 
-        // Initialize all hidden
+        // Initialize all: hidden, scaled to 0, centered on button
         for (CircleImageView iv : views) {
             if (iv == null) continue;
             iv.setVisibility(View.INVISIBLE);
-            iv.setTranslationY(hiddenPx());
+            iv.setScaleX(0f);
+            iv.setScaleY(0f);
+            iv.setAlpha(0f);
         }
 
         animRunnable = new Runnable() {
@@ -1136,49 +1133,57 @@ public class UserReelsActivity extends AppCompatActivity
                     return;
                 }
 
-                // Reset position hidden
-                iv.setTranslationY(hiddenPx());
+                // Reset to hidden/zero state
+                iv.setScaleX(0f);
+                iv.setScaleY(0f);
+                iv.setAlpha(0f);
                 iv.setVisibility(View.VISIBLE);
 
-                // Animate OUT (slide up)
-                ObjectAnimator slideOut = ObjectAnimator.ofFloat(iv, "translationY", hiddenPx(), peekPx());
-                slideOut.setDuration(600);
-                slideOut.setInterpolator(new android.view.animation.OvershootInterpolator(1.2f));
+                // Zoom IN: scale 0 → 1.15 (slight overshoot) then settle to 1, alpha 0 → 1
+                ObjectAnimator scaleXIn  = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.15f, 1f);
+                ObjectAnimator scaleYIn  = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.15f, 1f);
+                ObjectAnimator alphaIn   = ObjectAnimator.ofFloat(iv, "alpha",  0f, 1f);
+                scaleXIn.setDuration(500);
+                scaleYIn.setDuration(500);
+                alphaIn.setDuration(300);
+                scaleXIn.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
+                scaleYIn.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
 
-                // After 3s hold, animate back IN
-                ObjectAnimator slideIn = ObjectAnimator.ofFloat(iv, "translationY", peekPx(), hiddenPx());
-                slideIn.setDuration(600);
-                slideIn.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
-                slideIn.setStartDelay(3000); // hold for 3 seconds
+                AnimatorSet zoomIn = new AnimatorSet();
+                zoomIn.playTogether(scaleXIn, scaleYIn, alphaIn);
 
-                AnimatorSet set = new AnimatorSet();
-                set.playSequentially(slideOut, slideIn);
-                set.addListener(new AnimatorListenerAdapter() {
+                // Zoom OUT: scale 1 → 0, alpha 1 → 0  (after 3s hold)
+                ObjectAnimator scaleXOut = ObjectAnimator.ofFloat(iv, "scaleX", 1f, 0f);
+                ObjectAnimator scaleYOut = ObjectAnimator.ofFloat(iv, "scaleY", 1f, 0f);
+                ObjectAnimator alphaOut  = ObjectAnimator.ofFloat(iv, "alpha",  1f, 0f);
+                scaleXOut.setDuration(400);
+                scaleYOut.setDuration(400);
+                alphaOut.setDuration(400);
+                scaleXOut.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+                scaleYOut.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+
+                AnimatorSet zoomOut = new AnimatorSet();
+                zoomOut.playTogether(scaleXOut, scaleYOut, alphaOut);
+                zoomOut.setStartDelay(3000); // hold visible for 3 seconds
+
+                AnimatorSet full = new AnimatorSet();
+                full.playSequentially(zoomIn, zoomOut);
+                full.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
                         iv.setVisibility(View.INVISIBLE);
-                        iv.setTranslationY(hiddenPx());
-                        // Wait 3s then animate next button
+                        iv.setScaleX(0f);
+                        iv.setScaleY(0f);
+                        iv.setAlpha(0f);
+                        // 3 second gap then next button
                         if (animRunning && !isFinishing() && !isDestroyed())
                             animHandler.postDelayed(animRunnable, 3000);
                     }
                 });
-                set.start();
+                full.start();
             }
         };
 
-        // Start first animation after a short delay
         animHandler.postDelayed(animRunnable, 1500);
-    }
-
-    private float hiddenPx() {
-        // Avatar starts at top of button — translationY = 0 means it's at top edge
-        // We push it DOWN so it's hidden inside the button (positive = down)
-        return dpToPx(14); // half of 28dp button, so fully inside
-    }
-
-    private float peekPx() {
-        // Negative = move up, out of the button
-        return dpToPx(-20);
     }
 
     private float dpToPx(float dp) {
@@ -1190,7 +1195,11 @@ public class UserReelsActivity extends AppCompatActivity
         animHandler.removeCallbacks(animRunnable);
         CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
         for (CircleImageView iv : views) {
-            if (iv != null) iv.setVisibility(View.INVISIBLE);
+            if (iv == null) continue;
+            iv.setVisibility(View.INVISIBLE);
+            iv.setScaleX(0f);
+            iv.setScaleY(0f);
+            iv.setAlpha(0f);
         }
     }
 
