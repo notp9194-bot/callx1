@@ -25,7 +25,9 @@ public class YouTubeChannelActivity extends AppCompatActivity {
 
     private String channelUid, myUid;
     private boolean isSubscribed = false;
+    private boolean isMyChannel = false;
     private long subscriberCount = 0;
+    private String channelPhotoUrl = "";  // chat card ke liye photo store
 
     private CircleImageView ivAvatar;
     private ImageView ivBanner;
@@ -66,7 +68,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         rvVideos      = findViewById(R.id.rv_yt_channel_videos);
 
         // Show/hide edit vs subscribe
-        boolean isMyChannel = channelUid.equals(myUid);
+        isMyChannel = channelUid.equals(myUid);
         if (btnEditChannel != null) btnEditChannel.setVisibility(isMyChannel ? View.VISIBLE : View.GONE);
         if (btnSubscribe   != null) btnSubscribe.setVisibility(isMyChannel ? View.GONE : View.VISIBLE);
 
@@ -100,17 +102,29 @@ public class YouTubeChannelActivity extends AppCompatActivity {
             });
         }
 
-        // Card 3: Chat — opens MainActivity on Chats tab (cross-module via className)
+        // Card 3: Chat — sirf doosre user ki profile mein dikhega (apni profile mein nahi)
+        // Click pe directly ChatActivity khulengi us user ke saath
         View cardChat = findViewById(R.id.card_yt_profile_chat);
         if (cardChat != null) {
-            cardChat.setOnClickListener(v -> {
-                Intent i = new Intent();
-                i.setClassName(getPackageName(),
-                    "com.callx.app.activities.MainActivity");
-                i.putExtra("tab", "chats");
-                i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                startActivity(i);
-            });
+            if (isMyChannel) {
+                // Apni profile mein chat card hide karo
+                cardChat.setVisibility(View.GONE);
+            } else {
+                // Doosre user ki profile mein show karo
+                cardChat.setVisibility(View.VISIBLE);
+                cardChat.setOnClickListener(v -> {
+                    // Directly ChatActivity open karo us user ke saath
+                    Intent i = new Intent();
+                    i.setClassName(getPackageName(),
+                        "com.callx.app.activities.ChatActivity");
+                    i.putExtra("partnerUid",   channelUid);
+                    i.putExtra("partnerName",  tvChannelName.getText() != null
+                        ? tvChannelName.getText().toString() : "");
+                    i.putExtra("partnerPhoto", channelPhotoUrl);
+                    i.putExtra("partnerThumb", channelPhotoUrl);
+                    startActivity(i);
+                });
+            }
         }
 
         videoAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
@@ -149,12 +163,14 @@ public class YouTubeChannelActivity extends AppCompatActivity {
 
                 // Load avatar into 3 section cards
                 if (photo != null && !photo.isEmpty()) {
+                    channelPhotoUrl = photo;  // chat intent ke liye save karo
                     CircleImageView ivR = findViewById(R.id.iv_card_reel_avatar);
                     CircleImageView ivX = findViewById(R.id.iv_card_x_avatar);
                     CircleImageView ivC = findViewById(R.id.iv_card_chat_avatar);
                     if (ivR != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivR);
                     if (ivX != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivX);
-                    if (ivC != null) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivC);
+                    // Chat card avatar sirf doosre user ki profile mein dikhao
+                    if (ivC != null && !isMyChannel) Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().into(ivC);
                 }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
