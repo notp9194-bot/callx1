@@ -976,6 +976,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
 
         VH(View v) {
+            super(v);
+            tvMessage    = v.findViewById(R.id.tv_message);
             tvTime       = v.findViewById(R.id.tv_time);
             tvSenderName = v.findViewById(R.id.tv_sender_name);
             ivImage      = v.findViewById(R.id.iv_image);
@@ -1000,6 +1002,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvPinnedLabel = v.findViewById(R.id.tv_pinned_label);
             tvForwarded  = v.findViewById(R.id.tv_forwarded);
             tvStarredIcon = v.findViewById(R.id.tv_starred_icon);
+            ivSenderAvatar = v.findViewById(R.id.iv_sender_avatar);
         }
     }
 }
