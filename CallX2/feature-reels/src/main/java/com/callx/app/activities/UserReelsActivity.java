@@ -1066,35 +1066,74 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Avatar Peek Animation ─────────────────────────────────────────────
     /**
-     * Avatar load: user ki chat profile se photo lete hain (Firebase users/{uid}).
-     * X aur YouTube ke liye bhi same photo use hoti hai (ek hi user hai).
-     * Phir teeno avatars pe loop animation start karte hain:
-     *   - Button ke andar se avatar upar aata hai (peek out)
-     *   - 3 sec ruka rahta hai
-     *   - Wapas andar chala jata hai
-     *   - 3 sec baad repeat
+     * Teen alag avatars load karte hain — har button ke liye user ki respective profile image:
+     *   - Chat button    → users/{uid}          (main CallX chat profile)
+     *   - X button       → x/users/{uid}         (X / Twitter profile)
+     *   - YouTube button → youtube/channels/{uid} (YouTube channel)
+     * Agar koi platform profile nahi hai to ic_person placeholder rahega.
+     * Phir teeno avatars pe loop animation start hoti hai (peek out → hold → peek in → repeat).
      */
     private void loadAvatarAndStartAnimation() {
         if (targetUid == null || isSelf) return;
-        FirebaseUtils.getUserRef(targetUid).addListenerForSingleValueEvent(
-            new ValueEventListener() {
+
+        final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+        // 1) Chat avatar — users/{uid}
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+            .getReference("users").child(targetUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String thumb = snap.child("thumbUrl").getValue(String.class);
                     String photo = snap.child("photoUrl").getValue(String.class);
-                    String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                    if (url == null || url.isEmpty()) return;
-
-                    // Load same avatar into all three animated views
-                    CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
-                    for (CircleImageView iv : views) {
-                        if (iv == null) continue;
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
+                               : (photo != null && !photo.isEmpty()) ? photo : null;
+                    if (ivAnimChat == null) return;
+                    if (url != null) {
                         Glide.with(UserReelsActivity.this)
-                            .load(url)
-                            .circleCrop()
+                            .load(url).circleCrop()
                             .placeholder(R.drawable.ic_person)
-                            .into(iv);
+                            .into(ivAnimChat);
                     }
+                    // Start animation only after first avatar loaded (others load in bg)
                     startAvatarPeekLoop();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    startAvatarPeekLoop(); // Still start loop even if load fails
+                }
+            });
+
+        // 2) X avatar — x/users/{uid}
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+            .getReference("x/users").child(targetUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
+                               : (photo != null && !photo.isEmpty()) ? photo : null;
+                    if (ivAnimX == null || url == null) return;
+                    Glide.with(UserReelsActivity.this)
+                        .load(url).circleCrop()
+                        .placeholder(R.drawable.ic_person)
+                        .into(ivAnimX);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+
+        // 3) YouTube avatar — youtube/channels/{uid}
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+            .getReference("youtube/channels").child(targetUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
+                               : (photo != null && !photo.isEmpty()) ? photo : null;
+                    if (ivAnimYoutube == null || url == null) return;
+                    Glide.with(UserReelsActivity.this)
+                        .load(url).circleCrop()
+                        .placeholder(R.drawable.ic_person)
+                        .into(ivAnimYoutube);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
