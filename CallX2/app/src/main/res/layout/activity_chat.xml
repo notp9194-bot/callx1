@@ -84,6 +84,42 @@
                 android:visibility="gone"/>
         </LinearLayout>
 
+        <!-- Reel button -->
+        <ImageButton
+            android:id="@+id/btn_toolbar_reel"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_reels"
+            android:tint="@color/white"
+            android:background="@drawable/bg_social_reel_btn"
+            android:padding="8dp"
+            android:layout_marginEnd="4dp"
+            android:contentDescription="View Reels Profile"/>
+
+        <!-- X button -->
+        <ImageButton
+            android:id="@+id/btn_toolbar_x"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_x_logo"
+            android:tint="@color/white"
+            android:background="@drawable/bg_social_x_btn"
+            android:padding="8dp"
+            android:layout_marginEnd="4dp"
+            android:contentDescription="View X Profile"/>
+
+        <!-- YouTube button -->
+        <ImageButton
+            android:id="@+id/btn_toolbar_youtube"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_youtube"
+            android:tint="@color/white"
+            android:background="@drawable/bg_social_youtube_btn"
+            android:padding="8dp"
+            android:layout_marginEnd="2dp"
+            android:contentDescription="View YouTube Channel"/>
+
         <!-- Video call button -->
         <ImageButton
             android:id="@+id/btn_toolbar_video_call"

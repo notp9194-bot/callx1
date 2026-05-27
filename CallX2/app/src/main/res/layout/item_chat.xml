@@ -95,26 +95,33 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="4dp"
-                android:gravity="center_vertical">
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_call_pill"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp">
                 <ImageButton
                     android:id="@+id/btn_video_call"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
                     android:src="@drawable/ic_video_call"
                     android:tint="@color/white"
                     android:background="@drawable/gradient_video_btn"
-                    android:padding="7dp"
+                    android:padding="8dp"
                     android:layout_marginEnd="6dp"
+                    android:elevation="2dp"
                     android:contentDescription="Video call"/>
                 <ImageButton
                     android:id="@+id/btn_call"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
                     android:src="@drawable/ic_phone"
                     android:tint="@color/white"
                     android:background="@drawable/gradient_call_btn"
-                    android:padding="7dp"
+                    android:padding="8dp"
+                    android:elevation="2dp"
                     android:contentDescription="Voice call"/>
             </LinearLayout>
         </LinearLayout>

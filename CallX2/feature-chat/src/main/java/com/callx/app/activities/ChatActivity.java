@@ -431,6 +431,49 @@ public class ChatActivity extends AppCompatActivity {
         // Video call button
         binding.btnToolbarVideoCall.setOnClickListener(v -> startCall(true));
 
+        // ── Social profile buttons ────────────────────────────────────────────
+        // Reel profile button — open partner's reels profile
+        binding.btnToolbarReel.setOnClickListener(v -> {
+            if (partnerUid == null || partnerUid.isEmpty()) return;
+            try {
+                Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+                Intent i = new Intent(this, cls);
+                i.putExtra("uid",   partnerUid);
+                i.putExtra("name",  partnerName != null ? partnerName : "");
+                i.putExtra("photo", partnerPhoto != null ? partnerPhoto : "");
+                startActivity(i);
+            } catch (ClassNotFoundException e) {
+                android.widget.Toast.makeText(this, "Reels profile not available", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // X profile button — open partner's X profile sheet
+        binding.btnToolbarX.setOnClickListener(v -> {
+            if (partnerUid == null || partnerUid.isEmpty()) return;
+            try {
+                Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                java.lang.reflect.Method method = cls.getMethod("showProfile",
+                        androidx.fragment.app.FragmentManager.class, String.class);
+                method.invoke(null, getSupportFragmentManager(), partnerUid);
+            } catch (Exception e) {
+                android.widget.Toast.makeText(this, "X profile not available", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // YouTube channel button — open partner's YouTube channel
+        binding.btnToolbarYoutube.setOnClickListener(v -> {
+            if (partnerUid == null || partnerUid.isEmpty()) return;
+            try {
+                Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+                Intent i = new Intent(this, cls);
+                i.putExtra("uid",  partnerUid);
+                i.putExtra("name", partnerName != null ? partnerName : "");
+                startActivity(i);
+            } catch (ClassNotFoundException e) {
+                android.widget.Toast.makeText(this, "YouTube channel not available", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+
         binding.btnMoreOptions.setOnClickListener(v -> {
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
             popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
