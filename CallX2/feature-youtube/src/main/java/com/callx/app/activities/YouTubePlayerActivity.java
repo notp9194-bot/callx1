@@ -40,6 +40,10 @@ import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.ArrayList;
 import java.util.List;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * YouTubePlayerActivity — Full Debug Version
@@ -147,41 +151,13 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (btnWatchLater != null)
             btnWatchLater.setOnClickListener(v -> addToWatchLater());
 
-        // YouTube-style description expand/collapse
-        // Card tap karne pe description open/close hoga — real YouTube jaisa
-        android.view.View llDescCard = findViewById(R.id.ll_yt_desc_card);
-        android.widget.ImageView ivDescArrow = findViewById(R.id.iv_yt_desc_arrow);
-
-        if (llDescCard != null) {
-            llDescCard.setOnClickListener(v -> {
-                if (isDescExpanded) {
-                    // Collapse — 3 lines
-                    tvDesc.setMaxLines(3);
-                    tvDesc.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                    if (tvShowMore != null) tvShowMore.setText("...more");
-                    // Arrow wapas neeche
-                    if (ivDescArrow != null) {
-                        ivDescArrow.animate().rotation(90f).setDuration(200).start();
-                    }
-                } else {
-                    // Expand — full description
-                    tvDesc.setMaxLines(Integer.MAX_VALUE);
-                    tvDesc.setEllipsize(null);
-                    if (tvShowMore != null) tvShowMore.setText("Show less");
-                    // Arrow upar ki taraf
-                    if (ivDescArrow != null) {
-                        ivDescArrow.animate().rotation(270f).setDuration(200).start();
-                    }
-                }
-                isDescExpanded = !isDescExpanded;
-            });
+        // REAL YOUTUBE STYLE: "...more" tap karne pe BottomSheet open hogi
+        android.view.View llDescTrigger = findViewById(R.id.ll_yt_desc_trigger);
+        if (llDescTrigger != null) {
+            llDescTrigger.setOnClickListener(v -> openDescriptionSheet());
         }
-
-        // "...more" button bhi tap karne pe expand ho
         if (tvShowMore != null) {
-            tvShowMore.setOnClickListener(v -> {
-                if (llDescCard != null) llDescCard.performClick();
-            });
+            tvShowMore.setOnClickListener(v -> openDescriptionSheet());
         }
 
         playLocalIfAvailable();
@@ -302,19 +278,21 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                 currentVideo = v;
                 tvTitle.setText(v.title);
                 tvChannelName.setText(v.uploaderName);
-                tvViews.setText(formatCount(v.viewCount) + " views");
-                tvLikes.setText(formatCount(v.likeCount));
-                tvDesc.setText(v.description);
 
-                // "...more" button show karo agar description 3 lines se zyada ho
+                // Views + ago — real YouTube jaisa: "4,452 views · 1h ago"
+                String agoStr = formatTimeAgo(v.uploadedAt);
+                tvViews.setText(formatCount(v.viewCount) + " views  ·  " + agoStr);
+
+                tvLikes.setText(formatCount(v.likeCount));
+                tvDesc.setText(v.description); // hidden TextView — data store
+
+                // "...more" show karo agar description hai
                 if (tvShowMore != null) {
-                    tvDesc.post(() -> {
-                        if (tvDesc.getLineCount() > 3) {
-                            tvShowMore.setVisibility(android.view.View.VISIBLE);
-                        } else {
-                            tvShowMore.setVisibility(android.view.View.GONE);
-                        }
-                    });
+                    if (v.description != null && !v.description.trim().isEmpty()) {
+                        tvShowMore.setVisibility(android.view.View.VISIBLE);
+                    } else {
+                        tvShowMore.setVisibility(android.view.View.GONE);
+                    }
                 }
 
                 Glide.with(YouTubePlayerActivity.this)
@@ -967,5 +945,133 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (n >= 1_000_000)     return String.format("%.1fM", n / 1_000_000.0);
         if (n >= 1_000)         return String.format("%.1fK", n / 1_000.0);
         return String.valueOf(n);
+    }
+
+    // ── Real YouTube-style Description Bottom Sheet ───────────────────────────
+
+    private void openDescriptionSheet() {
+        if (currentVideo == null) return;
+
+        BottomSheetDialog sheet = new BottomSheetDialog(this, R.style.YTBottomSheetTheme);
+        android.view.View view = getLayoutInflater().inflate(
+            R.layout.bottom_sheet_yt_description, null);
+        sheet.setContentView(view);
+
+        // Title
+        TextView sheetTitle = view.findViewById(R.id.tv_desc_sheet_title);
+        if (sheetTitle != null) sheetTitle.setText(currentVideo.title);
+
+        // Stats boxes
+        TextView sheetLikes = view.findViewById(R.id.tv_desc_sheet_likes);
+        TextView sheetViews = view.findViewById(R.id.tv_desc_sheet_views);
+        TextView sheetDate  = view.findViewById(R.id.tv_desc_sheet_date);
+        if (sheetLikes != null) sheetLikes.setText(formatCount(currentVideo.likeCount));
+        if (sheetViews != null) sheetViews.setText(formatCount(currentVideo.viewCount));
+        if (sheetDate  != null) sheetDate.setText(formatTimeAgo(currentVideo.uploadedAt));
+
+        // Description body
+        TextView sheetBody = view.findViewById(R.id.tv_desc_sheet_body);
+        if (sheetBody != null) {
+            sheetBody.setText(
+                (currentVideo.description != null && !currentVideo.description.isEmpty())
+                ? currentVideo.description
+                : "No description available.");
+        }
+
+        // Video details section
+        TextView detailDate  = view.findViewById(R.id.tv_desc_detail_date);
+        TextView detailViews = view.findViewById(R.id.tv_desc_detail_views);
+        TextView detailLikes = view.findViewById(R.id.tv_desc_detail_likes);
+        if (detailDate  != null && currentVideo.uploadedAt > 0) {
+            detailDate.setText(new SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+                .format(new Date(currentVideo.uploadedAt)));
+        }
+        if (detailViews != null)
+            detailViews.setText(String.format(Locale.getDefault(),
+                "%,d", currentVideo.viewCount));
+        if (detailLikes != null)
+            detailLikes.setText(String.format(Locale.getDefault(),
+                "%,d", currentVideo.likeCount));
+
+        // Channel info
+        TextView sheetChannelName = view.findViewById(R.id.tv_desc_sheet_channel_name);
+        TextView sheetSubs        = view.findViewById(R.id.tv_desc_sheet_subs);
+        de.hdodenhof.circleimageview.CircleImageView sheetAvatar =
+            view.findViewById(R.id.iv_desc_sheet_avatar);
+        if (sheetChannelName != null) sheetChannelName.setText(currentVideo.uploaderName);
+        if (sheetAvatar != null) {
+            com.bumptech.glide.Glide.with(this)
+                .load(currentVideo.uploaderPhotoUrl).circleCrop().into(sheetAvatar);
+        }
+        // Load subscriber count for channel
+        if (sheetSubs != null && currentVideo.uploaderUid != null) {
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("youtube_channels")
+                .child(currentVideo.uploaderUid)
+                .child("subscriberCount")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@androidx.annotation.NonNull
+                            com.google.firebase.database.DataSnapshot snap) {
+                        long subs = snap.exists() ? snap.getValue(Long.class) : 0;
+                        sheetSubs.setText(formatCount(subs) + " subscribers");
+                    }
+                    @Override public void onCancelled(@androidx.annotation.NonNull
+                            com.google.firebase.database.DatabaseError e) {}
+                });
+        }
+
+        // Channel row tap → open channel page
+        android.view.View channelRow = view.findViewById(R.id.ll_desc_sheet_channel);
+        if (channelRow != null && currentVideo.uploaderUid != null) {
+            channelRow.setOnClickListener(cv -> {
+                sheet.dismiss();
+                startActivity(new Intent(this, YouTubeChannelActivity.class)
+                    .putExtra("uid", currentVideo.uploaderUid));
+            });
+        }
+
+        // Videos button → open channel
+        android.view.View btnVideos = view.findViewById(R.id.btn_desc_sheet_videos);
+        if (btnVideos != null && currentVideo.uploaderUid != null) {
+            btnVideos.setOnClickListener(cv -> {
+                sheet.dismiss();
+                startActivity(new Intent(this, YouTubeChannelActivity.class)
+                    .putExtra("uid", currentVideo.uploaderUid));
+            });
+        }
+
+        // Close button
+        android.view.View btnClose = view.findViewById(R.id.btn_yt_desc_close);
+        if (btnClose != null) btnClose.setOnClickListener(cv -> sheet.dismiss());
+
+        // Bottom sheet ko puri height pe open karo (screenshot jaisa)
+        sheet.setOnShowListener(d -> {
+            com.google.android.material.bottomsheet.BottomSheetBehavior<?> behavior =
+                com.google.android.material.bottomsheet.BottomSheetBehavior.from(
+                    (android.view.View) view.getParent());
+            behavior.setState(
+                com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED);
+            behavior.setSkipCollapsed(true);
+        });
+
+        sheet.show();
+    }
+
+    // "1h ago", "2 days ago", "3 weeks ago" format — real YouTube jaisa
+    private String formatTimeAgo(long timestampMs) {
+        if (timestampMs <= 0) return "";
+        long diff = System.currentTimeMillis() - timestampMs;
+        long mins  = diff / 60_000;
+        long hours = diff / 3_600_000;
+        long days  = diff / 86_400_000;
+        long weeks = days / 7;
+        long months= days / 30;
+        long years = days / 365;
+        if (mins  < 60)  return mins  + (mins  == 1 ? " minute ago"  : " minutes ago");
+        if (hours < 24)  return hours + (hours == 1 ? " hour ago"    : " hours ago");
+        if (days  < 7)   return days  + (days  == 1 ? " day ago"     : " days ago");
+        if (weeks < 5)   return weeks + (weeks == 1 ? " week ago"    : " weeks ago");
+        if (months< 12)  return months+ (months== 1 ? " month ago"   : " months ago");
+        return years + (years == 1 ? " year ago" : " years ago");
     }
 }
