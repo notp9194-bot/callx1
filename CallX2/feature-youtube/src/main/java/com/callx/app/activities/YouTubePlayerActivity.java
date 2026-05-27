@@ -952,7 +952,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private void openDescriptionSheet() {
         if (currentVideo == null) return;
 
-        BottomSheetDialog sheet = new BottomSheetDialog(this, R.style.YTBottomSheetTheme);
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
         android.view.View view = getLayoutInflater().inflate(
             R.layout.bottom_sheet_yt_description, null);
         sheet.setContentView(view);
