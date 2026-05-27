@@ -32,6 +32,12 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
+import android.os.Handler;
+import android.os.Looper;
 import java.util.*;
 
 /**
@@ -74,6 +80,12 @@ public class UserReelsActivity extends AppCompatActivity
     private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
     private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
     private LinearLayout    layoutActions;
+
+    // ── Avatar peek animation fields ──────────────────────────────────────
+    private CircleImageView ivAnimChat, ivAnimX, ivAnimYoutube;
+    private final Handler   animHandler    = new Handler(Looper.getMainLooper());
+    private Runnable        animRunnable;
+    private boolean         animRunning    = false;
     private TabLayout       tabLayout;
     private RecyclerView    rvReels;
     private ReelGridAdapter adapter;
@@ -142,6 +154,7 @@ public class UserReelsActivity extends AppCompatActivity
         checkActiveStory();
         loadAccountPrivacy();
         setupStatsClicks();
+        loadAvatarAndStartAnimation();
     }
 
     // ── Bind views ────────────────────────────────────────────────────────
@@ -173,6 +186,9 @@ public class UserReelsActivity extends AppCompatActivity
         btnVideoCall         = findViewById(R.id.btn_video_call);
         btnOpenX             = findViewById(R.id.btn_open_x);
         btnOpenYoutube       = findViewById(R.id.btn_open_youtube);
+        ivAnimChat           = findViewById(R.id.iv_anim_chat);
+        ivAnimX              = findViewById(R.id.iv_anim_x);
+        ivAnimYoutube        = findViewById(R.id.iv_anim_youtube);
         layoutActions        = findViewById(R.id.layout_actions);
         tabLayout            = findViewById(R.id.tab_layout);
         rvReels              = findViewById(R.id.rv_reels);
@@ -1048,6 +1064,136 @@ public class UserReelsActivity extends AppCompatActivity
         if (btnFollow != null) btnFollow.setOnClickListener(v -> toggleFollow());
     }
 
+    // ── Avatar Peek Animation ─────────────────────────────────────────────
+    /**
+     * Avatar load: user ki chat profile se photo lete hain (Firebase users/{uid}).
+     * X aur YouTube ke liye bhi same photo use hoti hai (ek hi user hai).
+     * Phir teeno avatars pe loop animation start karte hain:
+     *   - Button ke andar se avatar upar aata hai (peek out)
+     *   - 3 sec ruka rahta hai
+     *   - Wapas andar chala jata hai
+     *   - 3 sec baad repeat
+     */
+    private void loadAvatarAndStartAnimation() {
+        if (targetUid == null || isSelf) return;
+        FirebaseUtils.getUserRef(targetUid).addListenerForSingleValueEvent(
+            new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                    if (url == null || url.isEmpty()) return;
+
+                    // Load same avatar into all three animated views
+                    CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
+                    for (CircleImageView iv : views) {
+                        if (iv == null) continue;
+                        Glide.with(UserReelsActivity.this)
+                            .load(url)
+                            .circleCrop()
+                            .placeholder(R.drawable.ic_person)
+                            .into(iv);
+                    }
+                    startAvatarPeekLoop();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    /**
+     * Loop: Chat → X → YouTube → Chat → ...
+     * Each cycle: peek out (600ms) → hold 3s → peek in (600ms) → wait 3s → next button
+     */
+    private void startAvatarPeekLoop() {
+        if (animRunning) return;
+        animRunning = true;
+
+        // Button height in px — avatar starts fully hidden inside (translationY = 0)
+        // then moves up by -38dp (half out of top edge)
+        float peekDp  = -38f;
+        float hiddenDp = 0f;
+
+        CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
+
+        // Initialize all hidden
+        for (CircleImageView iv : views) {
+            if (iv == null) continue;
+            iv.setVisibility(View.INVISIBLE);
+            iv.setTranslationY(hiddenPx());
+        }
+
+        animRunnable = new Runnable() {
+            int idx = 0;
+
+            @Override public void run() {
+                if (!animRunning || isFinishing() || isDestroyed()) return;
+
+                CircleImageView iv = views[idx % views.length];
+                idx++;
+
+                if (iv == null) {
+                    animHandler.postDelayed(this, 500);
+                    return;
+                }
+
+                // Reset position hidden
+                iv.setTranslationY(hiddenPx());
+                iv.setVisibility(View.VISIBLE);
+
+                // Animate OUT (slide up)
+                ObjectAnimator slideOut = ObjectAnimator.ofFloat(iv, "translationY", hiddenPx(), peekPx());
+                slideOut.setDuration(600);
+                slideOut.setInterpolator(new android.view.animation.OvershootInterpolator(1.2f));
+
+                // After 3s hold, animate back IN
+                ObjectAnimator slideIn = ObjectAnimator.ofFloat(iv, "translationY", peekPx(), hiddenPx());
+                slideIn.setDuration(600);
+                slideIn.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+                slideIn.setStartDelay(3000); // hold for 3 seconds
+
+                AnimatorSet set = new AnimatorSet();
+                set.playSequentially(slideOut, slideIn);
+                set.addListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(Animator animation) {
+                        iv.setVisibility(View.INVISIBLE);
+                        iv.setTranslationY(hiddenPx());
+                        // Wait 3s then animate next button
+                        if (animRunning && !isFinishing() && !isDestroyed())
+                            animHandler.postDelayed(animRunnable, 3000);
+                    }
+                });
+                set.start();
+            }
+        };
+
+        // Start first animation after a short delay
+        animHandler.postDelayed(animRunnable, 1500);
+    }
+
+    private float hiddenPx() {
+        // Avatar starts at top of button — translationY = 0 means it's at top edge
+        // We push it DOWN so it's hidden inside the button (positive = down)
+        return dpToPx(14); // half of 28dp button, so fully inside
+    }
+
+    private float peekPx() {
+        // Negative = move up, out of the button
+        return dpToPx(-20);
+    }
+
+    private float dpToPx(float dp) {
+        return dp * getResources().getDisplayMetrics().density;
+    }
+
+    private void stopAvatarAnimation() {
+        animRunning = false;
+        animHandler.removeCallbacks(animRunnable);
+        CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
+        for (CircleImageView iv : views) {
+            if (iv != null) iv.setVisibility(View.INVISIBLE);
+        }
+    }
+
     private void launchActivity(String className, String[] keys, String[] values) {
         try {
             Class<?> cls = Class.forName(className);
@@ -1335,6 +1481,7 @@ public class UserReelsActivity extends AppCompatActivity
         dialog.show();
     }
 
-    @Override protected void onPause()   { super.onPause();   dismissPreviewDialog(); }
-    @Override protected void onDestroy() { super.onDestroy(); dismissPreviewDialog(); }
+    @Override protected void onPause()   { super.onPause();   dismissPreviewDialog(); stopAvatarAnimation(); }
+    @Override protected void onResume()  { super.onResume();  loadAvatarAndStartAnimation(); }
+    @Override protected void onDestroy() { super.onDestroy(); dismissPreviewDialog(); stopAvatarAnimation(); }
 }

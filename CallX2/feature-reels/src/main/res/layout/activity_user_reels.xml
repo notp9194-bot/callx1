@@ -453,25 +453,40 @@
         android:background="@color/divider"/>
 
     <!-- Action buttons: Message | Call | Video | Status -->
+    <!-- Action buttons: Message | Call | Video | X | YouTube -->
     <LinearLayout android:id="@+id/layout_actions"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="horizontal" android:gravity="center"
         android:paddingStart="8dp" android:paddingEnd="8dp"
         android:paddingTop="12dp" android:paddingBottom="12dp">
 
+        <!-- Chat / Message button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageButton android:id="@+id/btn_message"
-                android:layout_width="52dp" android:layout_height="52dp"
-                android:src="@drawable/ic_send"
-                android:background="@drawable/bg_circle_action"
-                android:tint="@color/brand_primary"
-                android:contentDescription="Message" android:padding="13dp"/>
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+                android:clipChildren="false" android:clipToPadding="false">
+                <ImageButton android:id="@+id/btn_message"
+                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:src="@drawable/ic_send"
+                    android:background="@drawable/bg_circle_action"
+                    android:tint="@color/brand_primary"
+                    android:contentDescription="Message" android:padding="13dp"/>
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_anim_chat"
+                    android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="top|center_horizontal"
+                    android:translationY="0dp"
+                    android:elevation="4dp"
+                    android:visibility="invisible"
+                    app:civ_border_width="1.5dp"
+                    app:civ_border_color="@color/brand_primary"/>
+            </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Message" android:textSize="11sp"
                 android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
+        <!-- Audio Call button -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageButton android:id="@+id/btn_audio_call"
@@ -485,6 +500,7 @@
                 android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
+        <!-- Video Call button -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageButton android:id="@+id/btn_video_call"
@@ -498,27 +514,53 @@
                 android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
+        <!-- X button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageButton android:id="@+id/btn_open_x"
-                android:layout_width="52dp" android:layout_height="52dp"
-                android:src="@drawable/ic_x_logo"
-                android:background="@drawable/bg_social_x_btn"
-                android:tint="@color/white"
-                android:contentDescription="View X Profile" android:padding="13dp"/>
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+                android:clipChildren="false" android:clipToPadding="false">
+                <ImageButton android:id="@+id/btn_open_x"
+                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:src="@drawable/ic_x_logo"
+                    android:background="@drawable/bg_social_x_btn"
+                    android:tint="@color/white"
+                    android:contentDescription="View X Profile" android:padding="13dp"/>
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_anim_x"
+                    android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="top|center_horizontal"
+                    android:translationY="0dp"
+                    android:elevation="4dp"
+                    android:visibility="invisible"
+                    app:civ_border_width="1.5dp"
+                    app:civ_border_color="#000000"/>
+            </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="X" android:textSize="11sp"
                 android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
+        <!-- YouTube button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageButton android:id="@+id/btn_open_youtube"
-                android:layout_width="52dp" android:layout_height="52dp"
-                android:src="@drawable/ic_youtube"
-                android:background="@drawable/bg_social_youtube_btn"
-                android:tint="@color/white"
-                android:contentDescription="View YouTube Channel" android:padding="13dp"/>
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+                android:clipChildren="false" android:clipToPadding="false">
+                <ImageButton android:id="@+id/btn_open_youtube"
+                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:src="@drawable/ic_youtube"
+                    android:background="@drawable/bg_social_youtube_btn"
+                    android:tint="@color/white"
+                    android:contentDescription="View YouTube Channel" android:padding="13dp"/>
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_anim_youtube"
+                    android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="top|center_horizontal"
+                    android:translationY="0dp"
+                    android:elevation="4dp"
+                    android:visibility="invisible"
+                    app:civ_border_width="1.5dp"
+                    app:civ_border_color="#FF0000"/>
+            </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="YouTube" android:textSize="11sp"
                 android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
