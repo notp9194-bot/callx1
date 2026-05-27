@@ -80,5 +80,13 @@ public class Message {
     /** True if this message belongs to a group chat */
     public boolean isGroup;
 
+    // ── Feature: Typing Font Style ────────────────────────────────────────
+    /**
+     * Font style ID used when this message was typed.
+     * Maps to TypingStyleManager.STYLE_* constants (0–19).
+     * 0 = Normal (default). Stored in Firebase & Room so receiver sees same style.
+     */
+    public int fontStyle;
+
     public Message() {}
 }

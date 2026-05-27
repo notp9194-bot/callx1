@@ -778,6 +778,7 @@ public class ChatActivity extends AppCompatActivity {
         Message m = buildOutgoing();
         m.type = "text";
         m.text = text;
+        m.fontStyle = com.callx.app.utils.TypingStyleManager.get(this).getCurrentStyle();
         pushMessage(m, text);
         clearReply();
     }
@@ -882,6 +883,7 @@ public class ChatActivity extends AppCompatActivity {
         e.replyToMediaUrl   = m.replyToMediaUrl;
         e.isGroup        = false;
         e.syncedAt       = System.currentTimeMillis();
+        e.fontStyle      = m.fontStyle;
         return e;
     }
 
@@ -918,6 +920,7 @@ public class ChatActivity extends AppCompatActivity {
                 m.replyToId  = pe.replyToId;
                 m.replyToText = pe.replyToText;
                 m.replyToSenderName = pe.replyToSenderName;
+                m.fontStyle  = pe.fontStyle;
                 String preview = pe.text != null ? pe.text : "[" + pe.type + "]";
                 runOnUiThread(() -> firebasePushMessage(m, pe.id, preview));
             }

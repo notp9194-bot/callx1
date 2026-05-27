@@ -404,7 +404,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 h.tvMessage.setTextColor(
                         com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent));
                 h.tvMessage.setTextSize(15f);
-                h.tvMessage.setTypeface(null, android.graphics.Typeface.NORMAL);
+                // ── Font Style: sender ke selected typing style ko apply karo ──
+                applyFontStyle(h.tvMessage, m.fontStyle);
                 if (h.tvEdited != null && Boolean.TRUE.equals(m.edited))
                     h.tvEdited.setVisibility(View.VISIBLE);
                 // ── Clickable links: URLs, phone numbers, emails ────────────
@@ -902,6 +903,55 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
     @Override public int getItemCount() { return messages.size(); }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Font Style helper — TypingStyleManager.STYLE_* (0–19) ko TextView pe apply
+    // ─────────────────────────────────────────────────────────────────────────
+    private static void applyFontStyle(TextView tv, int styleId) {
+        switch (styleId) {
+            case com.callx.app.utils.TypingStyleManager.STYLE_BOLD:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_ITALIC:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.ITALIC)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_BOLD_ITALIC:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_MONOSPACE:
+                tv.setTypeface(android.graphics.Typeface.MONOSPACE); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF:
+                tv.setTypeface(android.graphics.Typeface.SERIF); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF_BOLD:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_CONDENSED:
+                tv.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_LIGHT:
+                tv.setTypeface(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_HANDWRITING:
+                tv.setTypeface(android.graphics.Typeface.create("casual", android.graphics.Typeface.NORMAL)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_MEDIUM:
+                tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_THIN:
+                tv.setTypeface(android.graphics.Typeface.create("sans-serif-thin", android.graphics.Typeface.NORMAL)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF_ITALIC:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.ITALIC)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_CONDENSED_BOLD:
+                tv.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_BLACK:
+                tv.setTypeface(android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_CURSIVE:
+                tv.setTypeface(android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_SANS_MEDIUM:
+                tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_MONO_BOLD:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_LIGHT_ITALIC:
+                tv.setTypeface(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.ITALIC)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_CLASSIC_BOLD:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_NORMAL:
+            default:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)); break;
+        }
+    }
+
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName;
         ImageView    ivImage, ivVideoThumb;
@@ -926,8 +976,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
 
         VH(View v) {
-            super(v);
-            tvMessage    = v.findViewById(R.id.tv_message);
             tvTime       = v.findViewById(R.id.tv_time);
             tvSenderName = v.findViewById(R.id.tv_sender_name);
             ivImage      = v.findViewById(R.id.iv_image);

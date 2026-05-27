@@ -496,6 +496,7 @@ public class GroupChatActivity extends AppCompatActivity {
         e.pinned                = Boolean.TRUE.equals(m.pinned);
         e.isGroup               = true;
         e.syncedAt              = System.currentTimeMillis();
+        e.fontStyle             = m.fontStyle;
         return e;
     }
 
@@ -536,6 +537,7 @@ public class GroupChatActivity extends AppCompatActivity {
         Message m = buildOutgoing();
         m.type = "text";
         m.text = text;
+        m.fontStyle = com.callx.app.utils.TypingStyleManager.get(this).getCurrentStyle();
         pushMessage(m, text);
         clearReply();
     }

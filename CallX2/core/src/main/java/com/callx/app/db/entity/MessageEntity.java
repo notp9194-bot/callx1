@@ -73,5 +73,12 @@ public class MessageEntity {
      */
     public String mediaResourceType;
 
+    /**
+     * Font style ID — TypingStyleManager.STYLE_* (0–19).
+     * Sender ke selected typing style ko receiver pe bhi render karo.
+     * Default 0 = Normal.
+     */
+    public int fontStyle;
+
     public MessageEntity() {}
 }
