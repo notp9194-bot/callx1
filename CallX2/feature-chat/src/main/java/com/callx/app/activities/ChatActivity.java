@@ -692,6 +692,7 @@ public class ChatActivity extends AppCompatActivity {
         m.pinned                = e.pinned;
         m.reelId                = e.reelId;       // FIX: reel_seen bubble
         m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
+        m.fontStyle             = e.fontStyle;    // FIX: typing style — Room se load hone par preserve karo
         return m;
     }
 
@@ -723,6 +724,7 @@ public class ChatActivity extends AppCompatActivity {
         e.pinned                  = Boolean.TRUE.equals(m.pinned);
         e.reelId                  = m.reelId;           // FIX: reel_seen bubble
         e.reelThumbUrl            = m.reelThumbUrl;      // FIX: reel_seen bubble thumbnail
+        e.fontStyle               = m.fontStyle;         // FIX: typing style preserve
         e.syncedAt                = System.currentTimeMillis();
         return e;
     }

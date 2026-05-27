@@ -468,6 +468,7 @@ public class GroupChatActivity extends AppCompatActivity {
         m.forwardedFrom     = e.forwardedFrom;
         m.starred           = e.starred;
         m.pinned            = e.pinned;
+        m.fontStyle         = e.fontStyle;  // FIX: typing style — Room se load hone par preserve karo
         return m;
     }
 
@@ -532,6 +533,10 @@ public class GroupChatActivity extends AppCompatActivity {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;
         binding.etMessage.setText("");
+        // setText ke baad post() se style re-apply karo — setText typeface disturb karta hai
+        binding.etMessage.post(() ->
+            com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage)
+        );
         typingHandler.removeCallbacks(stopTyping);
         setMyTyping(false);
         Message m = buildOutgoing();
