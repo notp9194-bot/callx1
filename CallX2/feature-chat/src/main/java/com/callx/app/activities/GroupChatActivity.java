@@ -743,61 +743,72 @@ public class GroupChatActivity extends AppCompatActivity {
         pagingAdapter.exitMultiSelectMode();
     }
 
-    private android.widget.LinearLayout multiSelectBar;
+    private boolean selectionToolbarSetup = false;
 
-    private void showMultiSelectBar(int count) {
-        if (multiSelectBar == null) {
-            multiSelectBar = new android.widget.LinearLayout(this);
-            multiSelectBar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-            multiSelectBar.setBackgroundColor(0xFF1565C0);
-            multiSelectBar.setPadding(16, 8, 16, 8);
-            multiSelectBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+    private void setupSelectionToolbar() {
+        if (selectionToolbarSetup) return;
+        selectionToolbarSetup = true;
 
-            android.widget.TextView tvCount = new android.widget.TextView(this);
-            tvCount.setId(android.R.id.text1);
-            tvCount.setTextColor(android.graphics.Color.WHITE);
-            tvCount.setTextSize(15f);
-            android.widget.LinearLayout.LayoutParams lp =
-                    new android.widget.LinearLayout.LayoutParams(0,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-            tvCount.setLayoutParams(lp);
-            multiSelectBar.addView(tvCount);
+        android.view.View btnClose = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_close);
+        if (btnClose != null) btnClose.setOnClickListener(v -> {
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
+        });
 
-            android.widget.Button btnFwd = new android.widget.Button(this);
-            btnFwd.setText("⏩ Forward");
-            btnFwd.setTextColor(android.graphics.Color.WHITE);
-            btnFwd.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            btnFwd.setOnClickListener(v -> forwardSelectedMessages());
-            multiSelectBar.addView(btnFwd);
+        android.view.View btnFwd = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_forward);
+        if (btnFwd != null) btnFwd.setOnClickListener(v -> forwardSelectedMessages());
 
-            android.widget.Button btnCancel = new android.widget.Button(this);
-            btnCancel.setText("✕");
-            btnCancel.setTextColor(android.graphics.Color.WHITE);
-            btnCancel.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            btnCancel.setOnClickListener(v -> {
+        android.view.View btnDel = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_delete);
+        if (btnDel != null) btnDel.setOnClickListener(v -> {
+            java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
+            if (!sel.isEmpty()) {
+                confirmDelete(sel.get(0));
                 pagingAdapter.exitMultiSelectMode();
                 hideMultiSelectBar();
-            });
-            multiSelectBar.addView(btnCancel);
-
-            if (binding.getRoot() instanceof android.view.ViewGroup) {
-                android.view.ViewGroup root = (android.view.ViewGroup) binding.getRoot();
-                android.widget.FrameLayout.LayoutParams flp =
-                        new android.widget.FrameLayout.LayoutParams(
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                flp.topMargin = Math.round(56 * getResources().getDisplayMetrics().density);
-                multiSelectBar.setLayoutParams(flp);
-                root.addView(multiSelectBar);
             }
-        }
-        multiSelectBar.setVisibility(android.view.View.VISIBLE);
-        android.widget.TextView tv = multiSelectBar.findViewById(android.R.id.text1);
-        if (tv != null) tv.setText(count + " selected");
+        });
+
+        android.view.View btnStar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_star);
+        if (btnStar != null) btnStar.setOnClickListener(v -> {
+            java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
+            for (com.callx.app.models.Message m : sel) toggleStar(m);
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
+        });
+
+        android.view.View btnReply = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_reply);
+        if (btnReply != null) btnReply.setOnClickListener(v -> {
+            java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
+            if (!sel.isEmpty()) startReply(sel.get(0));
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
+        });
+    }
+
+    private void showMultiSelectBar(int count) {
+        setupSelectionToolbar();
+        binding.toolbar.setVisibility(android.view.View.GONE);
+        android.view.View selBar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_selection_toolbar);
+        if (selBar != null) selBar.setVisibility(android.view.View.VISIBLE);
+        android.widget.TextView tvCount = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.tv_selection_count);
+        if (tvCount != null) tvCount.setText(String.valueOf(count));
+        android.view.View btnInfo = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_info);
+        if (btnInfo != null) btnInfo.setVisibility(count == 1 ? android.view.View.VISIBLE : android.view.View.GONE);
     }
 
     private void hideMultiSelectBar() {
-        if (multiSelectBar != null) multiSelectBar.setVisibility(android.view.View.GONE);
+        binding.toolbar.setVisibility(android.view.View.VISIBLE);
+        android.view.View selBar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_selection_toolbar);
+        if (selBar != null) selBar.setVisibility(android.view.View.GONE);
     }
 
     // ─────────────────────────────────────────────────────────────────────

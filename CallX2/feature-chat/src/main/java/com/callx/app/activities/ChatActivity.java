@@ -1176,68 +1176,94 @@ public class ChatActivity extends AppCompatActivity {
     // MULTI-SELECT BAR — toolbar ke neeche forward/cancel bar
     // ─────────────────────────────────────────────────────────────────────
 
-    private android.widget.LinearLayout multiSelectBar;
+    // ── WhatsApp-style selection toolbar (XML: ll_selection_toolbar) ──────
+    private boolean selectionToolbarSetup = false;
 
-    private void showMultiSelectBar(int count) {
-        if (multiSelectBar == null) {
-            // Dynamically create bar (XML mein add karna padega normally, yahan programmatic)
-            multiSelectBar = new android.widget.LinearLayout(this);
-            multiSelectBar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-            multiSelectBar.setBackgroundColor(0xFF1565C0); // dark blue
-            multiSelectBar.setPadding(16, 8, 16, 8);
-            multiSelectBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+    private void setupSelectionToolbar() {
+        if (selectionToolbarSetup) return;
+        selectionToolbarSetup = true;
 
-            android.widget.TextView tvCount = new android.widget.TextView(this);
-            tvCount.setId(android.R.id.text1);
-            tvCount.setTextColor(android.graphics.Color.WHITE);
-            tvCount.setTextSize(15f);
-            android.widget.LinearLayout.LayoutParams lp =
-                    new android.widget.LinearLayout.LayoutParams(0,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-            tvCount.setLayoutParams(lp);
-            multiSelectBar.addView(tvCount);
+        // Close / Cancel selection
+        android.view.View btnClose = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_close);
+        if (btnClose != null) btnClose.setOnClickListener(v -> {
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
+        });
 
-            android.widget.Button btnFwd = new android.widget.Button(this);
-            btnFwd.setText("⏩ Forward");
-            btnFwd.setTextColor(android.graphics.Color.WHITE);
-            btnFwd.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            btnFwd.setOnClickListener(v -> forwardSelectedMessages());
-            multiSelectBar.addView(btnFwd);
+        // Forward button
+        android.view.View btnFwd = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_forward);
+        if (btnFwd != null) btnFwd.setOnClickListener(v -> forwardSelectedMessages());
 
-            android.widget.Button btnCancel = new android.widget.Button(this);
-            btnCancel.setText("✕");
-            btnCancel.setTextColor(android.graphics.Color.WHITE);
-            btnCancel.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            btnCancel.setOnClickListener(v -> {
+        // Delete button
+        android.view.View btnDel = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_delete);
+        if (btnDel != null) btnDel.setOnClickListener(v -> {
+            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
+            if (!sel.isEmpty()) {
+                // Delete first selected (extend for bulk later)
+                confirmDeleteMessage(sel.get(0));
                 pagingAdapter.exitMultiSelectMode();
                 hideMultiSelectBar();
-            });
-            multiSelectBar.addView(btnCancel);
-
-            // Root view mein add karo — binding.getRoot() is a ViewGroup
-            if (binding.getRoot() instanceof android.widget.LinearLayout) {
-                ((android.widget.LinearLayout) binding.getRoot()).addView(multiSelectBar, 1);
-            } else if (binding.getRoot() instanceof android.view.ViewGroup) {
-                // CoordinatorLayout / ConstraintLayout — add at index 0 with top padding
-                android.view.ViewGroup root = (android.view.ViewGroup) binding.getRoot();
-                android.widget.FrameLayout.LayoutParams flp =
-                        new android.widget.FrameLayout.LayoutParams(
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                flp.topMargin = Math.round(56 * getResources().getDisplayMetrics().density);
-                multiSelectBar.setLayoutParams(flp);
-                root.addView(multiSelectBar);
             }
-        }
-        multiSelectBar.setVisibility(android.view.View.VISIBLE);
-        android.widget.TextView tv = multiSelectBar.findViewById(android.R.id.text1);
-        if (tv != null) tv.setText(count + " selected");
+        });
+
+        // Star button
+        android.view.View btnStar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_star);
+        if (btnStar != null) btnStar.setOnClickListener(v -> {
+            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
+            for (Message m : sel) toggleStar(m);
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
+        });
+
+        // Reply button — only first selected
+        android.view.View btnReply = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_reply);
+        if (btnReply != null) btnReply.setOnClickListener(v -> {
+            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
+            if (!sel.isEmpty()) startReply(sel.get(0));
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
+        });
+
+        // Info — only for single select
+        android.view.View btnInfo = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_info);
+        if (btnInfo != null) btnInfo.setOnClickListener(v -> {
+            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
+            if (sel.size() == 1) {
+                // reuse existing info action
+                if (pagingAdapter.getActionListener() != null)
+                    pagingAdapter.getActionListener().onForward(sel.get(0)); // placeholder — info
+            }
+        });
+    }
+
+    private void showMultiSelectBar(int count) {
+        setupSelectionToolbar();
+        // Hide normal toolbar elements, show selection toolbar
+        binding.toolbar.setVisibility(android.view.View.GONE);
+        android.view.View selBar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_selection_toolbar);
+        if (selBar != null) selBar.setVisibility(android.view.View.VISIBLE);
+        // Update count
+        android.widget.TextView tvCount = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.tv_selection_count);
+        if (tvCount != null) tvCount.setText(String.valueOf(count));
+        // Info button: only visible when exactly 1 selected
+        android.view.View btnInfo = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_info);
+        if (btnInfo != null) btnInfo.setVisibility(count == 1 ? android.view.View.VISIBLE : android.view.View.GONE);
     }
 
     private void hideMultiSelectBar() {
-        if (multiSelectBar != null) {
-            multiSelectBar.setVisibility(android.view.View.GONE);
-        }
+        binding.toolbar.setVisibility(android.view.View.VISIBLE);
+        android.view.View selBar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_selection_toolbar);
+        if (selBar != null) selBar.setVisibility(android.view.View.GONE);
     }
 
     // ─────────────────────────────────────────────────────────────────────

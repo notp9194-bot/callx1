@@ -154,6 +154,103 @@
 
     </LinearLayout>
 
+    <!-- ══════════════════════════════════════════════════════════════
+         MULTI-SELECT TOOLBAR (WhatsApp style) — visibility=gone by default
+         Shows on top replacing normal toolbar feel when messages selected
+         ══════════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/ll_selection_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/gradient_brand"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:elevation="6dp"
+        android:visibility="gone">
+
+        <!-- Cancel / Close selection -->
+        <ImageButton
+            android:id="@+id/btn_selection_close"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_back"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Cancel selection"/>
+
+        <!-- Selected count -->
+        <TextView
+            android:id="@+id/tv_selection_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="1"
+            android:textColor="@color/white"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginStart="8dp"/>
+
+        <!-- Reply -->
+        <ImageButton
+            android:id="@+id/btn_selection_reply"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_reply"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            android:contentDescription="Reply"/>
+
+        <!-- Star -->
+        <ImageButton
+            android:id="@+id/btn_selection_star"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_star_outline"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            android:contentDescription="Star"/>
+
+        <!-- Info — single select only -->
+        <ImageButton
+            android:id="@+id/btn_selection_info"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_info"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            android:contentDescription="Info"/>
+
+        <!-- Delete -->
+        <ImageButton
+            android:id="@+id/btn_selection_delete"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_delete"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            android:contentDescription="Delete"/>
+
+        <!-- Forward -->
+        <ImageButton
+            android:id="@+id/btn_selection_forward"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_forward"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            android:contentDescription="Forward"/>
+
+    </LinearLayout>
+
     <!-- Offline banner -->
     <TextView
         android:id="@+id/tv_offline_banner"

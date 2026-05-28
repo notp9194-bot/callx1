@@ -101,6 +101,7 @@ public class MessagePagingAdapter
     private MultiSelectListener multiSelectListener;
 
     public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
+    public ActionListener getActionListener() { return actionListener; }
 
     public void enterMultiSelectMode(Message firstMessage) {
         multiSelectMode = true;
