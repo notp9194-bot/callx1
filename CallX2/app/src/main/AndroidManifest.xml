@@ -98,6 +98,7 @@
             android:launchMode="singleTop"
             android:taskAffinity=""/>
         <activity android:name=".activities.ProfileActivity"  android:exported="false"/>
+        <activity android:name=".activities.UserProfileActivity" android:exported="false"/>
         <activity android:name=".activities.MediaViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen"/>

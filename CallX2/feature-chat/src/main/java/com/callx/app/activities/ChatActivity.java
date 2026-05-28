@@ -1669,24 +1669,15 @@ public class ChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     private void openAvatarZoom() {
-        // Opens UserReelsActivity — from chat header avatar OR 3-dot View Profile
+        // Opens UserProfileActivity — from chat header avatar OR 3-dot View Profile
         if (partnerUid == null || partnerUid.isEmpty()) return;
-        try {
-            Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
-            Intent intent = new Intent(this, cls);
-            intent.putExtra("uid",   partnerUid);
-            intent.putExtra("name",  partnerName  != null ? partnerName  : "");
-            intent.putExtra("photo", partnerPhoto != null ? partnerPhoto : "");
-            startActivity(intent);
-        } catch (ClassNotFoundException e) {
-            // fallback: show photo full screen
-            if (partnerPhoto != null && !partnerPhoto.isEmpty()) {
-                Intent fb = new Intent().setClassName(this, "com.callx.app.activities.MediaViewerActivity");
-                fb.putExtra("url",  partnerPhoto);
-                fb.putExtra("type", "image");
-                startActivity(fb);
-            }
-        }
+        Intent intent = new Intent()
+            .setClassName(this, "com.callx.app.activities.UserProfileActivity");
+        intent.putExtra("uid",    partnerUid);
+        intent.putExtra("name",   partnerName  != null ? partnerName  : "");
+        intent.putExtra("photo",  partnerPhoto != null ? partnerPhoto : "");
+        intent.putExtra("chatId", chatId       != null ? chatId       : "");
+        startActivity(intent);
     }
 
     // ─────────────────────────────────────────────────────────────────────
