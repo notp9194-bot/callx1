@@ -52,7 +52,8 @@ public class MessagePagingAdapter
                     && safeEquals(a.status, b.status)
                     && a.timestamp == b.timestamp
                     && a.edited == b.edited
-                    && a.deleted == b.deleted;
+                    && a.deleted == b.deleted
+                    && a.fontStyle == b.fontStyle;  // FIX: font style change pe rebind trigger
             }
 
             private boolean safeEquals(String x, String y) {
@@ -741,6 +742,23 @@ public class MessagePagingAdapter
                 tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.ITALIC)); break;
             case com.callx.app.utils.TypingStyleManager.STYLE_BOLD_ITALIC:
                 tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG:
+                try {
+                    android.graphics.Typeface samsungTf = android.graphics.Typeface.create("SamsungOne", android.graphics.Typeface.NORMAL);
+                    if (samsungTf != null && !samsungTf.equals(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL))) {
+                        tv.setTypeface(samsungTf);
+                    } else {
+                        android.graphics.Typeface alt = android.graphics.Typeface.create("samsung-sans", android.graphics.Typeface.NORMAL);
+                        if (alt != null && !alt.equals(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL))) {
+                            tv.setTypeface(alt);
+                        } else {
+                            tv.setTypeface(android.graphics.Typeface.SERIF);
+                        }
+                    }
+                } catch (Exception e) {
+                    tv.setTypeface(android.graphics.Typeface.SERIF);
+                }
+                break;
             case com.callx.app.utils.TypingStyleManager.STYLE_MONOSPACE:
                 tv.setTypeface(android.graphics.Typeface.MONOSPACE); break;
             case com.callx.app.utils.TypingStyleManager.STYLE_SERIF:

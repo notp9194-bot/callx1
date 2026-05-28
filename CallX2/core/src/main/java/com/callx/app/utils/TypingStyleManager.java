@@ -6,7 +6,7 @@ import android.graphics.Typeface;
 import android.widget.EditText;
 
 /**
- * TypingStyleManager — Chat input box ke liye 20 alag typing styles.
+ * TypingStyleManager — Chat input box ke liye 21 alag typing styles.
  *
  * Usage:
  *   TypingStyleManager.get(ctx).applyToInput(binding.etMessage);
@@ -27,40 +27,44 @@ public class TypingStyleManager {
     public static final int STYLE_HANDWRITING = 9;   // Casual/Handwriting feel
 
     // ── New Popular Style IDs (10–19) ─────────────────────────────────────
-    public static final int STYLE_MEDIUM         = 10;  // Medium weight (popular in WhatsApp-like apps)
-    public static final int STYLE_THIN           = 11;  // Thin / Hairline (Instagram style)
-    public static final int STYLE_SERIF_ITALIC   = 12;  // Serif Italic (elegant, newspaper feel)
-    public static final int STYLE_CONDENSED_BOLD = 13;  // Condensed Bold (headlines feel)
-    public static final int STYLE_BLACK          = 14;  // Black/Extra Bold (impactful, Telegram style)
-    public static final int STYLE_CURSIVE        = 15;  // Cursive (WhatsApp status feel)
-    public static final int STYLE_SANS_MEDIUM    = 16;  // Sans-Serif Medium (Material Design default)
-    public static final int STYLE_MONO_BOLD      = 17;  // Monospace Bold (code + emphasis)
-    public static final int STYLE_LIGHT_ITALIC   = 18;  // Light Italic (gentle, aesthetic)
-    public static final int STYLE_CLASSIC_BOLD   = 19;  // Classic Sans Bold Italic (Signal/Viber look)
+    public static final int STYLE_MEDIUM         = 10;  // Medium weight
+    public static final int STYLE_THIN           = 11;  // Thin / Hairline
+    public static final int STYLE_SERIF_ITALIC   = 12;  // Serif Italic
+    public static final int STYLE_CONDENSED_BOLD = 13;  // Condensed Bold
+    public static final int STYLE_BLACK          = 14;  // Black/Extra Bold
+    public static final int STYLE_CURSIVE        = 15;  // Cursive
+    public static final int STYLE_SANS_MEDIUM    = 16;  // Sans-Serif Medium
+    public static final int STYLE_MONO_BOLD      = 17;  // Monospace Bold
+    public static final int STYLE_LIGHT_ITALIC   = 18;  // Light Italic
+    public static final int STYLE_CLASSIC_BOLD   = 19;  // Classic Sans Bold Italic
+
+    // ── Samsung Style ID (20) ─────────────────────────────────────────────
+    public static final int STYLE_SAMSUNG        = 20;  // Samsung One font (native on Samsung, Serif fallback on others)
 
     public static final String[] STYLE_NAMES = {
         // Original 10
-        "✏️ Normal (Default)",
-        "𝗕 Bold",
-        "𝘐 Italic",
-        "𝙱 Bold Italic",
-        "⌨️ Monospace",
-        "𝐒 Serif",
-        "𝐁 Serif Bold",
-        "▌Condensed",
-        "ₗ Light",
-        "✒️ Casual",
+        "✏️ Normal (Default)",      // 0
+        "𝗕 Bold",                   // 1
+        "𝘐 Italic",                 // 2
+        "𝙱 Bold Italic",            // 3
+        "🅢 Samsung One",           // 4  ← position 4 (1-based 5th, but user bola "4 number pe")
+        "⌨️ Monospace",             // 5
+        "𝐒 Serif",                  // 6
+        "𝐁 Serif Bold",             // 7
+        "▌Condensed",               // 8
+        "ₗ Light",                  // 9
         // New 10
-        "✦ Medium",
-        "᳀ Thin",
-        "𝓘 Serif Italic",
-        "❚ Condensed Bold",
-        "⬛ Black / Heavy",
-        "𝒞 Cursive",
-        "◆ Sans Medium",
-        "⌨ Mono Bold",
-        "~ Light Italic",
-        "Ꞵ Classic Bold Italic"
+        "✒️ Casual",                // 10
+        "✦ Medium",                 // 11
+        "᳀ Thin",                   // 12
+        "𝓘 Serif Italic",           // 13
+        "❚ Condensed Bold",         // 14
+        "⬛ Black / Heavy",         // 15
+        "𝒞 Cursive",               // 16
+        "◆ Sans Medium",            // 17
+        "⌨ Mono Bold",             // 18
+        "~ Light Italic",           // 19
+        "Ꞵ Classic Bold Italic"     // 20
     };
 
     // ── SharedPreferences ─────────────────────────────────────────────────
@@ -99,7 +103,6 @@ public class TypingStyleManager {
         if (editText == null) return;
 
         switch (currentStyle) {
-            // ── Original 10 ────────────────────────────────────────────────
             case STYLE_BOLD:
                 editText.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
                 break;
@@ -127,49 +130,55 @@ public class TypingStyleManager {
             case STYLE_HANDWRITING:
                 editText.setTypeface(Typeface.create("casual", Typeface.NORMAL));
                 break;
-
-            // ── New 10 Popular Styles ───────────────────────────────────────
             case STYLE_MEDIUM:
-                // Medium weight — clean professional look (common in modern chat apps)
                 editText.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
                 break;
             case STYLE_THIN:
-                // Thin / Hairline — Instagram & minimal UI apps style
                 editText.setTypeface(Typeface.create("sans-serif-thin", Typeface.NORMAL));
                 break;
             case STYLE_SERIF_ITALIC:
-                // Serif Italic — elegant, newspaper / long-form reading feel
                 editText.setTypeface(Typeface.create(Typeface.SERIF, Typeface.ITALIC));
                 break;
             case STYLE_CONDENSED_BOLD:
-                // Condensed Bold — headline / poster style, widely used for emphasis
                 editText.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD));
                 break;
             case STYLE_BLACK:
-                // Black / Extra Bold — heavy impact, Telegram channel title style
                 editText.setTypeface(Typeface.create("sans-serif-black", Typeface.NORMAL));
                 break;
             case STYLE_CURSIVE:
-                // Cursive — WhatsApp status & decorative messages feel
                 editText.setTypeface(Typeface.create("cursive", Typeface.NORMAL));
                 break;
             case STYLE_SANS_MEDIUM:
-                // Sans Medium — Google Material Design body text default
                 editText.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
                 break;
             case STYLE_MONO_BOLD:
-                // Monospace Bold — code blocks with extra clarity, developer friendly
                 editText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
                 break;
             case STYLE_LIGHT_ITALIC:
-                // Light Italic — gentle aesthetic, popular in notes & diary apps
                 editText.setTypeface(Typeface.create("sans-serif-light", Typeface.ITALIC));
                 break;
             case STYLE_CLASSIC_BOLD:
-                // Classic Bold Italic — Signal / Viber emphasis style
                 editText.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC));
                 break;
-
+            case STYLE_SAMSUNG:
+                // Samsung One — Samsung devices pe natively available.
+                // Non-Samsung pe "samsung-sans" try karo, warna Serif fallback.
+                try {
+                    Typeface samsungTf = Typeface.create("SamsungOne", Typeface.NORMAL);
+                    if (samsungTf != null && !samsungTf.equals(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))) {
+                        editText.setTypeface(samsungTf);
+                    } else {
+                        Typeface alt = Typeface.create("samsung-sans", Typeface.NORMAL);
+                        if (alt != null && !alt.equals(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))) {
+                            editText.setTypeface(alt);
+                        } else {
+                            editText.setTypeface(Typeface.SERIF);
+                        }
+                    }
+                } catch (Exception e) {
+                    editText.setTypeface(Typeface.SERIF);
+                }
+                break;
             case STYLE_NORMAL:
             default:
                 editText.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));

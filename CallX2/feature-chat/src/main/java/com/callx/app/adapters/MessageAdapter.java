@@ -914,6 +914,23 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.ITALIC)); break;
             case com.callx.app.utils.TypingStyleManager.STYLE_BOLD_ITALIC:
                 tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG:
+                try {
+                    android.graphics.Typeface samsungTf = android.graphics.Typeface.create("SamsungOne", android.graphics.Typeface.NORMAL);
+                    if (samsungTf != null && !samsungTf.equals(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL))) {
+                        tv.setTypeface(samsungTf);
+                    } else {
+                        android.graphics.Typeface alt = android.graphics.Typeface.create("samsung-sans", android.graphics.Typeface.NORMAL);
+                        if (alt != null && !alt.equals(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL))) {
+                            tv.setTypeface(alt);
+                        } else {
+                            tv.setTypeface(android.graphics.Typeface.SERIF);
+                        }
+                    }
+                } catch (Exception e) {
+                    tv.setTypeface(android.graphics.Typeface.SERIF);
+                }
+                break;
             case com.callx.app.utils.TypingStyleManager.STYLE_MONOSPACE:
                 tv.setTypeface(android.graphics.Typeface.MONOSPACE); break;
             case com.callx.app.utils.TypingStyleManager.STYLE_SERIF:
