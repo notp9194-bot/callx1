@@ -54,7 +54,7 @@ public class UserProfileActivity extends AppCompatActivity {
     private boolean isBlocked = false;
 
     // ── Avatar peek animation fields ──────────────────────────────────────
-    private CircleImageView ivAnimReel, ivAnimX, ivAnimYoutube, ivAnimCall, ivAnimVideo;
+    private CircleImageView ivAnimReel, ivAnimX, ivAnimYoutube;
     private final Handler   animHandler = new Handler(Looper.getMainLooper());
     private Runnable        animRunnable;
     private boolean         animRunning = false;
@@ -113,8 +113,6 @@ public class UserProfileActivity extends AppCompatActivity {
         ivAnimReel    = binding.ivAnimReel;
         ivAnimX       = binding.ivAnimX;
         ivAnimYoutube = binding.ivAnimYoutube;
-        ivAnimCall    = binding.ivAnimCall;
-        ivAnimVideo   = binding.ivAnimVideo;
 
         // ── Options ────────────────────────────────────────────────────
         binding.btnMute.setOnClickListener(v -> toggleMute());
@@ -575,25 +573,6 @@ public class UserProfileActivity extends AppCompatActivity {
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
 
-        // 4) Call & Video avatar — users/{uid} (main CallX profile)
-        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
-            .getReference("users").child(partnerUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    String thumb = snap.child("thumbUrl").getValue(String.class);
-                    String photo = snap.child("photoUrl").getValue(String.class);
-                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
-                               : (photo != null && !photo.isEmpty()) ? photo : null;
-                    if (url == null) return;
-                    if (ivAnimCall != null)
-                        Glide.with(UserProfileActivity.this).load(url).circleCrop()
-                            .placeholder(R.drawable.ic_person).into(ivAnimCall);
-                    if (ivAnimVideo != null)
-                        Glide.with(UserProfileActivity.this).load(url).circleCrop()
-                            .placeholder(R.drawable.ic_person).into(ivAnimVideo);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
     }
 
     /**
@@ -604,7 +583,7 @@ public class UserProfileActivity extends AppCompatActivity {
         if (animRunning) return;
         animRunning = true;
 
-        CircleImageView[] views = {ivAnimReel, ivAnimX, ivAnimYoutube, ivAnimCall, ivAnimVideo};
+        CircleImageView[] views = {ivAnimReel, ivAnimX, ivAnimYoutube};
 
         for (CircleImageView iv : views) {
             if (iv == null) continue;
@@ -680,7 +659,7 @@ public class UserProfileActivity extends AppCompatActivity {
     private void stopAvatarAnimation() {
         animRunning = false;
         if (animRunnable != null) animHandler.removeCallbacks(animRunnable);
-        CircleImageView[] views = {ivAnimReel, ivAnimX, ivAnimYoutube, ivAnimCall, ivAnimVideo};
+        CircleImageView[] views = {ivAnimReel, ivAnimX, ivAnimYoutube};
         for (CircleImageView iv : views) {
             if (iv == null) continue;
             iv.setVisibility(View.INVISIBLE);

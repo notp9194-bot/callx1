@@ -1668,6 +1668,11 @@ public class ChatActivity extends AppCompatActivity {
     // AVATAR ZOOM (N3)
     // ─────────────────────────────────────────────────────────────────────
 
+    private void openEditProfile() {
+        // ProfileActivity — same as header avatar → Edit Profile
+        startActivity(new Intent(this, com.callx.app.activities.ProfileActivity.class));
+    }
+
     private void openAvatarZoom() {
         // Opens UserProfileActivity — from chat header avatar OR 3-dot View Profile
         if (partnerUid == null || partnerUid.isEmpty()) return;
@@ -2122,6 +2127,7 @@ public class ChatActivity extends AppCompatActivity {
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_view_profile)  { openAvatarZoom();     return true; }
+        if (id == R.id.action_edit_profile)   { openEditProfile();    return true; }
         if (id == R.id.action_starred) {
             Intent i = new Intent(this, com.callx.app.activities.StarredMessagesActivity.class);
             i.putExtra("chatId",  chatId);

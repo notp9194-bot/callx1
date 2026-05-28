@@ -7,6 +7,10 @@
         android:title="👤 View Profile"
         app:showAsAction="never"/>
 
+    <item android:id="@+id/action_edit_profile"
+        android:title="✏️ Edit Profile"
+        app:showAsAction="never"/>
+
     <item android:id="@+id/action_search"
         android:title="🔍 Search"
         app:showAsAction="never"/>
