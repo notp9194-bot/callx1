@@ -1559,11 +1559,17 @@ public class ChatActivity extends AppCompatActivity {
 
     /** Open WhatsApp-style Media, Links & Docs screen for this chat */
     private void openAllMediaLinksDocs() {
-        Intent i = new Intent(this, com.callx.app.activities.AllMediaLinksDocsActivity.class);
-        i.putExtra("chatId",      chatId);
-        i.putExtra("partnerName", partnerName);
-        i.putExtra("isGroup",     false);
-        startActivity(i);
+        try {
+            // AllMediaLinksDocsActivity app module mein hai, isliye Class.forName se intent banate hain
+            Class<?> cls = Class.forName("com.callx.app.activities.AllMediaLinksDocsActivity");
+            Intent i = new Intent(this, cls);
+            i.putExtra("chatId",      chatId);
+            i.putExtra("partnerName", partnerName);
+            i.putExtra("isGroup",     false);
+            startActivity(i);
+        } catch (ClassNotFoundException e) {
+            android.util.Log.e("ChatActivity", "AllMediaLinksDocsActivity not found", e);
+        }
     }
 
     private void openSearch() {
