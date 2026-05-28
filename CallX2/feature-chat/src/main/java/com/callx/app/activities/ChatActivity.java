@@ -349,7 +349,43 @@ public class ChatActivity extends AppCompatActivity {
         String fwdType  = i.getStringExtra("forwardType");
         String fwdMedia = i.getStringExtra("forwardMedia");
 
-        if (fwdText != null && !fwdText.isEmpty() && "text".equals(fwdType)) {
+        // Multi-message forward payload
+        java.util.ArrayList<String> fwdTexts     = i.getStringArrayListExtra("forwardTexts");
+        java.util.ArrayList<String> fwdTypes     = i.getStringArrayListExtra("forwardTypes");
+        java.util.ArrayList<String> fwdMedias    = i.getStringArrayListExtra("forwardMedias");
+        java.util.ArrayList<String> fwdFileNames = i.getStringArrayListExtra("forwardFileNames");
+
+        if (fwdTexts != null && !fwdTexts.isEmpty()) {
+            // Multiple messages forward: queue all messages with small delay
+            binding.getRoot().post(() -> {
+                for (int idx = 0; idx < fwdTexts.size(); idx++) {
+                    final int fi = idx;
+                    binding.getRoot().postDelayed(() -> {
+                        String t  = fwdTexts.get(fi);
+                        String tp = fwdTypes.get(fi);
+                        String mu = fwdMedias.get(fi);
+                        Message m2 = buildOutgoing();
+                        m2.forwardedFrom = partnerName;
+                        if ("text".equals(tp) || tp == null) {
+                            m2.type = "text";
+                            m2.text = t;
+                            pushMessage(m2, t != null ? t : "");
+                        } else if (mu != null && !mu.isEmpty()) {
+                            m2.type     = tp;
+                            m2.mediaUrl = mu;
+                            m2.imageUrl = "image".equals(tp) ? mu : null;
+                            m2.fileName = fwdFileNames != null && fi < fwdFileNames.size()
+                                    ? fwdFileNames.get(fi) : null;
+                            String preview = "image".equals(tp) ? "\uD83D\uDCF7 Photo (forwarded)"
+                                           : "video".equals(tp) ? "\uD83C\uDFAC Video (forwarded)"
+                                           : "audio".equals(tp) ? "\uD83C\uDFA4 Voice (forwarded)"
+                                           : "\uD83D\uDCCE File (forwarded)";
+                            pushMessage(m2, preview);
+                        }
+                    }, idx * 150L);  // 150ms gap between messages
+                }
+            });
+        } else if (fwdText != null && !fwdText.isEmpty() && "text".equals(fwdType)) {
             // Text forward: input bar mein pre-fill karo (user confirm kar sake)
             if (binding != null && binding.etMessage != null) {
                 binding.etMessage.post(() -> {
@@ -388,7 +424,14 @@ public class ChatActivity extends AppCompatActivity {
 
     private void setupToolbar() {
         // Custom WhatsApp-style header — no MaterialToolbar, no ActionBar needed
-        binding.btnBack.setOnClickListener(v -> finish());
+        binding.btnBack.setOnClickListener(v -> {
+            if (pagingAdapter != null && pagingAdapter.isInMultiSelectMode()) {
+                pagingAdapter.exitMultiSelectMode();
+                hideMultiSelectBar();
+            } else {
+                finish();
+            }
+        });
 
         if (partnerName != null) {
             binding.tvPartnerName.setText(partnerName);
@@ -507,6 +550,15 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginal(messageId); }
+        });
+
+        // Multi-select: jab selection change ho, action bar update karo
+        pagingAdapter.setMultiSelectListener(count -> {
+            if (count > 0) {
+                showMultiSelectBar(count);
+            } else {
+                hideMultiSelectBar();
+            }
         });
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
@@ -1075,7 +1127,7 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // FORWARD
+    // FORWARD — single message (from bottom sheet)
     // ─────────────────────────────────────────────────────────────────────
 
     private void forwardMessage(Message m) {
@@ -1085,6 +1137,107 @@ public class ChatActivity extends AppCompatActivity {
         i.putExtra("forwardMedia",    m.mediaUrl);
         i.putExtra("forwardFileName", m.fileName);
         startActivity(i);
+    }
+
+    // MULTI-SELECT FORWARD — multiple messages to multiple contacts
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void forwardSelectedMessages() {
+        java.util.List<Message> selected = pagingAdapter.getSelectedMessages();
+        if (selected.isEmpty()) {
+            android.widget.Toast.makeText(this, "Koi message select nahi", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        java.util.ArrayList<String> texts     = new java.util.ArrayList<>();
+        java.util.ArrayList<String> types     = new java.util.ArrayList<>();
+        java.util.ArrayList<String> medias    = new java.util.ArrayList<>();
+        java.util.ArrayList<String> fileNames = new java.util.ArrayList<>();
+
+        // Timestamp ke order mein sort karo
+        selected.sort((a, b) -> Long.compare(a.timestamp, b.timestamp));
+
+        for (Message m : selected) {
+            texts.add(m.text != null ? m.text : "");
+            types.add(m.type != null ? m.type : "text");
+            medias.add(m.mediaUrl != null ? m.mediaUrl : "");
+            fileNames.add(m.fileName != null ? m.fileName : "");
+        }
+
+        Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
+        i.putStringArrayListExtra("forwardTexts",     texts);
+        i.putStringArrayListExtra("forwardTypes",     types);
+        i.putStringArrayListExtra("forwardMedias",    medias);
+        i.putStringArrayListExtra("forwardFileNames", fileNames);
+        startActivity(i);
+        pagingAdapter.exitMultiSelectMode();
+    }
+
+    // MULTI-SELECT BAR — toolbar ke neeche forward/cancel bar
+    // ─────────────────────────────────────────────────────────────────────
+
+    private android.widget.LinearLayout multiSelectBar;
+
+    private void showMultiSelectBar(int count) {
+        if (multiSelectBar == null) {
+            // Dynamically create bar (XML mein add karna padega normally, yahan programmatic)
+            multiSelectBar = new android.widget.LinearLayout(this);
+            multiSelectBar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            multiSelectBar.setBackgroundColor(0xFF1565C0); // dark blue
+            multiSelectBar.setPadding(16, 8, 16, 8);
+            multiSelectBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+            android.widget.TextView tvCount = new android.widget.TextView(this);
+            tvCount.setId(android.R.id.text1);
+            tvCount.setTextColor(android.graphics.Color.WHITE);
+            tvCount.setTextSize(15f);
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(0,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            tvCount.setLayoutParams(lp);
+            multiSelectBar.addView(tvCount);
+
+            android.widget.Button btnFwd = new android.widget.Button(this);
+            btnFwd.setText("⏩ Forward");
+            btnFwd.setTextColor(android.graphics.Color.WHITE);
+            btnFwd.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            btnFwd.setOnClickListener(v -> forwardSelectedMessages());
+            multiSelectBar.addView(btnFwd);
+
+            android.widget.Button btnCancel = new android.widget.Button(this);
+            btnCancel.setText("✕");
+            btnCancel.setTextColor(android.graphics.Color.WHITE);
+            btnCancel.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            btnCancel.setOnClickListener(v -> {
+                pagingAdapter.exitMultiSelectMode();
+                hideMultiSelectBar();
+            });
+            multiSelectBar.addView(btnCancel);
+
+            // Root view mein add karo — binding.getRoot() is a ViewGroup
+            if (binding.getRoot() instanceof android.widget.LinearLayout) {
+                ((android.widget.LinearLayout) binding.getRoot()).addView(multiSelectBar, 1);
+            } else if (binding.getRoot() instanceof android.view.ViewGroup) {
+                // CoordinatorLayout / ConstraintLayout — add at index 0 with top padding
+                android.view.ViewGroup root = (android.view.ViewGroup) binding.getRoot();
+                android.widget.FrameLayout.LayoutParams flp =
+                        new android.widget.FrameLayout.LayoutParams(
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                flp.topMargin = Math.round(56 * getResources().getDisplayMetrics().density);
+                multiSelectBar.setLayoutParams(flp);
+                root.addView(multiSelectBar);
+            }
+        }
+        multiSelectBar.setVisibility(android.view.View.VISIBLE);
+        android.widget.TextView tv = multiSelectBar.findViewById(android.R.id.text1);
+        if (tv != null) tv.setText(count + " selected");
+    }
+
+    private void hideMultiSelectBar() {
+        if (multiSelectBar != null) {
+            multiSelectBar.setVisibility(android.view.View.GONE);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────

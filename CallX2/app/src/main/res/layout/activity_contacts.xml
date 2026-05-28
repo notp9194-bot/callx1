@@ -45,6 +45,26 @@
             android:inputType="text"/>
     </LinearLayout>
 
+    <!-- Selection info bar (shows when contacts are selected) -->
+    <LinearLayout
+        android:id="@+id/ll_selection_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tv_send_count"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:paddingStart="16dp"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp"
+            android:background="@color/surface_input"
+            android:visibility="gone"/>
+    </LinearLayout>
+
     <!-- Contact list -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_contacts"
@@ -52,7 +72,7 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingBottom="8dp"/>
+        android:paddingBottom="72dp"/>
 
     <!-- Empty state -->
     <TextView
@@ -65,5 +85,17 @@
         android:textColor="@color/text_muted"
         android:textSize="14sp"
         android:visibility="gone"/>
+
+    <!-- Send button — full width at bottom -->
+    <Button
+        android:id="@+id/btn_send_forward"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:text="Send"
+        android:textSize="16sp"
+        android:textColor="@android:color/white"
+        android:background="@color/brand_primary"
+        android:visibility="gone"
+        android:elevation="4dp"/>
 
 </LinearLayout>

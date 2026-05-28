@@ -7,9 +7,12 @@ import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -28,34 +31,48 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executors;
 
 /**
  * ContactsActivity v18 — Forward Message Contact Picker.
  *
- * HIGH IMPACT FIX: Pehle yeh Activity sirf finish() call karta tha —
- * forward feature completely broken tha. Ab properly kaam karta hai.
+ * MULTI-SELECT FORWARD: Multiple contacts select karo aur ek bar mein
+ * sab ko message forward karo.
  *
  * Flow:
  *   1. Room se contacts load karo (offline-first, instant)
  *   2. Firebase se sync karo (online update)
- *   3. User contact select kare → ChatActivity open karo forward payload ke saath
+ *   3. User multiple contacts select kare → "Send to X" button press kare
+ *   4. Har selected contact ke liye ChatActivity launch karo (forward payload ke saath)
  */
 public class ContactsActivity extends AppCompatActivity {
 
     private RecyclerView rv;
     private TextView     tvEmpty;
     private EditText     etSearch;
+    private Button       btnSend;
+    private TextView     tvSendCount;
     private ContactsAdapter adapter;
 
-    private final List<User> allContacts = new ArrayList<>();
-    private final List<User> filtered    = new ArrayList<>();
+    private final List<User>   allContacts      = new ArrayList<>();
+    private final List<User>   filtered         = new ArrayList<>();
+    private final Set<String>  selectedUids     = new HashSet<>();
 
+    // Forward payload — single message
     private String forwardText;
     private String forwardType;
     private String forwardMedia;
     private String forwardFileName;
+
+    // Forward payload — multiple messages (JSON-serialised ArrayList)
+    private ArrayList<String> forwardTexts;
+    private ArrayList<String> forwardTypes;
+    private ArrayList<String> forwardMedias;
+    private ArrayList<String> forwardFileNames;
+    private boolean isMultiForward = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,22 +82,33 @@ public class ContactsActivity extends AppCompatActivity {
         androidx.appcompat.widget.Toolbar tb = findViewById(R.id.toolbar);
         setSupportActionBar(tb);
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle("Forward to\u2026");
+            getSupportActionBar().setTitle("Forward to…");
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         }
         tb.setNavigationOnClickListener(v -> finish());
 
+        // Single-message forward extras
         forwardText     = getIntent().getStringExtra("forwardText");
         forwardType     = getIntent().getStringExtra("forwardType");
         forwardMedia    = getIntent().getStringExtra("forwardMedia");
         forwardFileName = getIntent().getStringExtra("forwardFileName");
 
-        rv       = findViewById(R.id.rv_contacts);
-        tvEmpty  = findViewById(R.id.tv_empty);
-        etSearch = findViewById(R.id.et_search_contacts);
+        // Multi-message forward extras
+        forwardTexts      = getIntent().getStringArrayListExtra("forwardTexts");
+        forwardTypes      = getIntent().getStringArrayListExtra("forwardTypes");
+        forwardMedias     = getIntent().getStringArrayListExtra("forwardMedias");
+        forwardFileNames  = getIntent().getStringArrayListExtra("forwardFileNames");
+
+        isMultiForward = (forwardTexts != null && !forwardTexts.isEmpty());
+
+        rv        = findViewById(R.id.rv_contacts);
+        tvEmpty   = findViewById(R.id.tv_empty);
+        etSearch  = findViewById(R.id.et_search_contacts);
+        btnSend   = findViewById(R.id.btn_send_forward);
+        tvSendCount = findViewById(R.id.tv_send_count);
 
         rv.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new ContactsAdapter(filtered, this::onContactSelected);
+        adapter = new ContactsAdapter(filtered, selectedUids, this::onContactToggled);
         rv.setAdapter(adapter);
 
         etSearch.addTextChangedListener(new TextWatcher() {
@@ -91,8 +119,97 @@ public class ContactsActivity extends AppCompatActivity {
             }
         });
 
+        btnSend.setOnClickListener(v -> sendToSelected());
+        updateSendButton();
+
         loadFromRoom();
         loadFromFirebase();
+    }
+
+    private void onContactToggled(User u) {
+        if (selectedUids.contains(u.uid)) {
+            selectedUids.remove(u.uid);
+        } else {
+            selectedUids.add(u.uid);
+        }
+        adapter.notifyDataSetChanged();
+        updateSendButton();
+    }
+
+    private void updateSendButton() {
+        int count = selectedUids.size();
+        if (count == 0) {
+            btnSend.setVisibility(View.GONE);
+            tvSendCount.setVisibility(View.GONE);
+        } else {
+            btnSend.setVisibility(View.VISIBLE);
+            tvSendCount.setVisibility(View.VISIBLE);
+            btnSend.setText("Send (" + count + ")");
+            int msgCount = isMultiForward ? forwardTexts.size() : 1;
+            tvSendCount.setText(msgCount + " message" + (msgCount > 1 ? "s" : "") +
+                    " → " + count + " contact" + (count > 1 ? "s" : ""));
+        }
+    }
+
+    private void sendToSelected() {
+        if (selectedUids.isEmpty()) {
+            Toast.makeText(this, "Koi contact select nahi kiya", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Sabhi selected contacts ka User object dhundo
+        List<User> selectedUsers = new ArrayList<>();
+        for (User u : allContacts) {
+            if (selectedUids.contains(u.uid)) selectedUsers.add(u);
+        }
+
+        if (isMultiForward) {
+            // Multiple messages → multiple contacts
+            for (User u : selectedUsers) {
+                openChatWithMultiForward(u);
+            }
+        } else {
+            // Single message → multiple contacts
+            for (User u : selectedUsers) {
+                openChatWithSingleForward(u);
+            }
+        }
+
+        int msgCount = isMultiForward ? forwardTexts.size() : 1;
+        Toast.makeText(this,
+                msgCount + " message" + (msgCount > 1 ? "s" : "") +
+                " forwarded to " + selectedUsers.size() + " contact" +
+                (selectedUsers.size() > 1 ? "s" : ""),
+                Toast.LENGTH_SHORT).show();
+        finish();
+    }
+
+    private void openChatWithSingleForward(User u) {
+        Intent i = new Intent(this, ChatActivity.class);
+        i.putExtra("partnerUid",      u.uid);
+        i.putExtra("partnerName",     u.name     != null ? u.name     : "");
+        i.putExtra("partnerPhoto",    u.photoUrl != null ? u.photoUrl : "");
+        i.putExtra("partnerThumb",    u.thumbUrl != null ? u.thumbUrl : "");
+        i.putExtra("forwardText",     forwardText);
+        i.putExtra("forwardType",     forwardType);
+        i.putExtra("forwardMedia",    forwardMedia);
+        i.putExtra("forwardFileName", forwardFileName);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
+    }
+
+    private void openChatWithMultiForward(User u) {
+        Intent i = new Intent(this, ChatActivity.class);
+        i.putExtra("partnerUid",       u.uid);
+        i.putExtra("partnerName",      u.name     != null ? u.name     : "");
+        i.putExtra("partnerPhoto",     u.photoUrl != null ? u.photoUrl : "");
+        i.putExtra("partnerThumb",     u.thumbUrl != null ? u.thumbUrl : "");
+        i.putStringArrayListExtra("forwardTexts",     forwardTexts);
+        i.putStringArrayListExtra("forwardTypes",     forwardTypes);
+        i.putStringArrayListExtra("forwardMedias",    forwardMedias);
+        i.putStringArrayListExtra("forwardFileNames", forwardFileNames);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
     }
 
     private void loadFromRoom() {
@@ -168,32 +285,20 @@ public class ContactsActivity extends AppCompatActivity {
         rv.setVisibility(filtered.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
-    private void onContactSelected(User u) {
-        Intent i = new Intent(this, ChatActivity.class);
-        i.putExtra("partnerUid",      u.uid);
-        i.putExtra("partnerName",     u.name != null ? u.name : "");
-        i.putExtra("partnerPhoto",    u.photoUrl != null ? u.photoUrl : "");
-        i.putExtra("partnerThumb",    u.thumbUrl != null ? u.thumbUrl : "");
-        i.putExtra("forwardText",     forwardText);
-        i.putExtra("forwardType",     forwardType);
-        i.putExtra("forwardMedia",    forwardMedia);
-        i.putExtra("forwardFileName", forwardFileName);
-        startActivity(i);
-        finish();
-    }
-
     // ── Inline RecyclerView Adapter ───────────────────────────────────────
     private static class ContactsAdapter
             extends RecyclerView.Adapter<ContactsAdapter.VH> {
 
-        interface OnClick { void on(User u); }
+        interface OnToggle { void on(User u); }
 
-        private final List<User> list;
-        private final OnClick    cb;
+        private final List<User>  list;
+        private final Set<String> selectedUids;
+        private final OnToggle    cb;
 
-        ContactsAdapter(List<User> list, OnClick cb) {
-            this.list = list;
-            this.cb   = cb;
+        ContactsAdapter(List<User> list, Set<String> selectedUids, OnToggle cb) {
+            this.list         = list;
+            this.selectedUids = selectedUids;
+            this.cb           = cb;
         }
 
         @NonNull @Override
@@ -207,6 +312,15 @@ public class ContactsActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull VH h, int pos) {
             User u = list.get(pos);
             h.tvName.setText(u.name != null ? u.name : "User");
+
+            boolean selected = selectedUids.contains(u.uid);
+            h.cbSelect.setChecked(selected);
+            // Highlight selected row
+            h.itemView.setAlpha(selected ? 1.0f : 0.85f);
+            h.itemView.setBackgroundResource(selected
+                    ? android.R.color.holo_blue_light
+                    : android.R.color.transparent);
+
             // thumbUrl → 100px WebP, fast load in contact list
             String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty())
                 ? u.thumbUrl : u.photoUrl;
@@ -219,7 +333,9 @@ public class ContactsActivity extends AppCompatActivity {
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
+
             h.itemView.setOnClickListener(v -> cb.on(u));
+            h.cbSelect.setOnClickListener(v -> cb.on(u));
         }
 
         @Override public int getItemCount() { return list.size(); }
@@ -227,10 +343,12 @@ public class ContactsActivity extends AppCompatActivity {
         static class VH extends RecyclerView.ViewHolder {
             ImageView ivAvatar;
             TextView  tvName;
+            CheckBox  cbSelect;
             VH(@NonNull View v) {
                 super(v);
                 ivAvatar = v.findViewById(R.id.iv_avatar);
                 tvName   = v.findViewById(R.id.tv_name);
+                cbSelect = v.findViewById(R.id.cb_select);
             }
         }
     }

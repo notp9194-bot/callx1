@@ -40,10 +40,49 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         void onInfo(Message m);   // N7
     }
 
+    // ── Multi-select interface ────────────────────────────────────────────
+    public interface MultiSelectListener {
+        void onSelectionChanged(int count);  // count = selected messages count
+    }
+
     private final List<Message> messages;
     private final String currentUid;
     private final boolean isGroup;
     private ActionListener actionListener;
+
+    // ── Multi-select state ───────────────────────────────────────────────
+    private boolean multiSelectMode = false;
+    private final java.util.Set<String> selectedMessageIds = new java.util.HashSet<>();
+    private MultiSelectListener multiSelectListener;
+
+    public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
+
+    public void enterMultiSelectMode(Message firstMessage) {
+        multiSelectMode = true;
+        selectedMessageIds.clear();
+        if (firstMessage != null && firstMessage.id != null) {
+            selectedMessageIds.add(firstMessage.id);
+        }
+        notifyDataSetChanged();
+        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+    }
+
+    public void exitMultiSelectMode() {
+        multiSelectMode = false;
+        selectedMessageIds.clear();
+        notifyDataSetChanged();
+        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(0);
+    }
+
+    public boolean isInMultiSelectMode() { return multiSelectMode; }
+
+    public java.util.List<Message> getSelectedMessages() {
+        java.util.List<Message> result = new java.util.ArrayList<>();
+        for (Message m : messages) {
+            if (m.id != null && selectedMessageIds.contains(m.id)) result.add(m);
+        }
+        return result;
+    }
 
     private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2, TYPE_STATUS_SEEN = 3, TYPE_REEL_SEEN = 4;
     private final SimpleDateFormat timeFmt =
@@ -166,6 +205,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             h.tvMessage.setTextSize(13f);
             h.tvMessage.setTypeface(null, android.graphics.Typeface.ITALIC);
             bindFooter(h, m, sent);
+            applySelectionHighlight(h, m);
             setupLongPress(h, m, sent, ctx);
             return;
         }
@@ -448,6 +488,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         }
 
         bindFooter(h, m, sent);
+        applySelectionHighlight(h, m);
         setupLongPress(h, m, sent, ctx);
     }
 
@@ -699,9 +740,50 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
     private void setupLongPress(VH h, Message m, boolean sent, Context ctx) {
         h.itemView.setOnLongClickListener(v -> {
-            showActionSheet(ctx, m, sent);
+            if (!multiSelectMode) {
+                // Long press pe multi-select mode start karo
+                enterMultiSelectMode(m);
+            } else {
+                showActionSheet(ctx, m, sent);
+            }
             return true;
         });
+        h.itemView.setOnClickListener(v -> {
+            if (multiSelectMode) {
+                // Multi-select mode mein tap = toggle select
+                String id = m.id;
+                if (id != null) {
+                    if (selectedMessageIds.contains(id)) {
+                        selectedMessageIds.remove(id);
+                    } else {
+                        selectedMessageIds.add(id);
+                    }
+                    notifyItemChanged(h.getAdapterPosition());
+                    if (multiSelectListener != null)
+                        multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+                    // Agar sab deselect ho gaye toh mode exit karo
+                    if (selectedMessageIds.isEmpty()) exitMultiSelectMode();
+                }
+            }
+            // Normal mode mein click ka koi action nahi (scroll mein use hota)
+        });
+    }
+
+    /** Apply or remove selection highlight on a VH */
+    private void applySelectionHighlight(VH h, Message m) {
+        boolean selected = m.id != null && selectedMessageIds.contains(m.id);
+        if (multiSelectMode) {
+            h.itemView.setActivated(selected);
+            h.itemView.setAlpha(selected ? 1.0f : 0.6f);
+            // Light blue tint for selected messages
+            h.itemView.setBackgroundResource(selected
+                    ? android.R.color.holo_blue_light
+                    : android.R.color.transparent);
+        } else {
+            h.itemView.setActivated(false);
+            h.itemView.setAlpha(1.0f);
+            h.itemView.setBackgroundResource(android.R.color.transparent);
+        }
     }
 
     private void showActionSheet(Context ctx, Message m, boolean sent) {

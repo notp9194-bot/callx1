@@ -270,7 +270,14 @@ public class GroupChatActivity extends AppCompatActivity {
 
     private void setupToolbar() {
         // Custom WhatsApp-style header
-        binding.btnBack.setOnClickListener(v -> finish());
+        binding.btnBack.setOnClickListener(v -> {
+            if (pagingAdapter != null && pagingAdapter.isInMultiSelectMode()) {
+                pagingAdapter.exitMultiSelectMode();
+                hideMultiSelectBar();
+            } else {
+                finish();
+            }
+        });
         if (groupName != null) {
             binding.tvPartnerName.setText(groupName);
         }
@@ -338,6 +345,15 @@ public class GroupChatActivity extends AppCompatActivity {
                 android.widget.Toast.makeText(GroupChatActivity.this,
                     "Original message not loaded — scroll up to find it",
                     android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // Multi-select: selection bar show/hide
+        pagingAdapter.setMultiSelectListener(count -> {
+            if (count > 0) {
+                showMultiSelectBar(count);
+            } else {
+                hideMultiSelectBar();
             }
         });
 
@@ -694,10 +710,94 @@ public class GroupChatActivity extends AppCompatActivity {
 
     private void forwardMessage(Message m) {
         Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
-        i.putExtra("forwardText",  m.text);
-        i.putExtra("forwardType",  m.type);
-        i.putExtra("forwardMedia", m.mediaUrl);
+        i.putExtra("forwardText",     m.text);
+        i.putExtra("forwardType",     m.type);
+        i.putExtra("forwardMedia",    m.mediaUrl);
+        i.putExtra("forwardFileName", m.fileName);
         startActivity(i);
+    }
+
+    private void forwardSelectedMessages() {
+        java.util.List<com.callx.app.models.Message> selected = pagingAdapter.getSelectedMessages();
+        if (selected.isEmpty()) {
+            android.widget.Toast.makeText(this, "Koi message select nahi", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        java.util.ArrayList<String> texts     = new java.util.ArrayList<>();
+        java.util.ArrayList<String> types     = new java.util.ArrayList<>();
+        java.util.ArrayList<String> medias    = new java.util.ArrayList<>();
+        java.util.ArrayList<String> fileNames = new java.util.ArrayList<>();
+        selected.sort((a, b) -> Long.compare(a.timestamp, b.timestamp));
+        for (com.callx.app.models.Message m : selected) {
+            texts.add(m.text != null ? m.text : "");
+            types.add(m.type != null ? m.type : "text");
+            medias.add(m.mediaUrl != null ? m.mediaUrl : "");
+            fileNames.add(m.fileName != null ? m.fileName : "");
+        }
+        Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
+        i.putStringArrayListExtra("forwardTexts",     texts);
+        i.putStringArrayListExtra("forwardTypes",     types);
+        i.putStringArrayListExtra("forwardMedias",    medias);
+        i.putStringArrayListExtra("forwardFileNames", fileNames);
+        startActivity(i);
+        pagingAdapter.exitMultiSelectMode();
+    }
+
+    private android.widget.LinearLayout multiSelectBar;
+
+    private void showMultiSelectBar(int count) {
+        if (multiSelectBar == null) {
+            multiSelectBar = new android.widget.LinearLayout(this);
+            multiSelectBar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            multiSelectBar.setBackgroundColor(0xFF1565C0);
+            multiSelectBar.setPadding(16, 8, 16, 8);
+            multiSelectBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+            android.widget.TextView tvCount = new android.widget.TextView(this);
+            tvCount.setId(android.R.id.text1);
+            tvCount.setTextColor(android.graphics.Color.WHITE);
+            tvCount.setTextSize(15f);
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(0,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            tvCount.setLayoutParams(lp);
+            multiSelectBar.addView(tvCount);
+
+            android.widget.Button btnFwd = new android.widget.Button(this);
+            btnFwd.setText("⏩ Forward");
+            btnFwd.setTextColor(android.graphics.Color.WHITE);
+            btnFwd.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            btnFwd.setOnClickListener(v -> forwardSelectedMessages());
+            multiSelectBar.addView(btnFwd);
+
+            android.widget.Button btnCancel = new android.widget.Button(this);
+            btnCancel.setText("✕");
+            btnCancel.setTextColor(android.graphics.Color.WHITE);
+            btnCancel.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            btnCancel.setOnClickListener(v -> {
+                pagingAdapter.exitMultiSelectMode();
+                hideMultiSelectBar();
+            });
+            multiSelectBar.addView(btnCancel);
+
+            if (binding.getRoot() instanceof android.view.ViewGroup) {
+                android.view.ViewGroup root = (android.view.ViewGroup) binding.getRoot();
+                android.widget.FrameLayout.LayoutParams flp =
+                        new android.widget.FrameLayout.LayoutParams(
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                flp.topMargin = Math.round(56 * getResources().getDisplayMetrics().density);
+                multiSelectBar.setLayoutParams(flp);
+                root.addView(multiSelectBar);
+            }
+        }
+        multiSelectBar.setVisibility(android.view.View.VISIBLE);
+        android.widget.TextView tv = multiSelectBar.findViewById(android.R.id.text1);
+        if (tv != null) tv.setText(count + " selected");
+    }
+
+    private void hideMultiSelectBar() {
+        if (multiSelectBar != null) multiSelectBar.setVisibility(android.view.View.GONE);
     }
 
     // ─────────────────────────────────────────────────────────────────────

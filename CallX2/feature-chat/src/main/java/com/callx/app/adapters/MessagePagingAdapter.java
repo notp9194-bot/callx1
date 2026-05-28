@@ -90,6 +90,62 @@ public class MessagePagingAdapter
         void onForward(Message m);
     }
 
+    // ── Multi-select interface ────────────────────────────────────
+    public interface MultiSelectListener {
+        void onSelectionChanged(int count);
+    }
+
+    // ── Multi-select state ────────────────────────────────────────
+    private boolean multiSelectMode = false;
+    private final java.util.Set<String> selectedMessageIds = new java.util.HashSet<>();
+    private MultiSelectListener multiSelectListener;
+
+    public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
+
+    public void enterMultiSelectMode(Message firstMessage) {
+        multiSelectMode = true;
+        selectedMessageIds.clear();
+        String id = firstMessage != null ? firstMessage.messageId : null;
+        if (id == null && firstMessage != null) id = firstMessage.id;
+        if (id != null) selectedMessageIds.add(id);
+        notifyDataSetChanged();
+        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+    }
+
+    public void exitMultiSelectMode() {
+        multiSelectMode = false;
+        selectedMessageIds.clear();
+        notifyDataSetChanged();
+        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(0);
+    }
+
+    public boolean isInMultiSelectMode() { return multiSelectMode; }
+
+    public java.util.List<Message> getSelectedMessages() {
+        java.util.List<Message> result = new java.util.ArrayList<>();
+        for (int i = 0; i < getItemCount(); i++) {
+            Message m = getItem(i);
+            if (m == null) continue;
+            String id = m.messageId != null ? m.messageId : m.id;
+            if (id != null && selectedMessageIds.contains(id)) result.add(m);
+        }
+        return result;
+    }
+
+    private void applySelectionHighlight(VH h, Message m) {
+        String id = m.messageId != null ? m.messageId : m.id;
+        boolean selected = id != null && selectedMessageIds.contains(id);
+        if (multiSelectMode) {
+            h.itemView.setAlpha(selected ? 1.0f : 0.6f);
+            h.itemView.setBackgroundResource(selected
+                    ? android.R.color.holo_blue_light
+                    : android.R.color.transparent);
+        } else {
+            h.itemView.setAlpha(1.0f);
+            h.itemView.setBackgroundResource(android.R.color.transparent);
+        }
+    }
+
     public MessagePagingAdapter(String currentUid, boolean isGroup) {
         super(DIFF);
         this.currentUid = currentUid;
@@ -613,11 +669,32 @@ public class MessagePagingAdapter
             h.tvStatus.setVisibility(View.GONE);
         }
 
-        // ── Long press — action listener ─────────────────────────
+        // ── Long press — multi-select mode ya action sheet ─────────────────
         h.itemView.setOnLongClickListener(v -> {
-            if (actionListener != null) showActionBottomSheet(ctx, m);
+            if (!multiSelectMode) {
+                enterMultiSelectMode(m);
+            } else {
+                if (actionListener != null) showActionBottomSheet(ctx, m);
+            }
             return true;
         });
+        h.itemView.setOnClickListener(v -> {
+            if (multiSelectMode) {
+                String id = m.messageId != null ? m.messageId : m.id;
+                if (id != null) {
+                    if (selectedMessageIds.contains(id)) {
+                        selectedMessageIds.remove(id);
+                    } else {
+                        selectedMessageIds.add(id);
+                    }
+                    notifyItemChanged(h.getAdapterPosition());
+                    if (multiSelectListener != null)
+                        multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+                    if (selectedMessageIds.isEmpty()) exitMultiSelectMode();
+                }
+            }
+        });
+        applySelectionHighlight(h, m);
     }
 
     // ──────────────────────────────────────────────────────────────
