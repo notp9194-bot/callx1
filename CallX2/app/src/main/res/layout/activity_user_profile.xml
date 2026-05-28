@@ -262,15 +262,30 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center">
-                    <ImageButton
-                        android:id="@+id/btn_action_voice"
+                    <FrameLayout
                         android:layout_width="52dp"
                         android:layout_height="52dp"
-                        android:src="@drawable/ic_phone"
-                        android:background="@drawable/bg_circle_action"
-                        android:tint="@color/brand_primary"
-                        android:contentDescription="Audio Call"
-                        android:padding="13dp"/>
+                        android:clipChildren="false"
+                        android:clipToPadding="false">
+                        <ImageButton
+                            android:id="@+id/btn_action_voice"
+                            android:layout_width="52dp"
+                            android:layout_height="52dp"
+                            android:src="@drawable/ic_phone"
+                            android:background="@drawable/bg_circle_action"
+                            android:tint="@color/brand_primary"
+                            android:contentDescription="Audio Call"
+                            android:padding="13dp"/>
+                        <de.hdodenhof.circleimageview.CircleImageView
+                            android:id="@+id/iv_anim_call"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_gravity="center"
+                            android:elevation="4dp"
+                            android:visibility="invisible"
+                            app:civ_border_width="1.5dp"
+                            app:civ_border_color="@color/brand_primary"/>
+                    </FrameLayout>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -287,15 +302,30 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center">
-                    <ImageButton
-                        android:id="@+id/btn_action_video"
+                    <FrameLayout
                         android:layout_width="52dp"
                         android:layout_height="52dp"
-                        android:src="@drawable/ic_video_call"
-                        android:background="@drawable/bg_circle_action"
-                        android:tint="@color/brand_primary"
-                        android:contentDescription="Video Call"
-                        android:padding="13dp"/>
+                        android:clipChildren="false"
+                        android:clipToPadding="false">
+                        <ImageButton
+                            android:id="@+id/btn_action_video"
+                            android:layout_width="52dp"
+                            android:layout_height="52dp"
+                            android:src="@drawable/ic_video_call"
+                            android:background="@drawable/bg_circle_action"
+                            android:tint="@color/brand_primary"
+                            android:contentDescription="Video Call"
+                            android:padding="13dp"/>
+                        <de.hdodenhof.circleimageview.CircleImageView
+                            android:id="@+id/iv_anim_video"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_gravity="center"
+                            android:elevation="4dp"
+                            android:visibility="invisible"
+                            app:civ_border_width="1.5dp"
+                            app:civ_border_color="@color/brand_primary"/>
+                    </FrameLayout>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"

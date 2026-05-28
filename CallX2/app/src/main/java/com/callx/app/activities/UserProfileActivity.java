@@ -1,8 +1,14 @@
 package com.callx.app.activities;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -20,6 +26,8 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
+
+import de.hdodenhof.circleimageview.CircleImageView;
 
 /**
  * UserProfileActivity — Chat header avatar click ya 3-dot "View Profile" se open hoti hai.
@@ -43,6 +51,12 @@ public class UserProfileActivity extends AppCompatActivity {
     // Mute state (sync from ChatActivity isMuted logic)
     private boolean isMuted = false;
     private boolean isBlocked = false;
+
+    // ── Avatar peek animation fields ──────────────────────────────────────
+    private CircleImageView ivAnimReel, ivAnimX, ivAnimYoutube, ivAnimCall, ivAnimVideo;
+    private final Handler   animHandler = new Handler(Looper.getMainLooper());
+    private Runnable        animRunnable;
+    private boolean         animRunning = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,6 +108,13 @@ public class UserProfileActivity extends AppCompatActivity {
         binding.btnActionVoice.setOnClickListener(v -> startCall(false));
         binding.btnActionVideo.setOnClickListener(v -> startCall(true));
 
+        // ── Avatar anim views ──────────────────────────────────────────
+        ivAnimReel    = binding.ivAnimReel;
+        ivAnimX       = binding.ivAnimX;
+        ivAnimYoutube = binding.ivAnimYoutube;
+        ivAnimCall    = binding.ivAnimCall;
+        ivAnimVideo   = binding.ivAnimVideo;
+
         // ── Options ────────────────────────────────────────────────────
         binding.btnMute.setOnClickListener(v -> toggleMute());
         binding.btnBlock.setOnClickListener(v -> confirmBlock());
@@ -103,6 +124,7 @@ public class UserProfileActivity extends AppCompatActivity {
         loadProfile();
         loadMuteState();
         loadBlockState();
+        loadAvatarAndStartAnimation();
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -462,4 +484,193 @@ public class UserProfileActivity extends AppCompatActivity {
     private String orEmpty(String s) {
         return s == null ? "" : s;
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // AVATAR PEEK ANIMATION — same as UserReelsActivity
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * 5 button avatars load karta hai:
+     *   Reel    → reels/users/{uid}
+     *   X       → x/users/{uid}
+     *   YouTube → youtube/channels/{uid}
+     *   Call    → users/{uid}  (main CallX profile)
+     *   Video   → users/{uid}  (same as Call)
+     */
+    private void loadAvatarAndStartAnimation() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+
+        final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+        // 1) Reel avatar — reels/users/{uid}
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+            .getReference("reels/users").child(partnerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
+                               : (photo != null && !photo.isEmpty()) ? photo : null;
+                    if (ivAnimReel == null) { startAvatarPeekLoop(); return; }
+                    if (url != null) {
+                        Glide.with(UserProfileActivity.this).load(url).circleCrop()
+                            .placeholder(R.drawable.ic_person).into(ivAnimReel);
+                    }
+                    startAvatarPeekLoop();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    startAvatarPeekLoop();
+                }
+            });
+
+        // 2) X avatar — x/users/{uid}
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+            .getReference("x/users").child(partnerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
+                               : (photo != null && !photo.isEmpty()) ? photo : null;
+                    if (ivAnimX == null || url == null) return;
+                    Glide.with(UserProfileActivity.this).load(url).circleCrop()
+                        .placeholder(R.drawable.ic_person).into(ivAnimX);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+
+        // 3) YouTube avatar — youtube/channels/{uid}
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+            .getReference("youtube/channels").child(partnerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
+                               : (photo != null && !photo.isEmpty()) ? photo : null;
+                    if (ivAnimYoutube == null || url == null) return;
+                    Glide.with(UserProfileActivity.this).load(url).circleCrop()
+                        .placeholder(R.drawable.ic_person).into(ivAnimYoutube);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+
+        // 4) Call & Video avatar — users/{uid} (main CallX profile)
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
+            .getReference("users").child(partnerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
+                               : (photo != null && !photo.isEmpty()) ? photo : null;
+                    if (url == null) return;
+                    if (ivAnimCall != null)
+                        Glide.with(UserProfileActivity.this).load(url).circleCrop()
+                            .placeholder(R.drawable.ic_person).into(ivAnimCall);
+                    if (ivAnimVideo != null)
+                        Glide.with(UserProfileActivity.this).load(url).circleCrop()
+                            .placeholder(R.drawable.ic_person).into(ivAnimVideo);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    /**
+     * Loop: Reel → X → YouTube → Call → Video → Reel → ...
+     * Each: peek out (450ms) → hold 3s → peek in (400ms) → wait 3s → next
+     */
+    private void startAvatarPeekLoop() {
+        if (animRunning) return;
+        animRunning = true;
+
+        CircleImageView[] views = {ivAnimReel, ivAnimX, ivAnimYoutube, ivAnimCall, ivAnimVideo};
+
+        for (CircleImageView iv : views) {
+            if (iv == null) continue;
+            iv.setVisibility(View.INVISIBLE);
+            iv.setScaleX(0f);
+            iv.setScaleY(0f);
+            iv.setAlpha(0f);
+        }
+
+        animRunnable = new Runnable() {
+            int idx = 0;
+
+            @Override public void run() {
+                if (!animRunning || isFinishing() || isDestroyed()) return;
+
+                CircleImageView iv = views[idx % views.length];
+                idx++;
+
+                if (iv == null) {
+                    animHandler.postDelayed(this, 500);
+                    return;
+                }
+
+                iv.setScaleX(0f);
+                iv.setScaleY(0f);
+                iv.setAlpha(0f);
+                iv.setVisibility(View.VISIBLE);
+
+                // Zoom IN: 0 → 1.35 overshoot → settle 1.2
+                ObjectAnimator scaleXIn = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.35f, 1.2f);
+                ObjectAnimator scaleYIn = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.35f, 1.2f);
+                ObjectAnimator alphaIn  = ObjectAnimator.ofFloat(iv, "alpha",  0f, 1f);
+                scaleXIn.setDuration(450);
+                scaleYIn.setDuration(450);
+                alphaIn.setDuration(250);
+                scaleXIn.setInterpolator(new android.view.animation.DecelerateInterpolator(2f));
+                scaleYIn.setInterpolator(new android.view.animation.DecelerateInterpolator(2f));
+                AnimatorSet zoomIn = new AnimatorSet();
+                zoomIn.playTogether(scaleXIn, scaleYIn, alphaIn);
+
+                // Zoom OUT: 1.2 → 0 (after 3s hold)
+                ObjectAnimator scaleXOut = ObjectAnimator.ofFloat(iv, "scaleX", 1.2f, 0f);
+                ObjectAnimator scaleYOut = ObjectAnimator.ofFloat(iv, "scaleY", 1.2f, 0f);
+                ObjectAnimator alphaOut  = ObjectAnimator.ofFloat(iv, "alpha",  1f, 0f);
+                scaleXOut.setDuration(400);
+                scaleYOut.setDuration(400);
+                alphaOut.setDuration(400);
+                scaleXOut.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+                scaleYOut.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+                AnimatorSet zoomOut = new AnimatorSet();
+                zoomOut.playTogether(scaleXOut, scaleYOut, alphaOut);
+                zoomOut.setStartDelay(3000);
+
+                AnimatorSet full = new AnimatorSet();
+                full.playSequentially(zoomIn, zoomOut);
+                full.addListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(Animator animation) {
+                        iv.setVisibility(View.INVISIBLE);
+                        iv.setScaleX(0f);
+                        iv.setScaleY(0f);
+                        iv.setAlpha(0f);
+                        if (animRunning && !isFinishing() && !isDestroyed())
+                            animHandler.postDelayed(animRunnable, 3000);
+                    }
+                });
+                full.start();
+            }
+        };
+
+        animHandler.postDelayed(animRunnable, 1500);
+    }
+
+    private void stopAvatarAnimation() {
+        animRunning = false;
+        if (animRunnable != null) animHandler.removeCallbacks(animRunnable);
+        CircleImageView[] views = {ivAnimReel, ivAnimX, ivAnimYoutube, ivAnimCall, ivAnimVideo};
+        for (CircleImageView iv : views) {
+            if (iv == null) continue;
+            iv.setVisibility(View.INVISIBLE);
+            iv.setScaleX(0f);
+            iv.setScaleY(0f);
+            iv.setAlpha(0f);
+        }
+    }
+
+    @Override protected void onPause()   { super.onPause();   stopAvatarAnimation(); }
+    @Override protected void onResume()  { super.onResume();  if (partnerUid != null) loadAvatarAndStartAnimation(); }
+    @Override protected void onDestroy() { super.onDestroy(); stopAvatarAnimation(); }
 }
