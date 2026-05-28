@@ -1669,8 +1669,13 @@ public class ChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     private void openEditProfile() {
-        // ProfileActivity — same as header avatar → Edit Profile
-        startActivity(new Intent(this, com.callx.app.activities.ProfileActivity.class));
+        // ProfileActivity is in :app module — use reflection to avoid cross-module dep
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.ProfileActivity");
+            startActivity(new Intent(this, cls));
+        } catch (ClassNotFoundException e) {
+            android.widget.Toast.makeText(this, "Edit Profile unavailable", android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void openAvatarZoom() {
