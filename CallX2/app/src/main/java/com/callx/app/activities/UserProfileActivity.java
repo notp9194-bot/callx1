@@ -88,10 +88,11 @@ public class UserProfileActivity extends AppCompatActivity {
         binding.ivAvatarLarge.setOnClickListener(v -> showAvatarZoom(partnerPhoto));
 
         // ── Action buttons ─────────────────────────────────────────────
-        binding.btnActionMessage.setOnClickListener(v -> openChat());
+        binding.btnActionReel.setOnClickListener(v -> openUserReels());
+        binding.btnActionX.setOnClickListener(v -> openUserX());
+        binding.btnActionYoutube.setOnClickListener(v -> openUserYoutube());
         binding.btnActionVoice.setOnClickListener(v -> startCall(false));
         binding.btnActionVideo.setOnClickListener(v -> startCall(true));
-        binding.btnActionSearch.setOnClickListener(v -> openChatSearch());
 
         // ── Options ────────────────────────────────────────────────────
         binding.btnMute.setOnClickListener(v -> toggleMute());
@@ -375,6 +376,30 @@ public class UserProfileActivity extends AppCompatActivity {
         } catch (Exception e) {
             Toast.makeText(this, "Link open nahi ho saka", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void openUserReels() {
+        Intent i = new Intent(this, com.callx.app.activities.UserReelsActivity.class);
+        i.putExtra("uid", partnerUid);
+        i.putExtra("name", partnerName);
+        i.putExtra("photo", partnerPhoto);
+        startActivity(i);
+    }
+
+    private void openUserX() {
+        Intent i = new Intent(this, com.callx.app.activities.XActivity.class);
+        i.putExtra("uid", partnerUid);
+        i.putExtra("name", partnerName);
+        i.putExtra("photo", partnerPhoto);
+        startActivity(i);
+    }
+
+    private void openUserYoutube() {
+        Intent i = new Intent(this, com.callx.app.activities.YouTubeActivity.class);
+        i.putExtra("uid", partnerUid);
+        i.putExtra("name", partnerName);
+        i.putExtra("photo", partnerPhoto);
+        startActivity(i);
     }
 
     // ──────────────────────────────────────────────────────────────────────
