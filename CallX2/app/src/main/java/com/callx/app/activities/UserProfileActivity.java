@@ -9,6 +9,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -667,6 +669,33 @@ public class UserProfileActivity extends AppCompatActivity {
             iv.setScaleY(0f);
             iv.setAlpha(0f);
         }
+    }
+
+    @Override public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.user_profile_menu, menu);
+        return true;
+    }
+
+    @Override public boolean onOptionsItemSelected(MenuItem item) {
+        int id = item.getItemId();
+        if (id == R.id.action_edit_profile) {
+            try {
+                Class<?> cls = Class.forName("com.callx.app.activities.ProfileActivity");
+                startActivity(new Intent(this, cls));
+            } catch (ClassNotFoundException e) {
+                Toast.makeText(this, "Edit Profile unavailable", Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        }
+        if (id == R.id.action_media_link_doc) {
+            Intent intent = new Intent(this, MediaLinkDocActivity.class);
+            intent.putExtra("chatId",      chatId      != null ? chatId      : "");
+            intent.putExtra("partnerName", partnerName != null ? partnerName : "");
+            intent.putExtra("isGroup",     false);
+            startActivity(intent);
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 
     @Override protected void onPause()   { super.onPause();   stopAvatarAnimation(); }

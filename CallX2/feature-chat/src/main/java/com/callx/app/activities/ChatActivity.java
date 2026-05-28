@@ -1690,6 +1690,15 @@ public class ChatActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
+    private void openMediaLinkDoc() {
+        Intent intent = new Intent()
+            .setClassName(this, "com.callx.app.activities.MediaLinkDocActivity");
+        intent.putExtra("chatId",      chatId      != null ? chatId      : "");
+        intent.putExtra("partnerName", partnerName != null ? partnerName : "");
+        intent.putExtra("isGroup",     false);
+        startActivity(intent);
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // CAMERA (N5)
     // ─────────────────────────────────────────────────────────────────────
@@ -2141,6 +2150,7 @@ public class ChatActivity extends AppCompatActivity {
             return true;
         }
         if (id == R.id.action_search)      { openSearch();          return true; }
+        if (id == R.id.action_media_link_doc) { openMediaLinkDoc();   return true; }
         if (id == R.id.action_mute)        { toggleMute();          return true; }
         if (id == R.id.action_block)       { confirmBlockUser();    return true; }
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }

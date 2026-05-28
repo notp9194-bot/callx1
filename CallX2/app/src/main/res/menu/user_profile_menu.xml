@@ -7,4 +7,9 @@
         android:title="✏️ Edit Profile"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_media_link_doc"
+        android:title="📁 Media, Links &amp; Docs"
+        app:showAsAction="never" />
+
 </menu>

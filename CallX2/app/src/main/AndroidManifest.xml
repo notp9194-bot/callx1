@@ -121,6 +121,9 @@
         <activity android:name=".activities.StarredMessagesActivity"
             android:exported="false"
             android:parentActivityName=".activities.ChatActivity"/>
+        <activity android:name=".activities.MediaLinkDocActivity"
+            android:exported="false"
+            android:parentActivityName=".activities.ChatActivity"/>
         <activity android:name=".activities.JoinGroupActivity"
             android:exported="true">
             <intent-filter android:autoVerify="true">
