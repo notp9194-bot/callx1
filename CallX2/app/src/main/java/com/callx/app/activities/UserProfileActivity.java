@@ -9,6 +9,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -124,6 +126,34 @@ public class UserProfileActivity extends AppCompatActivity {
         loadMuteState();
         loadBlockState();
         loadAvatarAndStartAnimation();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 3-DOT MENU
+    // ──────────────────────────────────────────────────────────────────────
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.user_profile_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.action_edit_profile) {
+            openEditProfile();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    /** My own profile edit — ProfileActivity is in :app module */
+    private void openEditProfile() {
+        try {
+            startActivity(new Intent(this, ProfileActivity.class));
+        } catch (Exception e) {
+            Toast.makeText(this, "Edit Profile unavailable", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
