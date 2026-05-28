@@ -791,6 +791,8 @@ public class MessagePagingAdapter
                 tv.setTypeface(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.ITALIC)); break;
             case com.callx.app.utils.TypingStyleManager.STYLE_CLASSIC_BOLD:
                 tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
+            case com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT:
+                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)); break;
             case com.callx.app.utils.TypingStyleManager.STYLE_NORMAL:
             default:
                 tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)); break;

@@ -779,8 +779,12 @@ public class ChatActivity extends AppCompatActivity {
         });
         Message m = buildOutgoing();
         m.type = "text";
-        m.text = text;
         m.fontStyle = com.callx.app.utils.TypingStyleManager.get(this).getCurrentStyle();
+        // Samsung Script style — text ko Unicode Mathematical Script mein convert karo
+        if (m.fontStyle == com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT) {
+            text = com.callx.app.utils.UnicodeStyler.toScript(text);
+        }
+        m.text = text;
         pushMessage(m, text);
         clearReply();
     }
@@ -1865,6 +1869,12 @@ public class ChatActivity extends AppCompatActivity {
                 com.callx.app.utils.TypingStyleManager.STYLE_NAMES,
                 current,
                 (dialog, which) -> {
+                    // Samsung style selected — submenu dikhao
+                    if (which == com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG) {
+                        dialog.dismiss();
+                        showSamsungStyleSubmenu(mgr);
+                        return;
+                    }
                     mgr.setStyle(which);
                     dialog.dismiss();
                     // dialog dismiss ke baad post() se apply karo
@@ -1874,6 +1884,29 @@ public class ChatActivity extends AppCompatActivity {
                     );
                 })
             .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    /** Samsung style ka submenu — Font vs Script choose karo */
+    private void showSamsungStyleSubmenu(com.callx.app.utils.TypingStyleManager mgr) {
+        String scriptPreview = com.callx.app.utils.UnicodeStyler.toScript("Samsung Style");
+        String[] options = {
+            "🅢 Samsung One (Font)",
+            scriptPreview + " (Script ✨)"
+        };
+        new AlertDialog.Builder(this)
+            .setTitle("🅢 Samsung Style — Choose")
+            .setItems(options, (dialog, which) -> {
+                if (which == 0) {
+                    mgr.setStyle(com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG);
+                } else {
+                    mgr.setStyle(com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT);
+                }
+                binding.etMessage.post(() ->
+                    mgr.applyToInput(binding.etMessage)
+                );
+            })
+            .setNegativeButton("Back", (d, w) -> showTypingStylePicker())
             .show();
     }
 

@@ -38,33 +38,36 @@ public class TypingStyleManager {
     public static final int STYLE_LIGHT_ITALIC   = 18;  // Light Italic
     public static final int STYLE_CLASSIC_BOLD   = 19;  // Classic Sans Bold Italic
 
-    // ── Samsung Style ID (20) ─────────────────────────────────────────────
+    // ── Samsung Style IDs (20–21) ────────────────────────────────────────
     public static final int STYLE_SAMSUNG        = 20;  // Samsung One font (native on Samsung, Serif fallback on others)
+    public static final int STYLE_SAMSUNG_SCRIPT = 21;  // Unicode Mathematical Script — 𝒶𝒷𝒸 style, font-independent
 
     public static final String[] STYLE_NAMES = {
         // Original 10
-        "✏️ Normal (Default)",      // 0
-        "𝗕 Bold",                   // 1
-        "𝘐 Italic",                 // 2
-        "𝙱 Bold Italic",            // 3
-        "🅢 Samsung One",           // 4  ← position 4 (1-based 5th, but user bola "4 number pe")
-        "⌨️ Monospace",             // 5
-        "𝐒 Serif",                  // 6
-        "𝐁 Serif Bold",             // 7
-        "▌Condensed",               // 8
-        "ₗ Light",                  // 9
+        "✏️ Normal (Default)",                    // 0
+        "𝗕 Bold",                                 // 1
+        "𝘐 Italic",                               // 2
+        "𝙱 Bold Italic",                          // 3
+        "🅢 Samsung One",                         // 4  ← index 4 in menu (1-based: 5th)
+        "⌨️ Monospace",                           // 5
+        "𝐒 Serif",                                // 6
+        "𝐁 Serif Bold",                           // 7
+        "▌Condensed",                             // 8
+        "ₗ Light",                                // 9
         // New 10
-        "✒️ Casual",                // 10
-        "✦ Medium",                 // 11
-        "᳀ Thin",                   // 12
-        "𝓘 Serif Italic",           // 13
-        "❚ Condensed Bold",         // 14
-        "⬛ Black / Heavy",         // 15
-        "𝒞 Cursive",               // 16
-        "◆ Sans Medium",            // 17
-        "⌨ Mono Bold",             // 18
-        "~ Light Italic",           // 19
-        "Ꞵ Classic Bold Italic"     // 20
+        "✒️ Casual",                              // 10
+        "✦ Medium",                               // 11
+        "᳀ Thin",                                 // 12
+        "𝓘 Serif Italic",                         // 13
+        "❚ Condensed Bold",                       // 14
+        "⬛ Black / Heavy",                       // 15
+        "𝒞 Cursive",                             // 16
+        "◆ Sans Medium",                          // 17
+        "⌨ Mono Bold",                           // 18
+        "~ Light Italic",                         // 19
+        "Ꞵ Classic Bold Italic",                  // 20
+        // Samsung Script
+        "𝒮𝒶𝓂𝓈𝓊𝓃𝑔 𝒮𝒸𝓇𝒾𝓅𝓉 ✨"                   // 21
     };
 
     // ── SharedPreferences ─────────────────────────────────────────────────
@@ -178,6 +181,11 @@ public class TypingStyleManager {
                 } catch (Exception e) {
                     editText.setTypeface(Typeface.SERIF);
                 }
+                break;
+            case STYLE_SAMSUNG_SCRIPT:
+                // Unicode Mathematical Script — text transformation hai, font nahi.
+                // Input box pe normal typeface — text already 𝒶𝒷𝒸 form mein hoga.
+                editText.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));
                 break;
             case STYLE_NORMAL:
             default:
