@@ -1557,6 +1557,15 @@ public class ChatActivity extends AppCompatActivity {
     private final java.util.List<Integer> searchMatchPositions = new java.util.ArrayList<>();
     private int searchCurrentIndex = -1;
 
+    /** Open WhatsApp-style Media, Links & Docs screen for this chat */
+    private void openAllMediaLinksDocs() {
+        Intent i = new Intent(this, com.callx.app.activities.AllMediaLinksDocsActivity.class);
+        i.putExtra("chatId",      chatId);
+        i.putExtra("partnerName", partnerName);
+        i.putExtra("isGroup",     false);
+        startActivity(i);
+    }
+
     private void openSearch() {
         if (binding.llSearchBar == null) return;
         binding.llSearchBar.setVisibility(View.VISIBLE);
@@ -1687,15 +1696,6 @@ public class ChatActivity extends AppCompatActivity {
         intent.putExtra("name",   partnerName  != null ? partnerName  : "");
         intent.putExtra("photo",  partnerPhoto != null ? partnerPhoto : "");
         intent.putExtra("chatId", chatId       != null ? chatId       : "");
-        startActivity(intent);
-    }
-
-    private void openMediaLinkDoc() {
-        Intent intent = new Intent()
-            .setClassName(this, "com.callx.app.activities.MediaLinkDocActivity");
-        intent.putExtra("chatId",      chatId      != null ? chatId      : "");
-        intent.putExtra("partnerName", partnerName != null ? partnerName : "");
-        intent.putExtra("isGroup",     false);
         startActivity(intent);
     }
 
@@ -2150,12 +2150,12 @@ public class ChatActivity extends AppCompatActivity {
             return true;
         }
         if (id == R.id.action_search)      { openSearch();          return true; }
-        if (id == R.id.action_media_link_doc) { openMediaLinkDoc();   return true; }
         if (id == R.id.action_mute)        { toggleMute();          return true; }
         if (id == R.id.action_block)       { confirmBlockUser();    return true; }
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
         if (id == R.id.action_chat_theme)   { showThemePicker();        return true; }
         if (id == R.id.action_typing_style) { showTypingStylePicker();   return true; }
+        if (id == R.id.action_media_links_docs) { openAllMediaLinksDocs(); return true; }
         return super.onOptionsItemSelected(item);
     }
 

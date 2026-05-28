@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Grid cell for media tab — square thumbnail with play icon overlay for videos -->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:paddingTop="100%"
+    android:background="@color/surface_input"
+    android:foreground="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Thumbnail -->
+    <ImageView
+        android:id="@+id/iv_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_gallery"/>
+
+    <!-- Play icon overlay (visible only for videos) -->
+    <ImageView
+        android:id="@+id/iv_play_icon"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_play"
+        android:alpha="0.85"
+        android:visibility="gone"/>
+
+</FrameLayout>

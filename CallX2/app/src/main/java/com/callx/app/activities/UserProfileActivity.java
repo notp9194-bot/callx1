@@ -9,8 +9,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -671,34 +669,50 @@ public class UserProfileActivity extends AppCompatActivity {
         }
     }
 
-    @Override public boolean onCreateOptionsMenu(Menu menu) {
+    @Override protected void onPause()   { super.onPause();   stopAvatarAnimation(); }
+    @Override protected void onResume()  { super.onResume();  if (partnerUid != null) loadAvatarAndStartAnimation(); }
+    @Override protected void onDestroy() { super.onDestroy(); stopAvatarAnimation(); }
+
+    // ─── 3-dot overflow menu ─────────────────────────────────────
+    @Override
+    public boolean onCreateOptionsMenu(android.view.Menu menu) {
         getMenuInflater().inflate(R.menu.user_profile_menu, menu);
         return true;
     }
 
-    @Override public boolean onOptionsItemSelected(MenuItem item) {
+    @Override
+    public boolean onOptionsItemSelected(android.view.MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_edit_profile) {
-            try {
-                Class<?> cls = Class.forName("com.callx.app.activities.ProfileActivity");
-                startActivity(new Intent(this, cls));
-            } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "Edit Profile unavailable", Toast.LENGTH_SHORT).show();
-            }
+            // Open ProfileActivity (self edit) — same as before
+            Intent i = new Intent(this, ProfileActivity.class);
+            startActivity(i);
             return true;
         }
-        if (id == R.id.action_media_link_doc) {
-            Intent intent = new Intent(this, MediaLinkDocActivity.class);
-            intent.putExtra("chatId",      chatId      != null ? chatId      : "");
-            intent.putExtra("partnerName", partnerName != null ? partnerName : "");
-            intent.putExtra("isGroup",     false);
-            startActivity(intent);
+        if (id == R.id.action_media_links_docs) {
+            openAllMediaLinksDocs();
             return true;
         }
         return super.onOptionsItemSelected(item);
     }
 
-    @Override protected void onPause()   { super.onPause();   stopAvatarAnimation(); }
-    @Override protected void onResume()  { super.onResume();  if (partnerUid != null) loadAvatarAndStartAnimation(); }
-    @Override protected void onDestroy() { super.onDestroy(); stopAvatarAnimation(); }
+    /** Open WhatsApp-style Media, Links & Docs for this chat */
+    private void openAllMediaLinksDocs() {
+        if (chatId == null || chatId.isEmpty()) {
+            // chatId nahi hai — build karo (current user + partner)
+            String currentUid = com.google.firebase.auth.FirebaseAuth
+                .getInstance().getUid();
+            if (currentUid != null && partnerUid != null) {
+                // Same logic as ChatActivity.buildChatId()
+                chatId = currentUid.compareTo(partnerUid) < 0
+                    ? currentUid + "_" + partnerUid
+                    : partnerUid + "_" + currentUid;
+            }
+        }
+        Intent i = new Intent(this, AllMediaLinksDocsActivity.class);
+        i.putExtra("chatId",      chatId);
+        i.putExtra("partnerName", partnerName);
+        i.putExtra("isGroup",     false);
+        startActivity(i);
+    }
 }

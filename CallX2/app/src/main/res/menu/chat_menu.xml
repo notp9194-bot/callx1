@@ -19,11 +19,6 @@
         android:title="⭐ Starred Messages"
         app:showAsAction="never"/>
 
-    <!-- Media, Links & Docs -->
-    <item android:id="@+id/action_media_link_doc"
-        android:title="📁 Media, Links &amp; Docs"
-        app:showAsAction="never"/>
-
     <!-- Chat Bubble Theme Picker -->
     <item android:id="@+id/action_chat_theme"
         android:title="🎨 Chat Theme"
@@ -44,6 +39,10 @@
 
     <item android:id="@+id/action_clear_chat"
         android:title="🗑 Clear Chat"
+        app:showAsAction="never"/>
+
+    <item android:id="@+id/action_media_links_docs"
+        android:title="📁 Media, Links &amp; Docs"
         app:showAsAction="never"/>
 
 </menu>

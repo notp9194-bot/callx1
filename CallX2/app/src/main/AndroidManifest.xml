@@ -99,6 +99,8 @@
             android:taskAffinity=""/>
         <activity android:name=".activities.ProfileActivity"  android:exported="false"/>
         <activity android:name=".activities.UserProfileActivity" android:exported="false"/>
+        <activity android:name=".activities.AllMediaLinksDocsActivity" android:exported="false"
+            android:parentActivityName=".activities.ChatActivity"/>
         <activity android:name=".activities.MediaViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen"/>
@@ -119,9 +121,6 @@
         <activity android:name=".activities.NewStatusActivity"
             android:exported="false"/>
         <activity android:name=".activities.StarredMessagesActivity"
-            android:exported="false"
-            android:parentActivityName=".activities.ChatActivity"/>
-        <activity android:name=".activities.MediaLinkDocActivity"
             android:exported="false"
             android:parentActivityName=".activities.ChatActivity"/>
         <activity android:name=".activities.JoinGroupActivity"
