@@ -461,7 +461,7 @@
             <FrameLayout android:layout_width="60dp" android:layout_height="60dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_message"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_send"
                     android:background="@drawable/bg_circle_action"
@@ -470,7 +470,7 @@
                 <!-- Avatar peeking out from top — user ki chat profile image -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_chat"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:layout_gravity="center"
                     android:elevation="6dp"
                     android:visibility="invisible"
@@ -486,7 +486,7 @@
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageButton android:id="@+id/btn_audio_call"
-                android:layout_width="52dp" android:layout_height="52dp"
+                android:layout_width="46dp" android:layout_height="46dp"
                 android:src="@drawable/ic_phone"
                 android:background="@drawable/bg_circle_action"
                 android:tint="@color/brand_primary"
@@ -500,7 +500,7 @@
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageButton android:id="@+id/btn_video_call"
-                android:layout_width="52dp" android:layout_height="52dp"
+                android:layout_width="46dp" android:layout_height="46dp"
                 android:src="@drawable/ic_video_call"
                 android:background="@drawable/bg_circle_action"
                 android:tint="@color/brand_primary"
@@ -516,7 +516,7 @@
             <FrameLayout android:layout_width="60dp" android:layout_height="60dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_open_x"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_x_logo"
                     android:background="@drawable/bg_social_x_btn"
@@ -525,7 +525,7 @@
                 <!-- User ki X profile avatar -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_x"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:layout_gravity="center"
                     android:elevation="6dp"
                     android:visibility="invisible"
@@ -543,7 +543,7 @@
             <FrameLayout android:layout_width="60dp" android:layout_height="60dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_open_youtube"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_youtube"
                     android:background="@drawable/bg_social_youtube_btn"
@@ -552,7 +552,7 @@
                 <!-- User ki YouTube channel avatar -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_youtube"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:layout_gravity="center"
                     android:elevation="6dp"
                     android:visibility="invisible"

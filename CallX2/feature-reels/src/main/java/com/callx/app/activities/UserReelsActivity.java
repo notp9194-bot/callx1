@@ -1178,9 +1178,9 @@ public class UserReelsActivity extends AppCompatActivity
                 iv.setAlpha(0f);
                 iv.setVisibility(View.VISIBLE);
 
-                // Zoom IN: scale 0 → 1.35 (big overshoot) then settle to 1.2, alpha 0 → 1
-                ObjectAnimator scaleXIn  = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.35f, 1.2f);
-                ObjectAnimator scaleYIn  = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.35f, 1.2f);
+                // Zoom IN: scale 0 → 1.05 (subtle overshoot) then settle to 1.0, alpha 0 → 1
+                ObjectAnimator scaleXIn  = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.05f, 1.0f);
+                ObjectAnimator scaleYIn  = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.05f, 1.0f);
                 ObjectAnimator alphaIn   = ObjectAnimator.ofFloat(iv, "alpha",  0f, 1f);
                 scaleXIn.setDuration(450);
                 scaleYIn.setDuration(450);
@@ -1191,9 +1191,9 @@ public class UserReelsActivity extends AppCompatActivity
                 AnimatorSet zoomIn = new AnimatorSet();
                 zoomIn.playTogether(scaleXIn, scaleYIn, alphaIn);
 
-                // Zoom OUT: scale 1.2 → 0, alpha 1 → 0  (after 3s hold)
-                ObjectAnimator scaleXOut = ObjectAnimator.ofFloat(iv, "scaleX", 1.2f, 0f);
-                ObjectAnimator scaleYOut = ObjectAnimator.ofFloat(iv, "scaleY", 1.2f, 0f);
+                // Zoom OUT: scale 1.0 → 0, alpha 1 → 0  (after 3s hold)
+                ObjectAnimator scaleXOut = ObjectAnimator.ofFloat(iv, "scaleX", 1.0f, 0f);
+                ObjectAnimator scaleYOut = ObjectAnimator.ofFloat(iv, "scaleY", 1.0f, 0f);
                 ObjectAnimator alphaOut  = ObjectAnimator.ofFloat(iv, "alpha",  1f, 0f);
                 scaleXOut.setDuration(400);
                 scaleYOut.setDuration(400);

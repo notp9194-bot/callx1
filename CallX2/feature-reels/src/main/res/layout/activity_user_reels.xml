@@ -463,10 +463,10 @@
         <!-- Chat / Message button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_message"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:src="@drawable/ic_send"
                     android:background="@drawable/bg_circle_action"
                     android:tint="@color/brand_primary"
@@ -489,7 +489,7 @@
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageButton android:id="@+id/btn_audio_call"
-                android:layout_width="52dp" android:layout_height="52dp"
+                android:layout_width="46dp" android:layout_height="46dp"
                 android:src="@drawable/ic_phone"
                 android:background="@drawable/bg_circle_action"
                 android:tint="@color/brand_primary"
@@ -503,7 +503,7 @@
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageButton android:id="@+id/btn_video_call"
-                android:layout_width="52dp" android:layout_height="52dp"
+                android:layout_width="46dp" android:layout_height="46dp"
                 android:src="@drawable/ic_video_call"
                 android:background="@drawable/bg_circle_action"
                 android:tint="@color/brand_primary"
@@ -516,10 +516,10 @@
         <!-- X button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_open_x"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:src="@drawable/ic_x_logo"
                     android:background="@drawable/bg_social_x_btn"
                     android:tint="@color/white"
@@ -541,10 +541,10 @@
         <!-- YouTube button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_open_youtube"
-                    android:layout_width="52dp" android:layout_height="52dp"
+                    android:layout_width="46dp" android:layout_height="46dp"
                     android:src="@drawable/ic_youtube"
                     android:background="@drawable/bg_social_youtube_btn"
                     android:tint="@color/white"

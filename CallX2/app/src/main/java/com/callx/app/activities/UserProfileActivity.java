@@ -9,8 +9,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -126,34 +124,6 @@ public class UserProfileActivity extends AppCompatActivity {
         loadMuteState();
         loadBlockState();
         loadAvatarAndStartAnimation();
-    }
-
-    // ──────────────────────────────────────────────────────────────────────
-    // 3-DOT MENU
-    // ──────────────────────────────────────────────────────────────────────
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        getMenuInflater().inflate(R.menu.user_profile_menu, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        if (item.getItemId() == R.id.action_edit_profile) {
-            openEditProfile();
-            return true;
-        }
-        return super.onOptionsItemSelected(item);
-    }
-
-    /** My own profile edit — ProfileActivity is in :app module */
-    private void openEditProfile() {
-        try {
-            startActivity(new Intent(this, ProfileActivity.class));
-        } catch (Exception e) {
-            Toast.makeText(this, "Edit Profile unavailable", Toast.LENGTH_SHORT).show();
-        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -642,9 +612,9 @@ public class UserProfileActivity extends AppCompatActivity {
                 iv.setAlpha(0f);
                 iv.setVisibility(View.VISIBLE);
 
-                // Zoom IN: 0 → 1.35 overshoot → settle 1.2
-                ObjectAnimator scaleXIn = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.35f, 1.2f);
-                ObjectAnimator scaleYIn = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.35f, 1.2f);
+                // Zoom IN: 0 → 1.05 overshoot → settle 1.0 (subtle peek, no over-zoom)
+                ObjectAnimator scaleXIn = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.05f, 1.0f);
+                ObjectAnimator scaleYIn = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.05f, 1.0f);
                 ObjectAnimator alphaIn  = ObjectAnimator.ofFloat(iv, "alpha",  0f, 1f);
                 scaleXIn.setDuration(450);
                 scaleYIn.setDuration(450);
@@ -654,9 +624,9 @@ public class UserProfileActivity extends AppCompatActivity {
                 AnimatorSet zoomIn = new AnimatorSet();
                 zoomIn.playTogether(scaleXIn, scaleYIn, alphaIn);
 
-                // Zoom OUT: 1.2 → 0 (after 3s hold)
-                ObjectAnimator scaleXOut = ObjectAnimator.ofFloat(iv, "scaleX", 1.2f, 0f);
-                ObjectAnimator scaleYOut = ObjectAnimator.ofFloat(iv, "scaleY", 1.2f, 0f);
+                // Zoom OUT: 1.0 → 0 (after 3s hold)
+                ObjectAnimator scaleXOut = ObjectAnimator.ofFloat(iv, "scaleX", 1.0f, 0f);
+                ObjectAnimator scaleYOut = ObjectAnimator.ofFloat(iv, "scaleY", 1.0f, 0f);
                 ObjectAnimator alphaOut  = ObjectAnimator.ofFloat(iv, "alpha",  1f, 0f);
                 scaleXOut.setDuration(400);
                 scaleYOut.setDuration(400);
