@@ -17,6 +17,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
+import androidx.fragment.app.FragmentManager;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.bumptech.glide.Glide;
@@ -401,27 +402,46 @@ public class UserProfileActivity extends AppCompatActivity {
     }
 
     private void openUserReels() {
-        Intent i = new Intent(this, com.callx.app.activities.UserReelsActivity.class);
-        i.putExtra("uid", partnerUid);
-        i.putExtra("name", partnerName);
-        i.putExtra("photo", partnerPhoto);
-        startActivity(i);
+        // UserReelsActivity — exact same as Reels profile header mein click
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+            Intent i = new Intent(this, cls);
+            i.putExtra("uid",   partnerUid);
+            i.putExtra("name",  orEmpty(partnerName));
+            i.putExtra("photo", orEmpty(partnerPhoto));
+            startActivity(i);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(this, "Reel profile not available", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void openUserX() {
-        Intent i = new Intent(this, com.callx.app.activities.XActivity.class);
-        i.putExtra("uid", partnerUid);
-        i.putExtra("name", partnerName);
-        i.putExtra("photo", partnerPhoto);
-        startActivity(i);
+        // XProfileSheet.showProfile() — same as Reels X button
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+            java.lang.reflect.Method method = cls.getMethod(
+                    "showProfile",
+                    androidx.fragment.app.FragmentManager.class,
+                    String.class);
+            method.invoke(null, getSupportFragmentManager(), partnerUid);
+        } catch (Exception e) {
+            Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void openUserYoutube() {
-        Intent i = new Intent(this, com.callx.app.activities.YouTubeActivity.class);
-        i.putExtra("uid", partnerUid);
-        i.putExtra("name", partnerName);
-        i.putExtra("photo", partnerPhoto);
-        startActivity(i);
+        // YouTubeChannelActivity — same as Reels YouTube button
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+            Intent i = new Intent(this, cls);
+            i.putExtra("uid",  partnerUid);
+            i.putExtra("name", orEmpty(partnerName));
+            startActivity(i);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
