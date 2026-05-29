@@ -208,6 +208,7 @@ public class ChatActivity extends AppCompatActivity {
         setupInputBar();
         setupSwipeToReply();
         setupFabBackToLatest();
+        setupScrollToBottomFab();
         watchPartnerStatus();
         watchTyping();
         watchMute();
@@ -256,6 +257,7 @@ public class ChatActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         saveDraft();  // v18 IMPROVEMENT 2: User navigate away — draft save
+        saveScrollPosition();
     }
 
     @Override
@@ -594,6 +596,7 @@ public class ChatActivity extends AppCompatActivity {
                 binding.shimmerContainer.stopShimmer();
                 binding.shimmerContainer.setVisibility(View.GONE);
                 binding.rvMessages.setVisibility(View.VISIBLE);
+                restoreScrollPosition();
                 if (refresh instanceof androidx.paging.LoadState.Error) {
                     String msg = ((androidx.paging.LoadState.Error) refresh)
                             .getError().getMessage();
@@ -2250,6 +2253,133 @@ public class ChatActivity extends AppCompatActivity {
                 // Nothing extra needed — state already reset
             }
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // SCROLL POSITION RESTORE
+    // ─────────────────────────────────────────────────────────────
+
+    /** Save current scroll position to SharedPreferences when leaving chat */
+    private void saveScrollPosition() {
+        if (chatId == null || binding == null) return;
+        androidx.recyclerview.widget.LinearLayoutManager lm =
+            (androidx.recyclerview.widget.LinearLayoutManager) binding.rvMessages.getLayoutManager();
+        if (lm == null) return;
+        int firstVisible = lm.findFirstVisibleItemPosition();
+        int offset = 0;
+        View firstView = lm.findViewByPosition(firstVisible);
+        if (firstView != null) offset = firstView.getTop();
+        getSharedPreferences("chat_scroll", MODE_PRIVATE)
+            .edit()
+            .putInt("pos_" + chatId, firstVisible)
+            .putInt("off_" + chatId, offset)
+            .apply();
+    }
+
+    /** Restore scroll position after messages load */
+    private void restoreScrollPosition() {
+        if (chatId == null || binding == null) return;
+        android.content.SharedPreferences prefs =
+            getSharedPreferences("chat_scroll", MODE_PRIVATE);
+        int savedPos = prefs.getInt("pos_" + chatId, -1);
+        if (savedPos < 0) return; // no saved position — stay at bottom (default)
+        int total = pagingAdapter.getItemCount();
+        if (savedPos >= total) return; // stale — messages may have been pruned
+        int offset = prefs.getInt("off_" + chatId, 0);
+        androidx.recyclerview.widget.LinearLayoutManager lm =
+            (androidx.recyclerview.widget.LinearLayoutManager) binding.rvMessages.getLayoutManager();
+        if (lm != null) lm.scrollToPositionWithOffset(savedPos, offset);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // SCROLL-TO-BOTTOM FAB + UNREAD BADGE
+    // ─────────────────────────────────────────────────────────────
+
+    /** Count of new messages arrived while user was scrolled up */
+    private int pendingUnreadCount = 0;
+
+    private void setupScrollToBottomFab() {
+        if (binding.flScrollBottom == null) return;
+
+        // Click → scroll to bottom + clear badge
+        binding.fabScrollBottom.setOnClickListener(v -> {
+            int last = pagingAdapter.getItemCount() - 1;
+            if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+            pendingUnreadCount = 0;
+            updateScrollBadge();
+            hideScrollFab();
+        });
+
+        // Show/hide based on scroll position; count new messages arriving while scrolled up
+        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                androidx.recyclerview.widget.LinearLayoutManager lm =
+                    (androidx.recyclerview.widget.LinearLayoutManager) rv.getLayoutManager();
+                if (lm == null) return;
+                int lastVis = lm.findLastVisibleItemPosition();
+                int total   = pagingAdapter.getItemCount();
+                boolean atBottom = lastVis >= total - 3;
+                if (atBottom) {
+                    pendingUnreadCount = 0;
+                    updateScrollBadge();
+                    hideScrollFab();
+                } else {
+                    showScrollFab();
+                }
+            }
+        });
+
+        // When new messages arrive while scrolled up — increment badge, don't auto-scroll
+        pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+            @Override
+            public void onItemRangeInserted(int positionStart, int itemCount) {
+                androidx.recyclerview.widget.LinearLayoutManager lm =
+                    (androidx.recyclerview.widget.LinearLayoutManager)
+                    binding.rvMessages.getLayoutManager();
+                if (lm == null) return;
+                int lastVis = lm.findLastVisibleItemPosition();
+                int total   = pagingAdapter.getItemCount();
+                boolean atBottom = lastVis >= total - itemCount - 2;
+                if (!atBottom) {
+                    // Count only messages from others (not self)
+                    for (int i = positionStart; i < positionStart + itemCount; i++) {
+                        com.callx.app.models.Message m = pagingAdapter.peek(i);
+                        if (m != null && !currentUid.equals(m.senderId)) {
+                            pendingUnreadCount++;
+                        }
+                    }
+                    if (pendingUnreadCount > 0) updateScrollBadge();
+                    showScrollFab();
+                }
+            }
+        });
+    }
+
+    private void showScrollFab() {
+        if (binding.flScrollBottom == null) return;
+        if (binding.flScrollBottom.getVisibility() != View.VISIBLE) {
+            binding.flScrollBottom.setVisibility(View.VISIBLE);
+            binding.flScrollBottom.setAlpha(0f);
+            binding.flScrollBottom.animate().alpha(1f).setDuration(180).start();
+        }
+    }
+
+    private void hideScrollFab() {
+        if (binding.flScrollBottom == null) return;
+        binding.flScrollBottom.animate().alpha(0f).setDuration(180)
+            .withEndAction(() -> binding.flScrollBottom.setVisibility(View.GONE)).start();
+    }
+
+    private void updateScrollBadge() {
+        if (binding.tvUnreadBadge == null) return;
+        if (pendingUnreadCount > 0) {
+            binding.tvUnreadBadge.setVisibility(View.VISIBLE);
+            binding.tvUnreadBadge.setText(pendingUnreadCount > 99 ? "99+" :
+                String.valueOf(pendingUnreadCount));
+        } else {
+            binding.tvUnreadBadge.setVisibility(View.GONE);
+        }
     }
 
     /**

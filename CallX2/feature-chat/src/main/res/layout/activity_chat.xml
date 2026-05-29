@@ -415,6 +415,49 @@
             android:visibility="gone"
             android:alpha="0"/>
 
+        <!-- Scroll-to-bottom FAB + unread badge -->
+        <FrameLayout
+            android:id="@+id/fl_scroll_bottom"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fab_scroll_bottom"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/ic_arrow_back"
+                android:rotation="270"
+                android:contentDescription="Scroll to bottom"
+                app:backgroundTint="@color/surface_card"
+                app:tint="@color/text_primary"
+                app:fabSize="mini"
+                app:elevation="4dp"/>
+
+            <TextView
+                android:id="@+id/tv_unread_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="-4dp"
+                android:layout_marginEnd="-4dp"
+                android:minWidth="20dp"
+                android:paddingStart="5dp"
+                android:paddingEnd="5dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="1dp"
+                android:textColor="@color/white"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:background="@drawable/bg_pin_badge"
+                android:visibility="gone"/>
+
+        </FrameLayout>
+
     </FrameLayout>
 
     <ProgressBar
