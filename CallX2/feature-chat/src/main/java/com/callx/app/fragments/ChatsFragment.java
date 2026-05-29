@@ -1,6 +1,7 @@
 package com.callx.app.fragments;
 
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -37,15 +38,29 @@ import java.util.concurrent.Executors;
 
 /**
  * ChatsFragment — Offline-First chat list with WhatsApp-style selection toolbar.
+ *
+ * Selection state is communicated to the host Activity via {@link SelectionHost},
+ * so the main toolbar in activity_main.xml can switch to selection mode.
  */
 public class ChatsFragment extends Fragment implements ChatListAdapter.SelectionListener {
+
+    // ── Interface for MainActivity to implement ──────────────────────────
+    public interface SelectionHost {
+        /** Called when selection mode starts; Activity should show its selection toolbar. */
+        void onChatSelectionStarted(int count);
+        /** Called on every selection change so Activity can update the counter. */
+        void onChatSelectionChanged(int count);
+        /** Called when selection is cleared; Activity should restore its normal toolbar. */
+        void onChatSelectionCleared();
+        /** Activity calls this when user taps its toolbar's 3-dot more button. */
+        // (adapter's showMoreMenu is used directly; Activity just relays the anchor view)
+    }
+
+    private SelectionHost selectionHost;
 
     private final List<User> contacts = new ArrayList<>();
     private ChatListAdapter adapter;
     private View emptyState;
-
-    private LinearLayout llSelectionBar;
-    private TextView tvSelectedCount;
 
     private final Set<String> specialRequestUids = new HashSet<>();
 
@@ -55,13 +70,25 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private ValueEventListener specialRequestsListener;
 
     @Override
+    public void onAttach(@NonNull Context ctx) {
+        super.onAttach(ctx);
+        if (ctx instanceof SelectionHost) {
+            selectionHost = (SelectionHost) ctx;
+        }
+    }
+
+    @Override
+    public void onDetach() {
+        super.onDetach();
+        selectionHost = null;
+    }
+
+    @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle s) {
         View v = inflater.inflate(R.layout.fragment_chats, parent, false);
 
         RecyclerView rv = v.findViewById(R.id.rv_chats);
         emptyState      = v.findViewById(R.id.empty_state);
-        llSelectionBar  = v.findViewById(R.id.ll_selection_bar);
-        tvSelectedCount = v.findViewById(R.id.tv_selected_count);
 
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
@@ -70,41 +97,45 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         adapter = new ChatListAdapter(contacts, this);
         rv.setAdapter(adapter);
 
-        // ── Selection toolbar buttons ──────────────────────────────
-        v.findViewById(R.id.btn_cancel_selection_chats).setOnClickListener(x -> cancelSelection());
-        v.findViewById(R.id.btn_delete_selected_chats).setOnClickListener(x -> confirmDelete());
-        v.findViewById(R.id.btn_sel_pin).setOnClickListener(x -> handlePin());
-        v.findViewById(R.id.btn_sel_mute).setOnClickListener(x -> handleMute());
-        v.findViewById(R.id.btn_sel_archive).setOnClickListener(x -> handleArchive());
-        v.findViewById(R.id.btn_sel_more).setOnClickListener(this::showMoreMenu);
-
         loadFromRoom();
         loadContacts();
         loadSpecialRequests();
         return v;
     }
 
-    // ── SelectionListener callbacks ────────────────────────────────
+    // ── SelectionListener callbacks (from adapter) ───────────────────────
     @Override public void onSelectionStarted() {
-        if (llSelectionBar != null) llSelectionBar.setVisibility(View.VISIBLE);
-        refreshCount();
+        if (selectionHost != null)
+            selectionHost.onChatSelectionStarted(adapter != null ? adapter.getSelectedCount() : 0);
     }
-    @Override public void onSelectionChanged() { refreshCount(); }
-    @Override public void onSelectionCleared()  {
-        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+    @Override public void onSelectionChanged() {
+        if (selectionHost != null)
+            selectionHost.onChatSelectionChanged(adapter != null ? adapter.getSelectedCount() : 0);
     }
-
-    private void refreshCount() {
-        int n = adapter == null ? 0 : adapter.getSelectedCount();
-        if (tvSelectedCount != null) tvSelectedCount.setText(String.valueOf(n));
+    @Override public void onSelectionCleared() {
+        if (selectionHost != null) selectionHost.onChatSelectionCleared();
     }
 
-    private void cancelSelection() {
+    // ── Public API called by MainActivity toolbar buttons ────────────────
+
+    public void doCancel()  { cancelSelection(); }
+    public void doDelete()  { confirmDelete(); }
+    public void doPin()     { handlePin(); }
+    public void doMute()    { handleMute(); }
+    public void doArchive() { handleArchive(); }
+
+    /** Called by MainActivity when user taps 3-dot icon in the selection toolbar. */
+    public void showMoreMenuFromHost(View anchor) {
+        showMoreMenu(anchor);
+    }
+
+    // ── Selection helpers ────────────────────────────────────────────────
+
+    public void cancelSelection() {
         if (adapter != null) adapter.clearSelection();
-        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
     }
 
-    // ── Selection Actions ──────────────────────────────────────────
+    // ── Selection Actions ────────────────────────────────────────────────
 
     private void handlePin() {
         if (adapter == null) return;
@@ -189,6 +220,93 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         cancelSelection();
     }
 
+    private void handleAddShortcut() {
+        if (adapter == null) return;
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        if (sel.size() > 1) {
+            Toast.makeText(getContext(), "Sirf ek chat ka shortcut ban sakta hai", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        User u = sel.get(0);
+        // Create launcher shortcut using ShortcutManager
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.content.pm.ShortcutManager sm =
+                requireContext().getSystemService(android.content.pm.ShortcutManager.class);
+            if (sm != null && sm.isRequestPinShortcutSupported()) {
+                Intent chatIntent = new Intent(requireContext(),
+                    com.callx.app.activities.ChatActivity.class);
+                chatIntent.setAction(Intent.ACTION_VIEW);
+                chatIntent.putExtra("partnerUid",   u.uid);
+                chatIntent.putExtra("partnerName",  u.name != null ? u.name : "");
+                chatIntent.putExtra("partnerPhoto", u.photoUrl != null ? u.photoUrl : "");
+                chatIntent.putExtra("partnerThumb", u.thumbUrl != null ? u.thumbUrl : "");
+
+                android.content.pm.ShortcutInfo shortcut =
+                    new android.content.pm.ShortcutInfo.Builder(requireContext(),
+                        "chat_shortcut_" + u.uid)
+                        .setShortLabel(u.name != null ? u.name : "Chat")
+                        .setLongLabel((u.name != null ? u.name : "Chat") + " — CallX")
+                        .setIcon(android.graphics.drawable.Icon.createWithResource(
+                            requireContext(), R.drawable.ic_person))
+                        .setIntent(chatIntent)
+                        .build();
+                sm.requestPinShortcut(shortcut, null);
+            } else {
+                Toast.makeText(getContext(), "Shortcut support nahi hai is device me", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            Toast.makeText(getContext(), "Shortcut ke liye Android 8+ chahiye", Toast.LENGTH_SHORT).show();
+        }
+        cancelSelection();
+    }
+
+    private void handleAddFavorites() {
+        if (adapter == null) return;
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        String myUid = myUid();
+        if (myUid == null) return;
+        for (User u : sel)
+            if (u.uid != null)
+                FirebaseUtils.db().getReference("favorites").child(myUid).child(u.uid).setValue(true);
+        Toast.makeText(getContext(),
+            sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " added to Favorites",
+            Toast.LENGTH_SHORT).show();
+        cancelSelection();
+    }
+
+    private void handleAddToList() {
+        if (adapter == null) return;
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        // Show a simple input dialog to pick/create a list name
+        android.widget.EditText et = new android.widget.EditText(requireContext());
+        et.setHint("List ka naam likhो (e.g. Family, Work)");
+        new AlertDialog.Builder(requireContext())
+            .setTitle("Add to list")
+            .setView(et)
+            .setPositiveButton("Add", (d, w) -> {
+                String listName = et.getText().toString().trim();
+                if (listName.isEmpty()) {
+                    Toast.makeText(getContext(), "List naam khali nahi ho sakta", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                String myUid = myUid();
+                if (myUid == null) return;
+                String safeList = listName.replaceAll("[.#$/\\[\\]]", "_");
+                for (User u : sel)
+                    if (u.uid != null)
+                        FirebaseUtils.db().getReference("lists")
+                            .child(myUid).child(safeList).child(u.uid).setValue(true);
+                Toast.makeText(getContext(),
+                    sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " added to \"" + listName + "\"",
+                    Toast.LENGTH_SHORT).show();
+                cancelSelection();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
     private void handleClearChat() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
@@ -246,11 +364,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         new AlertDialog.Builder(requireContext())
             .setTitle("Delete " + n + " chat" + (n > 1 ? "s" : "") + "?")
             .setMessage("Selected conversations will be removed from your chat list.")
-            .setPositiveButton("Delete", (d, w) -> doDelete())
+            .setPositiveButton("Delete", (d, w) -> doDeleteSelected())
             .setNegativeButton("Cancel", null).show();
     }
 
-    private void doDelete() {
+    private void doDeleteSelected() {
         String myUid = myUid();
         if (myUid == null || adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
@@ -264,7 +382,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
-    // ── 3-dot popup menu ──────────────────────────────────────────
+    // ── 3-dot popup menu ─────────────────────────────────────────────────
     private void showMoreMenu(View anchor) {
         PopupMenu popup = new PopupMenu(requireContext(), anchor);
         popup.getMenuInflater().inflate(R.menu.chat_selection_menu, popup.getMenu());
@@ -273,33 +391,41 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         boolean single = sel.size() == 1;
         popup.getMenu().findItem(R.id.sel_view_contact).setVisible(single);
         popup.getMenu().findItem(R.id.sel_lock_chat).setVisible(single);
+        popup.getMenu().findItem(R.id.sel_add_shortcut).setVisible(single);
 
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
-            if (id == R.id.sel_view_contact)  { handleViewContact();  return true; }
-            if (id == R.id.sel_mark_unread)   { handleMarkUnread();   return true; }
-            if (id == R.id.sel_select_all)    {
-                if (adapter != null) { adapter.selectAll(); refreshCount(); }
+            if (id == R.id.sel_add_shortcut)   { handleAddShortcut();  return true; }
+            if (id == R.id.sel_view_contact)   { handleViewContact();  return true; }
+            if (id == R.id.sel_mark_unread)    { handleMarkUnread();   return true; }
+            if (id == R.id.sel_select_all) {
+                if (adapter != null) {
+                    adapter.selectAll();
+                    if (selectionHost != null)
+                        selectionHost.onChatSelectionChanged(adapter.getSelectedCount());
+                }
                 return true;
             }
             if (id == R.id.sel_lock_chat) {
                 Toast.makeText(getContext(), "Lock chat (coming soon)", Toast.LENGTH_SHORT).show();
                 cancelSelection(); return true;
             }
-            if (id == R.id.sel_clear_chat) { handleClearChat(); return true; }
-            if (id == R.id.sel_block)      { handleBlock();      return true; }
+            if (id == R.id.sel_add_favorites) { handleAddFavorites(); return true; }
+            if (id == R.id.sel_add_list)      { handleAddToList();    return true; }
+            if (id == R.id.sel_clear_chat)    { handleClearChat();    return true; }
+            if (id == R.id.sel_block)         { handleBlock();        return true; }
             return false;
         });
         popup.show();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────
     private String myUid() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return null;
         return FirebaseAuth.getInstance().getCurrentUser().getUid();
     }
 
-    // ── Offline-first Room load ───────────────────────────────────
+    // ── Offline-first Room load ───────────────────────────────────────────
     private void loadFromRoom() {
         if (getContext() == null) return;
         AppDatabase db = AppDatabase.getInstance(getContext());
@@ -332,7 +458,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         });
     }
 
-    // ── Firebase contact listener ─────────────────────────────────
+    // ── Firebase contact listener ─────────────────────────────────────────
     private void loadContacts() {
         String uid = myUid();
         if (uid == null) return;

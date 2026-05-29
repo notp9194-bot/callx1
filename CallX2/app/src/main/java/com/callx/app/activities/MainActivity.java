@@ -29,6 +29,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import com.callx.app.activities.ReelNotificationsActivity;
 import com.callx.app.workers.StoryNotificationWorker;
 import com.callx.app.fragments.ReelsFragment;
+import com.callx.app.fragments.ChatsFragment;
 import com.callx.app.utils.AppUpdateManager;
 import android.animation.ObjectAnimator;
   import android.view.View;
@@ -51,7 +52,8 @@ import android.animation.ObjectAnimator;
   import com.bumptech.glide.request.transition.Transition;
   import androidx.annotation.Nullable;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity
+        implements ChatsFragment.SelectionHost {
 
     private ActivityMainBinding binding;
 
@@ -121,6 +123,7 @@ public class MainActivity extends AppCompatActivity {
         // ──────────────────────────────────────────────────────────────────────
 
         setSupportActionBar(binding.toolbar);
+        setupChatSelectionToolbar();
 
           // ── X Module: animated entry button ─────────────────────────────────────
           setupXEntryButton();
@@ -957,4 +960,82 @@ public class MainActivity extends AppCompatActivity {
                 .child("fcmToken").setValue(token);
         });
     }
+    // ═══════════════════════════════════════════════════════════════════════
+    // ChatsFragment.SelectionHost — WhatsApp-style selection toolbar in main
+    // toolbar replaces normal toolbar when chat items are long-pressed
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /** Get the active ChatsFragment instance from ViewPager2 */
+    private ChatsFragment getChatsFragment() {
+        androidx.fragment.app.Fragment f = getSupportFragmentManager()
+            .findFragmentByTag("f" + binding.viewPager.getAdapter().getItemId(TAB_CHATS));
+        return (f instanceof ChatsFragment) ? (ChatsFragment) f : null;
+    }
+
+    private void setupChatSelectionToolbar() {
+        // Cancel button — clears selection in ChatsFragment
+        binding.llChatSelectionToolbar.findViewById(R.id.btn_sel_cancel).setOnClickListener(v -> {
+            ChatsFragment cf = getChatsFragment();
+            if (cf != null) cf.doCancel();
+        });
+
+        // Delete
+        binding.llChatSelectionToolbar.findViewById(R.id.btn_sel_delete_main).setOnClickListener(v -> {
+            ChatsFragment cf = getChatsFragment();
+            if (cf != null) cf.doDelete();
+        });
+
+        // Pin
+        binding.llChatSelectionToolbar.findViewById(R.id.btn_sel_pin_main).setOnClickListener(v -> {
+            ChatsFragment cf = getChatsFragment();
+            if (cf != null) cf.doPin();
+        });
+
+        // Mute
+        binding.llChatSelectionToolbar.findViewById(R.id.btn_sel_mute_main).setOnClickListener(v -> {
+            ChatsFragment cf = getChatsFragment();
+            if (cf != null) cf.doMute();
+        });
+
+        // Archive
+        binding.llChatSelectionToolbar.findViewById(R.id.btn_sel_archive_main).setOnClickListener(v -> {
+            ChatsFragment cf = getChatsFragment();
+            if (cf != null) cf.doArchive();
+        });
+
+        // 3-dot more options — pass anchor to ChatsFragment
+        android.view.View btnMore = binding.llChatSelectionToolbar.findViewById(R.id.btn_sel_more_main);
+        btnMore.setOnClickListener(v -> {
+            ChatsFragment cf = getChatsFragment();
+            if (cf != null) cf.showMoreMenuFromHost(v);
+        });
+    }
+
+    @Override
+    public void onChatSelectionStarted(int count) {
+        runOnUiThread(() -> {
+            binding.toolbar.setVisibility(android.view.View.GONE);
+            binding.llChatSelectionToolbar.setVisibility(android.view.View.VISIBLE);
+            TextView tv = binding.llChatSelectionToolbar.findViewById(R.id.tv_sel_count);
+            if (tv != null) tv.setText(String.valueOf(count));
+        });
+    }
+
+    @Override
+    public void onChatSelectionChanged(int count) {
+        runOnUiThread(() -> {
+            TextView tv = binding.llChatSelectionToolbar.findViewById(R.id.tv_sel_count);
+            if (tv != null) tv.setText(String.valueOf(count));
+        });
+    }
+
+    @Override
+    public void onChatSelectionCleared() {
+        runOnUiThread(() -> {
+            binding.llChatSelectionToolbar.setVisibility(android.view.View.GONE);
+            binding.toolbar.setVisibility(android.view.View.VISIBLE);
+        });
+    }
+
+
 }
