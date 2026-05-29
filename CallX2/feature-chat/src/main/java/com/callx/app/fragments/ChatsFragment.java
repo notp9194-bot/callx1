@@ -1,6 +1,8 @@
 package com.callx.app.fragments;
 
 import android.app.AlertDialog;
+import android.content.Context;
+import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -8,6 +10,7 @@ import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
+import androidx.appcompat.widget.PopupMenu;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -67,16 +70,31 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         adapter = new ChatListAdapter(contacts, this);
         rv.setAdapter(adapter);
 
+        // Cancel / back
         v.findViewById(R.id.btn_cancel_selection_chats).setOnClickListener(x -> {
             adapter.clearSelection();
             llSelectionBar.setVisibility(View.GONE);
         });
-        v.findViewById(R.id.btn_select_all_chats).setOnClickListener(x -> {
-            adapter.selectAll();
-            updateSelectionCount();
-        });
+
+        // Delete
         v.findViewById(R.id.btn_delete_selected_chats).setOnClickListener(x ->
             confirmDeleteSelected());
+
+        // Pin (single-select only — show toast if multi)
+        v.findViewById(R.id.btn_sel_pin).setOnClickListener(x ->
+            handlePin());
+
+        // Mute
+        v.findViewById(R.id.btn_sel_mute).setOnClickListener(x ->
+            handleMute());
+
+        // Archive
+        v.findViewById(R.id.btn_sel_archive).setOnClickListener(x ->
+            handleArchive());
+
+        // 3-dot more menu
+        v.findViewById(R.id.btn_sel_more).setOnClickListener(x ->
+            showSelectionMoreMenu(x));
 
         // v15 FIX 1: Pehle Room se load karo (offline ke liye instant display)
         loadFromRoom();
@@ -306,5 +324,213 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
         if (emptyState != null)
             emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // SELECTION TOOLBAR ACTIONS
+    // ─────────────────────────────────────────────────────────────
+
+    /** Pin / unpin selected chats (WhatsApp — only first 3 allowed) */
+    private void handlePin() {
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        if (sel.size() > 1) {
+            Toast.makeText(getContext(), "Pin ke liye ek chat select karo", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(getContext(), "📌 Chat pinned (coming soon)", Toast.LENGTH_SHORT).show();
+        adapter.clearSelection();
+        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+    }
+
+    /** Mute notifications for selected chats */
+    private void handleMute() {
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+        String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        for (User u : sel) {
+            if (u.uid == null) continue;
+            FirebaseUtils.db().getReference("mutes")
+                .child(myUid).child(u.uid).setValue(true);
+        }
+        int n = sel.size();
+        Toast.makeText(getContext(),
+            n + " chat" + (n > 1 ? "s" : "") + " muted", Toast.LENGTH_SHORT).show();
+        adapter.clearSelection();
+        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+    }
+
+    /** Archive selected chats */
+    private void handleArchive() {
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+        String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        for (User u : sel) {
+            if (u.uid == null) continue;
+            FirebaseUtils.db().getReference("archived")
+                .child(myUid).child(u.uid).setValue(true);
+        }
+        contacts.removeAll(sel);
+        adapter.clearSelection();
+        adapter.notifyDataSetChanged();
+        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+        if (emptyState != null)
+            emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+        int n = sel.size();
+        Toast.makeText(getContext(),
+            n + " chat" + (n > 1 ? "s" : "") + " archived", Toast.LENGTH_SHORT).show();
+    }
+
+    /** Mark selected as unread */
+    private void handleMarkUnread() {
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+        String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        for (User u : sel) {
+            if (u.uid == null) continue;
+            // Set unread = 1 if currently 0
+            if (u.unread == null || u.unread == 0) {
+                u.unread = 1L;
+                FirebaseUtils.getContactsRef(myUid).child(u.uid).child("unread").setValue(1);
+            }
+        }
+        adapter.clearSelection();
+        adapter.notifyDataSetChanged();
+        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+    }
+
+    /** Select all contacts */
+    private void handleSelectAll() {
+        adapter.selectAll();
+        updateSelectionCount();
+    }
+
+    /** Open UserProfileActivity for single selected contact */
+    private void handleViewContact() {
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        if (sel.size() > 1) {
+            Toast.makeText(getContext(), "Sirf ek contact select karo", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        User u = sel.get(0);
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.UserProfileActivity");
+            Intent i = new Intent(getContext(), cls);
+            i.putExtra("partnerUid",  u.uid);
+            i.putExtra("partnerName", u.name);
+            i.putExtra("photoUrl",    u.photoUrl != null ? u.photoUrl : "");
+            startActivity(i);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(getContext(), "Profile nahi khul saka", Toast.LENGTH_SHORT).show();
+        }
+        adapter.clearSelection();
+        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+    }
+
+    /** Clear chat history for selected contacts */
+    private void handleClearChat() {
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        int n = sel.size();
+        new AlertDialog.Builder(requireContext())
+            .setTitle("Clear " + n + " chat" + (n > 1 ? "s" : "") + "?")
+            .setMessage("Saare messages permanently delete ho jayenge.")
+            .setPositiveButton("Clear", (d, w) -> {
+                if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+                String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                AppDatabase db = AppDatabase.getInstance(requireContext());
+                for (User u : sel) {
+                    if (u.uid == null) continue;
+                    String chatId = myUid.compareTo(u.uid) < 0
+                        ? myUid + "_" + u.uid : u.uid + "_" + myUid;
+                    Executors.newSingleThreadExecutor().execute(() ->
+                        db.messageDao().deleteAllForChat(chatId));
+                }
+                adapter.clearSelection();
+                if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+                Toast.makeText(getContext(), n + " chat" + (n > 1 ? "s" : "") + " cleared",
+                    Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** Block selected contacts */
+    private void handleBlock() {
+        List<User> sel = adapter.getSelectedItems();
+        if (sel.isEmpty()) return;
+        int n = sel.size();
+        new AlertDialog.Builder(requireContext())
+            .setTitle("Block " + n + " contact" + (n > 1 ? "s" : "") + "?")
+            .setMessage("Ye log aapko message nahi kar payenge.")
+            .setPositiveButton("Block", (d, w) -> {
+                if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+                String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                for (User u : sel) {
+                    if (u.uid == null) continue;
+                    FirebaseUtils.db().getReference("blocks")
+                        .child(myUid).child(u.uid).setValue(true);
+                }
+                contacts.removeAll(sel);
+                adapter.clearSelection();
+                adapter.notifyDataSetChanged();
+                if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+                if (emptyState != null)
+                    emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** Show 3-dot popup menu anchored to the more button */
+    private void showSelectionMoreMenu(View anchor) {
+        PopupMenu popup = new PopupMenu(requireContext(), anchor);
+        popup.getMenuInflater().inflate(R.menu.chat_selection_menu, popup.getMenu());
+
+        List<User> sel = adapter == null ? new ArrayList<>() : adapter.getSelectedItems();
+        boolean single = sel.size() == 1;
+
+        // Hide single-contact-only options when multiple selected
+        popup.getMenu().findItem(R.id.sel_add_shortcut).setVisible(single);
+        popup.getMenu().findItem(R.id.sel_view_contact).setVisible(single);
+        popup.getMenu().findItem(R.id.sel_lock_chat).setVisible(single);
+        popup.getMenu().findItem(R.id.sel_add_favorites).setVisible(single);
+
+        popup.setOnMenuItemClickListener(item -> {
+            int id = item.getItemId();
+            if (id == R.id.sel_add_shortcut) {
+                Toast.makeText(getContext(), "Shortcut added (coming soon)", Toast.LENGTH_SHORT).show();
+                adapter.clearSelection();
+                if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+                return true;
+            }
+            if (id == R.id.sel_view_contact)  { handleViewContact();  return true; }
+            if (id == R.id.sel_mark_unread)   { handleMarkUnread();   return true; }
+            if (id == R.id.sel_select_all)    { handleSelectAll();    return true; }
+            if (id == R.id.sel_lock_chat) {
+                Toast.makeText(getContext(), "Lock chat (coming soon)", Toast.LENGTH_SHORT).show();
+                adapter.clearSelection();
+                if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+                return true;
+            }
+            if (id == R.id.sel_add_favorites) {
+                Toast.makeText(getContext(), "⭐ Added to Favorites", Toast.LENGTH_SHORT).show();
+                adapter.clearSelection();
+                if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+                return true;
+            }
+            if (id == R.id.sel_add_list) {
+                Toast.makeText(getContext(), "Add to list (coming soon)", Toast.LENGTH_SHORT).show();
+                adapter.clearSelection();
+                if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+                return true;
+            }
+            if (id == R.id.sel_clear_chat)    { handleClearChat();    return true; }
+            if (id == R.id.sel_block)         { handleBlock();        return true; }
+            return false;
+        });
+        popup.show();
     }
 }
