@@ -16,10 +16,6 @@ public class User {
     public String lastMessage;
     public Long lastMessageAt;
     public Long unread;
-    // Chat state flags (persisted in Firebase contacts node + Room)
-    public Boolean pinned;       // true = pinned to top
-    public Boolean muted;        // true = notifications muted
-    public Boolean favorite;     // true = in Favorites list
     // Social links
     public String whatsapp;      // WhatsApp number or link
     public String instagram;     // Instagram handle or URL

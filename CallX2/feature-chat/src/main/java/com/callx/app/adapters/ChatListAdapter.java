@@ -29,7 +29,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     private final List<User> contacts;
     private final SelectionListener selectionListener;
-    // Change 3: 12-hour format
     private final SimpleDateFormat fmt = new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private Set<String> specialRequestSenders = new HashSet<>();
 
@@ -59,7 +58,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         h.tvName.setText(u.name == null ? "User" : u.name);
 
-        // thumbUrl → 100px WebP, fast load. Fallback: photoUrl
+        // ── Avatar ────────────────────────────────────────────────────────
         String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty())
             ? u.thumbUrl : u.photoUrl;
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
@@ -73,7 +72,19 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
 
-        // Story ring + avatar click logic
+        // ── Pin icon ──────────────────────────────────────────────────────
+        if (h.ivPinIcon != null) {
+            boolean pinned = Boolean.TRUE.equals(u.pinned);
+            h.ivPinIcon.setVisibility(pinned ? View.VISIBLE : View.GONE);
+        }
+
+        // ── Mute icon ─────────────────────────────────────────────────────
+        if (h.ivMuteIcon != null) {
+            boolean muted = Boolean.TRUE.equals(u.muted);
+            h.ivMuteIcon.setVisibility(muted ? View.VISIBLE : View.GONE);
+        }
+
+        // ── Story ring ────────────────────────────────────────────────────
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
 
@@ -93,6 +104,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             });
         }
 
+        // ── Last message ──────────────────────────────────────────────────
         if (u.lastMessage != null && !u.lastMessage.isEmpty())
             h.tvLastMessage.setText(u.lastMessage);
         else
@@ -101,28 +113,42 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
         h.tvTime.setText((when != null && when > 0) ? fmt.format(new Date(when)) : "");
 
+        // ── Unread badge ──────────────────────────────────────────────────
         long unread = u.unread == null ? 0 : u.unread;
+        boolean isMuted = Boolean.TRUE.equals(u.muted);
         if (unread > 0) {
             h.tvUnread.setText(unread > 99 ? "99+" : String.valueOf(unread));
             h.tvUnread.setVisibility(View.VISIBLE);
+            // Muted chats: grey badge instead of green
+            if (isMuted) {
+                h.tvUnread.setBackgroundResource(R.drawable.bg_unread_badge_muted);
+            } else {
+                h.tvUnread.setBackgroundResource(R.drawable.bg_unread_badge);
+            }
             h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_primary));
         } else {
             h.tvUnread.setVisibility(View.GONE);
             h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_secondary));
         }
 
+        // ── Special request highlight ─────────────────────────────────────
         boolean isSpecial = u.uid != null && specialRequestSenders.contains(u.uid);
         if (isSpecial) {
             h.tvLastMessage.setText("⭐ Special unblock request");
             h.tvLastMessage.setTextColor(0xFFFF8F00);
         }
 
+        // ── Selection highlight ───────────────────────────────────────────
         boolean selected = u.uid != null && selectedUids.contains(u.uid);
-        h.itemView.setBackgroundColor(selected ? 0x335B5BF6 : (isSpecial ? 0x33FFC107 : 0x00000000));
+        if (selected) {
+            h.itemView.setBackgroundColor(0x335B5BF6);
+        } else if (isSpecial) {
+            h.itemView.setBackgroundColor(0x33FFC107);
+        } else {
+            h.itemView.setBackgroundColor(0x00000000);
+        }
 
-        // Story ring click → open StatusViewerActivity (only when ring is visible)
-        // (already set above in ivStoryRing block)
-
+        // ── Click handlers ────────────────────────────────────────────────
         h.ivAvatar.setOnClickListener(v -> {
             if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
             if (hasStory) openStatusOrChat(ctx, u);
@@ -241,7 +267,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         android.widget.FrameLayout root = new android.widget.FrameLayout(ctx);
         root.setBackgroundColor(0xEE000000);
 
-        // PhotoView — supports pinch-to-zoom natively
         com.github.chrisbanes.photoview.PhotoView photoView =
             new com.github.chrisbanes.photoview.PhotoView(ctx);
         android.widget.FrameLayout.LayoutParams ivLp = new android.widget.FrameLayout.LayoutParams(
@@ -252,9 +277,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         photoView.setMediumScale(2f);
         photoView.setMaximumScale(5f);
         photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
-        photoView.setOnPhotoTapListener((v, x, y) -> { /* prevent dismiss on photo tap */ });
+        photoView.setOnPhotoTapListener((v, x, y) -> { });
 
-        // Close button top-right
         android.widget.ImageButton btnClose = new android.widget.ImageButton(ctx);
         int closeSizePx = (int)(40 * ctx.getResources().getDisplayMetrics().density);
         android.widget.FrameLayout.LayoutParams closeLp =
@@ -267,7 +291,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         btnClose.setBackgroundColor(0x00000000);
         btnClose.setOnClickListener(v -> dialog.dismiss());
 
-        // Name label bottom
         android.widget.TextView tvName = new android.widget.TextView(ctx);
         tvName.setText(name != null ? name : "");
         tvName.setTextColor(0xFFFFFFFF);
@@ -306,7 +329,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName, tvLastMessage, tvTime, tvUnread;
         CircleImageView ivAvatar;
-        android.widget.ImageView ivStoryRing;
+        android.widget.ImageView ivStoryRing, ivPinIcon, ivMuteIcon;
         ImageButton btnCall, btnVideoCall;
         VH(View v) {
             super(v);
@@ -316,6 +339,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             tvUnread      = v.findViewById(R.id.tv_unread_badge);
             ivAvatar      = v.findViewById(R.id.iv_avatar);
             ivStoryRing   = v.findViewById(R.id.iv_story_ring);
+            ivPinIcon     = v.findViewById(R.id.iv_pin_icon);
+            ivMuteIcon    = v.findViewById(R.id.iv_mute_icon);
             btnCall       = v.findViewById(R.id.btn_call);
             btnVideoCall  = v.findViewById(R.id.btn_video_call);
         }

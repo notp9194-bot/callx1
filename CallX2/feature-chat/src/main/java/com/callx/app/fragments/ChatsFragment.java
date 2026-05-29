@@ -7,8 +7,6 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -38,22 +36,15 @@ import java.util.concurrent.Executors;
 
 /**
  * ChatsFragment — Offline-First chat list with WhatsApp-style selection toolbar.
- *
- * Selection state is communicated to the host Activity via {@link SelectionHost},
- * so the main toolbar in activity_main.xml can switch to selection mode.
+ * Selection state is communicated to MainActivity via SelectionHost interface.
  */
 public class ChatsFragment extends Fragment implements ChatListAdapter.SelectionListener {
 
-    // ── Interface for MainActivity to implement ──────────────────────────
+    // ── Interface for MainActivity ────────────────────────────────────────
     public interface SelectionHost {
-        /** Called when selection mode starts; Activity should show its selection toolbar. */
         void onChatSelectionStarted(int count);
-        /** Called on every selection change so Activity can update the counter. */
         void onChatSelectionChanged(int count);
-        /** Called when selection is cleared; Activity should restore its normal toolbar. */
         void onChatSelectionCleared();
-        /** Activity calls this when user taps its toolbar's 3-dot more button. */
-        // (adapter's showMoreMenu is used directly; Activity just relays the anchor view)
     }
 
     private SelectionHost selectionHost;
@@ -72,9 +63,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     @Override
     public void onAttach(@NonNull Context ctx) {
         super.onAttach(ctx);
-        if (ctx instanceof SelectionHost) {
-            selectionHost = (SelectionHost) ctx;
-        }
+        if (ctx instanceof SelectionHost) selectionHost = (SelectionHost) ctx;
     }
 
     @Override
@@ -88,7 +77,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         View v = inflater.inflate(R.layout.fragment_chats, parent, false);
 
         RecyclerView rv = v.findViewById(R.id.rv_chats);
-        emptyState      = v.findViewById(R.id.empty_state);
+        emptyState = v.findViewById(R.id.empty_state);
 
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
@@ -103,7 +92,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         return v;
     }
 
-    // ── SelectionListener callbacks (from adapter) ───────────────────────
+    // ── SelectionListener callbacks ───────────────────────────────────────
     @Override public void onSelectionStarted() {
         if (selectionHost != null)
             selectionHost.onChatSelectionStarted(adapter != null ? adapter.getSelectedCount() : 0);
@@ -116,77 +105,138 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (selectionHost != null) selectionHost.onChatSelectionCleared();
     }
 
-    // ── Public API called by MainActivity toolbar buttons ────────────────
-
+    // ── Public API called by MainActivity toolbar buttons ─────────────────
     public void doCancel()  { cancelSelection(); }
     public void doDelete()  { confirmDelete(); }
     public void doPin()     { handlePin(); }
     public void doMute()    { handleMute(); }
     public void doArchive() { handleArchive(); }
-
-    /** Called by MainActivity when user taps 3-dot icon in the selection toolbar. */
-    public void showMoreMenuFromHost(View anchor) {
-        showMoreMenu(anchor);
-    }
-
-    // ── Selection helpers ────────────────────────────────────────────────
+    public void showMoreMenuFromHost(View anchor) { showMoreMenu(anchor); }
 
     public void cancelSelection() {
         if (adapter != null) adapter.clearSelection();
     }
 
-    // ── Selection Actions ────────────────────────────────────────────────
-
+    // ─────────────────────────────────────────────────────────────────────
+    // PIN — Firebase write + Room update + User flag + sort to top
+    // ─────────────────────────────────────────────────────────────────────
     private void handlePin() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
         if (sel.isEmpty()) return;
-        Toast.makeText(getContext(),
-            sel.size() == 1 ? "📌 Chat pinned" : "📌 Chats pinned",
-            Toast.LENGTH_SHORT).show();
+        String myUid = myUid();
+        if (myUid == null) return;
+
+        // Determine toggle state from first selected item
+        boolean willPin = !Boolean.TRUE.equals(sel.get(0).pinned);
+
+        AppDatabase db = AppDatabase.getInstance(requireContext());
+
+        for (User u : sel) {
+            if (u.uid == null) continue;
+            u.pinned = willPin;
+
+            // Firebase: contacts/<myUid>/<uid>/pinned
+            FirebaseUtils.getContactsRef(myUid)
+                .child(u.uid).child("pinned").setValue(willPin);
+
+            // Room: update pinned flag
+            String chatId = makeChatId(myUid, u.uid);
+            Executors.newSingleThreadExecutor().execute(
+                () -> db.chatDao().updatePinned(chatId, willPin));
+        }
+
+        // Re-sort so pinned chats float to top, refresh UI
+        sortByLatestMessage();
+        adapter.notifyDataSetChanged();
+
+        String msg = willPin
+            ? (sel.size() == 1 ? "📌 Chat pinned" : "📌 " + sel.size() + " chats pinned")
+            : (sel.size() == 1 ? "Chat unpinned" : sel.size() + " chats unpinned");
+        Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
         cancelSelection();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // MUTE — Firebase write + Room update + User flag + UI mute icon
+    // ─────────────────────────────────────────────────────────────────────
     private void handleMute() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
         if (sel.isEmpty()) return;
         String myUid = myUid();
         if (myUid == null) return;
-        for (User u : sel)
-            if (u.uid != null)
+
+        boolean willMute = !Boolean.TRUE.equals(sel.get(0).muted);
+
+        AppDatabase db = AppDatabase.getInstance(requireContext());
+
+        for (User u : sel) {
+            if (u.uid == null) continue;
+            u.muted = willMute;
+
+            // Firebase: contacts/<myUid>/<uid>/muted
+            FirebaseUtils.getContactsRef(myUid)
+                .child(u.uid).child("muted").setValue(willMute);
+
+            // Also write to mutes/<myUid>/<uid> for quick lookup
+            if (willMute) {
                 FirebaseUtils.db().getReference("mutes").child(myUid).child(u.uid).setValue(true);
-        Toast.makeText(getContext(),
-            sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " muted",
-            Toast.LENGTH_SHORT).show();
+            } else {
+                FirebaseUtils.db().getReference("mutes").child(myUid).child(u.uid).removeValue();
+            }
+
+            // Room
+            String chatId = makeChatId(myUid, u.uid);
+            Executors.newSingleThreadExecutor().execute(
+                () -> db.chatDao().updateMuted(chatId, willMute));
+        }
+
+        adapter.notifyDataSetChanged();
+
+        String msg = willMute
+            ? sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " muted 🔇"
+            : sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " unmuted 🔔";
+        Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
         cancelSelection();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // ARCHIVE — Firebase write + remove from list
+    // ─────────────────────────────────────────────────────────────────────
     private void handleArchive() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
         if (sel.isEmpty()) return;
         String myUid = myUid();
         if (myUid == null) return;
-        for (User u : sel)
-            if (u.uid != null)
-                FirebaseUtils.db().getReference("archived").child(myUid).child(u.uid).setValue(true);
+
+        for (User u : sel) {
+            if (u.uid == null) continue;
+            FirebaseUtils.db().getReference("archived").child(myUid).child(u.uid).setValue(true);
+            // Remove from contacts list so it doesn't show in main list
+            FirebaseUtils.getContactsRef(myUid).child(u.uid).child("archived").setValue(true);
+        }
         contacts.removeAll(sel);
         cancelSelection();
         adapter.notifyDataSetChanged();
         if (emptyState != null)
             emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
         Toast.makeText(getContext(),
-            sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " archived",
+            sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " archived 📁",
             Toast.LENGTH_SHORT).show();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // MARK AS UNREAD — Firebase + User model
+    // ─────────────────────────────────────────────────────────────────────
     private void handleMarkUnread() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
         if (sel.isEmpty()) return;
         String myUid = myUid();
         if (myUid == null) return;
+
         for (User u : sel) {
             if (u.uid == null) continue;
             if (u.unread == null || u.unread == 0) {
@@ -196,8 +246,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
         cancelSelection();
         adapter.notifyDataSetChanged();
+        Toast.makeText(getContext(), "Marked as unread", Toast.LENGTH_SHORT).show();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // VIEW CONTACT — open UserProfileActivity
+    // ─────────────────────────────────────────────────────────────────────
     private void handleViewContact() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
@@ -215,11 +269,22 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             i.putExtra("photoUrl",    u.photoUrl != null ? u.photoUrl : "");
             startActivity(i);
         } catch (ClassNotFoundException e) {
-            Toast.makeText(getContext(), "Profile nahi khul saka", Toast.LENGTH_SHORT).show();
+            // Fallback: open ProfileActivity with same extras
+            try {
+                Class<?> cls = Class.forName("com.callx.app.activities.ProfileActivity");
+                Intent i = new Intent(getContext(), cls);
+                i.putExtra("uid", u.uid);
+                startActivity(i);
+            } catch (ClassNotFoundException ex) {
+                Toast.makeText(getContext(), "Profile nahi khul saka", Toast.LENGTH_SHORT).show();
+            }
         }
         cancelSelection();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // ADD CHAT SHORTCUT — Android launcher shortcut
+    // ─────────────────────────────────────────────────────────────────────
     private void handleAddShortcut() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
@@ -229,7 +294,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             return;
         }
         User u = sel.get(0);
-        // Create launcher shortcut using ShortcutManager
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             android.content.pm.ShortcutManager sm =
                 requireContext().getSystemService(android.content.pm.ShortcutManager.class);
@@ -243,8 +307,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 chatIntent.putExtra("partnerThumb", u.thumbUrl != null ? u.thumbUrl : "");
 
                 android.content.pm.ShortcutInfo shortcut =
-                    new android.content.pm.ShortcutInfo.Builder(requireContext(),
-                        "chat_shortcut_" + u.uid)
+                    new android.content.pm.ShortcutInfo.Builder(
+                        requireContext(), "chat_shortcut_" + u.uid)
                         .setShortLabel(u.name != null ? u.name : "Chat")
                         .setLongLabel((u.name != null ? u.name : "Chat") + " — CallX")
                         .setIcon(android.graphics.drawable.Icon.createWithResource(
@@ -252,8 +316,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         .setIntent(chatIntent)
                         .build();
                 sm.requestPinShortcut(shortcut, null);
+                // Toast shown by system shortcut dialog
             } else {
-                Toast.makeText(getContext(), "Shortcut support nahi hai is device me", Toast.LENGTH_SHORT).show();
+                Toast.makeText(getContext(), "Is device me shortcut support nahi hai", Toast.LENGTH_SHORT).show();
             }
         } else {
             Toast.makeText(getContext(), "Shortcut ke liye Android 8+ chahiye", Toast.LENGTH_SHORT).show();
@@ -261,28 +326,48 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         cancelSelection();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // ADD TO FAVORITES — Firebase + User flag
+    // ─────────────────────────────────────────────────────────────────────
     private void handleAddFavorites() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
         if (sel.isEmpty()) return;
         String myUid = myUid();
         if (myUid == null) return;
-        for (User u : sel)
-            if (u.uid != null)
+
+        boolean willFav = !Boolean.TRUE.equals(sel.get(0).favorite);
+
+        for (User u : sel) {
+            if (u.uid == null) continue;
+            u.favorite = willFav;
+            if (willFav) {
                 FirebaseUtils.db().getReference("favorites").child(myUid).child(u.uid).setValue(true);
-        Toast.makeText(getContext(),
-            sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " added to Favorites",
-            Toast.LENGTH_SHORT).show();
+                FirebaseUtils.getContactsRef(myUid).child(u.uid).child("favorite").setValue(true);
+            } else {
+                FirebaseUtils.db().getReference("favorites").child(myUid).child(u.uid).removeValue();
+                FirebaseUtils.getContactsRef(myUid).child(u.uid).child("favorite").removeValue();
+            }
+        }
+        String msg = willFav
+            ? sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " added to Favorites ⭐"
+            : sel.size() + " chat" + (sel.size() > 1 ? "s" : "") + " removed from Favorites";
+        Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
         cancelSelection();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // ADD TO LIST — Firebase, ask for list name
+    // ─────────────────────────────────────────────────────────────────────
     private void handleAddToList() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
         if (sel.isEmpty()) return;
-        // Show a simple input dialog to pick/create a list name
+
         android.widget.EditText et = new android.widget.EditText(requireContext());
         et.setHint("List ka naam likhो (e.g. Family, Work)");
+        et.setPadding(48, 24, 48, 8);
+
         new AlertDialog.Builder(requireContext())
             .setTitle("Add to list")
             .setView(et)
@@ -294,6 +379,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 }
                 String myUid = myUid();
                 if (myUid == null) return;
+                // Firebase key-safe: replace illegal chars
                 String safeList = listName.replaceAll("[.#$/\\[\\]]", "_");
                 for (User u : sel)
                     if (u.uid != null)
@@ -307,6 +393,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             .setNegativeButton("Cancel", null).show();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // CLEAR CHAT — Room delete + Firebase delete
+    // ─────────────────────────────────────────────────────────────────────
     private void handleClearChat() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
@@ -321,18 +410,31 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 AppDatabase db = AppDatabase.getInstance(requireContext());
                 for (User u : sel) {
                     if (u.uid == null) continue;
-                    String chatId = myUid.compareTo(u.uid) < 0
-                        ? myUid + "_" + u.uid : u.uid + "_" + myUid;
+                    String chatId = makeChatId(myUid, u.uid);
+                    // Room: delete all messages for this chat
                     Executors.newSingleThreadExecutor().execute(
                         () -> db.messageDao().deleteAllForChat(chatId));
+                    // Firebase: delete messages node
+                    FirebaseUtils.db().getReference("messages").child(chatId).removeValue();
+                    // Reset last message in contacts node
+                    FirebaseUtils.getContactsRef(myUid).child(u.uid).child("lastMessage").removeValue();
+                    FirebaseUtils.getContactsRef(myUid).child(u.uid).child("lastMessageAt").removeValue();
+                    // Update User object in memory
+                    u.lastMessage   = null;
+                    u.lastMessageAt = null;
+                    u.unread        = 0L;
                 }
                 cancelSelection();
+                adapter.notifyDataSetChanged();
                 Toast.makeText(getContext(),
                     n + " chat" + (n > 1 ? "s" : "") + " cleared", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null).show();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // BLOCK — Firebase blocks node + remove from list
+    // ─────────────────────────────────────────────────────────────────────
     private void handleBlock() {
         if (adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
@@ -344,19 +446,28 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             .setPositiveButton("Block", (d, w) -> {
                 String myUid = myUid();
                 if (myUid == null) return;
-                for (User u : sel)
-                    if (u.uid != null)
-                        FirebaseUtils.db().getReference("blocks")
-                            .child(myUid).child(u.uid).setValue(true);
+                for (User u : sel) {
+                    if (u.uid == null) continue;
+                    // Write to blocks node
+                    FirebaseUtils.db().getReference("blocks")
+                        .child(myUid).child(u.uid).setValue(true);
+                    // Remove from contacts so chat disappears
+                    FirebaseUtils.getContactsRef(myUid).child(u.uid).removeValue();
+                }
                 contacts.removeAll(sel);
                 cancelSelection();
                 adapter.notifyDataSetChanged();
                 if (emptyState != null)
                     emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+                Toast.makeText(getContext(),
+                    n + " contact" + (n > 1 ? "s" : "") + " blocked 🚫", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null).show();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // DELETE — remove from Firebase contacts + Room + list
+    // ─────────────────────────────────────────────────────────────────────
     private void confirmDelete() {
         if (adapter == null) return;
         int n = adapter.getSelectedCount();
@@ -372,9 +483,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         String myUid = myUid();
         if (myUid == null || adapter == null) return;
         List<User> sel = adapter.getSelectedItems();
-        for (User u : sel)
-            if (u.uid != null)
-                FirebaseUtils.getContactsRef(myUid).child(u.uid).removeValue();
+        AppDatabase db = AppDatabase.getInstance(requireContext());
+        for (User u : sel) {
+            if (u.uid == null) continue;
+            FirebaseUtils.getContactsRef(myUid).child(u.uid).removeValue();
+            String chatId = makeChatId(myUid, u.uid);
+            Executors.newSingleThreadExecutor().execute(() -> db.chatDao().deleteChat(chatId));
+        }
         contacts.removeAll(sel);
         cancelSelection();
         adapter.notifyDataSetChanged();
@@ -382,22 +497,37 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
-    // ── 3-dot popup menu ─────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // 3-dot popup menu
+    // ─────────────────────────────────────────────────────────────────────
     private void showMoreMenu(View anchor) {
         PopupMenu popup = new PopupMenu(requireContext(), anchor);
         popup.getMenuInflater().inflate(R.menu.chat_selection_menu, popup.getMenu());
 
         List<User> sel = adapter == null ? new ArrayList<>() : adapter.getSelectedItems();
         boolean single = sel.size() == 1;
+
+        // Items only visible for single selection
         popup.getMenu().findItem(R.id.sel_view_contact).setVisible(single);
         popup.getMenu().findItem(R.id.sel_lock_chat).setVisible(single);
         popup.getMenu().findItem(R.id.sel_add_shortcut).setVisible(single);
 
+        // Dynamic title for toggle actions
+        if (!sel.isEmpty()) {
+            boolean isPinned = Boolean.TRUE.equals(sel.get(0).pinned);
+            boolean isMuted  = Boolean.TRUE.equals(sel.get(0).muted);
+            boolean isFav    = Boolean.TRUE.equals(sel.get(0).favorite);
+            // Note: pin/mute/archive are in the toolbar, not the 3-dot menu.
+            // Favorites toggle title
+            android.view.MenuItem favItem = popup.getMenu().findItem(R.id.sel_add_favorites);
+            if (favItem != null) favItem.setTitle(isFav ? "Remove from Favorites" : "Add to Favorites");
+        }
+
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
-            if (id == R.id.sel_add_shortcut)   { handleAddShortcut();  return true; }
-            if (id == R.id.sel_view_contact)   { handleViewContact();  return true; }
-            if (id == R.id.sel_mark_unread)    { handleMarkUnread();   return true; }
+            if (id == R.id.sel_add_shortcut)  { handleAddShortcut();  return true; }
+            if (id == R.id.sel_view_contact)  { handleViewContact();  return true; }
+            if (id == R.id.sel_mark_unread)   { handleMarkUnread();   return true; }
             if (id == R.id.sel_select_all) {
                 if (adapter != null) {
                     adapter.selectAll();
@@ -407,7 +537,19 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 return true;
             }
             if (id == R.id.sel_lock_chat) {
-                Toast.makeText(getContext(), "Lock chat (coming soon)", Toast.LENGTH_SHORT).show();
+                // Lock chat: redirect to AppLock setup for this contact
+                List<User> s = adapter != null ? adapter.getSelectedItems() : new ArrayList<>();
+                if (!s.isEmpty() && s.get(0).uid != null) {
+                    try {
+                        Class<?> cls = Class.forName("com.callx.app.activities.AppLockActivity");
+                        Intent i = new Intent(getContext(), cls);
+                        i.putExtra("lockForUid", s.get(0).uid);
+                        i.putExtra("lockForName", s.get(0).name != null ? s.get(0).name : "");
+                        startActivity(i);
+                    } catch (ClassNotFoundException e) {
+                        Toast.makeText(getContext(), "Lock chat (coming soon)", Toast.LENGTH_SHORT).show();
+                    }
+                }
                 cancelSelection(); return true;
             }
             if (id == R.id.sel_add_favorites) { handleAddFavorites(); return true; }
@@ -425,6 +567,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         return FirebaseAuth.getInstance().getCurrentUser().getUid();
     }
 
+    /** Deterministic chatId: lexicographically smaller UID first */
+    private String makeChatId(String uid1, String uid2) {
+        return uid1.compareTo(uid2) < 0 ? uid1 + "_" + uid2 : uid2 + "_" + uid1;
+    }
+
     // ── Offline-first Room load ───────────────────────────────────────────
     private void loadFromRoom() {
         if (getContext() == null) return;
@@ -435,13 +582,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             List<User> roomUsers = new ArrayList<>();
             for (ChatEntity e : cached) {
                 User u = new User();
-                u.uid = e.partnerUid;
+                u.uid           = e.partnerUid;
                 if (u.uid == null || u.uid.isEmpty()) continue;
                 u.name          = e.partnerName;
                 u.photoUrl      = e.partnerPhoto;
                 u.thumbUrl      = e.partnerThumb;
                 u.lastMessageAt = e.lastMessageAt;
                 u.unread        = e.unread;
+                u.pinned        = e.pinned;
+                u.muted         = e.muted;
                 roomUsers.add(u);
             }
             if (getActivity() != null) {
@@ -473,6 +622,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     if ((u.name == null || u.name.isEmpty() || u.photoUrl == null) && u.uid != null)
                         enrichContact(u, uid);
                     contacts.add(u);
+
                     ChatEntity entity    = new ChatEntity();
                     entity.chatId        = uid + "_contact_" + (u.uid != null ? u.uid : "");
                     entity.type          = "private";
@@ -482,6 +632,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     entity.partnerThumb  = u.thumbUrl;
                     entity.lastMessageAt = u.lastMessageAt;
                     entity.unread        = u.unread;
+                    entity.pinned        = u.pinned;
+                    entity.muted         = u.muted;
                     entity.syncedAt      = System.currentTimeMillis();
                     toSave.add(entity);
                 }
@@ -553,11 +705,22 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         super.onDestroyView();
     }
 
+    /**
+     * Sort order (top to bottom):
+     * 1. Special requests
+     * 2. Pinned chats (by lastMessageAt DESC)
+     * 3. Normal chats (by lastMessageAt DESC)
+     */
     private void sortByLatestMessage() {
         Collections.sort(contacts, (a, b) -> {
-            boolean aS = a.uid != null && specialRequestUids.contains(a.uid);
-            boolean bS = b.uid != null && specialRequestUids.contains(b.uid);
-            if (aS != bS) return aS ? -1 : 1;
+            boolean aSpecial = a.uid != null && specialRequestUids.contains(a.uid);
+            boolean bSpecial = b.uid != null && specialRequestUids.contains(b.uid);
+            if (aSpecial != bSpecial) return aSpecial ? -1 : 1;
+
+            boolean aPinned = Boolean.TRUE.equals(a.pinned);
+            boolean bPinned = Boolean.TRUE.equals(b.pinned);
+            if (aPinned != bPinned) return aPinned ? -1 : 1;
+
             long la = a.lastMessageAt != null ? a.lastMessageAt : (a.lastSeen != null ? a.lastSeen : 0L);
             long lb = b.lastMessageAt != null ? b.lastMessageAt : (b.lastSeen != null ? b.lastSeen : 0L);
             return Long.compare(lb, la);
