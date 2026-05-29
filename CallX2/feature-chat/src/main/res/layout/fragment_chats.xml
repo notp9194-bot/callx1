@@ -9,7 +9,10 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- ── WhatsApp-style Selection Header ── -->
+        <!-- ══════════════════════════════════════════════════════
+             WhatsApp-style selection toolbar (hidden by default)
+             Shows on long-press of a chat item
+             ══════════════════════════════════════════════════════ -->
         <LinearLayout
             android:id="@+id/ll_selection_bar"
             android:layout_width="match_parent"
@@ -22,7 +25,7 @@
             android:elevation="4dp"
             android:visibility="gone">
 
-            <!-- Back / Cancel -->
+            <!-- ← Back / Cancel -->
             <ImageButton
                 android:id="@+id/btn_cancel_selection_chats"
                 android:layout_width="44dp"
@@ -30,9 +33,9 @@
                 android:src="@drawable/ic_back"
                 android:tint="@color/bar_on_background"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Cancel selection"/>
+                android:contentDescription="Cancel" />
 
-            <!-- Selected count -->
+            <!-- Count of selected chats -->
             <TextView
                 android:id="@+id/tv_selected_count"
                 android:layout_width="0dp"
@@ -41,8 +44,8 @@
                 android:textColor="@color/bar_on_background"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:layout_marginStart="4dp"
-                android:text="0"/>
+                android:layout_marginStart="8dp"
+                android:text="0" />
 
             <!-- Pin -->
             <ImageButton
@@ -53,7 +56,7 @@
                 android:tint="@color/bar_on_background"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="10dp"
-                android:contentDescription="Pin chat"/>
+                android:contentDescription="Pin" />
 
             <!-- Delete -->
             <ImageButton
@@ -64,7 +67,7 @@
                 android:tint="@color/bar_on_background"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="10dp"
-                android:contentDescription="Delete"/>
+                android:contentDescription="Delete" />
 
             <!-- Mute -->
             <ImageButton
@@ -75,7 +78,7 @@
                 android:tint="@color/bar_on_background"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="10dp"
-                android:contentDescription="Mute"/>
+                android:contentDescription="Mute" />
 
             <!-- Archive -->
             <ImageButton
@@ -86,9 +89,9 @@
                 android:tint="@color/bar_on_background"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="10dp"
-                android:contentDescription="Archive"/>
+                android:contentDescription="Archive" />
 
-            <!-- 3-dot more menu -->
+            <!-- 3-dot more -->
             <ImageButton
                 android:id="@+id/btn_sel_more"
                 android:layout_width="44dp"
@@ -96,11 +99,12 @@
                 android:src="@drawable/ic_more_vert"
                 android:tint="@color/bar_on_background"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="More options"/>
+                android:padding="10dp"
+                android:contentDescription="More options" />
 
         </LinearLayout>
 
-        <!-- Request banner -->
+        <!-- Request banner (hidden) -->
         <LinearLayout
             android:id="@+id/banner_requests"
             android:layout_width="match_parent"
@@ -118,7 +122,7 @@
                 android:layout_height="40dp"
                 android:src="@drawable/ic_person_add"
                 android:padding="8dp"
-                android:background="@drawable/bg_circle_white"/>
+                android:background="@drawable/bg_circle_white" />
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -132,14 +136,14 @@
                     android:text="Naye contact requests"
                     android:textColor="#FFFFFF"
                     android:textSize="15sp"
-                    android:textStyle="bold"/>
+                    android:textStyle="bold" />
                 <TextView
                     android:id="@+id/tv_request_sub"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Tap karke dekho"
                     android:textColor="#E0E7FF"
-                    android:textSize="12sp"/>
+                    android:textSize="12sp" />
             </LinearLayout>
             <TextView
                 android:id="@+id/tv_request_count"
@@ -151,17 +155,20 @@
                 android:textColor="@color/brand_primary"
                 android:textStyle="bold"
                 android:textSize="14sp"
-                android:background="@drawable/bg_circle_white"/>
+                android:background="@drawable/bg_circle_white" />
         </LinearLayout>
 
+        <!-- Chat list -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_chats"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:padding="8dp"
-            android:clipToPadding="false"/>
+            android:clipToPadding="false" />
+
     </LinearLayout>
 
+    <!-- Empty state -->
     <LinearLayout
         android:id="@+id/empty_state"
         android:layout_width="match_parent"
@@ -175,13 +182,14 @@
             android:layout_height="wrap_content"
             android:text="Abhi koi chat nahi hai"
             android:textColor="@color/text_secondary"
-            android:textSize="16sp"/>
+            android:textSize="16sp" />
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Niche FAB se naye contact ko search karke jodo"
             android:textColor="@color/text_muted"
             android:textSize="13sp"
-            android:layout_marginTop="6dp"/>
+            android:layout_marginTop="6dp" />
     </LinearLayout>
+
 </FrameLayout>

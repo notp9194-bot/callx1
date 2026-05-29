@@ -1,50 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<menu xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
-
-    <item
-        android:id="@+id/sel_add_shortcut"
-        android:title="Add chat shortcut"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/sel_view_contact"
-        android:title="View contact"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/sel_mark_unread"
-        android:title="Mark as unread"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/sel_select_all"
-        android:title="Select all"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/sel_lock_chat"
-        android:title="Lock chat"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/sel_add_favorites"
-        android:title="Add to Favorites"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/sel_add_list"
-        android:title="Add to list"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/sel_clear_chat"
-        android:title="Clear chat"
-        app:showAsAction="never"/>
-
-    <item
-        android:id="@+id/sel_block"
-        android:title="Block"
-        app:showAsAction="never"/>
-
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/sel_view_contact"  android:title="View contact" />
+    <item android:id="@+id/sel_mark_unread"   android:title="Mark as unread" />
+    <item android:id="@+id/sel_select_all"    android:title="Select all" />
+    <item android:id="@+id/sel_lock_chat"     android:title="Lock chat" />
+    <item android:id="@+id/sel_clear_chat"    android:title="Clear chat" />
+    <item android:id="@+id/sel_block"         android:title="Block" />
 </menu>
