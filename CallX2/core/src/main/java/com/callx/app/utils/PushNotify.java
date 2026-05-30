@@ -241,6 +241,42 @@ public class PushNotify {
 
 
 
+    // ── FIX-2: Missed call notify ─────────────────────────────────────────
+    // Jab callee reject kare ya timeout ho — caller ko missed call notification bhejo.
+
+    public static void notifyMissedCall(String toUid, String fromUid, String fromName,
+                                        String callId, boolean isVideo) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",    toUid    == null ? "" : toUid)
+                .put("fromUid",  fromUid  == null ? "" : fromUid)
+                .put("fromName", fromName == null ? "" : fromName)
+                .put("callId",   callId   == null ? "" : callId)
+                .put("isVideo",  isVideo)
+                .put("type",     "missed_call");
+            postAsync(Constants.SERVER_URL + "/notify", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyMissedCall err: " + e.getMessage());
+        }
+    }
+
+    // Missed group call — group ke saare members ko batao
+    public static void notifyMissedGroupCall(String groupId, String fromUid, String fromName,
+                                             String callId, boolean isVideo) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("groupId",  groupId  == null ? "" : groupId)
+                .put("fromUid",  fromUid  == null ? "" : fromUid)
+                .put("fromName", fromName == null ? "" : fromName)
+                .put("callId",   callId   == null ? "" : callId)
+                .put("isVideo",  isVideo)
+                .put("type",     "missed_group_call");
+            postAsync(Constants.SERVER_URL + "/notify/group", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyMissedGroupCall err: " + e.getMessage());
+        }
+    }
+
     // ── Group call notify ─────────────────────────────────────────────────
 
     public static void notifyGroupCall(String groupId, String fromUid, String fromName,

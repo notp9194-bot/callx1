@@ -155,6 +155,17 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                       .getReference("activeCalls").child(callId)
                       .child("status").setValue("rejected");
               }
+              // FIX-2: Caller ko missed call notification bhejo
+              // partnerUid here = the CALLER (who rang us), myUid = us (who declined)
+              if (partnerUid != null && !partnerUid.isEmpty()) {
+                  PushNotify.notifyMissedCall(
+                      partnerUid,  // caller ko bhejo
+                      myUid,       // hum hai receiver (missed by us = caller ke liye missed)
+                      myName != null ? myName : "",
+                      callId != null ? callId : "",
+                      isVid
+                  );
+              }
               pendingResult.finish();
               return;
           }

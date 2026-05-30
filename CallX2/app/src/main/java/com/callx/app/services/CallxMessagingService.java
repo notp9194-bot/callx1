@@ -102,8 +102,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
         } else if (Constants.GCALL_FCM_TYPE.equals(type)) {
             // Incoming group call — works even when app is killed
             showIncomingGroupCall(data);
-        } else if ("group_call_missed".equals(type)) {
-            // Missed group call notification
+        } else if ("group_call_missed".equals(type) || "missed_group_call".equals(type)) {
+            // FIX-2: "missed_group_call" — PushNotify.notifyMissedGroupCall() se aata hai
             showMissedGroupCallNotification(data);
         } else if ("status_reply".equals(type)) {
             showStatusReply(data);
@@ -113,7 +113,9 @@ public class CallxMessagingService extends FirebaseMessagingService {
             handleContactJoin(data);
         } else if ("group_member_joined".equals(type)) {
             handleGroupMemberJoined(data);
-        } else if ("call_missed".equals(type)) {
+        } else if ("call_missed".equals(type) || "missed_call".equals(type)) {
+            // FIX-2: "missed_call" — PushNotify.notifyMissedCall() se aata hai
+            // "call_missed"  — purana legacy type (backward compat)
             showMissedCallNotification(data);
         } else if ("group_message".equals(type)) {
             showGroupMessage(data);
@@ -310,9 +312,13 @@ public class CallxMessagingService extends FirebaseMessagingService {
     
       // ─── Missed 1:1 Call notification (with Call Back button) ────────────────
       private void showMissedCallNotification(java.util.Map<String, String> data) {
+          // FIX-2: Support both old field names (callerUid/callerName) and new ones (fromUid/fromName)
           String callerUid   = safeGet(data, "callerUid");
+          if (callerUid == null || callerUid.isEmpty()) callerUid = safeGet(data, "fromUid");
           String callerName  = safeGet(data, "callerName");
+          if (callerName == null || callerName.isEmpty()) callerName = safeGet(data, "fromName");
           String callerPhoto = safeGet(data, "callerPhoto");
+          if (callerPhoto == null || callerPhoto.isEmpty()) callerPhoto = safeGet(data, "fromPhoto");
           if (callerName == null) return;
 
           // Check quiet hours

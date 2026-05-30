@@ -530,6 +530,7 @@ public class ChatActivity extends AppCompatActivity {
         i.putExtra("partnerUid",   partnerUid);
         i.putExtra("partnerName",  partnerName);
         i.putExtra("partnerPhoto", partnerPhoto);
+        i.putExtra("partnerThumb", partnerThumb); // FIX-1: thumbnail pass karo taaki call screen pe fast avatar load ho
         i.putExtra("isCaller",     true);
         i.putExtra("video",        isVideo);
         startActivity(i);

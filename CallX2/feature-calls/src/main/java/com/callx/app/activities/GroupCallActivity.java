@@ -353,6 +353,11 @@ public class GroupCallActivity extends AppCompatActivity {
     private void initWebRTCAndJoin() {
         eglBase = EglBase.create();
 
+        // FIX-3: eglBase was null when adapter was created in onCreate → update it now
+        if (adapter != null) {
+            adapter.setEglBase(eglBase);
+        }
+
         if (isVideo && localVideo != null) {
             localVideo.init(eglBase.getEglBaseContext(), null);
             localVideo.setMirror(true);

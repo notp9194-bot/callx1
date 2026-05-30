@@ -647,6 +647,22 @@ public class CallActivity extends AppCompatActivity {
             @Override public void onDataChange(DataSnapshot s) {
                 String st = s.getValue(String.class);
                 if ("ended".equals(st) || "rejected".equals(st) || "cancelled".equals(st)) {
+                    // FIX-2: Agar call kabhi connect nahi hua aur callee ne reject kiya
+                    // toh caller ko missed call notification bhejo
+                    if (!callConnected && isCaller
+                            && ("rejected".equals(st) || "cancelled".equals(st))) {
+                        String myUid  = FirebaseUtils.getCurrentUid();
+                        String myName = FirebaseUtils.getCurrentName();
+                        if (partnerUid != null && myUid != null) {
+                            // partnerUid (callee) ne reject kiya → callee ko missed call dikhao
+                            PushNotify.notifyMissedCall(
+                                partnerUid, myUid,
+                                myName != null ? myName : "",
+                                callId != null ? callId : "",
+                                isVideo
+                            );
+                        }
+                    }
                     runOnUiThread(() -> endCall());
                 }
             }
