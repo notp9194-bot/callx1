@@ -313,13 +313,18 @@ public class CallxMessagingService extends FirebaseMessagingService {
       // ─── Missed 1:1 Call notification (with Call Back button) ────────────────
       private void showMissedCallNotification(java.util.Map<String, String> data) {
           // FIX-2: Support both old field names (callerUid/callerName) and new ones (fromUid/fromName)
-          String callerUid   = safeGet(data, "callerUid");
-          if (callerUid == null || callerUid.isEmpty()) callerUid = safeGet(data, "fromUid");
-          String callerName  = safeGet(data, "callerName");
-          if (callerName == null || callerName.isEmpty()) callerName = safeGet(data, "fromName");
-          String callerPhoto = safeGet(data, "callerPhoto");
-          if (callerPhoto == null || callerPhoto.isEmpty()) callerPhoto = safeGet(data, "fromPhoto");
-          if (callerName == null) return;
+          String _callerUid   = safeGet(data, "callerUid");
+          if (_callerUid == null || _callerUid.isEmpty()) _callerUid = safeGet(data, "fromUid");
+          String _callerName  = safeGet(data, "callerName");
+          if (_callerName == null || _callerName.isEmpty()) _callerName = safeGet(data, "fromName");
+          String _callerPhoto = safeGet(data, "callerPhoto");
+          if (_callerPhoto == null || _callerPhoto.isEmpty()) _callerPhoto = safeGet(data, "fromPhoto");
+          if (_callerName == null) return;
+
+          // Lambda ke liye final copies — reassigned vars lambda me use nahi ho sakti
+          final String callerUid   = _callerUid   != null ? _callerUid   : "";
+          final String callerName  = _callerName;
+          final String callerPhoto = _callerPhoto  != null ? _callerPhoto : "";
 
           // Check quiet hours
           com.callx.app.utils.QuietHoursManager qhm =
@@ -333,7 +338,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
           openIntent.setClassName(this, "com.callx.app.activities.ChatActivity");
           openIntent.putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_UID,   callerUid);
           openIntent.putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_NAME,  callerName);
-          openIntent.putExtra("partnerPhoto", callerPhoto != null ? callerPhoto : "");
+          openIntent.putExtra("partnerPhoto", callerPhoto);
           openIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
               android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
           android.app.PendingIntent openPi = android.app.PendingIntent.getActivity(
@@ -364,10 +369,10 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .addAction(R.drawable.ic_call_answer, "📞 Call Back", callBackPi)
               .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
 
-          // Download avatar async
+          // Download avatar async — final vars lambda me safely use ho sakti hain
           new Thread(() -> {
               try {
-                  if (callerPhoto != null && !callerPhoto.isEmpty()) {
+                  if (!callerPhoto.isEmpty()) {
                       java.net.HttpURLConnection c =
                           (java.net.HttpURLConnection) new java.net.URL(callerPhoto).openConnection();
                       c.setDoInput(true); c.connect();
