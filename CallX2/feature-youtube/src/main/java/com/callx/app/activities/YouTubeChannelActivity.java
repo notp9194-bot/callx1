@@ -33,6 +33,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
     private ImageView ivBanner;
     private TextView tvChannelName, tvHandle, tvSubs, tvBio, tvVideoCount;
     private Button btnSubscribe, btnEditChannel;
+    private android.widget.ImageButton btnSocialSheet;
     private RecyclerView rvVideos;
     private YouTubeVideoAdapter videoAdapter;
 
@@ -65,12 +66,18 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         tvVideoCount  = findViewById(R.id.tv_yt_video_count);
         btnSubscribe  = findViewById(R.id.btn_yt_channel_subscribe);
         btnEditChannel= findViewById(R.id.btn_yt_edit_channel);
+        btnSocialSheet= findViewById(R.id.btn_yt_social_sheet);
         rvVideos      = findViewById(R.id.rv_yt_channel_videos);
 
         // Show/hide edit vs subscribe
         isMyChannel = channelUid.equals(myUid);
         if (btnEditChannel != null) btnEditChannel.setVisibility(isMyChannel ? View.VISIBLE : View.GONE);
         if (btnSubscribe   != null) btnSubscribe.setVisibility(isMyChannel ? View.GONE : View.VISIBLE);
+        // Social sheet button — sirf doosre user ki channel pe show karo
+        if (btnSocialSheet != null) {
+            btnSocialSheet.setVisibility(isMyChannel ? View.GONE : View.VISIBLE);
+            btnSocialSheet.setOnClickListener(v -> openSocialProfileSheet());
+        }
 
         if (btnEditChannel != null)
             btnEditChannel.setOnClickListener(v ->
@@ -136,6 +143,31 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         loadChannel();
         loadVideos();
         if (!isMyChannel) loadSubscribeState();
+    }
+
+    // ── SOCIAL PROFILE SHEET ────────────────────────────────────────────
+    // Reels following/followers/mutual me avatar click wali wahi sheet
+    // ────────────────────────────────────────────────────────────────────
+    private void openSocialProfileSheet() {
+        if (channelUid == null || channelUid.isEmpty()) return;
+        String name  = tvChannelName != null && tvChannelName.getText() != null
+            ? tvChannelName.getText().toString() : "";
+        String photo = channelPhotoUrl != null ? channelPhotoUrl : "";
+        try {
+            Class<?> sheetClass = Class.forName(
+                "com.callx.app.activities.ReelUserProfileSheet");
+            java.lang.reflect.Method showMethod = sheetClass.getMethod(
+                "show",
+                android.app.Activity.class,
+                String.class, String.class, String.class);
+            showMethod.invoke(null, this, channelUid, name, photo);
+        } catch (ClassNotFoundException e) {
+            android.widget.Toast.makeText(this, "Social profile not available",
+                android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, "Could not open profile card",
+                android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void loadChannel() {

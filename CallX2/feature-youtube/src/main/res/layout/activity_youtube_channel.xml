@@ -130,6 +130,19 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <!-- ★ NEW — Social Profile Sheet button (subscribe se pehle) -->
+                <ImageButton
+                    android:id="@+id/btn_yt_social_sheet"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_person"
+                    android:background="@drawable/bg_yt_social_sheet_btn"
+                    android:tint="@color/white"
+                    android:contentDescription="Open Social Profile Card"
+                    android:padding="8dp"
+                    android:layout_marginEnd="8dp"
+                    android:visibility="gone"/>
+
                 <!-- Subscribe / Edit buttons -->
                 <Button
                     android:id="@+id/btn_yt_channel_subscribe"
