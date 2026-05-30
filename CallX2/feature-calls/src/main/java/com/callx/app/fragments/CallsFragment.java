@@ -3,6 +3,8 @@ package com.callx.app.fragments;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
@@ -28,14 +30,24 @@ import java.util.concurrent.Executors;
 
 public class CallsFragment extends Fragment implements CallHistoryAdapter.SelectionListener {
 
-    private final List<CallLog> logs = new ArrayList<>();
+    private final List<CallLog> allLogs = new ArrayList<>();   // master list
+    private final List<CallLog> logs    = new ArrayList<>();   // filtered/displayed
     private CallHistoryAdapter adapter;
     private View emptyState;
 
     private LinearLayout llOnlineUsers;
+    private LinearLayout llOnlinePanel;
     private TextView tvNoOnline;
     private LinearLayout llSelectionBar;
     private TextView tvSelectedCount;
+
+    // Filter chips
+    private TextView chipAll, chipMissed, chipContacts, chipNonspam, chipSpam;
+    private String activeFilter = "all";
+
+    // Search
+    private EditText etSearch;
+    private String searchQuery = "";
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle s) {
@@ -44,14 +56,23 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         RecyclerView rv = v.findViewById(R.id.rv_calls);
         emptyState      = v.findViewById(R.id.empty_calls);
         llOnlineUsers   = v.findViewById(R.id.ll_online_users);
+        llOnlinePanel   = v.findViewById(R.id.ll_online_panel);
         tvNoOnline      = v.findViewById(R.id.tv_no_online);
         llSelectionBar  = v.findViewById(R.id.ll_selection_bar);
         tvSelectedCount = v.findViewById(R.id.tv_selected_count);
+
+        chipAll      = v.findViewById(R.id.chip_all);
+        chipMissed   = v.findViewById(R.id.chip_missed);
+        chipContacts = v.findViewById(R.id.chip_contacts);
+        chipNonspam  = v.findViewById(R.id.chip_nonspam);
+        chipSpam     = v.findViewById(R.id.chip_spam);
+        etSearch     = v.findViewById(R.id.et_search_calls);
 
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
         adapter = new CallHistoryAdapter(logs, this);
         rv.setAdapter(adapter);
 
+        // Selection bar buttons
         v.findViewById(R.id.btn_cancel_selection_calls).setOnClickListener(x -> {
             adapter.clearSelection();
             if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
@@ -63,9 +84,87 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         v.findViewById(R.id.btn_delete_selected_calls).setOnClickListener(x ->
             confirmDeleteSelected());
 
+        // Filter chips
+        setupChip(chipAll,      "all");
+        setupChip(chipMissed,   "missed");
+        setupChip(chipContacts, "contacts");
+        setupChip(chipNonspam,  "nonspam");
+        setupChip(chipSpam,     "spam");
+
+        // Search
+        if (etSearch != null) {
+            etSearch.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int i, int c, int a) {}
+                @Override public void onTextChanged(CharSequence s, int i, int b, int c) {
+                    searchQuery = s.toString().trim().toLowerCase();
+                    applyFilter();
+                }
+                @Override public void afterTextChanged(Editable e) {}
+            });
+        }
+
         loadOnlineContacts();
         loadCallLogs();
         return v;
+    }
+
+    private void setupChip(TextView chip, String filter) {
+        if (chip == null) return;
+        chip.setOnClickListener(x -> {
+            activeFilter = filter;
+            updateChipUI();
+            applyFilter();
+        });
+    }
+
+    private void updateChipUI() {
+        if (getContext() == null) return;
+        setChipState(chipAll,      "all");
+        setChipState(chipMissed,   "missed");
+        setChipState(chipContacts, "contacts");
+        setChipState(chipNonspam,  "nonspam");
+        setChipState(chipSpam,     "spam");
+    }
+
+    private void setChipState(TextView chip, String filter) {
+        if (chip == null) return;
+        boolean selected = filter.equals(activeFilter);
+        chip.setBackgroundResource(selected ? R.drawable.chip_selected : R.drawable.chip_unselected);
+        chip.setTextColor(getResources().getColor(
+            selected ? android.R.color.white : R.color.text_primary, null));
+    }
+
+    private void applyFilter() {
+        logs.clear();
+        for (CallLog l : allLogs) {
+            // Search filter
+            if (!searchQuery.isEmpty()) {
+                String name = l.partnerName != null ? l.partnerName.toLowerCase() : "";
+                if (!name.contains(searchQuery)) continue;
+            }
+            // Tab filter
+            String dir = l.direction != null ? l.direction.toLowerCase() : "";
+            switch (activeFilter) {
+                case "missed":
+                    if (!dir.contains("missed")) continue;
+                    break;
+                case "contacts":
+                    if (l.partnerName == null || l.partnerName.isEmpty()) continue;
+                    break;
+                case "spam":
+                    if (!dir.contains("spam")) continue;
+                    break;
+                case "nonspam":
+                    if (dir.contains("spam") || dir.contains("missed")) continue;
+                    break;
+                default: // "all" — no filter
+                    break;
+            }
+            logs.add(l);
+        }
+        if (adapter != null) adapter.notifyDataSetChanged();
+        if (emptyState != null)
+            emptyState.setVisibility(logs.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
     // ── Online contacts ────────────────────────────────────────────────────
@@ -96,18 +195,17 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         final List<User> onlineUsers = new ArrayList<>();
         for (User u : contacts) {
             if (u.uid == null) { done[0]++; continue; }
-            // Exclude self — only show other users who are online
             if (myUid != null && myUid.equals(u.uid)) { done[0]++; continue; }
             FirebaseUtils.getUserRef(u.uid).addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot snap) {
                     Boolean online = snap.child("online").getValue(Boolean.class);
                     if (Boolean.TRUE.equals(online)) {
-                        String photo = snap.child("photoUrl").getValue(String.class);
+                        String photo  = snap.child("photoUrl").getValue(String.class);
                         String thumbu = snap.child("thumbUrl").getValue(String.class);
-                        String name  = snap.child("name").getValue(String.class);
-                        if (photo != null) u.photoUrl = photo;
+                        String name   = snap.child("name").getValue(String.class);
+                        if (photo  != null) u.photoUrl = photo;
                         if (thumbu != null) u.thumbUrl = thumbu;
-                        if (name  != null) u.name     = name;
+                        if (name   != null) u.name     = name;
                         onlineUsers.add(u);
                     }
                     done[0]++;
@@ -125,8 +223,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         if (getContext() == null || llOnlineUsers == null) return;
         llOnlineUsers.removeAllViews();
         if (users.isEmpty()) { showNoOnline(); return; }
-        tvNoOnline.setVisibility(View.GONE);
-        llOnlineUsers.setVisibility(View.VISIBLE);
+        if (llOnlinePanel != null) llOnlinePanel.setVisibility(View.VISIBLE);
         LayoutInflater inf = LayoutInflater.from(getContext());
         for (User u : users) {
             View item = inf.inflate(R.layout.item_online_user, llOnlineUsers, false);
@@ -146,8 +243,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
     }
 
     private void showNoOnline() {
-        if (llOnlineUsers != null) llOnlineUsers.setVisibility(View.GONE);
-        if (tvNoOnline    != null) tvNoOnline.setVisibility(View.VISIBLE);
+        if (llOnlinePanel != null) llOnlinePanel.setVisibility(View.GONE);
     }
 
     private void openChat(User u) {
@@ -160,7 +256,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
 
     // ── Call Logs — v16 Offline-First ─────────────────────────────────────
     private void loadCallLogs() {
-        // Step 1: Room se turant cached logs dikhao
         if (getContext() != null) {
             AppDatabase db = AppDatabase.getInstance(getContext());
             Executors.newSingleThreadExecutor().execute(() -> {
@@ -180,11 +275,9 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                     }
                     if (getActivity() != null) {
                         getActivity().runOnUiThread(() -> {
-                            if (logs.isEmpty()) {
-                                logs.addAll(roomLogs);
-                                if (adapter != null) adapter.notifyDataSetChanged();
-                                if (emptyState != null)
-                                    emptyState.setVisibility(logs.isEmpty() ? View.VISIBLE : View.GONE);
+                            if (allLogs.isEmpty()) {
+                                allLogs.addAll(roomLogs);
+                                applyFilter();
                             }
                         });
                     }
@@ -192,20 +285,17 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             });
         }
 
-        // Step 2: Firebase se sync karo + Room mein save karo
         String uid = FirebaseUtils.getCurrentUid();
         if (uid == null) return;
         FirebaseUtils.getCallsRef(uid).addValueEventListener(new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
-                logs.clear();
+                allLogs.clear();
                 List<CallLogEntity> toSave = new ArrayList<>();
                 for (DataSnapshot c : snap.getChildren()) {
                     CallLog l = c.getValue(CallLog.class);
                     if (l != null) {
                         if (l.id == null) l.id = c.getKey();
-                        logs.add(l);
-
-                        // v16: Room mein save karo
+                        allLogs.add(l);
                         CallLogEntity entity = new CallLogEntity();
                         entity.id          = l.id;
                         entity.partnerUid  = l.partnerUid;
@@ -217,16 +307,13 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                         toSave.add(entity);
                     }
                 }
-                Collections.sort(logs, (a, b) -> {
+                Collections.sort(allLogs, (a, b) -> {
                     long ta = a.timestamp == null ? 0 : a.timestamp;
                     long tb = b.timestamp == null ? 0 : b.timestamp;
                     return Long.compare(tb, ta);
                 });
-                if (adapter != null) adapter.notifyDataSetChanged();
-                if (emptyState != null)
-                    emptyState.setVisibility(logs.isEmpty() ? View.VISIBLE : View.GONE);
+                applyFilter();
 
-                // Background pe Room save
                 if (getContext() != null && !toSave.isEmpty()) {
                     AppDatabase db = AppDatabase.getInstance(getContext());
                     Executors.newSingleThreadExecutor().execute(() ->
@@ -268,11 +355,9 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         List<CallLog> selected = adapter.getSelectedItems();
         for (CallLog l : selected)
             if (l.id != null) FirebaseUtils.getCallsRef(uid).child(l.id).removeValue();
-        logs.removeAll(selected);
+        allLogs.removeAll(selected);
         adapter.clearSelection();
-        adapter.notifyDataSetChanged();
+        applyFilter();
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
-        if (emptyState != null)
-            emptyState.setVisibility(logs.isEmpty() ? View.VISIBLE : View.GONE);
     }
 }

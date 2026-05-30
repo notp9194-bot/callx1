@@ -1,119 +1,113 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView
+<!-- Google Phone style call history item: flat, no card elevation, divider-separated -->
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="8dp"
-    app:cardCornerRadius="14dp"
-    app:cardElevation="2dp"
-    app:cardBackgroundColor="@color/surface_card">
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp"
+    android:gravity="center_vertical"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true">
 
+    <!-- Avatar -->
+    <FrameLayout
+        android:layout_width="48dp"
+        android:layout_height="48dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            android:clickable="true"
+            android:focusable="true"
+            app:civ_border_width="0dp"/>
+
+        <!-- Story ring -->
+        <ImageView
+            android:id="@+id/iv_story_ring"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:background="@drawable/circle_status_unseen"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone"/>
+
+    </FrameLayout>
+
+    <!-- Name + call meta -->
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="14dp"
-        android:gravity="center_vertical">
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="14dp">
 
-        <!-- Avatar with Story Ring -->
-        <FrameLayout
-            android:layout_width="52dp"
-            android:layout_height="52dp">
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_avatar"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_person"
-                android:clickable="true"
-                android:focusable="true"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="@color/divider"/>
-
-            <!-- Story ring (unseen=colored, seen=gray, gone=no status) -->
-            <ImageView
-                android:id="@+id/iv_story_ring"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:layout_gravity="center"
-                android:background="@drawable/circle_status_unseen"
-                android:clickable="true"
-                android:focusable="true"
-                android:visibility="gone"/>
-
-        </FrameLayout>
-
-        <!-- Name + Meta -->
-        <LinearLayout
-            android:layout_width="0dp"
+        <TextView
+            android:id="@+id/tv_name"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="13dp">
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:clickable="true"
+            android:focusable="true"/>
 
-            <TextView
-                android:id="@+id/tv_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/text_primary"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="3dp">
-
-                <ImageView
-                    android:id="@+id/iv_direction"
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
-                    android:src="@drawable/ic_phone"
-                    android:layout_marginEnd="5dp"/>
-
-                <TextView
-                    android:id="@+id/tv_meta"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"/>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- Call Back Buttons -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:layout_marginTop="2dp">
 
-            <ImageButton
-                android:id="@+id/btn_video_call"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:src="@drawable/ic_video_call"
-                android:tint="@color/white"
-                android:background="@drawable/gradient_video_btn"
-                android:layout_marginEnd="8dp"
-                android:padding="8dp"
-                android:contentDescription="Video call"/>
-
-            <ImageButton
-                android:id="@+id/btn_call_back"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
+            <!-- Direction arrow icon (incoming/outgoing/missed) -->
+            <ImageView
+                android:id="@+id/iv_direction"
+                android:layout_width="13dp"
+                android:layout_height="13dp"
                 android:src="@drawable/ic_phone"
-                android:tint="@color/white"
-                android:background="@drawable/gradient_call_btn"
-                android:padding="9dp"
-                android:contentDescription="Voice call"/>
-        </LinearLayout>
+                android:layout_marginEnd="5dp"/>
 
+            <!-- e.g. "Phone · 9:39 AM" or "Phone · (5) · 9:39 AM" -->
+            <TextView
+                android:id="@+id/tv_meta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"/>
+
+        </LinearLayout>
     </LinearLayout>
-</androidx.cardview.widget.CardView>
+
+    <!-- Callback phone icon (right side, simple like Google Phone) -->
+    <ImageView
+        android:id="@+id/btn_call_back"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:src="@drawable/ic_phone"
+        android:tint="@color/text_secondary"
+        android:padding="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Voice call"/>
+
+    <!-- Hidden video btn kept for adapter compatibility -->
+    <ImageButton
+        android:id="@+id/btn_video_call"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        android:contentDescription="Video call"/>
+
+</LinearLayout>
