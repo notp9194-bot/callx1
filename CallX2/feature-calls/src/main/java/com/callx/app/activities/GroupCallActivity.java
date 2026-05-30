@@ -639,9 +639,10 @@ public class GroupCallActivity extends AppCompatActivity {
             }
             @Override public void onIceConnectionReceivingChange(boolean b) {}
             @Override public void onIceGatheringChange(PeerConnection.IceGatheringState s) {}
-            // FIX-6: onAddStream removed — deprecated in Unified Plan and fires alongside
-            // onAddTrack, causing double addSink on the same VideoTrack → duplicate rendering
-            // or crash. Use only onAddTrack (below).
+            // FIX-6: onAddStream kept as empty stub (interface requires it) but does NOT
+            // attach any sink — actual video attachment is handled solely by onAddTrack
+            // below, preventing the double-sink / duplicate-rendering bug.
+            @Override public void onAddStream(MediaStream stream) {}
             @Override public void onRemoveStream(MediaStream stream) {}
             @Override public void onDataChannel(DataChannel dc) {}
             @Override public void onRenegotiationNeeded() {}

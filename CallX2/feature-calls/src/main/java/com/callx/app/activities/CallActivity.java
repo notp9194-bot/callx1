@@ -748,7 +748,7 @@ public class CallActivity extends AppCompatActivity {
                 // FIX-8: also write to Room immediately so cache stays consistent
                 // even if Firebase listener times out before CallsFragment syncs
                 final long fDur = dur;
-                bgExec.execute(() -> {
+                bgExecutor.execute(() -> {
                     try {
                         CallLogEntity entity = new CallLogEntity();
                         entity.id          = java.util.UUID.randomUUID().toString();
