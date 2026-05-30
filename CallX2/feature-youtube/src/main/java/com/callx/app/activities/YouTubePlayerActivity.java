@@ -89,6 +89,15 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private ValueEventListener likeListener;
     private ValueEventListener subsListener;
 
+    // Social Profile Button + animated avatars
+    private View            btnYtSocialProfile;
+    private CircleImageView ivYtAnimChat;
+    private CircleImageView ivYtAnimX;
+    private CircleImageView ivYtAnimYoutube;
+    private String          uploaderChatPhotoUrl  = null;
+    private String          uploaderXPhotoUrl     = null;
+    private String          uploaderYtPhotoUrl    = null;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -134,6 +143,12 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         btnDownload     = findViewById(R.id.btn_yt_download); // FIX #1: Was missing — download button ab kaam karega
         rvRelated       = findViewById(R.id.rv_yt_related);
 
+        // Social Profile Button + animated avatars
+        btnYtSocialProfile = findViewById(R.id.btn_yt_social_profile);
+        ivYtAnimChat       = findViewById(R.id.iv_yt_anim_chat);
+        ivYtAnimX          = findViewById(R.id.iv_yt_anim_x);
+        ivYtAnimYoutube    = findViewById(R.id.iv_yt_anim_youtube);
+
         showPlayerLoading(true);
 
         relatedAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video -> {
@@ -175,6 +190,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (btnDislike   != null) btnDislike.setOnClickListener(v -> toggleDislike());
         if (btnSubscribe != null) btnSubscribe.setOnClickListener(v -> toggleSubscribe());
         if (btnShare     != null) btnShare.setOnClickListener(v -> shareVideo());
+        if (btnYtSocialProfile != null) btnYtSocialProfile.setOnClickListener(v -> openSocialProfileWithAnimation());
         if (btnDownload  != null) {
             btnDownload.setOnClickListener(v -> downloadCurrentVideo());
             // Already downloaded? Icon change karo
@@ -297,6 +313,13 @@ public class YouTubePlayerActivity extends AppCompatActivity {
 
                 Glide.with(YouTubePlayerActivity.this)
                     .load(v.uploaderPhotoUrl).circleCrop().into(ivChannelAvatar);
+
+                // Pre-load all 3 avatar URLs for social profile animation
+                uploaderYtPhotoUrl   = v.uploaderPhotoUrl;
+                uploaderChatPhotoUrl = v.uploaderPhotoUrl; // fallback, updated in prefetch
+                if (v.uploaderUid != null && !v.uploaderUid.isEmpty()) {
+                    prefetchSocialAvatars(v.uploaderUid);
+                }
 
                 ivChannelAvatar.setOnClickListener(cv ->
                     startActivity(new Intent(YouTubePlayerActivity.this,
@@ -1325,4 +1348,193 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (months< 12)  return months+ (months== 1 ? " month ago"   : " months ago");
         return years + (years == 1 ? " year ago" : " years ago");
     }
+
+    // ── Social Profile Avatar Prefetch ────────────────────────────────────────
+    /** Background mein teeno platforms ke avatar URLs fetch karo */
+    private void prefetchSocialAvatars(String uid) {
+        FirebaseDatabase db = FirebaseDatabase.getInstance(
+            "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app");
+
+        // Chat (CallX) avatar
+        db.getReference("users").child(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    uploaderChatPhotoUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                    if (uploaderChatPhotoUrl != null && ivYtAnimChat != null)
+                        Glide.with(YouTubePlayerActivity.this)
+                            .load(uploaderChatPhotoUrl).circleCrop().preload();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+
+        // X avatar
+        db.getReference("x/users").child(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    uploaderXPhotoUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                    if (uploaderXPhotoUrl != null && ivYtAnimX != null)
+                        Glide.with(YouTubePlayerActivity.this)
+                            .load(uploaderXPhotoUrl).circleCrop().preload();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+
+        // YouTube avatar (already set from video, but refresh from channel node if available)
+        db.getReference("youtube/channels").child(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    if (photo != null && !photo.isEmpty()) {
+                        uploaderYtPhotoUrl = photo;
+                        if (ivYtAnimYoutube != null)
+                            Glide.with(YouTubePlayerActivity.this)
+                                .load(uploaderYtPhotoUrl).circleCrop().preload();
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    // ── Social Profile Button Animation + Sheet Open ──────────────────────────
+    /**
+     * Button click pe:
+     * 1) Chat avatar center se 0→48dp zoom in → fade out
+     * 2) X avatar center se 0→48dp zoom in → fade out
+     * 3) YouTube avatar center se 0→48dp zoom in → fade out
+     * 4) ReelUserProfileSheet.show(...) open
+     */
+    private void openSocialProfileWithAnimation() {
+        if (currentVideo == null) return;
+
+        String uid   = currentVideo.uploaderUid;
+        String name  = currentVideo.uploaderName  != null ? currentVideo.uploaderName  : "";
+        String photo = currentVideo.uploaderPhotoUrl != null ? currentVideo.uploaderPhotoUrl : "";
+
+        if (ivYtAnimChat == null || ivYtAnimX == null || ivYtAnimYoutube == null) {
+            // Fallback — seedha sheet open
+            openReelUserProfileSheet(uid, name, photo);
+            return;
+        }
+
+        // Load avatars into animated views
+        String chatUrl = uploaderChatPhotoUrl != null ? uploaderChatPhotoUrl : photo;
+        String xUrl    = uploaderXPhotoUrl    != null ? uploaderXPhotoUrl    : photo;
+        String ytUrl   = uploaderYtPhotoUrl   != null ? uploaderYtPhotoUrl   : photo;
+
+        Glide.with(this).load(chatUrl).circleCrop().into(ivYtAnimChat);
+        Glide.with(this).load(xUrl).circleCrop().into(ivYtAnimX);
+        Glide.with(this).load(ytUrl).circleCrop().into(ivYtAnimYoutube);
+
+        // Reset all
+        ivYtAnimChat.setVisibility(View.GONE);
+        ivYtAnimX.setVisibility(View.GONE);
+        ivYtAnimYoutube.setVisibility(View.GONE);
+        ivYtAnimChat.setScaleX(0f); ivYtAnimChat.setScaleY(0f); ivYtAnimChat.setAlpha(1f);
+        ivYtAnimX.setScaleX(0f);    ivYtAnimX.setScaleY(0f);    ivYtAnimX.setAlpha(1f);
+        ivYtAnimYoutube.setScaleX(0f); ivYtAnimYoutube.setScaleY(0f); ivYtAnimYoutube.setAlpha(1f);
+
+        long zoomDur  = 280; // ms — zoom in duration
+        long fadeDur  = 200; // ms — fade out duration
+        long gapDelay =  80; // ms — gap between avatars
+
+        // Step 1: Chat avatar zoom in
+        ivYtAnimChat.setVisibility(View.VISIBLE);
+        android.animation.ObjectAnimator chatZoomX = android.animation.ObjectAnimator.ofFloat(ivYtAnimChat, "scaleX", 0f, 1f);
+        android.animation.ObjectAnimator chatZoomY = android.animation.ObjectAnimator.ofFloat(ivYtAnimChat, "scaleY", 0f, 1f);
+        android.animation.AnimatorSet chatZoom = new android.animation.AnimatorSet();
+        chatZoom.playTogether(chatZoomX, chatZoomY);
+        chatZoom.setDuration(zoomDur);
+        chatZoom.setInterpolator(new android.view.animation.OvershootInterpolator(1.2f));
+
+        // Step 1b: Chat fade out
+        android.animation.ObjectAnimator chatFade = android.animation.ObjectAnimator.ofFloat(ivYtAnimChat, "alpha", 1f, 0f);
+        chatFade.setDuration(fadeDur);
+
+        // Step 2: X avatar zoom in
+        android.animation.ObjectAnimator xZoomX = android.animation.ObjectAnimator.ofFloat(ivYtAnimX, "scaleX", 0f, 1f);
+        android.animation.ObjectAnimator xZoomY = android.animation.ObjectAnimator.ofFloat(ivYtAnimX, "scaleY", 0f, 1f);
+        android.animation.AnimatorSet xZoom = new android.animation.AnimatorSet();
+        xZoom.playTogether(xZoomX, xZoomY);
+        xZoom.setDuration(zoomDur);
+        xZoom.setInterpolator(new android.view.animation.OvershootInterpolator(1.2f));
+
+        // Step 2b: X fade out
+        android.animation.ObjectAnimator xFade = android.animation.ObjectAnimator.ofFloat(ivYtAnimX, "alpha", 1f, 0f);
+        xFade.setDuration(fadeDur);
+
+        // Step 3: YouTube avatar zoom in
+        android.animation.ObjectAnimator ytZoomX = android.animation.ObjectAnimator.ofFloat(ivYtAnimYoutube, "scaleX", 0f, 1f);
+        android.animation.ObjectAnimator ytZoomY = android.animation.ObjectAnimator.ofFloat(ivYtAnimYoutube, "scaleY", 0f, 1f);
+        android.animation.AnimatorSet ytZoom = new android.animation.AnimatorSet();
+        ytZoom.playTogether(ytZoomX, ytZoomY);
+        ytZoom.setDuration(zoomDur);
+        ytZoom.setInterpolator(new android.view.animation.OvershootInterpolator(1.2f));
+
+        // Step 3b: YouTube fade out
+        android.animation.ObjectAnimator ytFade = android.animation.ObjectAnimator.ofFloat(ivYtAnimYoutube, "alpha", 1f, 0f);
+        ytFade.setDuration(fadeDur);
+
+        // Chain: chatZoom → chatFade → xShow → xZoom → xFade → ytShow → ytZoom → ytFade → openSheet
+        chatZoom.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                chatFade.start();
+            }
+        });
+        chatFade.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                ivYtAnimChat.setVisibility(View.GONE);
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    ivYtAnimX.setVisibility(View.VISIBLE);
+                    xZoom.start();
+                }, gapDelay);
+            }
+        });
+        xZoom.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                xFade.start();
+            }
+        });
+        xFade.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                ivYtAnimX.setVisibility(View.GONE);
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    ivYtAnimYoutube.setVisibility(View.VISIBLE);
+                    ytZoom.start();
+                }, gapDelay);
+            }
+        });
+        ytZoom.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                ytFade.start();
+            }
+        });
+        ytFade.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                ivYtAnimYoutube.setVisibility(View.GONE);
+                openReelUserProfileSheet(uid, name, photo);
+            }
+        });
+
+        // Start chain
+        chatZoom.start();
+    }
+
+    /** ReelUserProfileSheet ko reflection se open karo (cross-module safe) */
+    private void openReelUserProfileSheet(String uid, String name, String photo) {
+        if (uid == null || uid.isEmpty()) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.ReelUserProfileSheet");
+            java.lang.reflect.Method m = cls.getMethod("show",
+                android.app.Activity.class, String.class, String.class, String.class, boolean.class);
+            m.invoke(null, this, uid, name, photo, true); // hideYoutube=true (already on YouTube)
+        } catch (Exception ex) {
+            Log.e(TAG, "ReelUserProfileSheet open failed: " + ex.getMessage());
+            Toast.makeText(this, "Profile not available", Toast.LENGTH_SHORT).show();
+        }
+    }
 }
+
