@@ -6,7 +6,7 @@
     android:orientation="vertical"
     android:background="?attr/colorSurface">
 
-    <!-- Selection action bar -->
+    <!-- Selection bar -->
     <LinearLayout
         android:id="@+id/ll_selection_bar"
         android:layout_width="match_parent"
@@ -74,70 +74,190 @@
             android:focusable="true"/>
     </LinearLayout>
 
-    <!-- Online Users Panel -->
-    <androidx.cardview.widget.CardView
+    <!-- Search bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:orientation="horizontal"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/bg_search_bar"
+        android:gravity="center_vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp">
+
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_search"
+            android:alpha="0.45"
+            android:layout_marginEnd="10dp"/>
+
+        <EditText
+            android:id="@+id/et_search_calls"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:hint="Search contacts"
+            android:textColorHint="@color/text_muted"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:background="@null"
+            android:singleLine="true"
+            android:imeOptions="actionSearch"
+            android:inputType="text"/>
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_mic"
+            android:alpha="0.5"
+            android:layout_marginStart="8dp"/>
+    </LinearLayout>
+
+    <!-- Filter chips: All / Missed / Contacts / Non-spam / Spam -->
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="12dp"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="3dp"
-        app:cardBackgroundColor="@color/surface_card">
+        android:scrollbars="none"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="8dp">
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="12dp">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <TextView
+                android:id="@+id/chip_all"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="ONLINE NOW"
-                android:textColor="@color/text_muted"
-                android:textSize="11sp"
-                android:letterSpacing="0.12"
-                android:textStyle="bold"
-                android:paddingBottom="8dp"/>
-
-            <HorizontalScrollView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:scrollbars="none">
-
-                <LinearLayout
-                    android:id="@+id/ll_online_users"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"/>
-            </HorizontalScrollView>
-
-            <TextView
-                android:id="@+id/tv_no_online"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="No contacts online right now"
-                android:textColor="@color/text_muted"
-                android:textSize="12sp"
+                android:layout_height="34dp"
+                android:text="All"
                 android:gravity="center"
-                android:layout_gravity="center"
-                android:visibility="gone"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp"/>
-        </LinearLayout>
-    </androidx.cardview.widget.CardView>
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:background="@drawable/chip_selected"
+                android:textColor="@color/white"
+                android:layout_marginEnd="8dp"
+                android:clickable="true"
+                android:focusable="true"/>
 
-    <TextView
+            <TextView
+                android:id="@+id/chip_missed"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="Missed"
+                android:gravity="center"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:textSize="13sp"
+                android:background="@drawable/chip_unselected"
+                android:textColor="@color/text_primary"
+                android:layout_marginEnd="8dp"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <TextView
+                android:id="@+id/chip_contacts"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="Contacts"
+                android:gravity="center"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:textSize="13sp"
+                android:background="@drawable/chip_unselected"
+                android:textColor="@color/text_primary"
+                android:layout_marginEnd="8dp"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <TextView
+                android:id="@+id/chip_nonspam"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="Non-spam"
+                android:gravity="center"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:textSize="13sp"
+                android:background="@drawable/chip_unselected"
+                android:textColor="@color/text_primary"
+                android:layout_marginEnd="8dp"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <TextView
+                android:id="@+id/chip_spam"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="Spam"
+                android:gravity="center"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:textSize="13sp"
+                android:background="@drawable/chip_unselected"
+                android:textColor="@color/text_primary"
+                android:clickable="true"
+                android:focusable="true"/>
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Online users (hidden until someone is online) -->
+    <LinearLayout
+        android:id="@+id/ll_online_panel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="RECENT CALLS"
-        android:textColor="@color/text_muted"
-        android:textSize="11sp"
-        android:letterSpacing="0.12"
-        android:textStyle="bold"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="8dp"/>
+        android:orientation="vertical"
+        android:visibility="gone">
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ONLINE NOW"
+            android:textColor="@color/text_muted"
+            android:textSize="11sp"
+            android:letterSpacing="0.1"
+            android:textStyle="bold"
+            android:paddingStart="16dp"
+            android:paddingBottom="6dp"/>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:id="@+id/ll_online_users"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+    <!-- Hidden compat views (used in Java, must exist) -->
+    <TextView
+        android:id="@+id/tv_no_online"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"/>
+
+    <!-- Divider above list -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="@color/divider"/>
+
+    <!-- Calls RecyclerView -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -147,8 +267,6 @@
             android:id="@+id/rv_calls"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
             android:paddingBottom="12dp"
             android:clipToPadding="false"/>
 
@@ -162,28 +280,29 @@
             android:visibility="gone">
 
             <ImageView
-                android:layout_width="72dp"
-                android:layout_height="72dp"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
                 android:src="@drawable/ic_phone"
-                android:alpha="0.2"/>
+                android:alpha="0.18"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="No call history yet"
                 android:textColor="@color/text_secondary"
-                android:textSize="16sp"
+                android:textSize="15sp"
                 android:textStyle="bold"
-                android:layout_marginTop="16dp"/>
+                android:layout_marginTop="14dp"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Your recent calls will appear here"
                 android:textColor="@color/text_muted"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:gravity="center"
-                android:layout_marginTop="6dp"/>
+                android:layout_marginTop="5dp"/>
         </LinearLayout>
     </FrameLayout>
+
 </LinearLayout>
