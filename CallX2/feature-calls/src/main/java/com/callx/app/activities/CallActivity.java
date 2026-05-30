@@ -765,19 +765,37 @@ public class CallActivity extends AppCompatActivity {
             callRef.child("status").setValue("ended");
             String myUid = FirebaseUtils.getCurrentUid();
             if (myUid != null) {
-                Map<String, Object> log = new HashMap<>();
-                log.put("partnerUid",  partnerUid);
-                log.put("partnerName", partnerName);
-                log.put("direction",   isCaller ? "outgoing" : "incoming");
-                log.put("mediaType",   isVideo ? "video" : "audio");
-                log.put("timestamp",   System.currentTimeMillis());
-                log.put("duration",    dur);
-                FirebaseUtils.getCallsRef(myUid).push().setValue(log)
-                    .addOnSuccessListener(aVoid -> { /* Firebase logged */ })
-                    .addOnFailureListener(e -> android.util.Log.w("CallActivity", "Firebase log failed", e));
-                // FIX-8: also write to Room immediately so cache stays consistent
-                // even if Firebase listener times out before CallsFragment syncs
                 final long fDur = dur;
+                final long fTimestamp = System.currentTimeMillis();
+                final String fMediaType = isVideo ? "video" : "audio";
+
+                // ── A ke liye log (caller=outgoing, callee=incoming) ──
+                Map<String, Object> myLog = new HashMap<>();
+                myLog.put("partnerUid",  partnerUid);
+                myLog.put("partnerName", partnerName);
+                myLog.put("direction",   isCaller ? "outgoing" : "incoming");
+                myLog.put("mediaType",   fMediaType);
+                myLog.put("timestamp",   fTimestamp);
+                myLog.put("duration",    fDur);
+                FirebaseUtils.getCallsRef(myUid).push().setValue(myLog)
+                    .addOnFailureListener(e -> android.util.Log.w("CallActivity", "Firebase my-log failed", e));
+
+                // ── Partner ke liye bhi log — opposite direction ──
+                // A calls B: A=outgoing → B=incoming  |  B answers A: B=incoming → A=outgoing
+                if (partnerUid != null && !partnerUid.isEmpty()) {
+                    String myName = FirebaseUtils.getCurrentName();
+                    Map<String, Object> partnerLog = new HashMap<>();
+                    partnerLog.put("partnerUid",  myUid);
+                    partnerLog.put("partnerName", myName != null ? myName : "");
+                    partnerLog.put("direction",   isCaller ? "incoming" : "outgoing");
+                    partnerLog.put("mediaType",   fMediaType);
+                    partnerLog.put("timestamp",   fTimestamp);
+                    partnerLog.put("duration",    fDur);
+                    FirebaseUtils.getCallsRef(partnerUid).push().setValue(partnerLog)
+                        .addOnFailureListener(e -> android.util.Log.w("CallActivity", "Firebase partner-log failed", e));
+                }
+
+                // ── Room cache — apne liye ──
                 bgExecutor.execute(() -> {
                     try {
                         CallLogEntity entity = new CallLogEntity();
@@ -785,8 +803,8 @@ public class CallActivity extends AppCompatActivity {
                         entity.partnerUid  = partnerUid;
                         entity.partnerName = partnerName;
                         entity.direction   = isCaller ? "outgoing" : "incoming";
-                        entity.mediaType   = isVideo ? "video" : "audio";
-                        entity.timestamp   = System.currentTimeMillis();
+                        entity.mediaType   = fMediaType;
+                        entity.timestamp   = fTimestamp;
                         entity.duration    = fDur;
                         AppDatabase.getInstance(getApplicationContext())
                             .callLogDao().insertCallLog(entity);

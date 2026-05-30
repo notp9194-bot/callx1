@@ -82,20 +82,23 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         int nameColor, dirIconColor, dirIconRes;
 
         if (dir.contains("missed")) {
+            // Red — missed call
             typeLabel    = isVideo ? "Missed Video Call" : "Missed Voice Call";
             nameColor    = Color.parseColor("#EF4444");
             dirIconRes   = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
             dirIconColor = Color.parseColor("#EF4444");
-        } else if (dir.contains("incoming") || dir.contains("in")) {
+        } else if (dir.contains("incoming")) {
+            // Yellow — incoming call
             typeLabel    = isVideo ? "Incoming Video Call" : "Incoming Voice Call";
+            nameColor    = Color.parseColor("#F59E0B");
+            dirIconRes   = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
+            dirIconColor = Color.parseColor("#F59E0B");
+        } else {
+            // Green — outgoing call
+            typeLabel    = isVideo ? "Outgoing Video Call" : "Outgoing Voice Call";
             nameColor    = Color.parseColor("#22C55E");
             dirIconRes   = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
             dirIconColor = Color.parseColor("#22C55E");
-        } else {
-            typeLabel    = isVideo ? "Outgoing Video Call" : "Outgoing Voice Call";
-            nameColor    = Color.parseColor("#5B5BF6");
-            dirIconRes   = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
-            dirIconColor = Color.parseColor("#5B5BF6");
         }
 
         h.tvName.setTextColor(nameColor);
@@ -107,7 +110,10 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         String meta = typeLabel + "  •  " + when + (dur.isEmpty() ? "" : "  •  " + dur);
         h.tvMeta.setText(meta);
         h.tvMeta.setTextColor(dir.contains("missed")
-            ? Color.parseColor("#EF4444") : Color.parseColor("#64748B"));
+            ? Color.parseColor("#EF4444")
+            : dir.contains("incoming")
+                ? Color.parseColor("#F59E0B")
+                : Color.parseColor("#64748B"));
 
         // Load avatar — also cache resolved URL for bottom sheet
         if (l.partnerUid != null && !l.partnerUid.isEmpty() && h.ivAvatar != null) {

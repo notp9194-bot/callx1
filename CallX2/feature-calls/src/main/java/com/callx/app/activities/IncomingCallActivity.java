@@ -18,6 +18,12 @@
   import com.google.firebase.database.DataSnapshot;
   import com.google.firebase.database.DatabaseError;
   import com.google.firebase.database.ValueEventListener;
+  import com.callx.app.db.AppDatabase;
+  import com.callx.app.db.entity.CallLogEntity;
+  import com.callx.app.utils.FirebaseUtils;
+  import java.util.HashMap;
+  import java.util.Map;
+  import java.util.concurrent.Executors;
   public class IncomingCallActivity extends AppCompatActivity {
       private ActivityIncomingCallBinding binding;
       private MediaPlayer ringtonePlayer;
@@ -139,7 +145,70 @@
               FirebaseUtils.db().getReference("activeCalls")
                   .child(callId).child("status").setValue("rejected");
           }
+          // ── Missed call log ──────────────────────────────────────────────
+          // B (callee) ne reject/ignore kiya → dono ke liye "missed" entry likho
+          logMissedCall();
           finish();
+      }
+
+      /**
+       * Dono parties ke Firebase call log me "missed" entry likhta hai:
+       *   B (callee/hum) → direction = "missed"
+       *   A (caller/fromUid) → direction = "missed"
+       * Aur B ke Room DB me bhi cache karta hai.
+       */
+      private void logMissedCall() {
+          String myUid = FirebaseUtils.getCurrentUid();
+          if (myUid == null || fromUid == null || fromUid.isEmpty()) return;
+
+          long ts = System.currentTimeMillis();
+          String media = isVideo ? "video" : "audio";
+
+          // ── B ke liye (callee = hum) ──
+          Map<String, Object> myMissed = new HashMap<>();
+          myMissed.put("partnerUid",  fromUid);
+          myMissed.put("partnerName", fromName != null ? fromName : "");
+          myMissed.put("direction",   "missed");
+          myMissed.put("mediaType",   media);
+          myMissed.put("timestamp",   ts);
+          myMissed.put("duration",    0L);
+          FirebaseUtils.getCallsRef(myUid).push().setValue(myMissed)
+              .addOnFailureListener(e -> android.util.Log.w("IncomingCall", "B missed-log failed", e));
+
+          // ── A ke liye (caller = fromUid) — unhe bhi missed dikhao ──
+          FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot snap) {
+                  String myName = snap.child("name").getValue(String.class);
+                  Map<String, Object> callerMissed = new HashMap<>();
+                  callerMissed.put("partnerUid",  myUid);
+                  callerMissed.put("partnerName", myName != null ? myName : "");
+                  callerMissed.put("direction",   "missed");
+                  callerMissed.put("mediaType",   media);
+                  callerMissed.put("timestamp",   ts);
+                  callerMissed.put("duration",    0L);
+                  FirebaseUtils.getCallsRef(fromUid).push().setValue(callerMissed)
+                      .addOnFailureListener(e -> android.util.Log.w("IncomingCall", "A missed-log failed", e));
+              }
+              @Override public void onCancelled(DatabaseError e) {}
+          });
+
+          // ── Room cache — B ke liye ──
+          Executors.newSingleThreadExecutor().execute(() -> {
+              try {
+                  CallLogEntity entity = new CallLogEntity();
+                  entity.id          = java.util.UUID.randomUUID().toString();
+                  entity.partnerUid  = fromUid;
+                  entity.partnerName = fromName != null ? fromName : "";
+                  entity.direction   = "missed";
+                  entity.mediaType   = media;
+                  entity.timestamp   = ts;
+                  entity.duration    = 0L;
+                  AppDatabase.getInstance(getApplicationContext())
+                      .callLogDao().insertCallLog(entity);
+              } catch (Exception ex) {
+                  android.util.Log.w("IncomingCall", "Room missed-log failed", ex);
+              }
+          });
       }
       private void stopIncomingRingService() {
           try { stopService(new Intent(this, IncomingRingService.class)); }
