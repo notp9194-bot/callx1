@@ -793,5 +793,21 @@
             </intent-filter>
         </activity>
 
+        <!-- ── feature-games ── -->
+        <activity
+            android:name="com.callx.app.activities.GamesHubActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:hardwareAccelerated="true"
+            android:theme="@style/Theme.Games"/>
+
+        <activity
+            android:name="com.callx.app.activities.GameActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:hardwareAccelerated="true"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/Theme.Games.Fullscreen"/>
+
       </application>
 </manifest>

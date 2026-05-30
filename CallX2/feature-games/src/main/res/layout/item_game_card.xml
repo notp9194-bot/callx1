@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_game_card"
+    android:layout_marginBottom="12dp"
+    android:padding="16dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Game emoji / icon -->
+    <TextView
+        android:id="@+id/tv_game_emoji"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:gravity="center"
+        android:textSize="32sp"
+        android:background="#2A1A4A"
+        android:text="🎮"/>
+
+    <!-- Name + description -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="14dp"
+        android:layout_marginEnd="8dp">
+
+        <TextView
+            android:id="@+id/tv_game_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bubble Pop"
+            android:textColor="@color/games_text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:id="@+id/tv_game_desc"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bubbles phodo, score badhao!"
+            android:textColor="@color/games_text_secondary"
+            android:textSize="13sp"
+            android:maxLines="2"
+            android:ellipsize="end"/>
+
+    </LinearLayout>
+
+    <!-- Play button -->
+    <LinearLayout
+        android:id="@+id/btn_game_play"
+        android:layout_width="72dp"
+        android:layout_height="36dp"
+        android:gravity="center"
+        android:background="@drawable/bg_play_btn"
+        android:clickable="true"
+        android:focusable="true">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="▶  Play"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"/>
+
+    </LinearLayout>
+
+</LinearLayout>

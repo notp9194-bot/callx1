@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Base game theme — dark, no action bar -->
+    <style name="Theme.Games" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#6C3CF7</item>
+        <item name="colorPrimaryDark">#1A0A2E</item>
+        <item name="colorAccent">#FF6B6B</item>
+        <item name="android:windowBackground">@color/games_bg</item>
+        <item name="android:statusBarColor">#1A0A2E</item>
+        <item name="android:navigationBarColor">#1A0A2E</item>
+    </style>
+
+    <!-- Fullscreen game — no status bar, no nav bar -->
+    <style name="Theme.Games.Fullscreen" parent="Theme.Games">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:ignore="NewApi">shortEdges</item>
+    </style>
+
+    <!-- Colors -->
+    <color name="games_bg">#0D0221</color>
+    <color name="games_card_bg">#1A0A2E</color>
+    <color name="games_accent">#6C3CF7</color>
+    <color name="games_accent2">#FF6B6B</color>
+    <color name="games_text_primary">#FFFFFF</color>
+    <color name="games_text_secondary">#B0B0C8</color>
+    <color name="games_online_dot">#00E676</color>
+    <color name="games_divider">#2A1A4A</color>
+
+</resources>

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0221">
+
+    <!-- ── WebView — fills entire screen ── -->
+    <WebView
+        android:id="@+id/webview_game"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scrollbars="none"
+        android:overScrollMode="never"/>
+
+    <!-- ── Top progress bar (YouTube-style thin line) ── -->
+    <ProgressBar
+        android:id="@+id/pb_game_top"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_gravity="top"
+        android:progressTint="#6C3CF7"
+        android:progressBackgroundTint="#2A1A4A"
+        android:max="100"
+        android:visibility="visible"/>
+
+    <!-- ── Full-screen loading overlay ── -->
+    <LinearLayout
+        android:id="@+id/ll_game_loading"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#0D0221"
+        android:visibility="visible">
+
+        <!-- Pulsing game controller icon -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🎮"
+            android:textSize="64sp"
+            android:layout_marginBottom="24dp"/>
+
+        <ProgressBar
+            android:id="@+id/pb_game_spinner"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:indeterminateTint="#6C3CF7"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/tv_game_loading_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Game Load Ho Raha Hai..."
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Thoda wait karo 🕹️"
+            android:textColor="#B0B0C8"
+            android:textSize="14sp"/>
+
+    </LinearLayout>
+
+    <!-- ── Error state overlay ── -->
+    <LinearLayout
+        android:id="@+id/ll_game_error"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#0D0221"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="😵"
+            android:textSize="64sp"
+            android:layout_marginBottom="20dp"/>
+
+        <TextView
+            android:id="@+id/tv_game_error_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Game Load Nahi Hua"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="10dp"/>
+
+        <TextView
+            android:id="@+id/tv_game_error_msg"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Internet connection check karo ya baad mein try karo."
+            android:textColor="#B0B0C8"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:lineSpacingMultiplier="1.4"
+            android:layout_marginBottom="32dp"/>
+
+        <Button
+            android:id="@+id/btn_game_retry"
+            android:layout_width="160dp"
+            android:layout_height="48dp"
+            android:text="🔄  Retry"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:background="@drawable/bg_retry_btn"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/btn_game_back_error"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Wapas Jao"
+            android:textColor="#B0B0C8"
+            android:textSize="14sp"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"/>
+
+    </LinearLayout>
+
+    <!-- ── No-internet snackbar anchor is CoordinatorLayout itself ── -->
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -139,6 +139,7 @@ dependencies {
     implementation project(':feature-x')
     implementation project(':feature-youtube')
     implementation project(':feature-status')
+    implementation project(':feature-games')
     implementation project(':patternlockview')
 
     implementation 'androidx.appcompat:appcompat:1.6.1'

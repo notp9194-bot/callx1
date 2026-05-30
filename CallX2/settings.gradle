@@ -28,3 +28,4 @@ include ':feature-status'
 
 include ':feature-x'
 include ':feature-youtube'
+include ':feature-games'

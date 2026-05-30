@@ -14,4 +14,19 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowAnimationStyle">@style/ActivitySlideTransition</item>
     </style>
+
+    <!-- ── feature-games themes ── -->
+    <style name="Theme.Games" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#6C3CF7</item>
+        <item name="colorPrimaryDark">#1A0A2E</item>
+        <item name="colorAccent">#FF6B6B</item>
+        <item name="android:windowBackground">#0D0221</item>
+        <item name="android:statusBarColor">#1A0A2E</item>
+        <item name="android:navigationBarColor">#1A0A2E</item>
+    </style>
+
+    <style name="Theme.Games.Fullscreen" parent="Theme.Games">
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
 </resources>
