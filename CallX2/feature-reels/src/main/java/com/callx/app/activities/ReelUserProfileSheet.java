@@ -79,13 +79,13 @@ public class ReelUserProfileSheet {
         Button btnReelFollow = sv.findViewById(R.id.btn_reels_follow_action);
         Button btnYtSub      = sv.findViewById(R.id.btn_youtube_subscribe_action);
 
-        // YouTube se open hua hai toh YouTube section hide karo
+        // YouTube se open hua hai toh YouTube section hide + YouTube avatar load karo
         if (hideYoutube) {
             if (btnYoutube   != null) btnYoutube.setVisibility(View.GONE);
             if (layoutYtRow  != null) layoutYtRow.setVisibility(View.GONE);
         }
 
-        // ── Name + Avatar (initial) ────────────────────────────────────────
+        // ── Name + Avatar (initial — photoUrl se) ─────────────────────────
         if (tvName != null) tvName.setText(name != null ? name : "User");
         if (photoUrl != null && !photoUrl.isEmpty() && ivAvatar != null) {
             Glide.with(activity).load(photoUrl)
@@ -93,51 +93,112 @@ public class ReelUserProfileSheet {
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
         }
 
-        // ── Firebase: online status + fresh photo ─────────────────────────
-        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                if (activity.isFinishing()) return;
-                Boolean online = snap.child("online").getValue(Boolean.class);
-                if (Boolean.TRUE.equals(online)) {
-                    if (onlineDot != null) onlineDot.setVisibility(View.VISIBLE);
-                    if (tvStatus  != null) {
-                        tvStatus.setText("Online");
-                        tvStatus.setTextColor(activity.getResources()
-                            .getColor(R.color.brand_accent, null));
+        if (hideYoutube) {
+            // ── YouTube mode: avatar = YouTube channel photo ───────────────
+            FirebaseDatabase.getInstance(
+                    "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app")
+                .getReference("youtube/channels").child(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snap) {
+                        if (activity.isFinishing()) return;
+                        String thumb = snap.child("thumbUrl").getValue(String.class);
+                        String photo2= snap.child("photoUrl").getValue(String.class);
+                        String ytUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo2;
+                        if (ytUrl != null && !ytUrl.isEmpty() && ivAvatar != null) {
+                            Glide.with(activity).load(ytUrl)
+                                .apply(RequestOptions.circleCropTransform())
+                                .placeholder(R.drawable.ic_person).into(ivAvatar);
+                            // Avatar tap pe YouTube photo zoom
+                            final String finalUrl = ytUrl;
+                            if (ivAvatar != null)
+                                ivAvatar.setOnClickListener(x ->
+                                    showAvatarZoom(activity, finalUrl));
+                        }
                     }
-                } else {
-                    if (onlineDot != null) onlineDot.setVisibility(View.GONE);
-                    if (tvStatus  != null) {
-                        tvStatus.setText("Offline");
-                        tvStatus.setTextColor(activity.getResources()
-                            .getColor(R.color.text_muted, null));
+                    @Override public void onCancelled(DatabaseError e) {}
+                });
+
+            // Online dot + last seen — Firebase users/{uid} se fetch karo
+            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (activity.isFinishing()) return;
+                    Boolean online   = snap.child("online").getValue(Boolean.class);
+                    Long    lastSeen = snap.child("lastSeen").getValue(Long.class);
+                    if (Boolean.TRUE.equals(online)) {
+                        if (onlineDot != null) onlineDot.setVisibility(View.VISIBLE);
+                        if (tvStatus  != null) {
+                            tvStatus.setVisibility(View.VISIBLE);
+                            tvStatus.setText("Online");
+                            tvStatus.setTextColor(0xFF00C853); // bright green
+                        }
+                    } else {
+                        if (onlineDot != null) onlineDot.setVisibility(View.GONE);
+                        if (tvStatus  != null) {
+                            tvStatus.setVisibility(View.VISIBLE);
+                            tvStatus.setText(formatLastSeen(lastSeen));
+                            tvStatus.setTextColor(lastSeen != null && lastSeen > 0
+                                ? 0xFFFFA000   // amber
+                                : 0xFF9E9E9E); // grey
+                        }
                     }
                 }
-                String photo2 = snap.child("photoUrl").getValue(String.class);
-                String thumb2 = snap.child("thumbUrl").getValue(String.class);
-                String url    = (thumb2 != null && !thumb2.isEmpty()) ? thumb2 : photo2;
-                if (url != null && !url.isEmpty() && ivAvatar != null)
-                    Glide.with(activity).load(url)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_person).into(ivAvatar);
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        });
-
-        // ── Avatar tap → full-screen zoom ─────────────────────────────────
-        if (ivAvatar != null) {
-            ivAvatar.setOnClickListener(x -> {
-                FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(DataSnapshot snap) {
-                        String full = snap.child("photoUrl").getValue(String.class);
-                        showAvatarZoom(activity,
-                            (full != null && !full.isEmpty()) ? full : photoUrl);
-                    }
-                    @Override public void onCancelled(DatabaseError e) {
-                        showAvatarZoom(activity, photoUrl);
-                    }
-                });
+                @Override public void onCancelled(DatabaseError e) {}
             });
+
+        } else {
+            // ── Normal mode: online status + last seen + fresh CallX photo ──
+            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (activity.isFinishing()) return;
+                    Boolean online   = snap.child("online").getValue(Boolean.class);
+                    Long    lastSeen = snap.child("lastSeen").getValue(Long.class);
+
+                    if (Boolean.TRUE.equals(online)) {
+                        if (onlineDot != null) onlineDot.setVisibility(View.VISIBLE);
+                        if (tvStatus  != null) {
+                            tvStatus.setVisibility(View.VISIBLE);
+                            tvStatus.setText("Online");
+                            tvStatus.setTextColor(0xFF00C853); // bright green
+                        }
+                    } else {
+                        if (onlineDot != null) onlineDot.setVisibility(View.GONE);
+                        if (tvStatus  != null) {
+                            tvStatus.setVisibility(View.VISIBLE);
+                            String lastSeenText = formatLastSeen(lastSeen);
+                            tvStatus.setText(lastSeenText);
+                            // "last seen" → amber highlight; fallback grey
+                            tvStatus.setTextColor(lastSeen != null && lastSeen > 0
+                                ? 0xFFFFA000   // amber
+                                : 0xFF9E9E9E); // grey
+                        }
+                    }
+
+                    String photo2 = snap.child("photoUrl").getValue(String.class);
+                    String thumb2 = snap.child("thumbUrl").getValue(String.class);
+                    String url    = (thumb2 != null && !thumb2.isEmpty()) ? thumb2 : photo2;
+                    if (url != null && !url.isEmpty() && ivAvatar != null)
+                        Glide.with(activity).load(url)
+                            .apply(RequestOptions.circleCropTransform())
+                            .placeholder(R.drawable.ic_person).into(ivAvatar);
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+
+            // Avatar tap → full-screen zoom (CallX photo)
+            if (ivAvatar != null) {
+                ivAvatar.setOnClickListener(x -> {
+                    FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot snap) {
+                            String full = snap.child("photoUrl").getValue(String.class);
+                            showAvatarZoom(activity,
+                                (full != null && !full.isEmpty()) ? full : photoUrl);
+                        }
+                        @Override public void onCancelled(DatabaseError e) {
+                            showAvatarZoom(activity, photoUrl);
+                        }
+                    });
+                });
+            }
         }
 
         // ── Message button ─────────────────────────────────────────────────
@@ -501,6 +562,19 @@ public class ReelUserProfileSheet {
         btn.setText(following ? "Following" : "Follow");
         btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
             following ? 0xFF555555 : 0xFFDD2A7B));
+    }
+
+    // ── Last seen formatter (same logic as GroupMemberAdapter) ──────────
+    private static String formatLastSeen(Long ts) {
+        if (ts == null || ts <= 0) return "last seen: unknown";
+        long diff = System.currentTimeMillis() - ts;
+        if (diff < 60_000)        return "last seen just now";
+        if (diff < 3_600_000)     return "last seen " + (diff / 60_000) + " min ago";
+        if (diff < 86_400_000)    return "last seen " + (diff / 3_600_000) + " hr ago";
+        if (diff < 2 * 86_400_000) return "last seen yesterday";
+        java.text.SimpleDateFormat sdf =
+            new java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault());
+        return "last seen " + sdf.format(new java.util.Date(ts));
     }
 
     private static void setYtBtn(Button btn, boolean subscribed) {
