@@ -18,6 +18,7 @@ import com.callx.app.youtube.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.activities.ReelUserProfileSheet;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -153,21 +154,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         String name  = tvChannelName != null && tvChannelName.getText() != null
             ? tvChannelName.getText().toString() : "";
         String photo = channelPhotoUrl != null ? channelPhotoUrl : "";
-        try {
-            Class<?> sheetClass = Class.forName(
-                "com.callx.app.activities.ReelUserProfileSheet");
-            java.lang.reflect.Method showMethod = sheetClass.getMethod(
-                "show",
-                android.app.Activity.class,
-                String.class, String.class, String.class);
-            showMethod.invoke(null, this, channelUid, name, photo, true); // hideYoutube=true
-        } catch (ClassNotFoundException e) {
-            android.widget.Toast.makeText(this, "Social profile not available",
-                android.widget.Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            android.widget.Toast.makeText(this, "Could not open profile card",
-                android.widget.Toast.LENGTH_SHORT).show();
-        }
+        ReelUserProfileSheet.show(this, channelUid, name, photo, true);
     }
 
     private void loadChannel() {
