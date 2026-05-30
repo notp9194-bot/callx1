@@ -209,6 +209,40 @@
         </LinearLayout>
     </HorizontalScrollView>
 
+    <!-- View contacts button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="6dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Favorites ▾"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"/>
+
+        <TextView
+            android:id="@+id/tv_view_contacts"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="View contacts"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:background="@drawable/chip_unselected"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:clickable="true"
+            android:focusable="true"/>
+    </LinearLayout>
+
     <!-- Online users (hidden until someone is online) -->
     <LinearLayout
         android:id="@+id/ll_online_panel"
