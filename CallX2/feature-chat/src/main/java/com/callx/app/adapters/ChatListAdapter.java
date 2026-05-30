@@ -98,7 +98,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             }
             h.ivStoryRing.setOnClickListener(v -> {
                 if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-                openStatusOrChat(ctx, u);
+                if (avatarClickListener != null) avatarClickListener.onAvatarClick(u);
+                else openStatusOrChat(ctx, u);
             });
         }
 
