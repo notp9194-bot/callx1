@@ -7,6 +7,9 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothHeadset;
+import android.bluetooth.BluetoothProfile;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -33,6 +36,9 @@ import com.callx.app.services.GroupCallRingService;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
+// FIX-8: Room imports for immediate local call log write
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.CallLogEntity;
 import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
@@ -130,6 +136,24 @@ public class GroupCallActivity extends AppCompatActivity {
 
     // ── Audio ─────────────────────────────────────────────────────────────
     private AudioManager audioManager;
+    // FIX-7: Bluetooth SCO support
+    private String settingRouting = "speaker"; // "speaker" | "earpiece" | "bluetooth"
+    private BluetoothAdapter btAdapter;
+    private BluetoothProfile btHeadset;
+    private final BroadcastReceiver btScoReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context ctx, Intent intent) {
+            int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
+            if (state == AudioManager.SCO_AUDIO_STATE_CONNECTED) {
+                if (audioManager != null) audioManager.setBluetoothScoOn(true);
+            } else if (state == AudioManager.SCO_AUDIO_STATE_DISCONNECTED) {
+                // Fall back to earpiece if BT drops
+                if (audioManager != null) {
+                    audioManager.setBluetoothScoOn(false);
+                    audioManager.stopBluetoothSco();
+                }
+            }
+        }
+    };
 
     // ── WebRTC ────────────────────────────────────────────────────────────
     private EglBase eglBase;
@@ -217,6 +241,9 @@ public class GroupCallActivity extends AppCompatActivity {
             Constants.GCALL_PREF_VIDEO_QUALITY, "hd");
         settingAutoSpeaker      = prefs.getBoolean(
             Constants.GCALL_PREF_AUTO_SPEAKER, true);
+        // FIX-7: load routing pref and apply immediately if call is already active
+        settingRouting = prefs.getString(Constants.GCALL_PREF_ROUTING, "speaker");
+        if (audioManager != null) applyAudioRouting();
     }
 
     private void bindViews() {
@@ -353,9 +380,11 @@ public class GroupCallActivity extends AppCompatActivity {
     private void initWebRTCAndJoin() {
         eglBase = EglBase.create();
 
-        // FIX-3: eglBase was null when adapter was created in onCreate → update it now
+        // FIX-4: eglBase was null when adapter was created in onCreate → update it now
+        // and force rebind so existing tiles get valid eglBase context
         if (adapter != null) {
             adapter.setEglBase(eglBase);
+            adapter.notifyDataSetChanged();
         }
 
         if (isVideo && localVideo != null) {
@@ -397,7 +426,9 @@ public class GroupCallActivity extends AppCompatActivity {
         }
 
         // Speaker mode
-        if (settingAutoSpeaker || isVideo) enableSpeaker(true);
+        // FIX-7: respect saved routing setting (speaker/earpiece/bluetooth)
+        if (settingAutoSpeaker || isVideo) settingRouting = "speaker";
+        applyAudioRouting();
 
         // Register myself in Firebase + watch participants
         joinCall();
@@ -494,7 +525,8 @@ public class GroupCallActivity extends AppCompatActivity {
                     Boolean pCamOn = child.child("camOn").getValue(Boolean.class);
                     Boolean raised = child.child("handRaised").getValue(Boolean.class);
 
-                    if (uid == null || "left".equals(status) || "declined".equals(status))
+                    if (uid == null || "left".equals(status) || "declined".equals(status)
+                            || "full".equals(status))  // FIX-10: skip rejected-full participants
                         continue;
                     currentUids.add(uid);
 
@@ -533,6 +565,15 @@ public class GroupCallActivity extends AppCompatActivity {
     }
 
     private void onNewParticipant(String uid, String name) {
+        // FIX-10: enforce MAX_PARTICIPANTS — mesh N*(N-1)/2 connections explode beyond 8
+        // +1 for self, +1 for the incoming participant
+        if (participants.size() + 1 >= MAX_PARTICIPANTS) {
+            android.util.Log.w("GroupCallActivity",
+                "Max participants (" + MAX_PARTICIPANTS + ") reached, rejecting: " + uid);
+            if (callRef != null)
+                callRef.child("participants").child(uid).child("status").setValue("full");
+            return;
+        }
         // Add to adapter
         ParticipantInfo info = new ParticipantInfo(uid, name, null, true, isVideo, false);
         runOnUiThread(() -> {
@@ -598,13 +639,9 @@ public class GroupCallActivity extends AppCompatActivity {
             }
             @Override public void onIceConnectionReceivingChange(boolean b) {}
             @Override public void onIceGatheringChange(PeerConnection.IceGatheringState s) {}
-            @Override public void onAddStream(MediaStream stream) {
-                if (!stream.videoTracks.isEmpty()) {
-                    VideoTrack vt = stream.videoTracks.get(0);
-                    vt.setEnabled(true);
-                    runOnUiThread(() -> attachRemoteVideo(uid, vt));
-                }
-            }
+            // FIX-6: onAddStream removed — deprecated in Unified Plan and fires alongside
+            // onAddTrack, causing double addSink on the same VideoTrack → duplicate rendering
+            // or crash. Use only onAddTrack (below).
             @Override public void onRemoveStream(MediaStream stream) {}
             @Override public void onDataChannel(DataChannel dc) {}
             @Override public void onRenegotiationNeeded() {}
@@ -885,11 +922,37 @@ public class GroupCallActivity extends AppCompatActivity {
         btnToggleSpeaker.setAlpha(speakerOn ? 1f : 0.4f);
     }
 
+    // FIX-7: Full audio routing — speaker / earpiece / bluetooth
+    private void applyAudioRouting() {
+        if (audioManager == null) return;
+        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        switch (settingRouting) {
+            case "bluetooth":
+                audioManager.setSpeakerphoneOn(false);
+                audioManager.startBluetoothSco();
+                // btScoReceiver will setBluetoothScoOn(true) once connected
+                break;
+            case "earpiece":
+                audioManager.stopBluetoothSco();
+                audioManager.setBluetoothScoOn(false);
+                audioManager.setSpeakerphoneOn(false);
+                break;
+            default: // "speaker"
+                audioManager.stopBluetoothSco();
+                audioManager.setBluetoothScoOn(false);
+                audioManager.setSpeakerphoneOn(true);
+                break;
+        }
+    }
+
     private void enableSpeaker(boolean on) {
         if (audioManager == null) return;
-        audioManager.setMode(on ? AudioManager.MODE_IN_COMMUNICATION
-                                : AudioManager.MODE_NORMAL);
-        audioManager.setSpeakerphoneOn(on);
+        if (on) {
+            settingRouting = "speaker";
+        } else {
+            settingRouting = "earpiece";
+        }
+        applyAudioRouting();
     }
 
     private void toggleHandRaise() {
@@ -945,6 +1008,8 @@ public class GroupCallActivity extends AppCompatActivity {
 
         // Audio
         if (audioManager != null) {
+            audioManager.stopBluetoothSco();       // FIX-7: stop BT SCO if active
+            audioManager.setBluetoothScoOn(false);
             audioManager.setSpeakerphoneOn(false);
             audioManager.setMode(AudioManager.MODE_NORMAL);
         }
@@ -966,6 +1031,25 @@ public class GroupCallActivity extends AppCompatActivity {
         log.put("duration",   dur);
         log.put("participants", participants.size() + 1);
         FirebaseUtils.getCallsRef(myUid).push().setValue(log);
+        // FIX-8: also write to Room immediately — Firebase listener in CallsFragment
+        // may time out, leaving Room cache stale
+        final long fDur = dur;
+        bgExec.execute(() -> {
+            try {
+                CallLogEntity entity = new CallLogEntity();
+                entity.id          = java.util.UUID.randomUUID().toString();
+                entity.partnerUid  = groupId;
+                entity.partnerName = groupName != null ? groupName : "";
+                entity.direction   = isCaller ? "outgoing" : "incoming";
+                entity.mediaType   = isVideo ? "group_video" : "group_audio";
+                entity.timestamp   = System.currentTimeMillis();
+                entity.duration    = fDur;
+                AppDatabase.getInstance(getApplicationContext())
+                    .callLogDao().insertCallLog(entity);
+            } catch (Exception ex) {
+                android.util.Log.w("GroupCallActivity", "Room log failed", ex);
+            }
+        });
     }
 
     private void releaseWebRTC() {
@@ -1073,6 +1157,9 @@ public class GroupCallActivity extends AppCompatActivity {
         };
         IntentFilter f = new IntentFilter(Constants.ACTION_GROUP_END_CALL);
         registerReceiver(callEndReceiver, f);
+        // FIX-7: register BT SCO state receiver
+        registerReceiver(btScoReceiver,
+            new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
     }
 
     private SdpObserver noopSdp() {
@@ -1090,6 +1177,14 @@ public class GroupCallActivity extends AppCompatActivity {
         if (ticker != null) tick.removeCallbacks(ticker);
         try {
             if (callEndReceiver != null) unregisterReceiver(callEndReceiver);
+        } catch (Exception ignored) {}
+        // FIX-7: stop BT SCO and unregister receiver
+        try {
+            if (audioManager != null) {
+                audioManager.stopBluetoothSco();
+                audioManager.setBluetoothScoOn(false);
+            }
+            unregisterReceiver(btScoReceiver);
         } catch (Exception ignored) {}
         super.onDestroy();
     }

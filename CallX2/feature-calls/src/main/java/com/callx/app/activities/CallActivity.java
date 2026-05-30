@@ -62,6 +62,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+// FIX-8: Room imports for immediate local call log write
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.CallLogEntity;
 
 public class CallActivity extends AppCompatActivity {
 
@@ -341,7 +344,18 @@ public class CallActivity extends AppCompatActivity {
         else         enableSpeaker(false);
 
         // Firebase setup
-        if (callId == null) callId = FirebaseUtils.db().getReference("activeCalls").push().getKey();
+        // FIX-5: Only caller generates a callId if missing.
+        // Callee MUST receive callId from intent (via FCM). If it's null for callee,
+        // the FCM delivery failed — log and abort rather than connecting to a wrong Firebase node.
+        if (callId == null) {
+            if (isCaller) {
+                callId = FirebaseUtils.db().getReference("activeCalls").push().getKey();
+            } else {
+                android.util.Log.e("CallActivity", "Callee callId is null — FCM delivery issue. Aborting call.");
+                finish();
+                return;
+            }
+        }
         callRef = FirebaseUtils.db().getReference("activeCalls").child(callId);
 
         if (isCaller) {
@@ -728,7 +742,28 @@ public class CallActivity extends AppCompatActivity {
                 log.put("mediaType",   isVideo ? "video" : "audio");
                 log.put("timestamp",   System.currentTimeMillis());
                 log.put("duration",    dur);
-                FirebaseUtils.getCallsRef(myUid).push().setValue(log);
+                FirebaseUtils.getCallsRef(myUid).push().setValue(log)
+                    .addOnSuccessListener(aVoid -> { /* Firebase logged */ })
+                    .addOnFailureListener(e -> android.util.Log.w("CallActivity", "Firebase log failed", e));
+                // FIX-8: also write to Room immediately so cache stays consistent
+                // even if Firebase listener times out before CallsFragment syncs
+                final long fDur = dur;
+                bgExec.execute(() -> {
+                    try {
+                        CallLogEntity entity = new CallLogEntity();
+                        entity.id          = java.util.UUID.randomUUID().toString();
+                        entity.partnerUid  = partnerUid;
+                        entity.partnerName = partnerName;
+                        entity.direction   = isCaller ? "outgoing" : "incoming";
+                        entity.mediaType   = isVideo ? "video" : "audio";
+                        entity.timestamp   = System.currentTimeMillis();
+                        entity.duration    = fDur;
+                        AppDatabase.getInstance(getApplicationContext())
+                            .callLogDao().insertCallLog(entity);
+                    } catch (Exception ex) {
+                        android.util.Log.w("CallActivity", "Room log failed", ex);
+                    }
+                });
             }
         }
         // Restore audio mode

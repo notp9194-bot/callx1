@@ -22,7 +22,7 @@
       private ActivityIncomingCallBinding binding;
       private MediaPlayer ringtonePlayer;
       private PowerManager.WakeLock wakeLock;
-      private String callId, fromUid, fromName;
+      private String callId, fromUid, fromName, fromPhoto;
       private boolean isVideo, acted = false;
       private ValueEventListener statusListener;
       private final Handler autoRejectHandler = new Handler(Looper.getMainLooper());
@@ -41,6 +41,9 @@
           if (fromUid == null) fromUid = getIntent().getStringExtra("fromUid");
           if (fromName== null) fromName= getIntent().getStringExtra("fromName");
           if (!isVideo) isVideo = getIntent().getBooleanExtra("video", false);
+          // FIX-9: read photo so it can be passed to CallActivity
+          fromPhoto = getIntent().getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
+          if (fromPhoto == null) fromPhoto = getIntent().getStringExtra("partnerPhoto");
           binding.tvCallerName.setText(fromName == null ? "Unknown" : fromName);
           binding.tvCallerSub.setText(isVideo ? "Incoming video CallX..." : "Incoming CallX...");
           acquireWakeLock();
@@ -112,11 +115,12 @@
                   .child(callId).child("status").setValue("accepted");
           }
           Intent i = new Intent(this, CallActivity.class);
-          i.putExtra("partnerUid",  fromUid);
-          i.putExtra("partnerName", fromName != null ? fromName : "");
-          i.putExtra("isCaller",    false);
-          i.putExtra("video",       isVideo);
-          i.putExtra("callId",      callId);
+          i.putExtra("partnerUid",   fromUid);
+          i.putExtra("partnerName",  fromName != null ? fromName : "");
+          i.putExtra("partnerPhoto", fromPhoto != null ? fromPhoto : ""); // FIX-9
+          i.putExtra("isCaller",     false);
+          i.putExtra("video",        isVideo);
+          i.putExtra("callId",       callId);
           startActivity(i);
           finish();
       }

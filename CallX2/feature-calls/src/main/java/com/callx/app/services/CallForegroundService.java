@@ -79,9 +79,7 @@
 
           NotificationCompat.Builder b = new NotificationCompat.Builder(
                   this, Constants.CHANNEL_CALLS)
-              .setSmallIcon(isVideo
-                  ? android.R.drawable.ic_menu_camera
-                  : android.R.drawable.ic_menu_call)
+              .setSmallIcon(com.callx.app.calls.R.drawable.ic_call_notification) // FIX-11: use custom icon
               .setContentTitle(callerName)
               .setContentText(subtitle)
               .setOngoing(true)
