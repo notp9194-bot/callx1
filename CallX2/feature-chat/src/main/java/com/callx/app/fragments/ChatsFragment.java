@@ -340,9 +340,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         View btnMessage          = sv.findViewById(R.id.btn_message_sheet);
         View btnVoice            = sv.findViewById(R.id.btn_voice_call_sheet);
         View btnVideo            = sv.findViewById(R.id.btn_video_call_sheet);
-        // Hide call history row — not relevant from chats tab
         View btnHistory          = sv.findViewById(R.id.btn_call_history_sheet);
-        if (btnHistory != null) btnHistory.setVisibility(View.GONE);
 
         // Social platform buttons
         View btnXSheet            = sv.findViewById(R.id.btn_x_sheet);
@@ -465,6 +463,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 i.putExtra("isCaller", true);
                 i.putExtra("video", true);
                 startActivity(i);
+            });
+        }
+
+        // Call History button
+        if (btnHistory != null) {
+            btnHistory.setOnClickListener(x -> {
+                sheet.dismiss();
+                showChatCallHistorySheet(user);
             });
         }
 
@@ -760,8 +766,182 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         return String.valueOf(n);
     }
 
-    // ── Avatar zoom ─────────────────────────────────────────────────────────
-    private void showChatAvatarZoom(String photoUrl) {
+    // ── Call History Sheet ───────────────────────────────────────────────────
+    private void showChatCallHistorySheet(User user) {
+        if (getContext() == null || user.uid == null) return;
+
+        BottomSheetDialog histSheet = new BottomSheetDialog(getContext(),
+            com.google.android.material.R.style.Theme_Material3_Light_BottomSheetDialog);
+        View sv = LayoutInflater.from(getContext())
+            .inflate(R.layout.bottom_sheet_call_history, null);
+        histSheet.setContentView(sv);
+
+        CircleImageView ivAvatar = sv.findViewById(R.id.iv_history_avatar);
+        TextView tvName          = sv.findViewById(R.id.tv_history_name);
+        TextView tvCount         = sv.findViewById(R.id.tv_history_count);
+        View btnClose            = sv.findViewById(R.id.btn_close_history);
+        androidx.recyclerview.widget.RecyclerView rv = sv.findViewById(R.id.rv_call_history_sheet);
+        View llEmpty             = sv.findViewById(R.id.ll_history_empty);
+
+        tvName.setText(user.name != null ? user.name : "User");
+        tvCount.setText("Loading...");
+
+        String avatarUrl = (user.thumbUrl != null && !user.thumbUrl.isEmpty())
+            ? user.thumbUrl : user.photoUrl;
+        if (avatarUrl != null && !avatarUrl.isEmpty() && ivAvatar != null) {
+            Glide.with(getContext()).load(avatarUrl)
+                .apply(RequestOptions.circleCropTransform())
+                .placeholder(R.drawable.ic_person).into(ivAvatar);
+        }
+
+        if (ivAvatar != null) {
+            ivAvatar.setOnClickListener(x -> showChatAvatarZoom(avatarUrl));
+        }
+        if (btnClose != null) {
+            btnClose.setOnClickListener(x -> histSheet.dismiss());
+        }
+
+        // Load call logs for this user from Firebase
+        String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
+            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+        if (myUid == null) {
+            tvCount.setText("0 calls");
+            if (llEmpty != null) llEmpty.setVisibility(View.VISIBLE);
+            histSheet.show();
+            return;
+        }
+
+        FirebaseUtils.db().getReference("callLogs").child(myUid)
+            .orderByChild("partnerUid").equalTo(user.uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (getContext() == null) return;
+                    List<com.callx.app.models.CallLog> contactLogs = new ArrayList<>();
+                    for (DataSnapshot c : snap.getChildren()) {
+                        com.callx.app.models.CallLog l = c.getValue(com.callx.app.models.CallLog.class);
+                        if (l != null) {
+                            if (l.id == null) l.id = c.getKey();
+                            contactLogs.add(l);
+                        }
+                    }
+                    // Sort newest first
+                    contactLogs.sort((a, b) -> {
+                        long ta = a.timestamp != null ? a.timestamp : 0;
+                        long tb = b.timestamp != null ? b.timestamp : 0;
+                        return Long.compare(tb, ta);
+                    });
+
+                    int total = contactLogs.size();
+                    if (tvCount != null) tvCount.setText(total + " call" + (total != 1 ? "s" : ""));
+
+                    if (contactLogs.isEmpty()) {
+                        if (rv     != null) rv.setVisibility(View.GONE);
+                        if (llEmpty != null) llEmpty.setVisibility(View.VISIBLE);
+                    } else {
+                        if (llEmpty != null) llEmpty.setVisibility(View.GONE);
+                        if (rv != null) {
+                            rv.setLayoutManager(new LinearLayoutManager(getContext()));
+                            rv.setAdapter(new ChatCallHistoryAdapter(contactLogs));
+                        }
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {
+                    if (tvCount != null) tvCount.setText("0 calls");
+                    if (llEmpty != null) llEmpty.setVisibility(View.VISIBLE);
+                }
+            });
+
+        histSheet.show();
+    }
+
+    // ── Inline adapter for call history sheet (no cross-module import needed) ──
+    private class ChatCallHistoryAdapter
+            extends androidx.recyclerview.widget.RecyclerView.Adapter<ChatCallHistoryAdapter.VH> {
+
+        private final List<com.callx.app.models.CallLog> logs;
+        private final java.text.SimpleDateFormat fmt =
+            new java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault());
+
+        ChatCallHistoryAdapter(List<com.callx.app.models.CallLog> logs) { this.logs = logs; }
+
+        @androidx.annotation.NonNull
+        @Override
+        public VH onCreateViewHolder(@androidx.annotation.NonNull android.view.ViewGroup parent, int viewType) {
+            android.view.View v = android.view.LayoutInflater.from(parent.getContext())
+                .inflate(R.layout.item_call_history_sheet, parent, false);
+            return new VH(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@androidx.annotation.NonNull VH h, int pos) {
+            com.callx.app.models.CallLog l = logs.get(pos);
+            android.content.Context ctx = h.itemView.getContext();
+
+            boolean isVideo = "video".equals(l.mediaType);
+            String dir = l.direction == null ? "" : l.direction.toLowerCase();
+
+            String label; int iconColor; int iconRes;
+            if (dir.contains("missed")) {
+                label = isVideo ? "Missed Video" : "Missed Voice";
+                iconColor = android.graphics.Color.parseColor("#EF4444");
+                iconRes = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
+            } else if (dir.contains("incoming") || dir.contains("in")) {
+                label = isVideo ? "Incoming Video" : "Incoming Voice";
+                iconColor = android.graphics.Color.parseColor("#22C55E");
+                iconRes = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
+            } else {
+                label = isVideo ? "Outgoing Video" : "Outgoing Voice";
+                iconColor = android.graphics.Color.parseColor("#5B5BF6");
+                iconRes = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
+            }
+
+            h.tvLabel.setText(label);
+            h.tvLabel.setTextColor(iconColor);
+            h.ivIcon.setImageResource(iconRes);
+            h.ivIcon.setColorFilter(iconColor);
+
+            h.tvTime.setText(l.timestamp != null ? fmt.format(new java.util.Date(l.timestamp)) : "—");
+
+            if (l.duration != null && l.duration > 0) {
+                long d = l.duration;
+                h.tvDuration.setText(d >= 60
+                    ? (d / 60) + "m " + (d % 60) + "s"
+                    : d + "s");
+                h.tvDuration.setVisibility(android.view.View.VISIBLE);
+            } else {
+                h.tvDuration.setVisibility(android.view.View.GONE);
+            }
+
+            h.ivQuickCall.setImageResource(isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone);
+            h.ivQuickCall.setColorFilter(android.graphics.Color.parseColor("#5B5BF6"));
+            h.ivQuickCall.setOnClickListener(v -> {
+                if (l.partnerUid == null) return;
+                android.content.Intent i = new android.content.Intent()
+                    .setClassName(ctx.getPackageName(), "com.callx.app.activities.CallActivity");
+                i.putExtra("partnerUid",  l.partnerUid);
+                i.putExtra("partnerName", l.partnerName != null ? l.partnerName : "");
+                i.putExtra("isCaller", true);
+                i.putExtra("video", isVideo);
+                ctx.startActivity(i);
+            });
+        }
+
+        @Override public int getItemCount() { return logs.size(); }
+
+        class VH extends androidx.recyclerview.widget.RecyclerView.ViewHolder {
+            android.widget.ImageView ivIcon, ivQuickCall;
+            android.widget.TextView tvLabel, tvTime, tvDuration;
+            VH(android.view.View v) {
+                super(v);
+                ivIcon      = v.findViewById(R.id.iv_call_type_icon);
+                tvLabel     = v.findViewById(R.id.tv_call_type_label);
+                tvTime      = v.findViewById(R.id.tv_call_time);
+                tvDuration  = v.findViewById(R.id.tv_call_duration);
+                ivQuickCall = v.findViewById(R.id.iv_quick_call);
+            }
+        }
+    }
+}
         if (getContext() == null) return;
         android.app.Dialog dialog = new android.app.Dialog(
             getContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen);
