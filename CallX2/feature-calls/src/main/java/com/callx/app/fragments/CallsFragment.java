@@ -29,6 +29,10 @@ import com.callx.app.adapters.ContactCallHistoryAdapter;
 import android.widget.Button;
 import android.os.Handler;
 import android.os.Looper;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -279,13 +283,29 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         // ── Social Buttons: X / Reels / YouTube ──────────────────────────
         // Load avatar peek images + wire open actions + follow/subscribe rows
         if (log.partnerUid != null) {
+            // Arrays to track loaded avatars for animation
+            final CircleImageView[] peekViews = {ivAnimX, ivAnimReel, ivAnimYt};
+            final Handler[] sheetAnimHandler = {new Handler(Looper.getMainLooper())};
+            final boolean[] sheetAnimRunning = {false};
+            final Runnable[] sheetAnimRunnable = {null};
+
             loadSocialButtons(sv, log.partnerUid,
                 btnXSheet, btnReelsSheet, btnYoutubeSheet,
                 ivAnimX, ivAnimReel, ivAnimYt,
                 layoutXRow, layoutReelsRow, layoutYtRow,
                 tvXCount, tvReelsCount, tvYtCount,
                 btnXFollow, btnReelsFollow, btnYtSubscribe,
-                sheet);
+                sheet,
+                peekViews, sheetAnimHandler, sheetAnimRunning, sheetAnimRunnable);
+
+            // Stop animation when sheet closes
+            sheet.setOnDismissListener(d -> {
+                sheetAnimRunning[0] = false;
+                sheetAnimHandler[0].removeCallbacks(sheetAnimRunnable[0]);
+                for (CircleImageView iv : peekViews) {
+                    if (iv != null) { iv.setVisibility(View.INVISIBLE); iv.setScaleX(0f); iv.setScaleY(0f); iv.setAlpha(0f); }
+                }
+            });
         }
 
         sheet.show();
@@ -313,7 +333,11 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             View layoutXRow, View layoutReelsRow, View layoutYtRow,
             TextView tvXCount, TextView tvReelsCount, TextView tvYtCount,
             Button btnXFollow, Button btnReelsFollow, Button btnYtSubscribe,
-            BottomSheetDialog sheet) {
+            BottomSheetDialog sheet,
+            CircleImageView[] peekViews,
+            Handler[] sheetAnimHandler,
+            boolean[] sheetAnimRunning,
+            Runnable[] sheetAnimRunnable) {
 
         if (getContext() == null) return;
         final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
@@ -328,13 +352,14 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                 @Override public void onDataChange(DataSnapshot snap) {
                     if (getContext() == null || !snap.exists()) return;
 
-                    // Avatar peek
+                    // Avatar peek — load X profile pic
                     String xPhoto = snap.child("photoUrl").getValue(String.class);
                     if (xPhoto != null && !xPhoto.isEmpty() && ivAnimX != null) {
-                        ivAnimX.setVisibility(View.VISIBLE);
                         Glide.with(getContext()).load(xPhoto)
                             .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimX);
                     }
+                    // Start loop after first (X) avatar loads — others load in background
+                    startSheetAvatarPeekLoop(peekViews, sheetAnimHandler, sheetAnimRunning, sheetAnimRunnable);
 
                     // Follower count from x/users/{uid}/followerCount
                     Long xFollowers = snap.child("followerCount").getValue(Long.class);
@@ -410,7 +435,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                     String photo = snap.child("photoUrl").getValue(String.class);
                     String reelPhoto = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                     if (reelPhoto != null && !reelPhoto.isEmpty() && ivAnimReel != null) {
-                        ivAnimReel.setVisibility(View.VISIBLE);
+                        // Visibility managed by peek loop
                         Glide.with(getContext()).load(reelPhoto)
                             .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimReel);
                     }
@@ -473,7 +498,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                     String ytPhoto = snap.child("photoUrl").getValue(String.class);
                     String ytAvatar = (ytThumb != null && !ytThumb.isEmpty()) ? ytThumb : ytPhoto;
                     if (ytAvatar != null && !ytAvatar.isEmpty() && ivAnimYt != null) {
-                        ivAnimYt.setVisibility(View.VISIBLE);
+                        // Visibility managed by peek loop
                         Glide.with(getContext()).load(ytAvatar)
                             .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimYt);
                     }
@@ -581,6 +606,101 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             long cur = Long.parseLong(numStr);
             tv.setText(formatSocialCount(Math.max(0, cur + delta)) + " " + label);
         } catch (Exception ignored) {}
+    }
+
+    // ── Sheet Avatar Peek Loop — same as UserReelsActivity ─────────────────
+    /**
+     * Exactly replicates UserReelsActivity's startAvatarPeekLoop() for the BottomSheet.
+     * Loop: [X avatar] → zoom-in(450ms) → hold(3s) → zoom-out(400ms) → wait(3s) →
+     *       [Reels avatar] → ... → [YouTube avatar] → ... → back to X → ∞
+     *
+     * Uses passed-in Handler/boolean/Runnable arrays so the caller can stop animation
+     * when the sheet is dismissed (no memory leaks).
+     */
+    private void startSheetAvatarPeekLoop(
+            CircleImageView[] views,
+            Handler[] handlerArr,
+            boolean[] runningArr,
+            Runnable[] runnableArr) {
+
+        if (runningArr[0]) return;   // already running
+        runningArr[0] = true;
+
+        // Initialize all peek views: invisible + scaled to 0
+        for (CircleImageView iv : views) {
+            if (iv == null) continue;
+            iv.setVisibility(View.INVISIBLE);
+            iv.setScaleX(0f);
+            iv.setScaleY(0f);
+            iv.setAlpha(0f);
+        }
+
+        runnableArr[0] = new Runnable() {
+            int idx = 0;
+
+            @Override public void run() {
+                if (!runningArr[0] || getContext() == null) return;
+
+                CircleImageView iv = views[idx % views.length];
+                idx++;
+
+                if (iv == null) {
+                    handlerArr[0].postDelayed(this, 500);
+                    return;
+                }
+
+                // Reset to hidden/zero state
+                iv.setScaleX(0f);
+                iv.setScaleY(0f);
+                iv.setAlpha(0f);
+                iv.setVisibility(View.VISIBLE);
+
+                // Zoom IN: 0 → 1.05 overshoot → 1.0, alpha 0 → 1
+                ObjectAnimator scaleXIn = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.05f, 1.0f);
+                ObjectAnimator scaleYIn = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.05f, 1.0f);
+                ObjectAnimator alphaIn  = ObjectAnimator.ofFloat(iv, "alpha",  0f, 1f);
+                scaleXIn.setDuration(450);
+                scaleYIn.setDuration(450);
+                alphaIn.setDuration(250);
+                scaleXIn.setInterpolator(new android.view.animation.DecelerateInterpolator(2f));
+                scaleYIn.setInterpolator(new android.view.animation.DecelerateInterpolator(2f));
+
+                AnimatorSet zoomIn = new AnimatorSet();
+                zoomIn.playTogether(scaleXIn, scaleYIn, alphaIn);
+
+                // Zoom OUT: 1.0 → 0, alpha 1 → 0  (after 3s hold)
+                ObjectAnimator scaleXOut = ObjectAnimator.ofFloat(iv, "scaleX", 1.0f, 0f);
+                ObjectAnimator scaleYOut = ObjectAnimator.ofFloat(iv, "scaleY", 1.0f, 0f);
+                ObjectAnimator alphaOut  = ObjectAnimator.ofFloat(iv, "alpha",  1f,  0f);
+                scaleXOut.setDuration(400);
+                scaleYOut.setDuration(400);
+                alphaOut.setDuration(400);
+                scaleXOut.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+                scaleYOut.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+
+                AnimatorSet zoomOut = new AnimatorSet();
+                zoomOut.playTogether(scaleXOut, scaleYOut, alphaOut);
+                zoomOut.setStartDelay(3000); // hold visible for 3 seconds
+
+                AnimatorSet full = new AnimatorSet();
+                full.playSequentially(zoomIn, zoomOut);
+                full.addListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(Animator animation) {
+                        iv.setVisibility(View.INVISIBLE);
+                        iv.setScaleX(0f);
+                        iv.setScaleY(0f);
+                        iv.setAlpha(0f);
+                        // 3s gap then next button
+                        if (runningArr[0] && getContext() != null)
+                            handlerArr[0].postDelayed(runnableArr[0], 3000);
+                    }
+                });
+                full.start();
+            }
+        };
+
+        // Start with 1.5s initial delay (let sheet open fully first)
+        handlerArr[0].postDelayed(runnableArr[0], 1500);
     }
 
     /** Format: 1200 → "1.2K", 1500000 → "1.5M", else raw */
