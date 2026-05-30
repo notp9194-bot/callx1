@@ -91,6 +91,9 @@ public class AccountMenuActivity extends AppCompatActivity {
         configureRow(binding.rowStorage.getRoot(), R.drawable.ic_file, "Storage & Cache", "Cache size, hit rate, clear cache");
         binding.rowStorage.getRoot().setOnClickListener(v -> startActivity(new Intent(this, CacheStatsActivity.class)));
 
+        configureRow(binding.rowGames.getRoot(), R.drawable.ic_play, "Mini Games", "Fun games khelo — Bubble Pop aur aur bhi!");
+        binding.rowGames.getRoot().setOnClickListener(v -> openGamesHub());
+
         configureRow(binding.rowHelp.getRoot(), R.drawable.ic_search, "Help Center", "FAQ, contact support");
         binding.rowHelp.getRoot().setOnClickListener(v ->
             Toast.makeText(this, "Help — coming soon", Toast.LENGTH_SHORT).show());
@@ -128,6 +131,15 @@ public class AccountMenuActivity extends AppCompatActivity {
         if (subtitle != null && !subtitle.isEmpty()) {
             sub.setText(subtitle); sub.setVisibility(View.VISIBLE);
         } else { sub.setVisibility(View.GONE); }
+    }
+
+    private void openGamesHub() {
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.GamesHubActivity");
+            startActivity(new Intent(this, cls));
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(this, "Games coming soon!", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void openMyReelsProfile() {
