@@ -79,6 +79,19 @@ public class ReelUserProfileSheet {
         Button btnReelFollow = sv.findViewById(R.id.btn_reels_follow_action);
         Button btnYtSub      = sv.findViewById(R.id.btn_youtube_subscribe_action);
 
+        // ── YouTube Description section views ──────────────────────────────
+        View     layoutYtDescSection  = sv.findViewById(R.id.layout_yt_desc_section);
+        TextView tvYtDescTitle        = sv.findViewById(R.id.tv_yt_desc_sheet_title);
+        TextView tvYtDescSubs         = sv.findViewById(R.id.tv_yt_desc_sheet_subs);
+        TextView tvYtDescVideos       = sv.findViewById(R.id.tv_yt_desc_sheet_videos);
+        TextView tvYtDescViews        = sv.findViewById(R.id.tv_yt_desc_sheet_views);
+        TextView tvYtDescBody         = sv.findViewById(R.id.tv_yt_desc_sheet_body);
+        TextView tvYtDescDetailHandle = sv.findViewById(R.id.tv_yt_desc_detail_handle);
+        TextView tvYtDescDetailSubs   = sv.findViewById(R.id.tv_yt_desc_detail_subs);
+        TextView tvYtDescDetailVideos = sv.findViewById(R.id.tv_yt_desc_detail_videos);
+        View     btnYtDescVideosChip  = sv.findViewById(R.id.btn_yt_desc_sheet_videos_chip);
+        View     btnYtDescAboutChip   = sv.findViewById(R.id.btn_yt_desc_sheet_about_chip);
+
         // YouTube se open hua hai toh YouTube section hide + YouTube avatar load karo
         if (hideYoutube) {
             if (btnYoutube   != null) btnYoutube.setVisibility(View.GONE);
@@ -144,6 +157,73 @@ public class ReelUserProfileSheet {
                 }
                 @Override public void onCancelled(DatabaseError e) {}
             });
+
+            // ── YouTube Description Section — channel info load karo ────────
+            if (layoutYtDescSection != null) layoutYtDescSection.setVisibility(android.view.View.VISIBLE);
+            com.google.firebase.database.FirebaseDatabase.getInstance(
+                    "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app")
+                .getReference("youtube/channels").child(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snap) {
+                        if (activity.isFinishing()) return;
+                        String chanName  = snap.child("channelName").getValue(String.class);
+                        String handle    = snap.child("handle").getValue(String.class);
+                        String bio       = snap.child("bio").getValue(String.class);
+                        Long   subsVal   = snap.child("subscriberCount").getValue(Long.class);
+                        Long   vidsVal   = snap.child("videoCount").getValue(Long.class);
+                        Long   viewsVal  = snap.child("viewCount").getValue(Long.class);
+
+                        long subs  = subsVal  != null ? subsVal  : 0;
+                        long vids  = vidsVal  != null ? vidsVal  : 0;
+                        long views = viewsVal != null ? viewsVal : 0;
+
+                        if (tvYtDescTitle  != null) tvYtDescTitle.setText(chanName != null ? chanName : name);
+                        if (tvYtDescSubs   != null) tvYtDescSubs.setText(formatCount(subs));
+                        if (tvYtDescVideos != null) tvYtDescVideos.setText(String.valueOf(vids));
+                        if (tvYtDescViews  != null) tvYtDescViews.setText(formatCount(views));
+                        if (tvYtDescBody   != null) tvYtDescBody.setText(bio != null ? bio : "");
+                        if (tvYtDescDetailHandle != null)
+                            tvYtDescDetailHandle.setText(handle != null ? "@" + handle : "-");
+                        if (tvYtDescDetailSubs   != null)
+                            tvYtDescDetailSubs.setText(formatCount(subs) + " subscribers");
+                        if (tvYtDescDetailVideos != null)
+                            tvYtDescDetailVideos.setText(vids + " videos");
+                    }
+                    @Override public void onCancelled(DatabaseError e) {}
+                });
+
+            // Videos chip — closes sheet and opens YouTubeChannelActivity
+            if (btnYtDescVideosChip != null) {
+                btnYtDescVideosChip.setOnClickListener(v -> {
+                    sheet.dismiss();
+                    try {
+                        android.content.Intent i = new android.content.Intent(activity,
+                            Class.forName("com.callx.app.activities.YouTubeChannelActivity"));
+                        i.putExtra("uid", uid);
+                        activity.startActivity(i);
+                    } catch (ClassNotFoundException ex) {
+                        android.widget.Toast.makeText(activity, "YouTube not available",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+
+            // About chip — also opens YouTubeChannelActivity (user can browse about from there)
+            if (btnYtDescAboutChip != null) {
+                btnYtDescAboutChip.setOnClickListener(v -> {
+                    sheet.dismiss();
+                    try {
+                        android.content.Intent i = new android.content.Intent(activity,
+                            Class.forName("com.callx.app.activities.YouTubeChannelActivity"));
+                        i.putExtra("uid", uid);
+                        activity.startActivity(i);
+                    } catch (ClassNotFoundException ex) {
+                        android.widget.Toast.makeText(activity, "YouTube not available",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+
 
         } else {
             // ── Normal mode: online status + last seen + fresh CallX photo ──

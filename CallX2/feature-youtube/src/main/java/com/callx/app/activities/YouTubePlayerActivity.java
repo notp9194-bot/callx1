@@ -957,6 +957,226 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             R.layout.bottom_sheet_yt_description, null);
         sheet.setContentView(view);
 
+        String uploaderUid = currentVideo.uploaderUid;
+        String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
+            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+
+        // ── Social Profile Section ─────────────────────────────────────────
+        de.hdodenhof.circleimageview.CircleImageView socialAvatar =
+            view.findViewById(R.id.iv_desc_social_avatar);
+        TextView tvSocialName   = view.findViewById(R.id.tv_desc_social_name);
+        TextView tvSocialStatus = view.findViewById(R.id.tv_desc_social_status);
+        android.view.View onlineDot = view.findViewById(R.id.view_desc_online_dot);
+
+        android.widget.Button btnDescXFollow    = view.findViewById(R.id.btn_desc_x_follow);
+        android.widget.Button btnDescReelsFollow= view.findViewById(R.id.btn_desc_reels_follow);
+        android.view.View layoutDescXRow        = view.findViewById(R.id.layout_desc_x_row);
+        android.view.View layoutDescReelsRow    = view.findViewById(R.id.layout_desc_reels_row);
+        TextView tvDescXCount    = view.findViewById(R.id.tv_desc_x_count);
+        TextView tvDescReelsCount= view.findViewById(R.id.tv_desc_reels_count);
+
+        de.hdodenhof.circleimageview.CircleImageView ivAnimX    = view.findViewById(R.id.iv_desc_anim_x);
+        de.hdodenhof.circleimageview.CircleImageView ivAnimReels= view.findViewById(R.id.iv_desc_anim_reels);
+
+        android.view.View btnDescXSheet   = view.findViewById(R.id.btn_desc_x_sheet);
+        android.view.View btnDescReelsBtn = view.findViewById(R.id.btn_desc_reels_sheet);
+
+        // Name + initial avatar
+        if (tvSocialName != null)
+            tvSocialName.setText(currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
+        if (socialAvatar != null && currentVideo.uploaderPhotoUrl != null)
+            Glide.with(this).load(currentVideo.uploaderPhotoUrl).circleCrop().into(socialAvatar);
+
+        FirebaseDatabase db = FirebaseDatabase.getInstance(
+            "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app");
+
+        if (uploaderUid != null && !uploaderUid.isEmpty()) {
+            // Online / last seen
+            db.getReference("users").child(uploaderUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        Boolean online   = snap.child("online").getValue(Boolean.class);
+                        Long    lastSeen = snap.child("lastSeen").getValue(Long.class);
+                        String  freshPhoto = snap.child("photoUrl").getValue(String.class);
+                        String  thumb      = snap.child("thumbUrl").getValue(String.class);
+                        String  photoUrl   = (thumb != null && !thumb.isEmpty()) ? thumb : freshPhoto;
+                        if (photoUrl != null && !photoUrl.isEmpty() && socialAvatar != null)
+                            Glide.with(YouTubePlayerActivity.this).load(photoUrl).circleCrop().into(socialAvatar);
+                        if (Boolean.TRUE.equals(online)) {
+                            if (onlineDot  != null) onlineDot.setVisibility(android.view.View.VISIBLE);
+                            if (tvSocialStatus != null) {
+                                tvSocialStatus.setVisibility(android.view.View.VISIBLE);
+                                tvSocialStatus.setText("Online");
+                                tvSocialStatus.setTextColor(0xFF00C853);
+                            }
+                        } else {
+                            if (onlineDot  != null) onlineDot.setVisibility(android.view.View.GONE);
+                            if (tvSocialStatus != null) {
+                                tvSocialStatus.setVisibility(android.view.View.VISIBLE);
+                                tvSocialStatus.setText(formatLastSeen(lastSeen));
+                                tvSocialStatus.setTextColor(lastSeen != null && lastSeen > 0
+                                    ? 0xFFFFA000 : 0xFF9E9E9E);
+                            }
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+
+            // X platform data
+            db.getReference("x/users").child(uploaderUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (!snap.exists()) return;
+                        String xThumb = snap.child("thumbUrl").getValue(String.class);
+                        String xPhoto = snap.child("photoUrl").getValue(String.class);
+                        String xUrl   = (xThumb != null && !xThumb.isEmpty()) ? xThumb : xPhoto;
+                        if (xUrl != null && !xUrl.isEmpty() && ivAnimX != null)
+                            Glide.with(YouTubePlayerActivity.this).load(xUrl).circleCrop().into(ivAnimX);
+
+                        db.getReference("x/followers").child(uploaderUid)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot fs) {
+                                    long cnt = fs.getChildrenCount();
+                                    if (tvDescXCount  != null) tvDescXCount.setText(formatCount(cnt) + " Followers");
+                                    if (layoutDescXRow!= null) layoutDescXRow.setVisibility(android.view.View.VISIBLE);
+                                    if (!myUid.isEmpty() && btnDescXFollow != null) {
+                                        boolean[] isF = {fs.hasChild(myUid)};
+                                        setDescXBtn(btnDescXFollow, isF[0]);
+                                        btnDescXFollow.setOnClickListener(v -> {
+                                            isF[0] = !isF[0]; setDescXBtn(btnDescXFollow, isF[0]);
+                                            if (isF[0]) {
+                                                db.getReference("x/followers").child(uploaderUid).child(myUid).setValue(true);
+                                                db.getReference("x/following").child(myUid).child(uploaderUid).setValue(true);
+                                                if (tvDescXCount != null) bumpDescCount(tvDescXCount, 1, "Followers");
+                                            } else {
+                                                db.getReference("x/followers").child(uploaderUid).child(myUid).removeValue();
+                                                db.getReference("x/following").child(myUid).child(uploaderUid).removeValue();
+                                                if (tvDescXCount != null) bumpDescCount(tvDescXCount, -1, "Followers");
+                                            }
+                                        });
+                                    }
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {}
+                            });
+
+                        if (btnDescXSheet != null) {
+                            btnDescXSheet.setOnClickListener(v -> {
+                                sheet.dismiss();
+                                try {
+                                    Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                                    java.lang.reflect.Method m = cls.getMethod("showProfile",
+                                        androidx.fragment.app.FragmentManager.class, String.class);
+                                    m.invoke(null, getSupportFragmentManager(), uploaderUid);
+                                } catch (Exception ex) {
+                                    Toast.makeText(YouTubePlayerActivity.this, "X profile not available", Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+
+            // Reels platform data
+            db.getReference("reels/users").child(uploaderUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (!snap.exists()) return;
+                        String rThumb = snap.child("thumbUrl").getValue(String.class);
+                        String rPhoto = snap.child("photoUrl").getValue(String.class);
+                        String rUrl   = (rThumb != null && !rThumb.isEmpty()) ? rThumb : rPhoto;
+                        if (rUrl != null && !rUrl.isEmpty() && ivAnimReels != null)
+                            Glide.with(YouTubePlayerActivity.this).load(rUrl).circleCrop().into(ivAnimReels);
+
+                        db.getReference("reels/followers").child(uploaderUid)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(@NonNull DataSnapshot fs) {
+                                    long cnt = fs.getChildrenCount();
+                                    if (tvDescReelsCount   != null) tvDescReelsCount.setText(formatCount(cnt) + " Followers");
+                                    if (layoutDescReelsRow != null) layoutDescReelsRow.setVisibility(android.view.View.VISIBLE);
+                                    if (!myUid.isEmpty() && btnDescReelsFollow != null) {
+                                        boolean[] isF = {fs.hasChild(myUid)};
+                                        setDescReelsBtn(btnDescReelsFollow, isF[0]);
+                                        btnDescReelsFollow.setOnClickListener(v -> {
+                                            isF[0] = !isF[0]; setDescReelsBtn(btnDescReelsFollow, isF[0]);
+                                            if (isF[0]) {
+                                                db.getReference("reels/followers").child(uploaderUid).child(myUid).setValue(true);
+                                                db.getReference("reels/following").child(myUid).child(uploaderUid).setValue(true);
+                                                if (tvDescReelsCount != null) bumpDescCount(tvDescReelsCount, 1, "Followers");
+                                            } else {
+                                                db.getReference("reels/followers").child(uploaderUid).child(myUid).removeValue();
+                                                db.getReference("reels/following").child(myUid).child(uploaderUid).removeValue();
+                                                if (tvDescReelsCount != null) bumpDescCount(tvDescReelsCount, -1, "Followers");
+                                            }
+                                        });
+                                    }
+                                }
+                                @Override public void onCancelled(@NonNull DatabaseError e) {}
+                            });
+
+                        if (btnDescReelsBtn != null) {
+                            btnDescReelsBtn.setOnClickListener(v -> {
+                                sheet.dismiss();
+                                try {
+                                    Intent i = new Intent(YouTubePlayerActivity.this,
+                                        Class.forName("com.callx.app.activities.UserReelsActivity"));
+                                    i.putExtra("uid", uploaderUid);
+                                    startActivity(i);
+                                } catch (ClassNotFoundException ex) {
+                                    Toast.makeText(YouTubePlayerActivity.this, "Reels not available", Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+        }
+
+        // Message button
+        android.view.View btnMsg = view.findViewById(R.id.btn_desc_message);
+        if (btnMsg != null) {
+            btnMsg.setOnClickListener(v -> {
+                sheet.dismiss();
+                Intent i = new Intent()
+                    .setClassName(getPackageName(), "com.callx.app.activities.ChatActivity");
+                i.putExtra("partnerUid",   uploaderUid);
+                i.putExtra("partnerName",  currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
+                i.putExtra("partnerPhoto", currentVideo.uploaderPhotoUrl != null ? currentVideo.uploaderPhotoUrl : "");
+                startActivity(i);
+            });
+        }
+
+        // Voice Call button
+        android.view.View btnVoice = view.findViewById(R.id.btn_desc_voice_call);
+        if (btnVoice != null) {
+            btnVoice.setOnClickListener(v -> {
+                sheet.dismiss();
+                Intent i = new Intent()
+                    .setClassName(getPackageName(), "com.callx.app.activities.CallActivity");
+                i.putExtra("partnerUid",  uploaderUid);
+                i.putExtra("partnerName", currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
+                i.putExtra("isCaller", true);
+                i.putExtra("video", false);
+                startActivity(i);
+            });
+        }
+
+        // Video Call button
+        android.view.View btnVidCall = view.findViewById(R.id.btn_desc_video_call);
+        if (btnVidCall != null) {
+            btnVidCall.setOnClickListener(v -> {
+                sheet.dismiss();
+                Intent i = new Intent()
+                    .setClassName(getPackageName(), "com.callx.app.activities.CallActivity");
+                i.putExtra("partnerUid",  uploaderUid);
+                i.putExtra("partnerName", currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
+                i.putExtra("isCaller", true);
+                i.putExtra("video", true);
+                startActivity(i);
+            });
+        }
+
+        // ── Existing Description Content ──────────────────────────────────
+
         // Title
         TextView sheetTitle = view.findViewById(R.id.tv_desc_sheet_title);
         if (sheetTitle != null) sheetTitle.setText(currentVideo.title);
@@ -993,50 +1213,44 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             detailLikes.setText(String.format(Locale.getDefault(),
                 "%,d", currentVideo.likeCount));
 
-        // Channel info
+        // Channel info row
         TextView sheetChannelName = view.findViewById(R.id.tv_desc_sheet_channel_name);
         TextView sheetSubs        = view.findViewById(R.id.tv_desc_sheet_subs);
         de.hdodenhof.circleimageview.CircleImageView sheetAvatar =
             view.findViewById(R.id.iv_desc_sheet_avatar);
         if (sheetChannelName != null) sheetChannelName.setText(currentVideo.uploaderName);
         if (sheetAvatar != null) {
-            com.bumptech.glide.Glide.with(this)
-                .load(currentVideo.uploaderPhotoUrl).circleCrop().into(sheetAvatar);
+            Glide.with(this).load(currentVideo.uploaderPhotoUrl).circleCrop().into(sheetAvatar);
         }
-        // Load subscriber count for channel
-        if (sheetSubs != null && currentVideo.uploaderUid != null) {
-            com.google.firebase.database.FirebaseDatabase.getInstance()
-                .getReference("youtube_channels")
-                .child(currentVideo.uploaderUid)
-                .child("subscriberCount")
+        if (sheetSubs != null && uploaderUid != null) {
+            db.getReference("youtube/channels").child(uploaderUid).child("subscriberCount")
                 .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@androidx.annotation.NonNull
-                            com.google.firebase.database.DataSnapshot snap) {
-                        long subs = snap.exists() ? snap.getValue(Long.class) : 0;
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        long subs = snap.exists() && snap.getValue(Long.class) != null
+                            ? snap.getValue(Long.class) : 0;
                         sheetSubs.setText(formatCount(subs) + " subscribers");
                     }
-                    @Override public void onCancelled(@androidx.annotation.NonNull
-                            com.google.firebase.database.DatabaseError e) {}
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
                 });
         }
 
         // Channel row tap → open channel page
         android.view.View channelRow = view.findViewById(R.id.ll_desc_sheet_channel);
-        if (channelRow != null && currentVideo.uploaderUid != null) {
+        if (channelRow != null && uploaderUid != null) {
             channelRow.setOnClickListener(cv -> {
                 sheet.dismiss();
                 startActivity(new Intent(this, YouTubeChannelActivity.class)
-                    .putExtra("uid", currentVideo.uploaderUid));
+                    .putExtra("uid", uploaderUid));
             });
         }
 
         // Videos button → open channel
         android.view.View btnVideos = view.findViewById(R.id.btn_desc_sheet_videos);
-        if (btnVideos != null && currentVideo.uploaderUid != null) {
+        if (btnVideos != null && uploaderUid != null) {
             btnVideos.setOnClickListener(cv -> {
                 sheet.dismiss();
                 startActivity(new Intent(this, YouTubeChannelActivity.class)
-                    .putExtra("uid", currentVideo.uploaderUid));
+                    .putExtra("uid", uploaderUid));
             });
         }
 
@@ -1044,7 +1258,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         android.view.View btnClose = view.findViewById(R.id.btn_yt_desc_close);
         if (btnClose != null) btnClose.setOnClickListener(cv -> sheet.dismiss());
 
-        // Bottom sheet ko puri height pe open karo (screenshot jaisa)
+        // Bottom sheet ko puri height pe open karo
         sheet.setOnShowListener(d -> {
             com.google.android.material.bottomsheet.BottomSheetBehavior<?> behavior =
                 com.google.android.material.bottomsheet.BottomSheetBehavior.from(
@@ -1055,6 +1269,43 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         });
 
         sheet.show();
+    }
+
+    // ── Desc sheet helper methods ──────────────────────────────────────────
+
+    private static String formatLastSeen(Long ts) {
+        if (ts == null || ts <= 0) return "last seen: unknown";
+        long diff = System.currentTimeMillis() - ts;
+        if (diff < 60_000)         return "last seen just now";
+        if (diff < 3_600_000)      return "last seen " + (diff / 60_000)     + " min ago";
+        if (diff < 86_400_000)     return "last seen " + (diff / 3_600_000)  + " hr ago";
+        if (diff < 2 * 86_400_000) return "last seen yesterday";
+        java.text.SimpleDateFormat sdf =
+            new java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault());
+        return "last seen " + sdf.format(new java.util.Date(ts));
+    }
+
+    private void setDescXBtn(android.widget.Button btn, boolean following) {
+        if (btn == null) return;
+        btn.setText(following ? "Following" : "Follow");
+        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+            following ? 0xFF333333 : 0xFF000000));
+    }
+
+    private void setDescReelsBtn(android.widget.Button btn, boolean following) {
+        if (btn == null) return;
+        btn.setText(following ? "Following" : "Follow");
+        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+            following ? 0xFF555555 : 0xFFDD2A7B));
+    }
+
+    private void bumpDescCount(TextView tv, int delta, String label) {
+        try {
+            String raw = tv.getText().toString().split(" ")[0]
+                .replace("K", "000").replace("M", "000000");
+            long cur = Long.parseLong(raw);
+            tv.setText(formatCount(Math.max(0, cur + delta)) + " " + label);
+        } catch (Exception ignored) {}
     }
 
     // "1h ago", "2 days ago", "3 weeks ago" format — real YouTube jaisa

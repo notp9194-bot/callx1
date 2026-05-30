@@ -17,6 +17,388 @@
         android:background="#555555"
         android:backgroundTint="#555555"/>
 
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Social Profile Section (from ReelUserProfileSheet)
+         Channel owner ka avatar, name, online status, action buttons,
+         aur social platform rows
+         ═══════════════════════════════════════════════════════════════════ -->
+
+    <!-- Avatar + online dot -->
+    <FrameLayout
+        android:layout_width="88dp"
+        android:layout_height="88dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="12dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_desc_social_avatar"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        <View
+            android:id="@+id/view_desc_online_dot"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="3dp"
+            android:background="@drawable/circle_accept"
+            android:visibility="gone"/>
+    </FrameLayout>
+
+    <!-- Name -->
+    <TextView
+        android:id="@+id/tv_desc_social_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:textColor="@color/yt_text_primary"
+        android:maxLines="1"
+        android:ellipsize="end"/>
+
+    <!-- Status / last seen -->
+    <TextView
+        android:id="@+id/tv_desc_social_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="2dp"
+        android:textSize="12sp"
+        android:textColor="@color/yt_text_secondary"/>
+
+    <!-- 3 Action buttons: Message / Voice Call / Video Call -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginTop="18dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <!-- Message -->
+        <LinearLayout
+            android:id="@+id/btn_desc_message"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout
+                android:layout_width="50dp"
+                android:layout_height="50dp"
+                android:background="#1E1E1E">
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_yt_message"
+                    android:tint="#AAAAAA"/>
+            </FrameLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Message"
+                android:textSize="11sp"
+                android:textColor="@color/yt_text_secondary"/>
+        </LinearLayout>
+
+        <!-- Voice Call -->
+        <LinearLayout
+            android:id="@+id/btn_desc_voice_call"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout
+                android:layout_width="50dp"
+                android:layout_height="50dp"
+                android:background="#1A3A1A">
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_yt_call"
+                    android:tint="#00C853"/>
+            </FrameLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Voice Call"
+                android:textSize="11sp"
+                android:textColor="@color/yt_text_secondary"/>
+        </LinearLayout>
+
+        <!-- Video Call -->
+        <LinearLayout
+            android:id="@+id/btn_desc_video_call"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout
+                android:layout_width="50dp"
+                android:layout_height="50dp"
+                android:background="#1A1A3A">
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_yt_video_call"
+                    android:tint="#7C4DFF"/>
+            </FrameLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Video Call"
+                android:textSize="11sp"
+                android:textColor="@color/yt_text_secondary"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="#2A2A2A"
+        android:layout_marginTop="16dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"/>
+
+    <!-- Social Platforms label -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="14dp"
+        android:layout_marginBottom="4dp"
+        android:text="SOCIAL PLATFORMS"
+        android:textSize="10sp"
+        android:textColor="@color/yt_text_secondary"
+        android:textAllCaps="true"
+        android:letterSpacing="0.1"/>
+
+    <!-- 3 Social buttons: X / Reels / YouTube -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <!-- X -->
+        <LinearLayout
+            android:id="@+id/btn_desc_x_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout
+                android:layout_width="50dp"
+                android:layout_height="50dp">
+                <FrameLayout
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:background="@drawable/bg_social_x_btn">
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_x_logo"/>
+                </FrameLayout>
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_desc_anim_x"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_person"
+                    android:visibility="invisible"/>
+            </FrameLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="X"
+                android:textSize="11sp"
+                android:textColor="@color/yt_text_secondary"/>
+        </LinearLayout>
+
+        <!-- Reels -->
+        <LinearLayout
+            android:id="@+id/btn_desc_reels_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout
+                android:layout_width="50dp"
+                android:layout_height="50dp">
+                <FrameLayout
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:background="@drawable/bg_social_reel_btn">
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_reels"
+                        android:tint="@android:color/white"/>
+                </FrameLayout>
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_desc_anim_reels"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_person"
+                    android:visibility="invisible"/>
+            </FrameLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Reels"
+                android:textSize="11sp"
+                android:textColor="@color/yt_text_secondary"/>
+        </LinearLayout>
+
+        <!-- YouTube (hidden since we're already on YouTube) -->
+        <LinearLayout
+            android:id="@+id/btn_desc_youtube_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:visibility="gone">
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- X Follow row -->
+    <LinearLayout
+        android:id="@+id/layout_desc_x_row"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:layout_marginTop="8dp"
+        android:visibility="gone">
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:src="@drawable/ic_x_logo"
+            android:background="@drawable/bg_social_x_btn"
+            android:padding="2dp"/>
+        <TextView
+            android:id="@+id/tv_desc_x_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:text="0 Followers"
+            android:textSize="13sp"
+            android:textColor="@color/yt_text_secondary"/>
+        <Button
+            android:id="@+id/btn_desc_x_follow"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:text="Follow"
+            android:textSize="11sp"
+            android:textColor="@android:color/white"
+            android:backgroundTint="#000000"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            style="@style/Widget.MaterialComponents.Button"/>
+    </LinearLayout>
+
+    <!-- Reels Follow row -->
+    <LinearLayout
+        android:id="@+id/layout_desc_reels_row"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:layout_marginTop="4dp"
+        android:visibility="gone">
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:src="@drawable/ic_reels"
+            android:tint="@android:color/white"
+            android:background="@drawable/bg_social_reel_btn"
+            android:padding="2dp"/>
+        <TextView
+            android:id="@+id/tv_desc_reels_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:text="0 Followers"
+            android:textSize="13sp"
+            android:textColor="@color/yt_text_secondary"/>
+        <Button
+            android:id="@+id/btn_desc_reels_follow"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:text="Follow"
+            android:textSize="11sp"
+            android:textColor="@android:color/white"
+            android:backgroundTint="#DD2A7B"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            style="@style/Widget.MaterialComponents.Button"/>
+    </LinearLayout>
+
+    <!-- Divider before existing description content -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#2A2A2A"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="4dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"/>
+
+
     <!-- Header: "Description" title + X button -->
     <LinearLayout
         android:layout_width="match_parent"

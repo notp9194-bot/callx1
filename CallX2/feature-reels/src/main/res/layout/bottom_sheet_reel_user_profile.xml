@@ -436,6 +436,327 @@
             style="@style/Widget.MaterialComponents.Button"/>
     </LinearLayout>
 
+    <!-- ═══════════════════════════════════════════════════════════════════
+         YouTube Channel Description Section
+         Sirf tab visible hoga jab hideYoutube=true (YouTube channel se open)
+         Java mein: layout_yt_desc_section.setVisibility(VISIBLE)
+         ═══════════════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/layout_yt_desc_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- Divider -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#2A2A2A"
+            android:layout_marginTop="12dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"/>
+
+        <!-- Section Label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="20dp"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="4dp"
+            android:text="CHANNEL DESCRIPTION"
+            android:textSize="11sp"
+            android:textColor="@color/text_muted"
+            android:textAllCaps="true"
+            android:letterSpacing="0.1"/>
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp"
+            android:maxHeight="460dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- Channel Title (bold) -->
+                <TextView
+                    android:id="@+id/tv_yt_desc_sheet_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:lineSpacingMultiplier="1.2"
+                    android:layout_marginBottom="12dp"/>
+
+                <!-- Stats row: Subscribers | Videos | Joined -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                    <!-- Subscribers box -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="60dp"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="#2A2A2A"
+                        android:layout_marginEnd="6dp">
+
+                        <TextView
+                            android:id="@+id/tv_yt_desc_sheet_subs"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="#FFFFFF"
+                            android:textSize="16sp"
+                            android:textStyle="bold"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Subscribers"
+                            android:textColor="#AAAAAA"
+                            android:textSize="11sp"/>
+                    </LinearLayout>
+
+                    <!-- Videos box -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="60dp"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="#2A2A2A"
+                        android:layout_marginEnd="6dp">
+
+                        <TextView
+                            android:id="@+id/tv_yt_desc_sheet_videos"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="#FFFFFF"
+                            android:textSize="16sp"
+                            android:textStyle="bold"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Videos"
+                            android:textColor="#AAAAAA"
+                            android:textSize="11sp"/>
+                    </LinearLayout>
+
+                    <!-- Views box -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="60dp"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="#2A2A2A">
+
+                        <TextView
+                            android:id="@+id/tv_yt_desc_sheet_views"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="#FFFFFF"
+                            android:textSize="16sp"
+                            android:textStyle="bold"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Views"
+                            android:textColor="#AAAAAA"
+                            android:textSize="11sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Description body (dark box) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="#1E1E1E"
+                    android:padding="12dp"
+                    android:layout_marginBottom="16dp">
+
+                    <TextView
+                        android:id="@+id/tv_yt_desc_sheet_body"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="#AAAAAA"
+                        android:textSize="13sp"
+                        android:lineSpacingMultiplier="1.4"
+                        android:hint="No description"
+                        android:textColorHint="#555555"/>
+                </LinearLayout>
+
+                <!-- Divider -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#2A2A2A"
+                    android:layout_marginBottom="12dp"/>
+
+                <!-- Channel action chips row: Videos | About -->
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:scrollbars="none"
+                    android:layout_marginBottom="16dp">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <!-- Videos chip — opens YouTubeChannelActivity -->
+                        <TextView
+                            android:id="@+id/btn_yt_desc_sheet_videos_chip"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="▶  Videos"
+                            android:gravity="center"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:background="@drawable/bg_yt_profile_chip"
+                            android:paddingStart="14dp"
+                            android:paddingEnd="14dp"
+                            android:layout_marginEnd="8dp"
+                            android:clickable="true"
+                            android:focusable="true"/>
+
+                        <!-- About chip — opens YouTubeEditChannelActivity (view-only) -->
+                        <TextView
+                            android:id="@+id/btn_yt_desc_sheet_about_chip"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="About"
+                            android:gravity="center"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:background="@drawable/bg_yt_profile_chip"
+                            android:paddingStart="14dp"
+                            android:paddingEnd="14dp"
+                            android:layout_marginEnd="8dp"
+                            android:clickable="true"
+                            android:focusable="true"/>
+                    </LinearLayout>
+                </HorizontalScrollView>
+
+                <!-- Video details heading -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Channel details"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="10dp"/>
+
+                <!-- Handle row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_person"
+                        android:tint="#AAAAAA"
+                        android:layout_marginEnd="10dp"/>
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Handle"
+                        android:textColor="#AAAAAA"
+                        android:textSize="13sp"/>
+
+                    <TextView
+                        android:id="@+id/tv_yt_desc_detail_handle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"/>
+                </LinearLayout>
+
+                <!-- Subscribers detail row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_youtube"
+                        android:tint="#AAAAAA"
+                        android:layout_marginEnd="10dp"/>
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Subscribers"
+                        android:textColor="#AAAAAA"
+                        android:textSize="13sp"/>
+
+                    <TextView
+                        android:id="@+id/tv_yt_desc_detail_subs"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"/>
+                </LinearLayout>
+
+                <!-- Videos detail row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_reels"
+                        android:tint="#AAAAAA"
+                        android:layout_marginEnd="10dp"/>
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Videos"
+                        android:textColor="#AAAAAA"
+                        android:textSize="13sp"/>
+
+                    <TextView
+                        android:id="@+id/tv_yt_desc_detail_videos"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"/>
+                </LinearLayout>
+
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+
     <!-- YouTube Subscribe row -->
     <LinearLayout
         android:id="@+id/layout_youtube_subscribe_row"
