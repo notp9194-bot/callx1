@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <resources>
+      <string name="x_home">Home</string>
+      <string name="x_explore">Explore</string>
+      <string name="x_notifications">Notifications</string>
+      <string name="x_messages">Messages</string>
+      <string name="x_post_btn">Post</string>
+      <string name="x_compose_hint">What is happening?!</string>
+      <string name="x_reply_hint">Post your reply</string>
+      <string name="x_for_you">For you</string>
+      <string name="x_following">Following</string>
+      <string name="x_trending">Trending</string>
+      <string name="x_follow">Follow</string>
+      <string name="x_following_btn">Following</string>
+      <string name="x_likes">Likes</string>
+      <string name="x_reposts">Reposts</string>
+      <string name="x_views">Views</string>
+      <string name="x_bookmarks">Bookmarks</string>
+      <string name="x_lists">Lists</string>
+      <string name="x_char_remaining">280</string>
+      <string name="x_new_message">New message</string>
+      <string name="x_search_hint">Search X</string>
+      <string name="x_spaces">Spaces</string>
+      <string name="x_premium">X Premium</string>
+      <string name="x_verified">Verified</string>
+      <string name="x_poll">Add poll</string>
+      <string name="x_gif">GIF</string>
+      <string name="x_schedule">Schedule</string>
+      <string name="x_settings">Settings</string>
+    <string name="x_settings_account">Your account</string>
+    <string name="x_settings_security">Security and account access</string>
+    <string name="x_settings_privacy">Privacy and safety</string>
+    <string name="x_settings_notifications">Notifications</string>
+    <string name="x_settings_display">Display and sound</string>
+    <string name="x_settings_accessibility">Accessibility</string>
+    <string name="x_settings_data">Data usage</string>
+    <string name="x_settings_about">About</string>
+</resources>

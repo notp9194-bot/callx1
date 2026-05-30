@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/x_bg">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="12dp"
+        android:background="@color/x_bg">
+
+        <ImageButton
+            android:id="@+id/btn_dm_conv_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_text_primary"
+            android:contentDescription="Back"/>
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_dm_conv_avatar"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_person"
+            android:layout_marginEnd="10dp"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_dm_conv_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/x_text_primary"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-bold"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <!-- Typing indicator -->
+            <TextView
+                android:id="@+id/tv_dm_typing_indicator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="typing..."
+                android:textColor="@color/x_accent"
+                android:textSize="12sp"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/tv_dm_conv_handle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/x_text_secondary"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/x_divider"/>
+
+    <!-- Upload progress -->
+    <ProgressBar
+        android:id="@+id/pb_dm_upload"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+        android:progressTint="@color/x_accent"
+        android:max="100"
+        android:visibility="gone"/>
+
+    <!-- Messages list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_dm_messages"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"/>
+
+    <!-- Reply preview bar (shown when replying to a message) -->
+    <LinearLayout
+        android:id="@+id/v_dm_reply_preview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="@color/x_surface"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="3dp"
+            android:layout_height="36dp"
+            android:background="@color/x_accent"
+            android:layout_marginEnd="8dp"/>
+
+        <TextView
+            android:id="@+id/tv_dm_reply_preview_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="@color/x_text_secondary"
+            android:textSize="13sp"
+            android:maxLines="2"
+            android:ellipsize="end"/>
+
+        <ImageButton
+            android:id="@+id/btn_dm_cancel_reply"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_x_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_text_secondary"
+            android:contentDescription="Cancel reply"/>
+    </LinearLayout>
+
+    <!-- Input bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="@color/x_bg">
+
+        <ImageButton
+            android:id="@+id/btn_dm_media"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_image"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent"
+            android:contentDescription="Attach media"/>
+
+        <ImageButton
+            android:id="@+id/btn_dm_video"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_x_share"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent"
+            android:contentDescription="Video"/>
+
+        <EditText
+            android:id="@+id/et_dm_message"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Start a message"
+            android:textColor="@color/x_text_primary"
+            android:textColorHint="@color/x_text_muted"
+            android:textSize="15sp"
+            android:background="@drawable/bg_surface_input"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:maxLines="4"
+            android:inputType="textMultiLine"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"/>
+
+        <ImageButton
+            android:id="@+id/btn_dm_send"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_x_send"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent"
+            android:contentDescription="Send"/>
+    </LinearLayout>
+</LinearLayout>

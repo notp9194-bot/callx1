@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <application>
+
+        <activity
+            android:name="com.callx.app.activities.XActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity
+            android:name="com.callx.app.activities.XComposeActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity
+            android:name="com.callx.app.activities.XTweetDetailActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName="com.callx.app.activities.XActivity"/>
+
+        <!-- XProfileActivity removed — profile is now shown via XProfileSheet (BottomSheetDialogFragment) -->
+
+        <activity
+            android:name="com.callx.app.activities.XSearchActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustPan"/>
+
+        <activity
+            android:name="com.callx.app.activities.XHashtagActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"/>
+
+        <activity
+            android:name="com.callx.app.activities.XBookmarksActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"/>
+
+        <activity
+            android:name="com.callx.app.activities.XDMConversationActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Edit Profile — parentActivity updated to XActivity (XProfileActivity removed) -->
+        <activity
+            android:name="com.callx.app.activities.XEditProfileActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName="com.callx.app.activities.XActivity"/>
+
+        <activity
+            android:name="com.callx.app.activities.XImageViewerActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"/>
+
+        <activity
+            android:name="com.callx.app.activities.XVideoPlayerActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"/>
+
+        <!-- Block / Mute Screens -->
+        <activity
+            android:name="com.callx.app.activities.XBlockedUsersActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Blocked Accounts"/>
+
+        <activity
+            android:name="com.callx.app.activities.XMutedUsersActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Muted Accounts"/>
+
+        <!-- GIF Picker (Tenor) -->
+        <activity
+            android:name="com.callx.app.activities.XGifPickerActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Choose GIF"/>
+
+        <!-- Thread Composer -->
+        <activity
+            android:name="com.callx.app.activities.XThreadComposerActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Compose Thread"/>
+
+
+        <!-- X Settings System -->
+        <activity
+            android:name="com.callx.app.activities.XSettingsActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Settings"
+            android:parentActivityName="com.callx.app.activities.XActivity"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsAccountActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Your account"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsSecurityActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Security and account access"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsPrivacyActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Privacy and safety"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsNotifActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Notifications"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsDisplayActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Display and sound"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsAccessibilityActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Accessibility"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsDataActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="Data usage"/>
+
+        <activity
+            android:name="com.callx.app.activities.XSettingsAboutActivity"
+            android:theme="@style/XActivity.Theme"
+            android:exported="false"
+            android:label="About"/>
+
+        <!--
+            X FCM Push Notification Service — MESSAGING_EVENT intent-filter HATA DIYA GAYA.
+
+            Reason: Android sirf ek FirebaseMessagingService ko MESSAGING_EVENT de sakta hai.
+            CallxMessagingService (app module) pehle se registered hai aur wahi SINGLE entry
+            point hai. Duplicate registration se Android unpredictably kisi ek ko pick karta
+            tha jisse X notifications background/killed state mein deliver nahi hoti thi.
+
+            Fix: XFirebaseMessagingService ab sirf token-upload ke liye use hota hai.
+            FCM delivery: CallxMessagingService → x_notif_type detect → XFCMNotificationHandler
+        -->
+        <service
+            android:name="com.callx.app.services.XFirebaseMessagingService"
+            android:exported="false"/>
+        <!-- NO intent-filter — MESSAGING_EVENT sirf CallxMessagingService ke paas hai -->
+    </application>
+
+</manifest>

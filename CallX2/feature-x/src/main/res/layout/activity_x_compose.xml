@@ -1,0 +1,389 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/x_bg">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <ImageButton
+            android:id="@+id/btn_x_compose_close"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_text_primary"
+            android:contentDescription="Close"/>
+
+        <!-- Audience selector -->
+        <TextView
+            android:id="@+id/tv_x_audience_label"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="Everyone"
+            android:textColor="@color/x_accent"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-bold"
+            android:background="@drawable/bg_x_bubble_sent"/>
+
+        
+        <ImageButton android:id="@+id/btn_x_compose_video"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_x_share"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Video"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_thread"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_at"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Thread"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_audience"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_person"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Audience"/>
+        <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+        <Button
+            android:id="@+id/btn_x_compose_post"
+            android:layout_width="80dp"
+            android:layout_height="36dp"
+            android:text="Post"
+            android:textColor="@color/x_bg_primary"
+            android:backgroundTint="@color/x_text_primary"
+            android:textSize="15sp"
+            android:fontFamily="sans-serif-bold"
+            style="@style/Widget.MaterialComponents.Button"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/x_divider"/>
+
+    <!-- Upload / compress progress -->
+    <ProgressBar
+        android:id="@+id/pb_x_compose"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+        android:progressTint="@color/x_accent"
+        android:max="100"
+        android:visibility="gone"/>
+
+    <!-- Audience row (expanded panel) -->
+    <LinearLayout
+        android:id="@+id/ll_x_audience"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"/>
+
+    <!-- Compose area -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_x_compose_avatar"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_person"
+                    android:layout_marginEnd="10dp"/>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <EditText
+                        android:id="@+id/et_x_compose_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="What's happening?"
+                        android:textColor="@color/x_text_primary"
+                        android:textColorHint="@color/x_text_muted"
+                        android:textSize="18sp"
+                        android:background="@null"
+                        android:minLines="4"
+                        android:maxLines="12"
+                        android:inputType="textMultiLine|textCapSentences"
+                        android:gravity="top"/>
+
+                    <!-- Multi-image preview grid -->
+                    <LinearLayout
+                        android:id="@+id/ll_x_media_previews"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"/>
+
+                    <!-- Thread entries container -->
+                    <LinearLayout
+                        android:id="@+id/ll_x_thread_entries"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"/>
+
+                    <!-- Quote tweet preview -->
+                    <LinearLayout
+                        android:id="@+id/card_compose_quote_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="10dp"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/bg_x_quote_card"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/tv_compose_quote_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/x_text_secondary"
+                            android:textSize="13sp"
+                            android:fontFamily="sans-serif-bold"/>
+
+                        <TextView
+                            android:id="@+id/tv_compose_quote_text"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/x_text_primary"
+                            android:textSize="14sp"
+                            android:maxLines="3"
+                            android:ellipsize="end"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <!-- Single media preview -->
+                    <ImageView
+                        android:id="@+id/iv_compose_media_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="160dp"
+                        android:layout_marginTop="8dp"
+                        android:scaleType="centerCrop"
+                        android:background="@drawable/bg_x_media_rounded"
+                        android:clipToOutline="true"
+                        android:visibility="gone"
+                        android:contentDescription="Media preview"/>
+
+                    <!-- Poll options container -->
+                    <LinearLayout
+                        android:id="@+id/ll_x_poll_options"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"/>
+
+
+                    <!-- Link preview card (shown when URL detected in text) -->
+                    <LinearLayout
+                        android:id="@+id/card_x_compose_link_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_x_quote_card"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:id="@+id/iv_link_preview_thumb"
+                            android:layout_width="match_parent"
+                            android:layout_height="100dp"
+                            android:scaleType="centerCrop"
+                            android:visibility="gone"
+                            android:contentDescription="Link thumbnail"/>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="10dp">
+
+                            <TextView
+                                android:id="@+id/tv_link_preview_title"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/x_text_primary"
+                                android:textSize="14sp"
+                                android:fontFamily="sans-serif-bold"
+                                android:maxLines="2"
+                                android:ellipsize="end"/>
+
+                            <TextView
+                                android:id="@+id/tv_link_preview_desc"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/x_text_secondary"
+                                android:textSize="12sp"
+                                android:maxLines="2"
+                                android:ellipsize="end"
+                                android:layout_marginTop="2dp"/>
+                        </LinearLayout>
+                    </LinearLayout>
+                    <!-- Poll editor (full) -->
+                    <LinearLayout
+                        android:id="@+id/ll_compose_poll_editor"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/bg_x_quote_card"
+                        android:padding="12dp"
+                        android:visibility="gone">
+
+                        <EditText android:id="@+id/et_poll_opt1"
+                            android:layout_width="match_parent" android:layout_height="44dp"
+                            android:hint="Choice 1" android:textColor="@color/x_text_primary"
+                            android:textColorHint="@color/x_text_muted"
+                            android:background="@drawable/bg_surface_input"
+                            android:paddingStart="12dp" android:paddingEnd="12dp"
+                            android:singleLine="true" android:layout_marginBottom="8dp"/>
+
+                        <EditText android:id="@+id/et_poll_opt2"
+                            android:layout_width="match_parent" android:layout_height="44dp"
+                            android:hint="Choice 2" android:textColor="@color/x_text_primary"
+                            android:textColorHint="@color/x_text_muted"
+                            android:background="@drawable/bg_surface_input"
+                            android:paddingStart="12dp" android:paddingEnd="12dp"
+                            android:singleLine="true" android:layout_marginBottom="8dp"/>
+
+                        <EditText android:id="@+id/et_poll_opt3"
+                            android:layout_width="match_parent" android:layout_height="44dp"
+                            android:hint="Choice 3 (optional)" android:textColor="@color/x_text_primary"
+                            android:textColorHint="@color/x_text_muted"
+                            android:background="@drawable/bg_surface_input"
+                            android:paddingStart="12dp" android:paddingEnd="12dp"
+                            android:singleLine="true" android:layout_marginBottom="8dp"/>
+
+                        <EditText android:id="@+id/et_poll_opt4"
+                            android:layout_width="match_parent" android:layout_height="44dp"
+                            android:hint="Choice 4 (optional)" android:textColor="@color/x_text_primary"
+                            android:textColorHint="@color/x_text_muted"
+                            android:background="@drawable/bg_surface_input"
+                            android:paddingStart="12dp" android:paddingEnd="12dp"
+                            android:singleLine="true" android:layout_marginBottom="8dp"/>
+
+                        <Button android:id="@+id/btn_remove_poll"
+                            android:layout_width="wrap_content" android:layout_height="32dp"
+                            android:text="Remove poll"
+                            android:textColor="@color/x_like_active"
+                            android:backgroundTint="@android:color/transparent"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Compress hint -->
+    <TextView
+        android:id="@+id/tv_compose_compress_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:textSize="12sp"
+        android:textColor="@color/x_text_secondary"
+        android:gravity="center"
+        android:visibility="gone"/>
+
+    <!-- Bottom bar: tools + char count -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:background="@color/x_bg">
+
+        <ImageButton android:id="@+id/btn_x_compose_image"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_image"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Media"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_gif"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_gif"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="GIF"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_poll"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_x_poll"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Poll"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_emoji"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_emoji"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Emoji"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_schedule"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_schedule"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Schedule"/>
+
+        
+        <ImageButton android:id="@+id/btn_x_compose_video"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_x_share"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Video"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_thread"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_at"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Thread"/>
+
+        <ImageButton android:id="@+id/btn_x_compose_audience"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_person"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_accent" android:contentDescription="Audience"/>
+        <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+        <TextView
+            android:id="@+id/tv_x_compose_char_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="280"
+            android:textColor="@color/x_text_secondary"
+            android:textSize="14sp"
+            android:layout_marginEnd="8dp"/>
+    </LinearLayout>
+</LinearLayout>

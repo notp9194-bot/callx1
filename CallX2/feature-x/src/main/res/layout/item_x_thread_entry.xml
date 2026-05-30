@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="top"
+        android:layout_marginEnd="10dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_person"/>
+
+        <View
+            android:layout_width="2dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="4dp"
+            android:background="@color/x_divider"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <EditText
+            android:id="@+id/et_x_thread_entry"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Add to thread..."
+            android:textColor="@color/x_text_primary"
+            android:textColorHint="@color/x_text_muted"
+            android:textSize="16sp"
+            android:background="@null"
+            android:minLines="2"
+            android:maxLines="8"
+            android:inputType="textMultiLine|textCapSentences"
+            android:gravity="top"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:id="@+id/tv_x_thread_char_count"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="280"
+                android:textColor="@color/x_text_secondary"
+                android:textSize="12sp"/>
+
+            <ImageButton
+                android:id="@+id/btn_x_thread_remove"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_x_close"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="@color/x_like_active"
+                android:contentDescription="Remove"/>
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/x_bg">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="4dp"
+        android:background="@color/x_divider"/>
+
+    <!-- Loading indicator (shown while profile loads) -->
+    <ProgressBar
+        android:id="@+id/pb_xps"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone"/>
+
+    <!-- Banner + Avatar overlap -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="120dp">
+
+        <!-- Banner image -->
+        <ImageView
+            android:id="@+id/iv_xps_banner"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:scaleType="centerCrop"
+            android:background="@color/x_surface_elevated"
+            android:contentDescription="Profile banner"/>
+
+        <!-- Avatar overlapping banner bottom -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_xps_avatar"
+            android:layout_width="68dp"
+            android:layout_height="68dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="16dp"
+            android:src="@drawable/ic_person"
+            app:civ_border_width="3dp"
+            app:civ_border_color="@color/x_bg"/>
+    </FrameLayout>
+
+    <!-- Name + action buttons row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:gravity="center_vertical">
+
+        <!-- Name + verified -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_xps_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/x_text_primary"
+                android:textStyle="bold"
+                android:textSize="18sp"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <ImageView
+                android:id="@+id/iv_xps_verified"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_x_verified"
+                android:visibility="gone"
+                android:contentDescription="Verified"/>
+        </LinearLayout>
+
+        <!-- Follow / Edit Profile button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_xps_follow"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:text="Follow"
+            android:textColor="@color/x_text_primary"
+            android:textSize="13sp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            app:strokeColor="@color/x_text_secondary"
+            app:cornerRadius="17dp"/>
+
+        <!-- More (⋯) button -->
+        <ImageButton
+            android:id="@+id/btn_xps_more"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="4dp"
+            android:src="@drawable/ic_more_vert"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="@color/x_text_secondary"
+            android:contentDescription="More options"/>
+    </LinearLayout>
+
+    <!-- Handle (@username) -->
+    <TextView
+        android:id="@+id/tv_xps_handle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingTop="2dp"
+        android:textColor="@color/x_text_secondary"
+        android:textSize="14sp"/>
+
+    <!-- Bio -->
+    <TextView
+        android:id="@+id/tv_xps_bio"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:textColor="@color/x_text_primary"
+        android:textSize="14sp"
+        android:lineSpacingExtra="2dp"
+        android:visibility="gone"/>
+
+    <!-- Meta: location / website / joined -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="6dp">
+
+        <TextView
+            android:id="@+id/tv_xps_location"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/x_text_secondary"
+            android:textSize="13sp"
+            android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/tv_xps_website"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/x_accent"
+            android:textSize="13sp"
+            android:layout_marginTop="2dp"
+            android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/tv_xps_joined"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/x_text_secondary"
+            android:textSize="13sp"
+            android:layout_marginTop="2dp"
+            android:visibility="gone"/>
+    </LinearLayout>
+
+    <!-- Stats row: Following  Followers  Posts -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/tv_xps_following"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/x_text_secondary"
+            android:textSize="13sp"
+            android:layout_marginEnd="16dp"/>
+
+        <TextView
+            android:id="@+id/tv_xps_followers"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/x_text_secondary"
+            android:textSize="13sp"
+            android:layout_marginEnd="16dp"/>
+
+        <TextView
+            android:id="@+id/tv_xps_tweets"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/x_text_secondary"
+            android:textSize="13sp"/>
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/x_divider"/>
+
+    <!-- Send DM row (shown only for other users) -->
+    <LinearLayout
+        android:id="@+id/ll_xps_dm"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_x_dm"
+            android:tint="@color/x_text_primary"
+            android:contentDescription="DM"/>
+
+        <TextView
+            android:id="@+id/tv_xps_dm_label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:textColor="@color/x_text_primary"
+            android:textSize="15sp"
+            android:text="Send message"/>
+    </LinearLayout>
+
+    <!-- Divider (between DM and Edit rows when both could show) -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/x_divider"/>
+
+    <!-- Edit Profile row (shown only for own profile) -->
+    <LinearLayout
+        android:id="@+id/ll_xps_edit"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_person"
+            android:tint="@color/x_text_primary"
+            android:contentDescription="Edit profile"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:textColor="@color/x_text_primary"
+            android:textSize="15sp"
+            android:text="Edit profile"/>
+    </LinearLayout>
+
+
+    <!-- Settings row (shown only for own profile) -->
+    <LinearLayout
+        android:id="@+id/ll_xps_settings"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="?attr/selectableItemBackground"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_x_settings"
+            android:tint="@color/x_text_primary"
+            android:contentDescription="Settings"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:textColor="@color/x_text_primary"
+            android:textSize="15sp"
+            android:text="Settings and support"/>
+    </LinearLayout>
+    <!-- Bottom safe-area padding -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="24dp"/>
+
+</LinearLayout>

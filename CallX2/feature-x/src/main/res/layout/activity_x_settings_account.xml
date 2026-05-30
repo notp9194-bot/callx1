@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/x_bg">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_x_account"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/x_bg"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingBottom="24dp">
+
+            <!-- Username -->
+            <LinearLayout android:id="@+id/row_x_username"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="16dp" android:paddingBottom="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true" android:focusable="true">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Username" android:textColor="@color/x_text_secondary" android:textSize="12sp"/>
+                <TextView android:id="@+id/tv_x_username_val"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@username" android:textColor="@color/x_text_primary"
+                    android:textSize="15sp" android:layout_marginTop="2dp"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Phone -->
+            <LinearLayout android:id="@+id/row_x_phone"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="16dp" android:paddingBottom="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true" android:focusable="true">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Phone" android:textColor="@color/x_text_secondary" android:textSize="12sp"/>
+                <TextView android:id="@+id/tv_x_phone_val"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Add phone number" android:textColor="@color/x_text_primary"
+                    android:textSize="15sp" android:layout_marginTop="2dp"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Email -->
+            <LinearLayout android:id="@+id/row_x_email"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="16dp" android:paddingBottom="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true" android:focusable="true">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Email" android:textColor="@color/x_text_secondary" android:textSize="12sp"/>
+                <TextView android:id="@+id/tv_x_email_val"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Add email address" android:textColor="@color/x_text_primary"
+                    android:textSize="15sp" android:layout_marginTop="2dp"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider"/>
+
+            <!-- Verified status -->
+            <LinearLayout android:id="@+id/row_x_verified"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="16dp" android:paddingBottom="16dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Verified" android:textColor="@color/x_text_secondary" android:textSize="12sp"/>
+                <TextView android:id="@+id/tv_x_verified_val"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Not verified" android:textColor="@color/x_text_primary"
+                    android:textSize="15sp" android:layout_marginTop="2dp"/>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="@color/x_divider" android:layout_marginTop="8dp"/>
+
+            <!-- Deactivate account -->
+            <TextView
+                android:id="@+id/tv_x_deactivate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Deactivate your account"
+                android:textColor="#F4212E"
+                android:textSize="15sp"
+                android:paddingStart="16dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="16dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true" android:focusable="true"/>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
