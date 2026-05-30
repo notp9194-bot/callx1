@@ -443,29 +443,29 @@ public class UserProfileActivity extends AppCompatActivity {
         }
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // SOCIAL PROFILE SHEET — ReelUserProfileSheet jaisi bottom sheet
-    // (Reels me following/followers/mutual me avatar click se jo sheet
-    //  aati hai, exactly wahi — X / Reels / YouTube + subscribe/follow)
-    // ──────────────────────────────────────────────────────────────────────
-
+    // ── SOCIAL PROFILE SHEET ─────────────────────────────────────────────
+    // Reels following/followers/mutual me avatar click se jo sheet aati hai,
+    // exactly wahi — ReelUserProfileSheet.show() — reflection se call karo
+    // ─────────────────────────────────────────────────────────────────────
     private void openSocialProfileSheet() {
         if (partnerUid == null || partnerUid.isEmpty()) return;
         try {
             Class<?> sheetClass = Class.forName(
                 "com.callx.app.activities.ReelUserProfileSheet");
-            java.lang.reflect.Method showMethod =
-                sheetClass.getMethod("show",
-                    android.app.Activity.class,
-                    String.class, String.class, String.class);
+            java.lang.reflect.Method showMethod = sheetClass.getMethod(
+                "show",
+                android.app.Activity.class,
+                String.class, String.class, String.class);
             showMethod.invoke(null, this,
                 partnerUid,
                 partnerName  != null ? partnerName  : "",
                 partnerPhoto != null ? partnerPhoto : "");
         } catch (ClassNotFoundException e) {
-            Toast.makeText(this, "Social profile not available", Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, "Social profile not available",
+                android.widget.Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            Toast.makeText(this, "Could not open profile card", Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, "Could not open profile card",
+                android.widget.Toast.LENGTH_SHORT).show();
         }
     }
 
