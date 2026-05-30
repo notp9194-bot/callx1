@@ -192,13 +192,23 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                 });
         }
 
-        // Avatar tap → open full-screen photo (zoom)
+        // Avatar tap → fetch full photoUrl from Firebase → zoom dialog
         ivAvatar.setOnClickListener(x -> {
             if (getContext() == null || log.partnerUid == null) return;
-            Intent pi = new Intent().setClassName(getContext().getPackageName(),
-                "com.callx.app.activities.FullScreenPhotoActivity");
-            pi.putExtra("uid", log.partnerUid);
-            startActivity(pi);
+            // Fetch full (non-thumb) photoUrl for best quality
+            FirebaseUtils.getUserRef(log.partnerUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snap) {
+                        String fullPhoto = snap.child("photoUrl").getValue(String.class);
+                        // Fall back to resolvedPhoto (thumb) if full not available
+                        String toShow = (fullPhoto != null && !fullPhoto.isEmpty())
+                            ? fullPhoto : resolvedPhoto;
+                        showAvatarZoom(toShow);
+                    }
+                    @Override public void onCancelled(DatabaseError e) {
+                        showAvatarZoom(resolvedPhoto);
+                    }
+                });
         });
 
         // Message button
@@ -515,6 +525,23 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                 .into(ivAvatar);
         }
 
+        // Avatar in history sheet → same full-photo zoom
+        ivAvatar.setOnClickListener(x -> {
+            if (getContext() == null || contactLog.partnerUid == null) return;
+            FirebaseUtils.getUserRef(contactLog.partnerUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snap) {
+                        String fullPhoto = snap.child("photoUrl").getValue(String.class);
+                        String toShow = (fullPhoto != null && !fullPhoto.isEmpty())
+                            ? fullPhoto : resolvedPhoto;
+                        showAvatarZoom(toShow);
+                    }
+                    @Override public void onCancelled(DatabaseError e) {
+                        showAvatarZoom(resolvedPhoto);
+                    }
+                });
+        });
+
         // Close button
         btnClose.setOnClickListener(x -> histSheet.dismiss());
 
@@ -529,6 +556,68 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         }
 
         histSheet.show();
+    }
+
+    // ── Full-screen avatar zoom (pinch-to-zoom, same as ProfileActivity) ──
+    /**
+     * Opens a full-screen dialog with PhotoView (pinch-to-zoom support).
+     * Always uses full photoUrl — not thumb — for maximum quality.
+     */
+    private void showAvatarZoom(String photoUrl) {
+        if (getContext() == null) return;
+
+        android.app.Dialog dialog = new android.app.Dialog(
+            getContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+        android.widget.FrameLayout root = new android.widget.FrameLayout(getContext());
+        root.setBackgroundColor(0xEE000000);
+
+        com.github.chrisbanes.photoview.PhotoView photoView =
+            new com.github.chrisbanes.photoview.PhotoView(getContext());
+        android.widget.FrameLayout.LayoutParams ivLp =
+            new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
+        photoView.setLayoutParams(ivLp);
+        photoView.setMinimumScale(1f);
+        photoView.setMediumScale(2f);
+        photoView.setMaximumScale(5f);
+        // Tap outside photo → dismiss
+        photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
+
+        // Close button — top right
+        android.widget.ImageButton btnClose = new android.widget.ImageButton(getContext());
+        float dp = getResources().getDisplayMetrics().density;
+        int closeSizePx = (int)(40 * dp);
+        android.widget.FrameLayout.LayoutParams closeLp =
+            new android.widget.FrameLayout.LayoutParams(closeSizePx, closeSizePx);
+        closeLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        closeLp.topMargin   = (int)(40 * dp);
+        closeLp.rightMargin = (int)(16 * dp);
+        btnClose.setLayoutParams(closeLp);
+        btnClose.setImageResource(com.callx.app.calls.R.drawable.ic_close);
+        btnClose.setBackgroundColor(0x00000000);
+        btnClose.setOnClickListener(v -> dialog.dismiss());
+
+        if (photoUrl != null && !photoUrl.isEmpty()) {
+            Glide.with(getContext())
+                .load(photoUrl)
+                .placeholder(com.callx.app.calls.R.drawable.ic_person)
+                .error(com.callx.app.calls.R.drawable.ic_person)
+                .into(photoView);
+        } else {
+            photoView.setImageResource(com.callx.app.calls.R.drawable.ic_person);
+        }
+
+        root.addView(photoView);
+        root.addView(btnClose);
+        dialog.setContentView(root);
+        android.view.Window w = dialog.getWindow();
+        if (w != null) w.setLayout(
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            android.view.WindowManager.LayoutParams.MATCH_PARENT);
+        dialog.show();
     }
 
     // ── Cleanup — remove real-time listeners when fragment is destroyed ────
