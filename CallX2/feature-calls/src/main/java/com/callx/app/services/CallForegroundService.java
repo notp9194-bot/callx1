@@ -9,7 +9,7 @@
   import android.os.IBinder;
   import android.os.Looper;
   import androidx.annotation.Nullable;
-  import androidx.core.app.IconCompat;
+  import androidx.core.graphics.drawable.IconCompat;
   import androidx.core.app.NotificationCompat;
   import androidx.core.app.Person;
   import com.callx.app.activities.CallActivity;
