@@ -160,7 +160,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                 "show",
                 android.app.Activity.class,
                 String.class, String.class, String.class);
-            showMethod.invoke(null, this, channelUid, name, photo);
+            showMethod.invoke(null, this, channelUid, name, photo, true); // hideYoutube=true
         } catch (ClassNotFoundException e) {
             android.widget.Toast.makeText(this, "Social profile not available",
                 android.widget.Toast.LENGTH_SHORT).show();

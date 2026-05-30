@@ -40,6 +40,11 @@ public class ReelUserProfileSheet {
 
     /** Main entry point — Activity context chahiye (for BottomSheetDialog + startActivity) */
     public static void show(Activity activity, String uid, String name, String photoUrl) {
+        show(activity, uid, name, photoUrl, false);
+    }
+
+    /** hideYoutube=true karo jab YouTube screen se open karo — YouTube section redundant hoga */
+    public static void show(Activity activity, String uid, String name, String photoUrl, boolean hideYoutube) {
         if (activity == null || activity.isFinishing() || uid == null) return;
 
         BottomSheetDialog sheet = new BottomSheetDialog(activity,
@@ -73,6 +78,12 @@ public class ReelUserProfileSheet {
         Button btnXFollow    = sv.findViewById(R.id.btn_x_follow_action);
         Button btnReelFollow = sv.findViewById(R.id.btn_reels_follow_action);
         Button btnYtSub      = sv.findViewById(R.id.btn_youtube_subscribe_action);
+
+        // YouTube se open hua hai toh YouTube section hide karo
+        if (hideYoutube) {
+            if (btnYoutube   != null) btnYoutube.setVisibility(View.GONE);
+            if (layoutYtRow  != null) layoutYtRow.setVisibility(View.GONE);
+        }
 
         // ── Name + Avatar (initial) ────────────────────────────────────────
         if (tvName != null) tvName.setText(name != null ? name : "User");
