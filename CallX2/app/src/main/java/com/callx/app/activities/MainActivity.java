@@ -68,6 +68,9 @@ public class MainActivity extends AppCompatActivity {
       private ValueEventListener ytNotifBadgeListener;
       private int ytUnreadCount = 0;
 
+      // ── Games Module ─────────────────────────────────────────────────────────
+      // No badge listener needed for now — Games has no notifications yet
+
     // Notification badge counter
     private int totalNotifUnread = 0;
     private ValueEventListener notifChatBadgeListener;
@@ -128,6 +131,9 @@ public class MainActivity extends AppCompatActivity {
 
           // ── YouTube Module: animated entry button ─────────────────────────────
           setupYouTubeEntryButton();
+
+          // ── Games Module: animated entry button ───────────────────────────────
+          setupGamesEntryButton();
           // ────────────────────────────────────────────────────────────────────────
 
         binding.btnSearchToolbar.setOnClickListener(v -> {
@@ -681,6 +687,56 @@ public class MainActivity extends AppCompatActivity {
 
         // Schedule background notification worker
         YouTubeNotificationWorker.schedule(this);
+    }
+
+    // ── Games Module entry button ─────────────────────────────────────────────
+    private void setupGamesEntryButton() {
+        View gamesEntryRoot = findViewById(R.id.include_games_entry);
+        if (gamesEntryRoot == null) return;
+
+        CircleImageView ivAvatar = gamesEntryRoot.findViewById(R.id.iv_games_entry_avatar);
+        View stripView           = gamesEntryRoot.findViewById(R.id.ll_games_entry_strip);
+
+        // Load user's main profile avatar (same as app profile — Games uses same identity)
+        String uid = currentUid();
+        if (uid != null && ivAvatar != null) {
+            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(
+                new com.google.firebase.database.ValueEventListener() {
+                    @Override
+                    public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                        String thumb = snap.child("thumbUrl").getValue(String.class);
+                        String photo = snap.child("photoUrl").getValue(String.class);
+                        String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        if (url != null && !url.isEmpty()) {
+                            Glide.with(MainActivity.this)
+                                .load(url)
+                                .apply(new RequestOptions().circleCrop())
+                                .placeholder(R.drawable.ic_person)
+                                .into(ivAvatar);
+                        }
+                    }
+                    @Override
+                    public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
+                });
+        }
+
+        // Slide-in animation — same as X and YouTube
+        if (stripView != null) {
+            stripView.setTranslationX(-200f);
+            ObjectAnimator.ofFloat(stripView, "translationX", -200f, 0f)
+                .setDuration(400)
+                .start();
+        }
+
+        // Click → open GamesHubActivity (reflection — cross-module safe)
+        gamesEntryRoot.setOnClickListener(v -> {
+            try {
+                Class<?> cls = Class.forName("com.callx.app.activities.GamesHubActivity");
+                startActivity(new Intent(this, cls));
+            } catch (ClassNotFoundException e) {
+                android.widget.Toast.makeText(this, "Games coming soon!", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     /** Real-time badge on the 🔔 notification icon in the main toolbar */

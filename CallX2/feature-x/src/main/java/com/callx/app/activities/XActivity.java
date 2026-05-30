@@ -58,6 +58,11 @@ public class XActivity extends AppCompatActivity {
             loadMyAvatar(ivMyAvatar);
         }
 
+        // Games button in header
+        View btnGamesX = findViewById(R.id.btn_x_header_games);
+        if (btnGamesX != null)
+            btnGamesX.setOnClickListener(v -> openGamesHub());
+
         // Compose button in header
         View btnCompose = findViewById(R.id.btn_x_header_compose);
         if (btnCompose != null)
@@ -86,6 +91,15 @@ public class XActivity extends AppCompatActivity {
         });
 
         startBadgeListeners();
+    }
+
+    private void openGamesHub() {
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.GamesHubActivity");
+            startActivity(new Intent(this, cls));
+        } catch (ClassNotFoundException e) {
+            android.widget.Toast.makeText(this, "Games coming soon!", android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void loadMyAvatar(CircleImageView iv) {

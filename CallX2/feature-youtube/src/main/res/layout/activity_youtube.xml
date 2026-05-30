@@ -83,6 +83,15 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Upload"/>
 
+            <!-- Games -->
+            <ImageButton
+                android:id="@+id/btn_yt_games"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_yt_play"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Games"/>
+
             <!-- My channel avatar -->
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_yt_header_avatar"

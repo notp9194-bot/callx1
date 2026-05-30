@@ -90,6 +90,10 @@ public class YouTubeActivity extends AppCompatActivity {
             btnNotifs.setOnClickListener(v ->
                 startActivity(new Intent(this, YouTubeNotificationsActivity.class)));
 
+        View btnGamesYt = findViewById(R.id.btn_yt_games);
+        if (btnGamesYt != null)
+            btnGamesYt.setOnClickListener(v -> openGamesHub());
+
         View btnUpload = findViewById(R.id.btn_yt_upload);
         if (btnUpload != null)
             btnUpload.setOnClickListener(v ->
@@ -120,6 +124,15 @@ public class YouTubeActivity extends AppCompatActivity {
 
         // Start badge listener
         startNotifBadgeListener();
+    }
+
+    private void openGamesHub() {
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.GamesHubActivity");
+            startActivity(new Intent(this, cls));
+        } catch (ClassNotFoundException e) {
+            android.widget.Toast.makeText(this, "Games coming soon!", android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void switchFragment(Fragment target) {

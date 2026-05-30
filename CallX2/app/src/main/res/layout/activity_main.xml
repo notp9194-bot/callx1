@@ -105,6 +105,18 @@
                   android:layout_height="match_parent"
                   android:layout_gravity="start"
                   android:layout_marginStart="4dp"/>
+
+              <!-- ╔═══════════════════════════════════════════════════════════╗
+                   ║  Games Entry Button — animated slide-out strip            ║
+                   ║  Purple strip with 🎮 icon — opens GamesHubActivity       ║
+                   ╚═══════════════════════════════════════════════════════════╝ -->
+              <include
+                  android:id="@+id/include_games_entry"
+                  layout="@layout/layout_games_entry_button"
+                  android:layout_width="wrap_content"
+                  android:layout_height="match_parent"
+                  android:layout_gravity="start"
+                  android:layout_marginStart="4dp"/>
         </androidx.appcompat.widget.Toolbar>
     </com.google.android.material.appbar.AppBarLayout>
 
