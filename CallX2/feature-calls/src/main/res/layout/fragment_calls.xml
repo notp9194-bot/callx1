@@ -6,7 +6,7 @@
     android:orientation="vertical"
     android:background="?attr/colorSurface">
 
-    <!-- Selection action bar -->
+    <!-- Selection bar -->
     <LinearLayout
         android:id="@+id/ll_selection_bar"
         android:layout_width="match_parent"
@@ -74,67 +74,57 @@
             android:focusable="true"/>
     </LinearLayout>
 
-    <!-- Search bar (Google Phone style) -->
+    <!-- Search bar -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="50dp"
         android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="6dp"
-        android:gravity="center_vertical">
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/bg_search_bar"
+        android:gravity="center_vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp">
 
-        <LinearLayout
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_search"
+            android:alpha="0.45"
+            android:layout_marginEnd="10dp"/>
+
+        <EditText
+            android:id="@+id/et_search_calls"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:orientation="horizontal"
-            android:background="@drawable/bg_search_bar"
-            android:gravity="center_vertical"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp">
+            android:hint="Search contacts"
+            android:textColorHint="@color/text_muted"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:background="@null"
+            android:singleLine="true"
+            android:imeOptions="actionSearch"
+            android:inputType="text"/>
 
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@drawable/ic_search"
-                android:alpha="0.5"
-                android:layout_marginEnd="10dp"/>
-
-            <EditText
-                android:id="@+id/et_search_calls"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:hint="Search contacts"
-                android:textColorHint="@color/text_muted"
-                android:textColor="@color/text_primary"
-                android:textSize="15sp"
-                android:background="@null"
-                android:singleLine="true"
-                android:imeOptions="actionSearch"
-                android:inputType="text"/>
-
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_mic"
-                android:alpha="0.6"
-                android:layout_marginStart="8dp"
-                android:clickable="true"
-                android:focusable="true"/>
-        </LinearLayout>
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_mic"
+            android:alpha="0.5"
+            android:layout_marginStart="8dp"/>
     </LinearLayout>
 
-    <!-- Filter Chips (All / Missed / Contacts / Non-spam / Spam) -->
+    <!-- Filter chips: All / Missed / Contacts / Non-spam / Spam -->
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:scrollbars="none"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:paddingBottom="6dp">
+        android:paddingBottom="8dp">
 
         <LinearLayout
             android:layout_width="wrap_content"
@@ -216,49 +206,10 @@
                 android:textColor="@color/text_primary"
                 android:clickable="true"
                 android:focusable="true"/>
-
         </LinearLayout>
     </HorizontalScrollView>
 
-    <!-- Favorites row -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="4dp"
-        android:gravity="center_vertical">
-
-        <TextView
-            android:id="@+id/tv_favorites_label"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Favorites ▾"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp"
-            android:clickable="true"
-            android:focusable="true"/>
-
-        <TextView
-            android:id="@+id/tv_view_contacts"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="View contacts"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp"
-            android:background="@drawable/bg_rounded_outline"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:clickable="true"
-            android:focusable="true"/>
-    </LinearLayout>
-
-    <!-- Online Users Panel (compact, hidden by default if empty) -->
+    <!-- Online users (hidden until someone is online) -->
     <LinearLayout
         android:id="@+id/ll_online_panel"
         android:layout_width="match_parent"
@@ -266,13 +217,24 @@
         android:orientation="vertical"
         android:visibility="gone">
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ONLINE NOW"
+            android:textColor="@color/text_muted"
+            android:textSize="11sp"
+            android:letterSpacing="0.1"
+            android:textStyle="bold"
+            android:paddingStart="16dp"
+            android:paddingBottom="6dp"/>
+
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:scrollbars="none"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:paddingBottom="4dp">
+            android:paddingBottom="8dp">
 
             <LinearLayout
                 android:id="@+id/ll_online_users"
@@ -282,14 +244,20 @@
         </HorizontalScrollView>
     </LinearLayout>
 
-    <!-- Hidden empty tv_no_online for compatibility -->
+    <!-- Hidden compat views (used in Java, must exist) -->
     <TextView
         android:id="@+id/tv_no_online"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
         android:visibility="gone"/>
 
-    <!-- Calls list -->
+    <!-- Divider above list -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="@color/divider"/>
+
+    <!-- Calls RecyclerView -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -312,28 +280,28 @@
             android:visibility="gone">
 
             <ImageView
-                android:layout_width="72dp"
-                android:layout_height="72dp"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
                 android:src="@drawable/ic_phone"
-                android:alpha="0.2"/>
+                android:alpha="0.18"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="No call history yet"
                 android:textColor="@color/text_secondary"
-                android:textSize="16sp"
+                android:textSize="15sp"
                 android:textStyle="bold"
-                android:layout_marginTop="16dp"/>
+                android:layout_marginTop="14dp"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Your recent calls will appear here"
                 android:textColor="@color/text_muted"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:gravity="center"
-                android:layout_marginTop="6dp"/>
+                android:layout_marginTop="5dp"/>
         </LinearLayout>
     </FrameLayout>
 
