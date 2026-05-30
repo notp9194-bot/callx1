@@ -25,6 +25,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
 import com.google.firebase.auth.FirebaseAuth;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.adapters.ContactCallHistoryAdapter;
 
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -237,8 +238,11 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             startActivity(i);
         });
 
-        // Call History button — dismiss sheet (history is already visible in the tab)
-        btnHistory.setOnClickListener(x -> sheet.dismiss());
+        // Call History button → open contact-specific call history sheet
+        btnHistory.setOnClickListener(x -> {
+            sheet.dismiss();
+            showCallHistorySheet(log, resolvedPhoto);
+        });
 
         sheet.show();
     }
@@ -467,6 +471,64 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             }
             @Override public void onCancelled(DatabaseError e) {}
         });
+    }
+
+    // ── Contact-specific Call History BottomSheet ──────────────────────────
+    /**
+     * Shows a second bottom sheet listing all calls (voice + video) with this contact.
+     * Each row shows: type icon, label, time, duration, and a quick-call icon.
+     */
+    private void showCallHistorySheet(CallLog contactLog, String resolvedPhoto) {
+        if (getContext() == null || contactLog.partnerUid == null) return;
+
+        // Filter allLogs to only this contact's calls
+        List<CallLog> contactLogs = new ArrayList<>();
+        for (CallLog l : allLogs) {
+            if (contactLog.partnerUid.equals(l.partnerUid)) {
+                contactLogs.add(l);
+            }
+        }
+
+        BottomSheetDialog histSheet = new BottomSheetDialog(getContext(),
+            com.google.android.material.R.style.Theme_Material3_Light_BottomSheetDialog);
+        View sv = LayoutInflater.from(getContext())
+            .inflate(R.layout.bottom_sheet_call_history, null);
+        histSheet.setContentView(sv);
+
+        CircleImageView ivAvatar = sv.findViewById(R.id.iv_history_avatar);
+        TextView tvName          = sv.findViewById(R.id.tv_history_name);
+        TextView tvCount         = sv.findViewById(R.id.tv_history_count);
+        View     btnClose        = sv.findViewById(R.id.btn_close_history);
+        RecyclerView rv          = sv.findViewById(R.id.rv_call_history_sheet);
+        View llEmpty             = sv.findViewById(R.id.ll_history_empty);
+
+        // Header
+        tvName.setText(contactLog.partnerName != null ? contactLog.partnerName : "Unknown");
+        int total = contactLogs.size();
+        tvCount.setText(total + " call" + (total != 1 ? "s" : ""));
+
+        // Avatar
+        if (resolvedPhoto != null && !resolvedPhoto.isEmpty()) {
+            Glide.with(getContext()).load(resolvedPhoto)
+                .apply(RequestOptions.circleCropTransform())
+                .placeholder(R.drawable.ic_person)
+                .into(ivAvatar);
+        }
+
+        // Close button
+        btnClose.setOnClickListener(x -> histSheet.dismiss());
+
+        // RecyclerView
+        if (contactLogs.isEmpty()) {
+            if (rv     != null) rv.setVisibility(View.GONE);
+            if (llEmpty != null) llEmpty.setVisibility(View.VISIBLE);
+        } else {
+            if (llEmpty != null) llEmpty.setVisibility(View.GONE);
+            rv.setLayoutManager(new LinearLayoutManager(getContext()));
+            rv.setAdapter(new ContactCallHistoryAdapter(contactLogs));
+        }
+
+        histSheet.show();
     }
 
     // ── Cleanup — remove real-time listeners when fragment is destroyed ────
