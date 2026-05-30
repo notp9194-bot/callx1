@@ -989,6 +989,18 @@ public class GroupCallActivity extends AppCompatActivity {
 
         if (ticker != null) tick.removeCallbacks(ticker);
 
+        // BUG-5 FIX: Agar caller koi nahi aaya toh group members ko missed notification bhejo
+        // callStartedAt == 0 means call kabhi connected nahi hua (koi nahi aaya)
+        if (isCaller && callStartedAt == 0 && groupId != null && myName != null) {
+            com.callx.app.utils.PushNotify.notifyMissedGroupCall(
+                groupId,
+                myUid != null ? myUid : "",
+                myName,
+                callId != null ? callId : "",
+                isVideo
+            );
+        }
+
         // Mark myself as left
         if (callRef != null) {
             callRef.child("participants").child(myUid).child("status").setValue("left");

@@ -686,19 +686,23 @@ public class CallActivity extends AppCompatActivity {
             @Override public void onDataChange(DataSnapshot s) {
                 String st = s.getValue(String.class);
                 if ("ended".equals(st) || "rejected".equals(st) || "cancelled".equals(st)) {
-                    // FIX-2: Agar call kabhi connect nahi hua aur callee ne reject kiya
-                    // toh caller ko missed call notification bhejo
+                    // BUG-3 FIX: Jab callee reject kare, CALLER ko missed call notification milni chahiye
+                    // notifyMissedCall(toUid=myUid=caller, fromUid=partnerUid=callee_name, ...)
+                    // Pehle galat tha: partnerUid (callee) ko notify karta tha instead of caller (myUid)
                     if (!callConnected && isCaller
                             && ("rejected".equals(st) || "cancelled".equals(st))) {
                         String myUid  = FirebaseUtils.getCurrentUid();
                         String myName = FirebaseUtils.getCurrentName();
-                        if (partnerUid != null && myUid != null) {
-                            // partnerUid (callee) ne reject kiya → callee ko missed call dikhao
+                        if (myUid != null) {
+                            // myUid = caller ko notify karo ki call miss ho gayi
+                            // BUG-2 FIX: partnerPhoto bhi pass karo taaki missed call notification me avatar aaye
                             PushNotify.notifyMissedCall(
-                                partnerUid, myUid,
-                                myName != null ? myName : "",
+                                myUid,       // BUG-3 FIX: caller ko send karo (was: partnerUid)
+                                partnerUid != null ? partnerUid : "",
+                                partnerName != null ? partnerName : "",
                                 callId != null ? callId : "",
-                                isVideo
+                                isVideo,
+                                partnerPhoto != null ? partnerPhoto : "" // BUG-2 FIX: photo
                             );
                         }
                     }

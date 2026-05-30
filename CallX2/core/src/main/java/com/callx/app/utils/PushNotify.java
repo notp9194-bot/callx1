@@ -244,16 +244,25 @@ public class PushNotify {
     // ── FIX-2: Missed call notify ─────────────────────────────────────────
     // Jab callee reject kare ya timeout ho — caller ko missed call notification bhejo.
 
+    // BUG-2 FIX: callerPhoto parameter add kiya — missed call notification me avatar dikhane ke liye
     public static void notifyMissedCall(String toUid, String fromUid, String fromName,
                                         String callId, boolean isVideo) {
+        notifyMissedCall(toUid, fromUid, fromName, callId, isVideo, "");
+    }
+
+    public static void notifyMissedCall(String toUid, String fromUid, String fromName,
+                                        String callId, boolean isVideo, String callerPhoto) {
         try {
             JSONObject body = new JSONObject()
-                .put("toUid",    toUid    == null ? "" : toUid)
-                .put("fromUid",  fromUid  == null ? "" : fromUid)
-                .put("fromName", fromName == null ? "" : fromName)
-                .put("callId",   callId   == null ? "" : callId)
-                .put("isVideo",  isVideo)
-                .put("type",     "missed_call");
+                .put("toUid",       toUid       == null ? "" : toUid)
+                .put("fromUid",     fromUid     == null ? "" : fromUid)
+                .put("fromName",    fromName    == null ? "" : fromName)
+                .put("callerPhoto", callerPhoto == null ? "" : callerPhoto) // BUG-2 FIX: avatar
+                .put("callerUid",   fromUid     == null ? "" : fromUid)     // legacy compat
+                .put("callerName",  fromName    == null ? "" : fromName)    // legacy compat
+                .put("callId",      callId      == null ? "" : callId)
+                .put("isVideo",     isVideo)
+                .put("type",        "missed_call");
             postAsync(Constants.SERVER_URL + "/notify", body);
         } catch (Exception e) {
             Log.w("PushNotify", "notifyMissedCall err: " + e.getMessage());

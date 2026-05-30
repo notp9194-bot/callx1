@@ -183,10 +183,14 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                   com.callx.app.activities.IncomingCallActivity.class);
               open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
                   | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-              open.putExtra(Constants.EXTRA_CALL_ID,      callId);
-              open.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
-              open.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
-              open.putExtra(Constants.EXTRA_IS_VIDEO,     isVid);
+              open.putExtra(Constants.EXTRA_CALL_ID,       callId);
+              open.putExtra(Constants.EXTRA_PARTNER_UID,   partnerUid);
+              open.putExtra(Constants.EXTRA_PARTNER_NAME,  partnerName);
+              open.putExtra(Constants.EXTRA_PARTNER_PHOTO, partnerPhoto); // BUG-1 FIX: photo pass karo
+              // BUG-1 FIX: partnerThumb bhi pass karo (fast avatar for CallActivity)
+              String acceptThumb = intent.getStringExtra("partnerThumb");
+              if (acceptThumb != null) open.putExtra("partnerThumb", acceptThumb);
+              open.putExtra(Constants.EXTRA_IS_VIDEO,      isVid);
               context.startActivity(open);
               pendingResult.finish();
               return;

@@ -41,16 +41,19 @@
       private final ExecutorService bgEx = Executors.newSingleThreadExecutor();
       @Override
       public int onStartCommand(Intent intent, int flags, int startId) {
+          // BUG-6 FIX: OS can restart a START_STICKY service with a null intent (process kill).
+          // Guard fields so we keep the last-known values instead of blanking them out.
           if (intent != null) {
               String n = intent.getStringExtra("name");
               String c = intent.getStringExtra("callId");
               String t = intent.getStringExtra("partnerThumb"); // FIX-6
-              if (n != null) callerName    = n;
-              if (c != null) callId        = c;
-              if (t != null) partnerThumb  = t;
+              if (n != null && !n.isEmpty()) callerName    = n;
+              if (c != null && !c.isEmpty()) callId        = c;
+              if (t != null && !t.isEmpty()) partnerThumb  = t;
               isVideo = intent.getBooleanExtra("isVideo", false);
           }
-          startedAt = System.currentTimeMillis();
+          // BUG-6 FIX: preserve startedAt across OS re-delivery (don't reset to now)
+          if (startedAt == 0) startedAt = System.currentTimeMillis();
           startForeground(ID, buildNotification("Connecting..."));
           startTicker();
           // FIX-6: download avatar in background, then refresh notification once ready
