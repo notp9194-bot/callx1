@@ -3,7 +3,6 @@ package com.callx.app.fragments;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
-import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.*;
 import android.widget.*;
@@ -83,6 +82,16 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         });
         v.findViewById(R.id.btn_delete_selected_calls).setOnClickListener(x ->
             confirmDeleteSelected());
+
+        // View contacts button
+        View tvViewContacts = v.findViewById(R.id.tv_view_contacts);
+        if (tvViewContacts != null) {
+            tvViewContacts.setOnClickListener(x -> {
+                if (getContext() != null)
+                    startActivity(new Intent().setClassName(
+                        getContext(), "com.callx.app.activities.AllContactsActivity"));
+            });
+        }
 
         // Filter chips
         setupChip(chipAll,      "all");
