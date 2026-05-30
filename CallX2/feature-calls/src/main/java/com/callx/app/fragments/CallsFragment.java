@@ -26,6 +26,9 @@ import com.google.firebase.database.*;
 import com.google.firebase.auth.FirebaseAuth;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.adapters.ContactCallHistoryAdapter;
+import android.widget.Button;
+import android.os.Handler;
+import android.os.Looper;
 
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -146,6 +149,25 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         View btnVideo             = sv.findViewById(R.id.btn_video_call_sheet);
         View btnHistory           = sv.findViewById(R.id.btn_call_history_sheet);
 
+        // Social platform buttons
+        View btnXSheet            = sv.findViewById(R.id.btn_x_sheet);
+        View btnReelsSheet        = sv.findViewById(R.id.btn_reels_sheet);
+        View btnYoutubeSheet      = sv.findViewById(R.id.btn_youtube_sheet);
+        CircleImageView ivAnimX   = sv.findViewById(R.id.iv_anim_x_sheet);
+        CircleImageView ivAnimReel= sv.findViewById(R.id.iv_anim_reel_sheet);
+        CircleImageView ivAnimYt  = sv.findViewById(R.id.iv_anim_youtube_sheet);
+
+        // Follow / Subscribe rows
+        View layoutXRow           = sv.findViewById(R.id.layout_x_follow_row);
+        View layoutReelsRow       = sv.findViewById(R.id.layout_reels_follow_row);
+        View layoutYtRow          = sv.findViewById(R.id.layout_youtube_subscribe_row);
+        TextView tvXCount         = sv.findViewById(R.id.tv_x_followers_count);
+        TextView tvReelsCount     = sv.findViewById(R.id.tv_reels_followers_count);
+        TextView tvYtCount        = sv.findViewById(R.id.tv_youtube_subs_count);
+        Button btnXFollow         = sv.findViewById(R.id.btn_x_follow_action);
+        Button btnReelsFollow     = sv.findViewById(R.id.btn_reels_follow_action);
+        Button btnYtSubscribe     = sv.findViewById(R.id.btn_youtube_subscribe_action);
+
         // Set name
         tvName.setText(log.partnerName != null ? log.partnerName : "Unknown");
 
@@ -254,7 +276,318 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             showCallHistorySheet(log, resolvedPhoto);
         });
 
+        // ── Social Buttons: X / Reels / YouTube ──────────────────────────
+        // Load avatar peek images + wire open actions + follow/subscribe rows
+        if (log.partnerUid != null) {
+            loadSocialButtons(sv, log.partnerUid,
+                btnXSheet, btnReelsSheet, btnYoutubeSheet,
+                ivAnimX, ivAnimReel, ivAnimYt,
+                layoutXRow, layoutReelsRow, layoutYtRow,
+                tvXCount, tvReelsCount, tvYtCount,
+                btnXFollow, btnReelsFollow, btnYtSubscribe,
+                sheet);
+        }
+
         sheet.show();
+    }
+
+    // ── Social buttons loader ────────────────────────────────────────────────
+    /**
+     * For the call bottom sheet, loads:
+     *  1. Avatar peek images on X / Reels / YouTube buttons (from each platform's Firebase node)
+     *  2. Wires button click → open respective profile/channel activity
+     *  3. Shows follow/subscriber count row + Follow/Unfollow/Subscribe button
+     *
+     * Uses same Firebase paths as UserReelsActivity & XProfileSheet:
+     *   X avatar        → x/users/{uid}/photoUrl
+     *   Reels avatar    → reels/users/{uid}/photoUrl or thumbUrl
+     *   YouTube avatar  → youtube/channels/{uid}/thumbUrl or photoUrl
+     *   X followers     → x/followers/{uid}   (childrenCount) or x/users/{uid}/followerCount
+     *   Reels followers → reels/followers/{uid} (childrenCount)
+     *   YouTube subs    → youtube/channels/{uid}/subscriberCount
+     */
+    private void loadSocialButtons(
+            View sv, String partnerUid,
+            View btnXSheet, View btnReelsSheet, View btnYoutubeSheet,
+            CircleImageView ivAnimX, CircleImageView ivAnimReel, CircleImageView ivAnimYt,
+            View layoutXRow, View layoutReelsRow, View layoutYtRow,
+            TextView tvXCount, TextView tvReelsCount, TextView tvYtCount,
+            Button btnXFollow, Button btnReelsFollow, Button btnYtSubscribe,
+            BottomSheetDialog sheet) {
+
+        if (getContext() == null) return;
+        final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+        final com.google.firebase.database.FirebaseDatabase db =
+            com.google.firebase.database.FirebaseDatabase.getInstance(DB);
+        String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
+            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+
+        // ── X ──────────────────────────────────────────────────────────────
+        db.getReference("x/users").child(partnerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (getContext() == null || !snap.exists()) return;
+
+                    // Avatar peek
+                    String xPhoto = snap.child("photoUrl").getValue(String.class);
+                    if (xPhoto != null && !xPhoto.isEmpty() && ivAnimX != null) {
+                        ivAnimX.setVisibility(View.VISIBLE);
+                        Glide.with(getContext()).load(xPhoto)
+                            .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimX);
+                    }
+
+                    // Follower count from x/users/{uid}/followerCount
+                    Long xFollowers = snap.child("followerCount").getValue(Long.class);
+                    long xFCount = xFollowers != null ? xFollowers : 0;
+                    if (tvXCount != null) tvXCount.setText(formatSocialCount(xFCount) + " Followers");
+                    if (layoutXRow != null) layoutXRow.setVisibility(View.VISIBLE);
+
+                    // Follow state
+                    if (myUid != null && btnXFollow != null) {
+                        db.getReference("x/followers").child(partnerUid).child(myUid)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(DataSnapshot ds) {
+                                    boolean[] isFollowing = { ds.exists() && Boolean.TRUE.equals(ds.getValue(Boolean.class)) };
+                                    updateXFollowBtn(btnXFollow, isFollowing[0]);
+                                    btnXFollow.setOnClickListener(v -> {
+                                        isFollowing[0] = !isFollowing[0];
+                                        updateXFollowBtn(btnXFollow, isFollowing[0]);
+                                        if (isFollowing[0]) {
+                                            db.getReference("x/followers").child(partnerUid).child(myUid).setValue(true);
+                                            db.getReference("x/following").child(myUid).child(partnerUid).setValue(true);
+                                            db.getReference("x/users").child(partnerUid).child("followerCount")
+                                                .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                                                    @Override public com.google.firebase.database.Transaction.Result doTransaction(com.google.firebase.database.MutableData d) {
+                                                        Long v2 = d.getValue(Long.class); d.setValue(v2 == null ? 1 : v2 + 1); return com.google.firebase.database.Transaction.success(d);
+                                                    }
+                                                    @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
+                                                });
+                                            if (tvXCount != null) updateCountTV(tvXCount, 1, "Followers");
+                                        } else {
+                                            db.getReference("x/followers").child(partnerUid).child(myUid).removeValue();
+                                            db.getReference("x/following").child(myUid).child(partnerUid).removeValue();
+                                            db.getReference("x/users").child(partnerUid).child("followerCount")
+                                                .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                                                    @Override public com.google.firebase.database.Transaction.Result doTransaction(com.google.firebase.database.MutableData d) {
+                                                        Long v2 = d.getValue(Long.class); d.setValue(v2 == null ? 0 : Math.max(0, v2 - 1)); return com.google.firebase.database.Transaction.success(d);
+                                                    }
+                                                    @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
+                                                });
+                                            if (tvXCount != null) updateCountTV(tvXCount, -1, "Followers");
+                                        }
+                                    });
+                                }
+                                @Override public void onCancelled(DatabaseError e) {}
+                            });
+                    }
+
+                    // X button → open XProfileSheet
+                    if (btnXSheet != null) {
+                        btnXSheet.setOnClickListener(v -> {
+                            sheet.dismiss();
+                            try {
+                                Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                                java.lang.reflect.Method m = cls.getMethod("showProfile",
+                                    androidx.fragment.app.FragmentManager.class, String.class);
+                                m.invoke(null, getParentFragmentManager(), partnerUid);
+                            } catch (Exception ex) {
+                                if (getContext() != null)
+                                    Toast.makeText(getContext(), "X profile not available", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+
+        // ── Reels ──────────────────────────────────────────────────────────
+        db.getReference("reels/users").child(partnerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (getContext() == null || !snap.exists()) return;
+
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String reelPhoto = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                    if (reelPhoto != null && !reelPhoto.isEmpty() && ivAnimReel != null) {
+                        ivAnimReel.setVisibility(View.VISIBLE);
+                        Glide.with(getContext()).load(reelPhoto)
+                            .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimReel);
+                    }
+
+                    // Reels follower count
+                    db.getReference("reels/followers").child(partnerUid)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot fSnap) {
+                                long cnt = fSnap.getChildrenCount();
+                                if (tvReelsCount != null) tvReelsCount.setText(formatSocialCount(cnt) + " Followers");
+                                if (layoutReelsRow != null) layoutReelsRow.setVisibility(View.VISIBLE);
+
+                                if (myUid != null && btnReelsFollow != null) {
+                                    boolean[] isFollowing = { fSnap.hasChild(myUid) };
+                                    updateReelsFollowBtn(btnReelsFollow, isFollowing[0]);
+                                    btnReelsFollow.setOnClickListener(v -> {
+                                        isFollowing[0] = !isFollowing[0];
+                                        updateReelsFollowBtn(btnReelsFollow, isFollowing[0]);
+                                        if (isFollowing[0]) {
+                                            db.getReference("reels/followers").child(partnerUid).child(myUid).setValue(true);
+                                            db.getReference("reels/following").child(myUid).child(partnerUid).setValue(true);
+                                            if (tvReelsCount != null) updateCountTV(tvReelsCount, 1, "Followers");
+                                        } else {
+                                            db.getReference("reels/followers").child(partnerUid).child(myUid).removeValue();
+                                            db.getReference("reels/following").child(myUid).child(partnerUid).removeValue();
+                                            if (tvReelsCount != null) updateCountTV(tvReelsCount, -1, "Followers");
+                                        }
+                                    });
+                                }
+                            }
+                            @Override public void onCancelled(DatabaseError e) {}
+                        });
+
+                    // Reels button → open UserReelsActivity
+                    if (btnReelsSheet != null) {
+                        btnReelsSheet.setOnClickListener(v -> {
+                            sheet.dismiss();
+                            if (getContext() == null) return;
+                            try {
+                                Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+                                android.content.Intent i = new android.content.Intent(getContext(), cls);
+                                i.putExtra("uid", partnerUid);
+                                startActivity(i);
+                            } catch (ClassNotFoundException ex) {
+                                Toast.makeText(getContext(), "Reels not available", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+
+        // ── YouTube ────────────────────────────────────────────────────────
+        db.getReference("youtube/channels").child(partnerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (getContext() == null || !snap.exists()) return;
+
+                    String ytThumb = snap.child("thumbUrl").getValue(String.class);
+                    String ytPhoto = snap.child("photoUrl").getValue(String.class);
+                    String ytAvatar = (ytThumb != null && !ytThumb.isEmpty()) ? ytThumb : ytPhoto;
+                    if (ytAvatar != null && !ytAvatar.isEmpty() && ivAnimYt != null) {
+                        ivAnimYt.setVisibility(View.VISIBLE);
+                        Glide.with(getContext()).load(ytAvatar)
+                            .circleCrop().placeholder(R.drawable.ic_person).into(ivAnimYt);
+                    }
+
+                    Long subCount = snap.child("subscriberCount").getValue(Long.class);
+                    long ytSubs = subCount != null ? subCount : 0;
+                    if (tvYtCount != null) tvYtCount.setText(formatSocialCount(ytSubs) + " Subscribers");
+                    if (layoutYtRow != null) layoutYtRow.setVisibility(View.VISIBLE);
+
+                    if (myUid != null && btnYtSubscribe != null) {
+                        db.getReference("youtube/subscribers").child(partnerUid).child(myUid)
+                            .addListenerForSingleValueEvent(new ValueEventListener() {
+                                @Override public void onDataChange(DataSnapshot ds) {
+                                    boolean[] isSubbed = { ds.exists() && Boolean.TRUE.equals(ds.getValue(Boolean.class)) };
+                                    updateYtSubscribeBtn(btnYtSubscribe, isSubbed[0]);
+                                    btnYtSubscribe.setOnClickListener(v -> {
+                                        isSubbed[0] = !isSubbed[0];
+                                        updateYtSubscribeBtn(btnYtSubscribe, isSubbed[0]);
+                                        if (isSubbed[0]) {
+                                            db.getReference("youtube/subscribers").child(partnerUid).child(myUid).setValue(true);
+                                            db.getReference("youtube/channels").child(partnerUid).child("subscriberCount")
+                                                .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                                                    @Override public com.google.firebase.database.Transaction.Result doTransaction(com.google.firebase.database.MutableData d) {
+                                                        Long v2 = d.getValue(Long.class); d.setValue(v2 == null ? 1 : v2 + 1); return com.google.firebase.database.Transaction.success(d);
+                                                    }
+                                                    @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
+                                                });
+                                            if (tvYtCount != null) updateCountTV(tvYtCount, 1, "Subscribers");
+                                        } else {
+                                            db.getReference("youtube/subscribers").child(partnerUid).child(myUid).removeValue();
+                                            db.getReference("youtube/channels").child(partnerUid).child("subscriberCount")
+                                                .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                                                    @Override public com.google.firebase.database.Transaction.Result doTransaction(com.google.firebase.database.MutableData d) {
+                                                        Long v2 = d.getValue(Long.class); d.setValue(v2 == null ? 0 : Math.max(0, v2 - 1)); return com.google.firebase.database.Transaction.success(d);
+                                                    }
+                                                    @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
+                                                });
+                                            if (tvYtCount != null) updateCountTV(tvYtCount, -1, "Subscribers");
+                                        }
+                                    });
+                                }
+                                @Override public void onCancelled(DatabaseError e) {}
+                            });
+                    }
+
+                    // YouTube button → open YouTubeChannelActivity
+                    if (btnYoutubeSheet != null) {
+                        btnYoutubeSheet.setOnClickListener(v -> {
+                            sheet.dismiss();
+                            if (getContext() == null) return;
+                            try {
+                                Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+                                android.content.Intent i = new android.content.Intent(getContext(), cls);
+                                i.putExtra("uid", partnerUid);
+                                startActivity(i);
+                            } catch (ClassNotFoundException ex) {
+                                Toast.makeText(getContext(), "YouTube not available", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+    }
+
+    // ── Social button state helpers ──────────────────────────────────────────
+    private void updateXFollowBtn(Button btn, boolean following) {
+        if (btn == null) return;
+        if (following) {
+            btn.setText("Following");
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF333333));
+        } else {
+            btn.setText("Follow");
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF000000));
+        }
+    }
+
+    private void updateReelsFollowBtn(Button btn, boolean following) {
+        if (btn == null) return;
+        if (following) {
+            btn.setText("Following");
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF555555));
+        } else {
+            btn.setText("Follow");
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFDD2A7B));
+        }
+    }
+
+    private void updateYtSubscribeBtn(Button btn, boolean subscribed) {
+        if (btn == null) return;
+        if (subscribed) {
+            btn.setText("Subscribed");
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF333333));
+        } else {
+            btn.setText("Subscribe");
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFFF0000));
+        }
+    }
+
+    /** Increment/decrement the count displayed in a "N Label" TextView */
+    private void updateCountTV(TextView tv, int delta, String label) {
+        try {
+            String text = tv.getText().toString();
+            String numStr = text.split(" ")[0].replace("K","000").replace("M","000000");
+            long cur = Long.parseLong(numStr);
+            tv.setText(formatSocialCount(Math.max(0, cur + delta)) + " " + label);
+        } catch (Exception ignored) {}
+    }
+
+    /** Format: 1200 → "1.2K", 1500000 → "1.5M", else raw */
+    private String formatSocialCount(long n) {
+        if (n >= 1_000_000) return String.format("%.1fM", n / 1_000_000.0);
+        if (n >= 1_000)     return String.format("%.1fK", n / 1_000.0);
+        return String.valueOf(n);
     }
 
     // ── Online contacts — REAL-TIME per-user listeners ─────────────────────
