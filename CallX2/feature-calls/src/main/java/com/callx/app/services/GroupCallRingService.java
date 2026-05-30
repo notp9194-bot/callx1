@@ -57,12 +57,16 @@ public class GroupCallRingService extends Service {
             ? intent.getStringExtra(Constants.EXTRA_GROUP_CALLER_UID)  : "";
         String callerName = intent != null
             ? intent.getStringExtra(Constants.EXTRA_GROUP_CALLER_NAME) : "Someone";
+        // FIX-4: read caller photo for avatar in IncomingGroupCallActivity
+        String callerPhoto = intent != null
+            ? intent.getStringExtra(Constants.EXTRA_GROUP_CALLER_PHOTO) : "";
+        if (callerPhoto == null) callerPhoto = "";
         boolean isVideo   = intent != null
             && intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
 
         startForeground(Constants.GROUP_CALL_RING_NOTIF_ID,
             buildRingNotification(callId, groupId, groupName, groupIcon,
-                callerUid, callerName, isVideo));
+                callerUid, callerName, callerPhoto, isVideo));
         startRingtone();
         acquireWakeLock();
 
@@ -79,20 +83,21 @@ public class GroupCallRingService extends Service {
 
     private Notification buildRingNotification(
             String callId, String groupId, String groupName, String groupIcon,
-            String callerUid, String callerName, boolean isVideo) {
+            String callerUid, String callerName, String callerPhoto, boolean isVideo) {
 
         // ── Full-screen / tap intent ──────────────────────────────────────
         Intent fullIntent = new Intent(this, IncomingGroupCallActivity.class);
         fullIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
             | Intent.FLAG_ACTIVITY_CLEAR_TOP
             | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_CALL_ID,    callId);
-        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_GROUP_ID,   groupId);
-        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_GROUP_NAME, groupName);
-        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_GROUP_ICON, groupIcon);
+        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_CALL_ID,     callId);
+        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_GROUP_ID,    groupId);
+        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_GROUP_NAME,  groupName);
+        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_GROUP_ICON,  groupIcon);
         fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_CALLER_UID,  callerUid);
         fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_CALLER_NAME, callerName);
-        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_IS_VIDEO,   isVideo);
+        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_CALLER_PHOTO, callerPhoto); // FIX-4
+        fullIntent.putExtra(IncomingGroupCallActivity.EXTRA_IS_VIDEO,    isVideo);
 
         PendingIntent fullPi = PendingIntent.getActivity(this,
             Constants.GROUP_CALL_RING_NOTIF_ID, fullIntent,

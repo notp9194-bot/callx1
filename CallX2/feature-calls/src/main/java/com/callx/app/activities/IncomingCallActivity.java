@@ -22,7 +22,7 @@
       private ActivityIncomingCallBinding binding;
       private MediaPlayer ringtonePlayer;
       private PowerManager.WakeLock wakeLock;
-      private String callId, fromUid, fromName, fromPhoto;
+      private String callId, fromUid, fromName, fromPhoto, fromThumb; // FIX-1: added fromThumb
       private boolean isVideo, acted = false;
       private ValueEventListener statusListener;
       private final Handler autoRejectHandler = new Handler(Looper.getMainLooper());
@@ -44,6 +44,9 @@
           // FIX-9: read photo so it can be passed to CallActivity
           fromPhoto = getIntent().getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
           if (fromPhoto == null) fromPhoto = getIntent().getStringExtra("partnerPhoto");
+          // FIX-1: read thumb (100×100 WebP) for fast avatar in CallActivity
+          fromThumb = getIntent().getStringExtra("partnerThumb");
+          if (fromThumb == null) fromThumb = "";
           binding.tvCallerName.setText(fromName == null ? "Unknown" : fromName);
           binding.tvCallerSub.setText(isVideo ? "Incoming video CallX..." : "Incoming CallX...");
           acquireWakeLock();
@@ -118,6 +121,7 @@
           i.putExtra("partnerUid",   fromUid);
           i.putExtra("partnerName",  fromName != null ? fromName : "");
           i.putExtra("partnerPhoto", fromPhoto != null ? fromPhoto : ""); // FIX-9
+          i.putExtra("partnerThumb", fromThumb != null ? fromThumb : ""); // FIX-1
           i.putExtra("isCaller",     false);
           i.putExtra("video",        isVideo);
           i.putExtra("callId",       callId);

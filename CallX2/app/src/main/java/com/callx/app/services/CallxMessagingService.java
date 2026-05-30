@@ -180,13 +180,16 @@ public class CallxMessagingService extends FirebaseMessagingService {
           final String fromUid   = data.getOrDefault("fromUid", "");
           final String fromName  = data.getOrDefault("fromName", "Unknown");
           final String fromPhoto = data.getOrDefault("fromPhoto", "");
+          final String fromThumb = data.getOrDefault("fromThumb", ""); // FIX-1: thumb for fast avatar
 
           // 1. Start IncomingRingService — rings even when app is killed
           Intent ringIntent = new Intent(this, IncomingRingService.class);
-          ringIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
-          ringIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
-          ringIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
-          ringIntent.putExtra(Constants.EXTRA_IS_VIDEO,      isVideo);
+          ringIntent.putExtra(Constants.EXTRA_CALL_ID,        callId);
+          ringIntent.putExtra(Constants.EXTRA_PARTNER_UID,    fromUid);
+          ringIntent.putExtra(Constants.EXTRA_PARTNER_NAME,   fromName);
+          ringIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO,  fromPhoto); // FIX-1
+          ringIntent.putExtra("partnerThumb",                  fromThumb); // FIX-1
+          ringIntent.putExtra(Constants.EXTRA_IS_VIDEO,        isVideo);
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
               startForegroundService(ringIntent);
           } else {
@@ -200,6 +203,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
           acceptIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
           acceptIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
           acceptIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
+          acceptIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto); // FIX-2
+          acceptIntent.putExtra("partnerThumb",                  fromThumb); // FIX-2
           acceptIntent.putExtra(Constants.EXTRA_IS_VIDEO,      isVideo);
           PendingIntent acceptPi = PendingIntent.getActivity(this,
               Constants.CALL_RING_NOTIF_ID, acceptIntent,
@@ -208,11 +213,13 @@ public class CallxMessagingService extends FirebaseMessagingService {
           // 3. "Decline" broadcast → NotificationActionReceiver
           Intent declineIntent = new Intent(this, NotificationActionReceiver.class);
           declineIntent.setAction(Constants.ACTION_DECLINE_CALL);
-          declineIntent.putExtra(Constants.EXTRA_CALL_ID,      callId);
-          declineIntent.putExtra(Constants.EXTRA_PARTNER_UID,  fromUid);
-          declineIntent.putExtra(Constants.EXTRA_PARTNER_NAME, fromName);
-          declineIntent.putExtra(Constants.EXTRA_IS_VIDEO,     isVideo);
-          declineIntent.putExtra(Constants.EXTRA_NOTIF_ID,     Constants.CALL_RING_NOTIF_ID);
+          declineIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
+          declineIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
+          declineIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
+          declineIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto); // FIX-2
+          declineIntent.putExtra("partnerThumb",                  fromThumb); // FIX-2
+          declineIntent.putExtra(Constants.EXTRA_IS_VIDEO,      isVideo);
+          declineIntent.putExtra(Constants.EXTRA_NOTIF_ID,      Constants.CALL_RING_NOTIF_ID);
           PendingIntent declinePi = PendingIntent.getBroadcast(this,
               Constants.CALL_RING_NOTIF_ID + 1, declineIntent,
               PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -268,8 +275,10 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final String groupId    = data.getOrDefault(Constants.GCALL_FCM_GROUP_ID,   "");
         final String groupName  = data.getOrDefault(Constants.GCALL_FCM_GROUP_NAME, "Group");
         final String groupIcon  = data.getOrDefault(Constants.GCALL_FCM_GROUP_ICON, "");
-        final String callerUid  = data.getOrDefault(Constants.GCALL_FCM_CALLER_UID,  "");
-        final String callerName = data.getOrDefault(Constants.GCALL_FCM_CALLER_NAME, "Someone");
+        final String callerUid  = data.getOrDefault(Constants.GCALL_FCM_CALLER_UID,   "");
+        final String callerName = data.getOrDefault(Constants.GCALL_FCM_CALLER_NAME,  "Someone");
+        // FIX-4: pass caller photo so group call UI shows avatar
+        final String callerPhoto = data.getOrDefault(Constants.GCALL_FCM_CALLER_PHOTO, "");
         final boolean isVideo   = "true".equalsIgnoreCase(
             data.getOrDefault(Constants.GCALL_FCM_IS_VIDEO, "false"));
 
@@ -291,13 +300,14 @@ public class CallxMessagingService extends FirebaseMessagingService {
                     // Start GroupCallRingService — it will show full-screen notification
                     Intent ringIntent = new Intent(
                         CallxMessagingService.this, GroupCallRingService.class);
-                    ringIntent.putExtra(Constants.EXTRA_CALL_ID,            callId);
-                    ringIntent.putExtra(Constants.EXTRA_GROUP_ID,           groupId);
-                    ringIntent.putExtra(Constants.EXTRA_GROUP_NAME,         groupName);
-                    ringIntent.putExtra(Constants.EXTRA_GROUP_ICON,         groupIcon);
-                    ringIntent.putExtra(Constants.EXTRA_GROUP_CALLER_UID,   callerUid);
-                    ringIntent.putExtra(Constants.EXTRA_GROUP_CALLER_NAME,  callerName);
-                    ringIntent.putExtra(Constants.EXTRA_IS_VIDEO,           isVideo);
+                    ringIntent.putExtra(Constants.EXTRA_CALL_ID,             callId);
+                    ringIntent.putExtra(Constants.EXTRA_GROUP_ID,            groupId);
+                    ringIntent.putExtra(Constants.EXTRA_GROUP_NAME,          groupName);
+                    ringIntent.putExtra(Constants.EXTRA_GROUP_ICON,          groupIcon);
+                    ringIntent.putExtra(Constants.EXTRA_GROUP_CALLER_UID,    callerUid);
+                    ringIntent.putExtra(Constants.EXTRA_GROUP_CALLER_NAME,   callerName);
+                    ringIntent.putExtra(Constants.EXTRA_GROUP_CALLER_PHOTO,  callerPhoto); // FIX-4
+                    ringIntent.putExtra(Constants.EXTRA_IS_VIDEO,            isVideo);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(ringIntent);
                     } else {
@@ -319,6 +329,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
           if (_callerName == null || _callerName.isEmpty()) _callerName = safeGet(data, "fromName");
           String _callerPhoto = safeGet(data, "callerPhoto");
           if (_callerPhoto == null || _callerPhoto.isEmpty()) _callerPhoto = safeGet(data, "fromPhoto");
+          // FIX-3: read isVideo from missed call payload so Call Back uses correct media type
+          final boolean missedIsVideo = "true".equalsIgnoreCase(safeGet(data, "isVideo"));
           if (_callerName == null) return;
 
           // Lambda ke liye final copies — reassigned vars lambda me use nahi ho sakti
@@ -350,8 +362,10 @@ public class CallxMessagingService extends FirebaseMessagingService {
           android.content.Intent callBackIntent = new android.content.Intent(this,
               com.callx.app.services.NotificationActionReceiver.class)
               .setAction(com.callx.app.utils.Constants.ACTION_CALL_BACK)
-              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_UID,  callerUid)
-              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_NAME, callerName)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_UID,   callerUid)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_NAME,  callerName)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_PHOTO, callerPhoto) // FIX-3
+              .putExtra(com.callx.app.utils.Constants.EXTRA_IS_VIDEO,      missedIsVideo) // FIX-3
               .putExtra(com.callx.app.utils.Constants.EXTRA_NOTIF_ID, notifId);
           android.app.PendingIntent callBackPi = android.app.PendingIntent.getBroadcast(
               this, ("cb_" + callerUid).hashCode(), callBackIntent,

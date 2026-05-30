@@ -2,15 +2,22 @@
   import android.app.Notification;
   import android.app.PendingIntent;
   import android.content.Intent;
+  import android.graphics.Bitmap;
+  import android.graphics.BitmapFactory;
   import android.os.Build;
   import android.os.Handler;
   import android.os.IBinder;
   import android.os.Looper;
   import androidx.annotation.Nullable;
+  import androidx.core.app.IconCompat;
   import androidx.core.app.NotificationCompat;
   import androidx.core.app.Person;
   import com.callx.app.activities.CallActivity;
   import com.callx.app.utils.Constants;
+  import java.net.HttpURLConnection;
+  import java.net.URL;
+  import java.util.concurrent.ExecutorService;
+  import java.util.concurrent.Executors;
   /**
    * Foreground service shown during an active (connected) call.
    * Shows a persistent CallStyle notification (Android 12+) with an
@@ -23,24 +30,50 @@
    */
   public class CallForegroundService extends android.app.Service {
       public static final int ID = Constants.CALL_ONGOING_NOTIF_ID;
-      private String callerName = "CallX";
-      private String callId     = "";
-      private boolean isVideo   = false;
-      private long startedAt    = 0;
+      private String callerName  = "CallX";
+      private String callId      = "";
+      private String partnerThumb = ""; // FIX-6: avatar URL for notification
+      private boolean isVideo    = false;
+      private long startedAt     = 0;
+      private Bitmap avatarBitmap = null; // FIX-6: cached avatar bitmap
       private final Handler tickHandler = new Handler(Looper.getMainLooper());
       private Runnable tickRunnable;
+      private final ExecutorService bgEx = Executors.newSingleThreadExecutor();
       @Override
       public int onStartCommand(Intent intent, int flags, int startId) {
           if (intent != null) {
               String n = intent.getStringExtra("name");
               String c = intent.getStringExtra("callId");
-              if (n != null) callerName = n;
-              if (c != null) callId     = c;
+              String t = intent.getStringExtra("partnerThumb"); // FIX-6
+              if (n != null) callerName    = n;
+              if (c != null) callId        = c;
+              if (t != null) partnerThumb  = t;
               isVideo = intent.getBooleanExtra("isVideo", false);
           }
           startedAt = System.currentTimeMillis();
           startForeground(ID, buildNotification("Connecting..."));
           startTicker();
+          // FIX-6: download avatar in background, then refresh notification once ready
+          if (!partnerThumb.isEmpty()) {
+              bgEx.execute(() -> {
+                  try {
+                      HttpURLConnection conn =
+                          (HttpURLConnection) new URL(partnerThumb).openConnection();
+                      conn.setConnectTimeout(4000);
+                      conn.setReadTimeout(4000);
+                      conn.connect();
+                      Bitmap bm = BitmapFactory.decodeStream(conn.getInputStream());
+                      if (bm != null) {
+                          avatarBitmap = bm;
+                          // Refresh notification with avatar
+                          tickHandler.post(() -> updateNotification(
+                              String.format("%d:%02d",
+                                  (System.currentTimeMillis() - startedAt) / 60000,
+                                  ((System.currentTimeMillis() - startedAt) / 1000) % 60)));
+                      }
+                  } catch (Exception ignored) {}
+              });
+          }
           return START_STICKY;
       }
       private void startTicker() {
@@ -79,7 +112,7 @@
 
           NotificationCompat.Builder b = new NotificationCompat.Builder(
                   this, Constants.CHANNEL_CALLS)
-              .setSmallIcon(com.callx.app.calls.R.drawable.ic_call_notification) // FIX-11: use custom icon
+              .setSmallIcon(com.callx.app.calls.R.drawable.ic_call_notification)
               .setContentTitle(callerName)
               .setContentText(subtitle)
               .setOngoing(true)
@@ -88,19 +121,28 @@
               .addAction(android.R.drawable.ic_menu_close_clear_cancel,
                   "End Call", endPi);
 
+          // FIX-6: show avatar as large icon if available
+          if (avatarBitmap != null) {
+              b.setLargeIcon(avatarBitmap);
+          }
+
           // Android 12+ — CallStyle: system shows the green "call chip" on status bar
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-              Person person = new Person.Builder()
+              Person.Builder pb = new Person.Builder()
                   .setName(callerName)
-                  .setImportant(true)
-                  .build();
-              b.setStyle(NotificationCompat.CallStyle.forOngoingCall(person, endPi));
+                  .setImportant(true);
+              // FIX-6: attach avatar to Person so Android 12+ call chip shows face
+              if (avatarBitmap != null) {
+                  pb.setIcon(IconCompat.createWithBitmap(avatarBitmap));
+              }
+              b.setStyle(NotificationCompat.CallStyle.forOngoingCall(pb.build(), endPi));
           }
           return b.build();
       }
       @Override
       public void onDestroy() {
           tickHandler.removeCallbacksAndMessages(null);
+          try { bgEx.shutdownNow(); } catch (Exception ignored) {}
           super.onDestroy();
       }
       @Nullable @Override

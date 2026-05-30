@@ -6,8 +6,10 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.WindowManager;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
+import com.bumptech.glide.Glide;
 import com.callx.app.calls.R;
 import com.callx.app.services.GroupCallRingService;
 import com.callx.app.utils.Constants;
@@ -25,15 +27,16 @@ import com.callx.app.utils.FirebaseUtils;
  */
 public class IncomingGroupCallActivity extends AppCompatActivity {
 
-    public static final String EXTRA_CALL_ID    = "igc_call_id";
-    public static final String EXTRA_GROUP_ID   = "igc_group_id";
-    public static final String EXTRA_GROUP_NAME = "igc_group_name";
-    public static final String EXTRA_GROUP_ICON = "igc_group_icon";
-    public static final String EXTRA_CALLER_UID  = "igc_caller_uid";
-    public static final String EXTRA_CALLER_NAME = "igc_caller_name";
-    public static final String EXTRA_IS_VIDEO    = "igc_is_video";
+    public static final String EXTRA_CALL_ID     = "igc_call_id";
+    public static final String EXTRA_GROUP_ID    = "igc_group_id";
+    public static final String EXTRA_GROUP_NAME  = "igc_group_name";
+    public static final String EXTRA_GROUP_ICON  = "igc_group_icon";
+    public static final String EXTRA_CALLER_UID   = "igc_caller_uid";
+    public static final String EXTRA_CALLER_NAME  = "igc_caller_name";
+    public static final String EXTRA_CALLER_PHOTO = "igc_caller_photo"; // FIX-4
+    public static final String EXTRA_IS_VIDEO     = "igc_is_video";
 
-    private String callId, groupId, groupName, groupIcon, callerUid, callerName;
+    private String callId, groupId, groupName, groupIcon, callerUid, callerName, callerPhoto; // FIX-4
     private boolean isVideo;
 
     private final Handler autoDeclineHandler = new Handler(Looper.getMainLooper());
@@ -55,6 +58,8 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
         groupIcon  = getIntent().getStringExtra(EXTRA_GROUP_ICON);
         callerUid  = getIntent().getStringExtra(EXTRA_CALLER_UID);
         callerName = getIntent().getStringExtra(EXTRA_CALLER_NAME);
+        callerPhoto = getIntent().getStringExtra(EXTRA_CALLER_PHOTO); // FIX-4
+        if (callerPhoto == null) callerPhoto = "";
         isVideo    = getIntent().getBooleanExtra(EXTRA_IS_VIDEO, false);
 
         TextView tvGroupName  = findViewById(R.id.tvIncomingGroupName);
@@ -62,6 +67,12 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
         TextView tvCallerInfo = findViewById(R.id.tvIncomingGroupCallerInfo);
         ImageButton btnAccept  = findViewById(R.id.btnGroupAcceptCall);
         ImageButton btnDecline = findViewById(R.id.btnGroupDeclineCall);
+
+        // FIX-4: load caller avatar
+        ImageView ivCallerAvatar = findViewById(R.id.ivIncomingGroupCallerAvatar);
+        if (ivCallerAvatar != null && !callerPhoto.isEmpty()) {
+            Glide.with(this).load(callerPhoto).circleCrop().into(ivCallerAvatar);
+        }
 
         tvGroupName.setText(groupName != null ? groupName : "Group");
         tvCallType.setText(isVideo ? "Incoming Group Video Call" : "Incoming Group Voice Call");

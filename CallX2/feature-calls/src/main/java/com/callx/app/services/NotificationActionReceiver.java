@@ -129,11 +129,16 @@ public class NotificationActionReceiver extends BroadcastReceiver {
           if (Constants.ACTION_CALL_BACK.equals(action)) {
               if (nm != null) nm.cancel(notifId);
               if (partnerUid != null && !partnerUid.isEmpty()) {
+                  // FIX-3: use actual call type from missed call payload (was hardcoded false)
+                  boolean cbIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
+                  String  cbPhoto   = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
                   Intent callIntent = new Intent(context,
                       com.callx.app.activities.CallActivity.class);
                   callIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
                   callIntent.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
-                  callIntent.putExtra(Constants.EXTRA_IS_VIDEO, false);
+                  if (cbPhoto != null) callIntent.putExtra("partnerPhoto", cbPhoto);
+                  callIntent.putExtra(Constants.EXTRA_IS_VIDEO, cbIsVideo); // FIX-3
+                  callIntent.putExtra("isCaller", true);
                   callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
                       Intent.FLAG_ACTIVITY_CLEAR_TOP);
                   context.startActivity(callIntent);

@@ -368,6 +368,8 @@ public class CallActivity extends AppCompatActivity {
             callRef.setValue(c).addOnCompleteListener(t -> createOffer());
             PushNotify.notifyUser(partnerUid, myUid, myName,
                 isVideo ? "video_call" : "call", callId);
+            // FIX-5: Caller listens for callee-initiated restart requests
+            watchCalleeIceRestartRequest();
         } else {
             callRef.child("status").setValue("accepted");
             watchForOffer();
@@ -490,6 +492,12 @@ public class CallActivity extends AppCompatActivity {
                     @Override public void onCreateFailure(String e) { endCall(); }
                     @Override public void onSetFailure(String e) {}
                 }, mc);
+            } else if (peerConnection != null && !isCaller) {
+                // FIX-5: Callee requests restart by writing a Firebase signal → caller picks it up
+                if (callRef != null) {
+                    callRef.child("iceRestartRequest").setValue(
+                        System.currentTimeMillis());
+                }
             }
         };
         iceRestartHandler.postDelayed(iceRestartRunnable, Constants.ICE_RECONNECT_TIMEOUT_MS);
@@ -656,6 +664,23 @@ public class CallActivity extends AppCompatActivity {
 
     // ── Call lifecycle ─────────────────────────────────────────────────────
 
+    // FIX-5: Caller listens for callee-initiated ICE restart signal
+    private ValueEventListener iceRestartRequestListener;
+    private void watchCalleeIceRestartRequest() {
+        iceRestartRequestListener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot s) {
+                if (!s.exists() || peerConnection == null || !callConnected) return;
+                // Callee wrote a timestamp here → caller performs the restart
+                runOnUiThread(() -> {
+                    iceRestartCount = 0; // callee explicitly asked, reset counter
+                    scheduleIceRestart();
+                });
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        callRef.child("iceRestartRequest").addValueEventListener(iceRestartRequestListener);
+    }
+
     private void watchCallStatus() {
         statusListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot s) {
@@ -694,9 +719,10 @@ public class CallActivity extends AppCompatActivity {
         if (isVideo) binding.ivCallAvatar.setVisibility(View.GONE);
 
         Intent fg = new Intent(this, CallForegroundService.class);
-        fg.putExtra("name",    partnerName != null ? partnerName : "");
-        fg.putExtra("callId",  callId != null ? callId : "");
-        fg.putExtra("isVideo", isVideo);
+        fg.putExtra("name",         partnerName != null ? partnerName : "");
+        fg.putExtra("callId",       callId != null ? callId : "");
+        fg.putExtra("isVideo",      isVideo);
+        fg.putExtra("partnerThumb", partnerThumb != null ? partnerThumb : ""); // FIX-6
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             startForegroundService(fg);
         else startService(fg);
@@ -783,6 +809,9 @@ public class CallActivity extends AppCompatActivity {
                     .removeEventListener(remoteCandidateListener);
             if (statusListener != null && callRef != null)
                 callRef.child("status").removeEventListener(statusListener);
+            // FIX-5: cleanup callee ICE restart request listener
+            if (iceRestartRequestListener != null && callRef != null)
+                callRef.child("iceRestartRequest").removeEventListener(iceRestartRequestListener);
             if (videoCapturer != null) { videoCapturer.stopCapture(); videoCapturer.dispose(); }
             if (localVideoTrack  != null) localVideoTrack.dispose();
             if (localAudioTrack  != null) localAudioTrack.dispose();

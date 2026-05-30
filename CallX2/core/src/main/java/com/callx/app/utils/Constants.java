@@ -95,8 +95,9 @@ public class Constants {
     public static final String EXTRA_SENDER_NAME   = "extra_sender_name";
 
     // Group call extras
-    public static final String EXTRA_GROUP_CALLER_UID  = "extra_gcall_caller_uid";
-    public static final String EXTRA_GROUP_CALLER_NAME = "extra_gcall_caller_name";
+    public static final String EXTRA_GROUP_CALLER_UID   = "extra_gcall_caller_uid";
+    public static final String EXTRA_GROUP_CALLER_NAME  = "extra_gcall_caller_name";
+    public static final String EXTRA_GROUP_CALLER_PHOTO = "extra_gcall_caller_photo"; // FIX-4: group caller avatar
 
     public static final String KEY_TEXT_REPLY       = "key_text_reply";
     public static final String KEY_GROUP_TEXT_REPLY = "key_group_text_reply";

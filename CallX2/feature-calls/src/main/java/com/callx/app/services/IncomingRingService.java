@@ -39,12 +39,17 @@ public class IncomingRingService extends Service {
     private final Handler stopHandler = new Handler(Looper.getMainLooper());
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String callId   = intent != null ? intent.getStringExtra(Constants.EXTRA_CALL_ID)   : "";
-        String fromUid  = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_UID)  : "";
-        String fromName = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_NAME) : "Unknown";
-        boolean isVideo = intent != null && intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
+        String callId    = intent != null ? intent.getStringExtra(Constants.EXTRA_CALL_ID)    : "";
+        String fromUid   = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_UID)  : "";
+        String fromName  = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_NAME) : "Unknown";
+        // FIX-1: read photo + thumb so they flow through to IncomingCallActivity
+        String fromPhoto = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO) : "";
+        String fromThumb = intent != null ? intent.getStringExtra("partnerThumb") : "";
+        boolean isVideo  = intent != null && intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
+        if (fromPhoto == null) fromPhoto = "";
+        if (fromThumb == null) fromThumb = "";
         startForeground(Constants.CALL_RING_NOTIF_ID,
-            buildNotification(callId, fromUid, fromName, isVideo));
+            buildNotification(callId, fromUid, fromName, fromPhoto, fromThumb, isVideo));
         startRingtone();
         acquireWakeLock();
         // Auto-stop after timeout
@@ -56,15 +61,18 @@ public class IncomingRingService extends Service {
         return START_NOT_STICKY;
     }
     private Notification buildNotification(String callId, String fromUid,
-                                           String fromName, boolean isVideo) {
+                                           String fromName, String fromPhoto,
+                                           String fromThumb, boolean isVideo) {
         // ── Full-screen / tap intent → IncomingCallActivity ─────────────
         Intent fullIntent = new Intent(this, IncomingCallActivity.class);
         fullIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
             | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        fullIntent.putExtra(Constants.EXTRA_CALL_ID,     callId);
-        fullIntent.putExtra(Constants.EXTRA_PARTNER_UID, fromUid);
+        fullIntent.putExtra(Constants.EXTRA_CALL_ID,      callId);
+        fullIntent.putExtra(Constants.EXTRA_PARTNER_UID,  fromUid);
         fullIntent.putExtra(Constants.EXTRA_PARTNER_NAME, fromName);
-        fullIntent.putExtra(Constants.EXTRA_IS_VIDEO,    isVideo);
+        fullIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto); // FIX-1
+        fullIntent.putExtra("partnerThumb",                 fromThumb); // FIX-1
+        fullIntent.putExtra(Constants.EXTRA_IS_VIDEO,     isVideo);
         PendingIntent fullPi = PendingIntent.getActivity(this,
             Constants.CALL_RING_NOTIF_ID, fullIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -73,11 +81,13 @@ public class IncomingRingService extends Service {
         // ── Decline button → broadcast → NotificationActionReceiver ─────
         Intent declineIntent = new Intent(this, NotificationActionReceiver.class);
         declineIntent.setAction(Constants.ACTION_DECLINE_CALL);
-        declineIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
-        declineIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
-        declineIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
-        declineIntent.putExtra(Constants.EXTRA_IS_VIDEO,      isVideo);
-        declineIntent.putExtra(Constants.EXTRA_NOTIF_ID,      Constants.CALL_RING_NOTIF_ID);
+        declineIntent.putExtra(Constants.EXTRA_CALL_ID,        callId);
+        declineIntent.putExtra(Constants.EXTRA_PARTNER_UID,    fromUid);
+        declineIntent.putExtra(Constants.EXTRA_PARTNER_NAME,   fromName);
+        declineIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO,  fromPhoto); // FIX-2
+        declineIntent.putExtra("partnerThumb",                   fromThumb); // FIX-2
+        declineIntent.putExtra(Constants.EXTRA_IS_VIDEO,        isVideo);
+        declineIntent.putExtra(Constants.EXTRA_NOTIF_ID,        Constants.CALL_RING_NOTIF_ID);
         PendingIntent declinePi = PendingIntent.getBroadcast(this,
             Constants.CALL_RING_NOTIF_ID + 1, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
