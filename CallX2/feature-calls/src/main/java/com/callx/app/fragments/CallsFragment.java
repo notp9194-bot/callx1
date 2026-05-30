@@ -21,6 +21,7 @@ import com.callx.app.db.entity.CallLogEntity;
 import com.callx.app.models.CallLog;
 import com.callx.app.models.User;
 import com.callx.app.utils.FirebaseUtils;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
 import com.google.firebase.auth.FirebaseAuth;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -30,8 +31,8 @@ import java.util.concurrent.Executors;
 
 public class CallsFragment extends Fragment implements CallHistoryAdapter.SelectionListener {
 
-    private final List<CallLog> allLogs = new ArrayList<>();   // master list
-    private final List<CallLog> logs    = new ArrayList<>();   // filtered/displayed
+    private final List<CallLog> allLogs = new ArrayList<>();
+    private final List<CallLog> logs    = new ArrayList<>();
     private CallHistoryAdapter adapter;
     private View emptyState;
 
@@ -48,6 +49,11 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
     // Search
     private EditText etSearch;
     private String searchQuery = "";
+
+    // Real-time online listeners — track per-uid so we can remove them
+    private final Map<String, ValueEventListener> onlineListeners = new HashMap<>();
+    private final Map<String, User> onlineUsersMap = new LinkedHashMap<>();
+    private ValueEventListener contactsListener;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle s) {
@@ -72,6 +78,10 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         adapter = new CallHistoryAdapter(logs, this);
         rv.setAdapter(adapter);
 
+        // ── Contact click → BottomSheet (Reels-profile style) ──
+        adapter.setOnContactClickListener((log, resolvedPhoto) ->
+            showContactBottomSheet(log, resolvedPhoto));
+
         // Selection bar buttons
         v.findViewById(R.id.btn_cancel_selection_calls).setOnClickListener(x -> {
             adapter.clearSelection();
@@ -84,7 +94,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         v.findViewById(R.id.btn_delete_selected_calls).setOnClickListener(x ->
             confirmDeleteSelected());
 
-        // View contacts button
         View tvViewContacts = v.findViewById(R.id.tv_view_contacts);
         if (tvViewContacts != null) {
             tvViewContacts.setOnClickListener(x -> {
@@ -94,14 +103,12 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             });
         }
 
-        // Filter chips
         setupChip(chipAll,      "all");
         setupChip(chipMissed,   "missed");
         setupChip(chipContacts, "contacts");
         setupChip(chipNonspam,  "nonspam");
         setupChip(chipSpam,     "spam");
 
-        // Search
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int i, int c, int a) {}
@@ -113,11 +120,228 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             });
         }
 
-        loadOnlineContacts();
+        loadOnlineContactsRealTime();
         loadCallLogs();
         return v;
     }
 
+    // ── Contact BottomSheet (Reels/Profile style) ──────────────────────────
+    private void showContactBottomSheet(CallLog log, String resolvedPhoto) {
+        if (getContext() == null) return;
+
+        BottomSheetDialog sheet = new BottomSheetDialog(getContext(),
+            com.google.android.material.R.style.Theme_Material3_Light_BottomSheetDialog);
+        View sv = LayoutInflater.from(getContext())
+            .inflate(R.layout.bottom_sheet_contact_call, null);
+        sheet.setContentView(sv);
+
+        CircleImageView ivAvatar  = sv.findViewById(R.id.iv_avatar_sheet);
+        TextView tvName           = sv.findViewById(R.id.tv_name_sheet);
+        TextView tvStatus         = sv.findViewById(R.id.tv_status_sheet);
+        View onlineDot            = sv.findViewById(R.id.view_online_dot_sheet);
+        ImageView storyRing       = sv.findViewById(R.id.iv_story_ring_sheet);
+        View btnMessage           = sv.findViewById(R.id.btn_message_sheet);
+        View btnVoice             = sv.findViewById(R.id.btn_voice_call_sheet);
+        View btnVideo             = sv.findViewById(R.id.btn_video_call_sheet);
+        View btnHistory           = sv.findViewById(R.id.btn_call_history_sheet);
+
+        // Set name
+        tvName.setText(log.partnerName != null ? log.partnerName : "Unknown");
+
+        // Load avatar (use resolved photo if already cached, else load from Firebase)
+        if (resolvedPhoto != null && !resolvedPhoto.isEmpty()) {
+            Glide.with(getContext()).load(resolvedPhoto)
+                .apply(RequestOptions.circleCropTransform())
+                .placeholder(R.drawable.ic_person)
+                .into(ivAvatar);
+        }
+
+        // Check online status + fetch latest photo in one go
+        if (log.partnerUid != null) {
+            FirebaseUtils.getUserRef(log.partnerUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snap) {
+                        Boolean isOnline = snap.child("online").getValue(Boolean.class);
+                        if (Boolean.TRUE.equals(isOnline)) {
+                            if (onlineDot != null) onlineDot.setVisibility(View.VISIBLE);
+                            if (tvStatus  != null) {
+                                tvStatus.setText("Online");
+                                tvStatus.setTextColor(getResources().getColor(
+                                    R.color.brand_accent, null));
+                            }
+                        } else {
+                            if (onlineDot != null) onlineDot.setVisibility(View.GONE);
+                            if (tvStatus  != null) {
+                                tvStatus.setText("Offline");
+                                tvStatus.setTextColor(getResources().getColor(
+                                    R.color.text_muted, null));
+                            }
+                        }
+                        // Load fresh photo
+                        String photo = snap.child("photoUrl").getValue(String.class);
+                        String thumb = snap.child("thumbUrl").getValue(String.class);
+                        String url   = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        if (url != null && !url.isEmpty() && getContext() != null && ivAvatar != null)
+                            Glide.with(getContext()).load(url)
+                                .apply(RequestOptions.circleCropTransform())
+                                .placeholder(R.drawable.ic_person)
+                                .into(ivAvatar);
+                    }
+                    @Override public void onCancelled(DatabaseError e) {}
+                });
+        }
+
+        // Avatar tap → open full-screen photo (zoom)
+        ivAvatar.setOnClickListener(x -> {
+            if (getContext() == null || log.partnerUid == null) return;
+            Intent pi = new Intent().setClassName(getContext().getPackageName(),
+                "com.callx.app.activities.FullScreenPhotoActivity");
+            pi.putExtra("uid", log.partnerUid);
+            startActivity(pi);
+        });
+
+        // Message button
+        btnMessage.setOnClickListener(x -> {
+            sheet.dismiss();
+            if (log.partnerUid == null || getContext() == null) return;
+            Intent i = new Intent().setClassName(getContext().getPackageName(),
+                "com.callx.app.activities.ChatActivity");
+            i.putExtra("partnerUid",  log.partnerUid);
+            i.putExtra("partnerName", log.partnerName != null ? log.partnerName : "");
+            startActivity(i);
+        });
+
+        // Voice Call button
+        btnVoice.setOnClickListener(x -> {
+            sheet.dismiss();
+            if (log.partnerUid == null || getContext() == null) return;
+            Intent i = new Intent().setClassName(getContext().getPackageName(),
+                "com.callx.app.activities.CallActivity");
+            i.putExtra("partnerUid",  log.partnerUid);
+            i.putExtra("partnerName", log.partnerName != null ? log.partnerName : "");
+            i.putExtra("isCaller", true);
+            i.putExtra("video", false);
+            startActivity(i);
+        });
+
+        // Video Call button
+        btnVideo.setOnClickListener(x -> {
+            sheet.dismiss();
+            if (log.partnerUid == null || getContext() == null) return;
+            Intent i = new Intent().setClassName(getContext().getPackageName(),
+                "com.callx.app.activities.CallActivity");
+            i.putExtra("partnerUid",  log.partnerUid);
+            i.putExtra("partnerName", log.partnerName != null ? log.partnerName : "");
+            i.putExtra("isCaller", true);
+            i.putExtra("video", true);
+            startActivity(i);
+        });
+
+        // Call History button — dismiss sheet (history is already visible in the tab)
+        btnHistory.setOnClickListener(x -> sheet.dismiss());
+
+        sheet.show();
+    }
+
+    // ── Online contacts — REAL-TIME per-user listeners ─────────────────────
+    /**
+     * Attaches a ValueEventListener on every contact's user node.
+     * This means the online strip updates instantly when anyone goes online/offline —
+     * no polling, no single-value snapshot.
+     */
+    private void loadOnlineContactsRealTime() {
+        String uid = FirebaseUtils.getCurrentUid();
+        if (uid == null || getContext() == null) return;
+
+        contactsListener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snap) {
+                // Detach old per-user listeners
+                removeOnlineListeners();
+                onlineUsersMap.clear();
+
+                for (DataSnapshot c : snap.getChildren()) {
+                    User u = c.getValue(User.class);
+                    if (u == null) continue;
+                    if (u.uid == null) u.uid = c.getKey();
+                    if (u.uid == null) continue;
+                    String contactUid = u.uid;
+                    // Skip self
+                    String myUid = FirebaseUtils.getCurrentUid();
+                    if (myUid != null && myUid.equals(contactUid)) continue;
+
+                    // Attach persistent listener for this contact
+                    ValueEventListener perUserListener = new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot userSnap) {
+                            Boolean online = userSnap.child("online").getValue(Boolean.class);
+                            String  name   = userSnap.child("name").getValue(String.class);
+                            String  photo  = userSnap.child("photoUrl").getValue(String.class);
+                            String  thumb  = userSnap.child("thumbUrl").getValue(String.class);
+
+                            if (name  != null) u.name     = name;
+                            if (photo != null) u.photoUrl = photo;
+                            if (thumb != null) u.thumbUrl = thumb;
+
+                            if (Boolean.TRUE.equals(online)) {
+                                onlineUsersMap.put(contactUid, u);
+                            } else {
+                                onlineUsersMap.remove(contactUid);
+                            }
+                            // Re-render every time any user's status changes
+                            renderOnlineUsers(new ArrayList<>(onlineUsersMap.values()));
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    };
+                    onlineListeners.put(contactUid, perUserListener);
+                    FirebaseUtils.getUserRef(contactUid).addValueEventListener(perUserListener);
+                }
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        FirebaseUtils.getContactsRef(uid).addValueEventListener(contactsListener);
+    }
+
+    private void removeOnlineListeners() {
+        for (Map.Entry<String, ValueEventListener> entry : onlineListeners.entrySet()) {
+            FirebaseUtils.getUserRef(entry.getKey()).removeEventListener(entry.getValue());
+        }
+        onlineListeners.clear();
+    }
+
+    private void renderOnlineUsers(List<User> users) {
+        if (getContext() == null || llOnlineUsers == null) return;
+        llOnlineUsers.removeAllViews();
+        if (users.isEmpty()) {
+            if (llOnlinePanel != null) llOnlinePanel.setVisibility(View.GONE);
+            return;
+        }
+        if (llOnlinePanel != null) llOnlinePanel.setVisibility(View.VISIBLE);
+        LayoutInflater inf = LayoutInflater.from(getContext());
+        for (User u : users) {
+            View item = inf.inflate(R.layout.item_online_user, llOnlineUsers, false);
+            CircleImageView iv = item.findViewById(R.id.iv_online_avatar);
+            TextView tv = item.findViewById(R.id.tv_online_name);
+            tv.setText(u.name != null ? u.name : "User");
+            String onlineAvatar = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+            if (onlineAvatar != null && !onlineAvatar.isEmpty()) {
+                Glide.with(getContext()).load(onlineAvatar)
+                    .apply(RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_person).into(iv);
+            }
+            // Online avatar tap → open bottom sheet for quick call
+            final User finalU = u;
+            item.setOnClickListener(x -> {
+                CallLog fakeLog = new CallLog();
+                fakeLog.partnerUid  = finalU.uid;
+                fakeLog.partnerName = finalU.name;
+                String photo = (finalU.thumbUrl != null && !finalU.thumbUrl.isEmpty())
+                    ? finalU.thumbUrl : finalU.photoUrl;
+                showContactBottomSheet(fakeLog, photo);
+            });
+            llOnlineUsers.addView(item);
+        }
+    }
+
+    // ── Filters + Search ───────────────────────────────────────────────────
     private void setupChip(TextView chip, String filter) {
         if (chip == null) return;
         chip.setOnClickListener(x -> {
@@ -147,13 +371,11 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
     private void applyFilter() {
         logs.clear();
         for (CallLog l : allLogs) {
-            // Search filter
             if (!searchQuery.isEmpty()) {
                 String name = l.partnerName != null ? l.partnerName.toLowerCase() : "";
                 if (!name.contains(searchQuery)) continue;
             }
-            // Tab filter
-            String dir = l.direction != null ? l.direction.toLowerCase() : "";
+            String dir = l.direction == null ? "" : l.direction.toLowerCase();
             switch (activeFilter) {
                 case "missed":
                     if (!dir.contains("missed")) continue;
@@ -167,7 +389,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                 case "nonspam":
                     if (dir.contains("spam") || dir.contains("missed")) continue;
                     break;
-                default: // "all" — no filter
+                default:
                     break;
             }
             logs.add(l);
@@ -177,94 +399,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             emptyState.setVisibility(logs.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
-    // ── Online contacts ────────────────────────────────────────────────────
-    private void loadOnlineContacts() {
-        String uid = FirebaseUtils.getCurrentUid();
-        if (uid == null || getContext() == null) return;
-
-        FirebaseUtils.getContactsRef(uid).addValueEventListener(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                List<User> contacts = new ArrayList<>();
-                for (DataSnapshot c : snap.getChildren()) {
-                    User u = c.getValue(User.class);
-                    if (u != null) {
-                        if (u.uid == null) u.uid = c.getKey();
-                        contacts.add(u);
-                    }
-                }
-                checkOnlineStatus(contacts);
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        });
-    }
-
-    private void checkOnlineStatus(List<User> contacts) {
-        if (contacts.isEmpty()) { showNoOnline(); return; }
-        String myUid = FirebaseUtils.getCurrentUid();
-        final int[] done = {0};
-        final List<User> onlineUsers = new ArrayList<>();
-        for (User u : contacts) {
-            if (u.uid == null) { done[0]++; continue; }
-            if (myUid != null && myUid.equals(u.uid)) { done[0]++; continue; }
-            FirebaseUtils.getUserRef(u.uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(DataSnapshot snap) {
-                    Boolean online = snap.child("online").getValue(Boolean.class);
-                    if (Boolean.TRUE.equals(online)) {
-                        String photo  = snap.child("photoUrl").getValue(String.class);
-                        String thumbu = snap.child("thumbUrl").getValue(String.class);
-                        String name   = snap.child("name").getValue(String.class);
-                        if (photo  != null) u.photoUrl = photo;
-                        if (thumbu != null) u.thumbUrl = thumbu;
-                        if (name   != null) u.name     = name;
-                        onlineUsers.add(u);
-                    }
-                    done[0]++;
-                    if (done[0] >= contacts.size()) renderOnlineUsers(onlineUsers);
-                }
-                @Override public void onCancelled(DatabaseError e) {
-                    done[0]++;
-                    if (done[0] >= contacts.size()) renderOnlineUsers(onlineUsers);
-                }
-            });
-        }
-    }
-
-    private void renderOnlineUsers(List<User> users) {
-        if (getContext() == null || llOnlineUsers == null) return;
-        llOnlineUsers.removeAllViews();
-        if (users.isEmpty()) { showNoOnline(); return; }
-        if (llOnlinePanel != null) llOnlinePanel.setVisibility(View.VISIBLE);
-        LayoutInflater inf = LayoutInflater.from(getContext());
-        for (User u : users) {
-            View item = inf.inflate(R.layout.item_online_user, llOnlineUsers, false);
-            CircleImageView iv = item.findViewById(R.id.iv_online_avatar);
-            TextView tv = item.findViewById(R.id.tv_online_name);
-            tv.setText(u.name != null ? u.name : "User");
-            String onlineAvatar = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
-            if (onlineAvatar != null && !onlineAvatar.isEmpty()) {
-                Glide.with(getContext()).load(onlineAvatar)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person).into(iv);
-            }
-            final User finalU = u;
-            item.setOnClickListener(x -> openChat(finalU));
-            llOnlineUsers.addView(item);
-        }
-    }
-
-    private void showNoOnline() {
-        if (llOnlinePanel != null) llOnlinePanel.setVisibility(View.GONE);
-    }
-
-    private void openChat(User u) {
-        if (u.uid == null || getContext() == null) return;
-        Intent i = new Intent().setClassName(getContext(), "com.callx.app.activities.ChatActivity");
-        i.putExtra("partnerUid",  u.uid);
-        i.putExtra("partnerName", u.name != null ? u.name : "");
-        startActivity(i);
-    }
-
-    // ── Call Logs — v16 Offline-First ─────────────────────────────────────
+    // ── Call Logs — Offline-First ──────────────────────────────────────────
     private void loadCallLogs() {
         if (getContext() != null) {
             AppDatabase db = AppDatabase.getInstance(getContext());
@@ -332,6 +467,15 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             }
             @Override public void onCancelled(DatabaseError e) {}
         });
+    }
+
+    // ── Cleanup — remove real-time listeners when fragment is destroyed ────
+    @Override public void onDestroyView() {
+        super.onDestroyView();
+        removeOnlineListeners();
+        String uid = FirebaseUtils.getCurrentUid();
+        if (uid != null && contactsListener != null)
+            FirebaseUtils.getContactsRef(uid).removeEventListener(contactsListener);
     }
 
     // ── Selection ──────────────────────────────────────────────────────────

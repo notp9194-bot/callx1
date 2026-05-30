@@ -32,17 +32,31 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         void onSelectionCleared();
     }
 
+    /** Callback so Fragment/Activity can open the contact bottom sheet */
+    public interface OnContactClickListener {
+        void onContactClick(CallLog log, String resolvedPhotoUrl);
+    }
+
     private final List<CallLog> logs;
     private final SelectionListener selectionListener;
-    // Change 3: 12-hour format with AM/PM
+    private OnContactClickListener contactClickListener;
+
+    // 12-hour format with AM/PM
     private final SimpleDateFormat fmt = new SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault());
 
     private boolean isSelecting = false;
     private final Set<String> selectedIds = new HashSet<>();
 
+    // Cache resolved photo URLs so bottom sheet can use them instantly
+    private final Map<String, String> photoCache = new HashMap<>();
+
     public CallHistoryAdapter(List<CallLog> logs, SelectionListener listener) {
         this.logs = logs;
         this.selectionListener = listener;
+    }
+
+    public void setOnContactClickListener(OnContactClickListener l) {
+        this.contactClickListener = l;
     }
 
     @NonNull @Override
@@ -95,22 +109,34 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         h.tvMeta.setTextColor(dir.contains("missed")
             ? Color.parseColor("#EF4444") : Color.parseColor("#64748B"));
 
-        // Load avatar
+        // Load avatar — also cache resolved URL for bottom sheet
         if (l.partnerUid != null && !l.partnerUid.isEmpty() && h.ivAvatar != null) {
-            FirebaseUtils.getUserRef(l.partnerUid)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(DataSnapshot snap) {
-                        String photo = snap.child("photoUrl").getValue(String.class);
-                        String thumb = snap.child("thumbUrl").getValue(String.class);
-                        String callAvatar = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                        if (callAvatar != null && !callAvatar.isEmpty() && ctx != null)
-                            Glide.with(ctx).load(callAvatar)
-                                .apply(RequestOptions.circleCropTransform())
-                                .placeholder(R.drawable.ic_person)
-                                .into(h.ivAvatar);
-                    }
-                    @Override public void onCancelled(DatabaseError e) {}
-                });
+            // Use cached if available
+            if (photoCache.containsKey(l.partnerUid)) {
+                String cached = photoCache.get(l.partnerUid);
+                if (cached != null && !cached.isEmpty())
+                    Glide.with(ctx).load(cached)
+                        .apply(RequestOptions.circleCropTransform())
+                        .placeholder(R.drawable.ic_person)
+                        .into(h.ivAvatar);
+            } else {
+                FirebaseUtils.getUserRef(l.partnerUid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot snap) {
+                            String photo = snap.child("photoUrl").getValue(String.class);
+                            String thumb = snap.child("thumbUrl").getValue(String.class);
+                            String callAvatar = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                            // Cache it
+                            if (callAvatar != null) photoCache.put(l.partnerUid, callAvatar);
+                            if (callAvatar != null && !callAvatar.isEmpty() && ctx != null)
+                                Glide.with(ctx).load(callAvatar)
+                                    .apply(RequestOptions.circleCropTransform())
+                                    .placeholder(R.drawable.ic_person)
+                                    .into(h.ivAvatar);
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    });
+            }
         }
 
         // Story ring — unseen status indicator
@@ -133,12 +159,19 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
             });
         }
 
-        // Avatar click — also goes to status if story exists
+        // ── Avatar click → ContactBottomSheet (Reels-profile style) ──
         if (h.ivAvatar != null) {
             h.ivAvatar.setOnClickListener(v -> {
                 if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-                if (hasStory) openStatusOrChat(ctx, l);
-                else openChat(ctx, l);
+                fireContactClick(l);
+            });
+        }
+
+        // ── Name click → ContactBottomSheet ──
+        if (h.tvName != null) {
+            h.tvName.setOnClickListener(v -> {
+                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                fireContactClick(l);
             });
         }
 
@@ -147,6 +180,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
 
         h.itemView.setOnClickListener(v -> {
             if (isSelecting) toggleSelection(h.getAdapterPosition());
+            // Row click still goes to chat (keeps original behavior)
             else openChat(ctx, l);
         });
 
@@ -182,6 +216,13 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                 i.putExtra("video", true);
                 ctx.startActivity(i);
             });
+        }
+    }
+
+    private void fireContactClick(CallLog l) {
+        if (contactClickListener != null) {
+            String resolvedPhoto = l.partnerUid != null ? photoCache.get(l.partnerUid) : null;
+            contactClickListener.onContactClick(l, resolvedPhoto);
         }
     }
 

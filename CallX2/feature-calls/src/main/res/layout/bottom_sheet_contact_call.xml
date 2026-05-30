@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bottom_sheet_contact_call.xml
+    Reels-profile style bottom sheet — shown when user taps avatar/name in Calls tab.
+    Features: zoomed avatar with online dot, name, status, + 3 action buttons (Message / Voice / Video)
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_bottom_sheet_round"
+    android:paddingBottom="28dp">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/bg_drag_handle"/>
+
+    <!-- ── Avatar + online dot  (Reels-style zoom) ── -->
+    <FrameLayout
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="12dp">
+
+        <!-- Gradient ring (always shown, imitates Story ring) -->
+        <ImageView
+            android:id="@+id/iv_story_ring_sheet"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:background="@drawable/circle_status_unseen"
+            android:visibility="gone"/>
+
+        <!-- Avatar — large, clickable for full-screen zoom -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar_sheet"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:civ_border_width="0dp"/>
+
+        <!-- Online green dot (bottom-right, like Reels) -->
+        <View
+            android:id="@+id/view_online_dot_sheet"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:background="@drawable/circle_accept"
+            android:visibility="gone"/>
+    </FrameLayout>
+
+    <!-- Name -->
+    <TextView
+        android:id="@+id/tv_name_sheet"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:maxLines="1"
+        android:ellipsize="end"/>
+
+    <!-- Online / Last-seen subtitle -->
+    <TextView
+        android:id="@+id/tv_status_sheet"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="3dp"
+        android:textSize="12sp"
+        android:textColor="@color/text_secondary"/>
+
+    <!-- ── 3 Action buttons (Reels-profile style) ── -->
+    <!--
+        Each button: circle icon + label below, same as Instagram/Reels profile actions
+        Row: [Message]  [Voice Call]  [Video Call]
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginTop="22dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <!-- Message button -->
+        <LinearLayout
+            android:id="@+id/btn_message_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_action_btn_circle">
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_send"
+                    android:tint="@color/brand_primary"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Message"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+        <!-- Voice Call button -->
+        <LinearLayout
+            android:id="@+id/btn_voice_call_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_action_btn_circle_green">
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_phone"
+                    android:tint="@color/white"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Voice Call"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+        <!-- Video Call button -->
+        <LinearLayout
+            android:id="@+id/btn_video_call_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_action_btn_circle_purple">
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_video_call"
+                    android:tint="@color/white"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Video Call"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="@color/divider"
+        android:layout_marginTop="18dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"/>
+
+    <!-- Call History row -->
+    <LinearLayout
+        android:id="@+id/btn_call_history_sheet"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_phone"
+            android:tint="@color/text_secondary"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:text="Call History"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"/>
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:src="@drawable/ic_arrow_right"
+            android:tint="@color/text_muted"/>
+    </LinearLayout>
+
+</LinearLayout>
