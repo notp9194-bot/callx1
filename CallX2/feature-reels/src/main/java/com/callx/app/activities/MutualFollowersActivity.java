@@ -205,6 +205,10 @@ public class MutualFollowersActivity extends AppCompatActivity {
                 h.btnFollowAction.setVisibility(View.GONE);
             }
 
+            // Avatar tap → bottom sheet
+            h.ivAvatar.setOnClickListener(v ->
+                ReelUserProfileSheet.show(MutualFollowersActivity.this, u.uid, u.name, u.photo));
+
             h.itemView.setOnClickListener(v -> {
                 Intent i = new Intent(MutualFollowersActivity.this, UserReelsActivity.class);
                 i.putExtra(UserReelsActivity.EXTRA_UID,   u.uid);

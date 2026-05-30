@@ -203,6 +203,10 @@ public class FollowersListActivity extends AppCompatActivity {
                 h.btnFollowBack.setVisibility(View.GONE);
             }
 
+            // Avatar tap → bottom sheet (same as Calls tab)
+            h.ivAvatar.setOnClickListener(v ->
+                ReelUserProfileSheet.show(FollowersListActivity.this, u.uid, u.name, u.photo));
+
             h.itemView.setOnClickListener(v -> {
                 android.content.Intent i = new android.content.Intent(
                     FollowersListActivity.this, UserReelsActivity.class);

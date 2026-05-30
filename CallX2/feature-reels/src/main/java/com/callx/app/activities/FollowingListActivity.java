@@ -211,6 +211,10 @@ public class FollowingListActivity extends AppCompatActivity {
                 h.btnAction.setVisibility(View.GONE);
             }
 
+            // Avatar tap → bottom sheet
+            h.ivAvatar.setOnClickListener(v ->
+                ReelUserProfileSheet.show(FollowingListActivity.this, u.uid, u.name, u.photo));
+
             h.itemView.setOnClickListener(v -> {
                 android.content.Intent i = new android.content.Intent(
                     FollowingListActivity.this, UserReelsActivity.class);
