@@ -1,0 +1,571 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bottom_sheet_contact_call.xml  (v9)
+    Reels-profile style bottom sheet — shown when user taps avatar/name in Calls tab.
+    Features:
+      • Zoomed avatar with online dot + avatar-peek animation (Chat / X / Reels / YouTube avatars)
+      • Name, status
+      • 3 Action buttons: Message / Voice / Video
+      • 3 Social buttons: X / Reels / YouTube  (same Reels-profile circle style)
+      • Per-platform Follow/Unfollow/Subscribe buttons with follower/subscriber counts
+      • Call History row at bottom
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_bottom_sheet_round"
+    android:paddingBottom="28dp">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/bg_drag_handle"/>
+
+    <!-- ── Avatar + online dot  (Reels-style zoom) ── -->
+    <FrameLayout
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="12dp">
+
+        <!-- Gradient ring (always shown, imitates Story ring) -->
+        <ImageView
+            android:id="@+id/iv_story_ring_sheet"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:background="@drawable/circle_status_unseen"
+            android:visibility="gone"/>
+
+        <!-- Avatar — large, clickable for full-screen zoom -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar_sheet"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:civ_border_width="0dp"/>
+
+        <!-- Online green dot (bottom-right, like Reels) -->
+        <View
+            android:id="@+id/view_online_dot_sheet"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:background="@drawable/circle_accept"
+            android:visibility="gone"/>
+    </FrameLayout>
+
+    <!-- Name -->
+    <TextView
+        android:id="@+id/tv_name_sheet"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:maxLines="1"
+        android:ellipsize="end"/>
+
+    <!-- Online / Last-seen subtitle -->
+    <TextView
+        android:id="@+id/tv_status_sheet"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="3dp"
+        android:textSize="12sp"
+        android:textColor="@color/text_secondary"/>
+
+    <!-- ── 3 Action buttons (Message / Voice / Video) ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginTop="22dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <!-- Message button -->
+        <LinearLayout
+            android:id="@+id/btn_message_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_action_btn_circle">
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_send"
+                    android:tint="@color/brand_primary"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Message"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+        <!-- Voice Call button -->
+        <LinearLayout
+            android:id="@+id/btn_voice_call_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_action_btn_circle_green">
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_phone"
+                    android:tint="@color/white"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Voice Call"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+        <!-- Video Call button -->
+        <LinearLayout
+            android:id="@+id/btn_video_call_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_action_btn_circle_purple">
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_video_call"
+                    android:tint="@color/white"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Video Call"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- ── Thin divider ── -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="@color/divider"
+        android:layout_marginTop="18dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"/>
+
+    <!-- ── Social Platforms Section Label ── -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="4dp"
+        android:text="Social Platforms"
+        android:textSize="11sp"
+        android:textColor="@color/text_muted"
+        android:textAllCaps="true"
+        android:letterSpacing="0.1"/>
+
+    <!-- ── 3 Social platform buttons: X / Reels / YouTube ── -->
+    <!--
+        Same Reels-profile avatar-peek style:
+        Circle icon button + platform label below it.
+        The small avatar peek frames (ivAnimX, ivAnimReel, ivAnimYoutube) overlay
+        the circle icons exactly like in UserReelsActivity.
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <!-- X button -->
+        <LinearLayout
+            android:id="@+id/btn_x_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <!-- Circle icon with avatar peek overlay — same as UserReelsActivity -->
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp">
+
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:background="@drawable/bg_social_x_btn">
+                    <ImageView
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_x_logo"/>
+                </FrameLayout>
+
+                <!-- Avatar peek (X profile pic) — bottom-right corner -->
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_anim_x_sheet"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_person"
+                    android:visibility="gone"
+                    app:civ_border_width="1.5dp"
+                    app:civ_border_color="#000000"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="X"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+        <!-- Reels button -->
+        <LinearLayout
+            android:id="@+id/btn_reels_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp">
+
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:background="@drawable/bg_social_reel_btn">
+                    <ImageView
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_reels"
+                        android:tint="@android:color/white"/>
+                </FrameLayout>
+
+                <!-- Avatar peek (Reels profile pic) -->
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_anim_reel_sheet"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_person"
+                    android:visibility="gone"
+                    app:civ_border_width="1.5dp"
+                    app:civ_border_color="#DD2A7B"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Reels"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+        <!-- YouTube button -->
+        <LinearLayout
+            android:id="@+id/btn_youtube_sheet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp">
+
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:background="@drawable/bg_social_youtube_btn">
+                    <ImageView
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_youtube_logo"/>
+                </FrameLayout>
+
+                <!-- Avatar peek (YouTube channel pic) -->
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_anim_youtube_sheet"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_person"
+                    android:visibility="gone"
+                    app:civ_border_width="1.5dp"
+                    app:civ_border_color="#FF0000"/>
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="YouTube"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- ── Per-platform Follow / Unfollow / Subscribe rows ── -->
+    <!--
+        Each row: [Platform icon] [count text]  [Follow/Following/Subscribe button]
+        Hidden by default; shown only if user has that platform profile.
+    -->
+
+    <!-- X Follow row -->
+    <LinearLayout
+        android:id="@+id/layout_x_follow_row"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:layout_marginTop="10dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_x_logo"
+            android:backgroundTint="#000000"
+            android:background="@drawable/bg_social_x_btn"
+            android:padding="2dp"/>
+
+        <TextView
+            android:id="@+id/tv_x_followers_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:text="0 Followers"
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"/>
+
+        <Button
+            android:id="@+id/btn_x_follow_action"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="Follow"
+            android:textSize="12sp"
+            android:textColor="@android:color/white"
+            android:backgroundTint="#000000"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            style="@style/Widget.MaterialComponents.Button"/>
+    </LinearLayout>
+
+    <!-- Reels Follow row -->
+    <LinearLayout
+        android:id="@+id/layout_reels_follow_row"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:layout_marginTop="4dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_reels"
+            android:tint="@android:color/white"
+            android:background="@drawable/bg_social_reel_btn"
+            android:padding="2dp"/>
+
+        <TextView
+            android:id="@+id/tv_reels_followers_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:text="0 Followers"
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"/>
+
+        <Button
+            android:id="@+id/btn_reels_follow_action"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="Follow"
+            android:textSize="12sp"
+            android:textColor="@android:color/white"
+            android:backgroundTint="#DD2A7B"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            style="@style/Widget.MaterialComponents.Button"/>
+    </LinearLayout>
+
+    <!-- YouTube Subscribe row -->
+    <LinearLayout
+        android:id="@+id/layout_youtube_subscribe_row"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:layout_marginTop="4dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_youtube_logo"
+            android:background="@drawable/bg_social_youtube_btn"
+            android:padding="2dp"/>
+
+        <TextView
+            android:id="@+id/tv_youtube_subs_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:text="0 Subscribers"
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"/>
+
+        <Button
+            android:id="@+id/btn_youtube_subscribe_action"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="Subscribe"
+            android:textSize="12sp"
+            android:textColor="@android:color/white"
+            android:backgroundTint="#FF0000"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            style="@style/Widget.MaterialComponents.Button"/>
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="@color/divider"
+        android:layout_marginTop="16dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"/>
+
+    <!-- Call History row -->
+    <LinearLayout
+        android:id="@+id/btn_call_history_sheet"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_phone"
+            android:tint="@color/text_secondary"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:text="Call History"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"/>
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:src="@drawable/ic_arrow_right"
+            android:tint="@color/text_muted"/>
+    </LinearLayout>
+
+</LinearLayout>

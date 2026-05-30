@@ -27,8 +27,13 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         void onSelectionCleared();
     }
 
+    public interface OnAvatarClickListener {
+        void onAvatarClick(User user);
+    }
+
     private final List<User> contacts;
     private final SelectionListener selectionListener;
+    private OnAvatarClickListener avatarClickListener;
     // Change 3: 12-hour format
     private final SimpleDateFormat fmt = new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private Set<String> specialRequestSenders = new HashSet<>();
@@ -44,6 +49,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     public void setSpecialRequestSenders(Set<String> set) {
         this.specialRequestSenders = set == null ? new HashSet<>() : set;
         notifyDataSetChanged();
+    }
+
+    public void setOnAvatarClickListener(OnAvatarClickListener listener) {
+        this.avatarClickListener = listener;
     }
 
     @NonNull @Override
@@ -125,8 +134,12 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         h.ivAvatar.setOnClickListener(v -> {
             if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-            if (hasStory) openStatusOrChat(ctx, u);
-            else openChat(ctx, u);
+            if (avatarClickListener != null) {
+                avatarClickListener.onAvatarClick(u);
+            } else {
+                if (hasStory) openStatusOrChat(ctx, u);
+                else openChat(ctx, u);
+            }
         });
 
         h.ivAvatar.setOnLongClickListener(v -> {
