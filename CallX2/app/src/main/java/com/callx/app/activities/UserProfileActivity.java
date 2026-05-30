@@ -105,6 +105,7 @@ public class UserProfileActivity extends AppCompatActivity {
         // ── Action buttons ─────────────────────────────────────────────
         binding.btnActionReel.setOnClickListener(v -> openUserReels());
         binding.btnActionX.setOnClickListener(v -> openUserX());
+        binding.btnActionProfileSheet.setOnClickListener(v -> openSocialProfileSheet());
         binding.btnActionYoutube.setOnClickListener(v -> openUserYoutube());
         binding.btnActionVoice.setOnClickListener(v -> startCall(false));
         binding.btnActionVideo.setOnClickListener(v -> startCall(true));
@@ -439,6 +440,32 @@ public class UserProfileActivity extends AppCompatActivity {
             startActivity(i);
         } catch (ClassNotFoundException e) {
             Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // SOCIAL PROFILE SHEET — ReelUserProfileSheet jaisi bottom sheet
+    // (Reels me following/followers/mutual me avatar click se jo sheet
+    //  aati hai, exactly wahi — X / Reels / YouTube + subscribe/follow)
+    // ──────────────────────────────────────────────────────────────────────
+
+    private void openSocialProfileSheet() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        try {
+            Class<?> sheetClass = Class.forName(
+                "com.callx.app.activities.ReelUserProfileSheet");
+            java.lang.reflect.Method showMethod =
+                sheetClass.getMethod("show",
+                    android.app.Activity.class,
+                    String.class, String.class, String.class);
+            showMethod.invoke(null, this,
+                partnerUid,
+                partnerName  != null ? partnerName  : "",
+                partnerPhoto != null ? partnerPhoto : "");
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(this, "Social profile not available", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not open profile card", Toast.LENGTH_SHORT).show();
         }
     }
 

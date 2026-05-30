@@ -215,6 +215,31 @@
                         android:layout_marginTop="5dp"/>
                 </LinearLayout>
 
+                <!-- Social Profile Sheet button (unique — opens full social card) -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <ImageButton
+                        android:id="@+id/btn_action_profile_sheet"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:src="@drawable/ic_person"
+                        android:background="@drawable/bg_social_profile_sheet_btn"
+                        android:tint="@color/white"
+                        android:contentDescription="View Social Profile Card"
+                        android:padding="11dp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Profile"
+                        android:textSize="11sp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:layout_marginTop="5dp"/>
+                </LinearLayout>
+
                 <!-- YouTube button with avatar peek animation -->
                 <LinearLayout
                     android:layout_width="0dp"
