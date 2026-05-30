@@ -811,7 +811,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             return;
         }
 
-        FirebaseUtils.db().getReference("callLogs").child(myUid)
+        FirebaseUtils.getCallsRef(myUid)
             .orderByChild("partnerUid").equalTo(user.uid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot snap) {
