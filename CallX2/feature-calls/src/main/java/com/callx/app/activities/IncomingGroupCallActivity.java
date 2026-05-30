@@ -68,10 +68,13 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
         ImageButton btnAccept  = findViewById(R.id.btnGroupAcceptCall);
         ImageButton btnDecline = findViewById(R.id.btnGroupDeclineCall);
 
-        // FIX-4: load caller avatar
-        ImageView ivCallerAvatar = findViewById(R.id.ivIncomingGroupCallerAvatar);
-        if (ivCallerAvatar != null && !callerPhoto.isEmpty()) {
-            Glide.with(this).load(callerPhoto).circleCrop().into(ivCallerAvatar);
+        // FIX-4: load caller avatar into existing group icon view if no group icon available
+        ImageView ivGroupIcon = findViewById(R.id.ivIncomingGroupIcon);
+        if (ivGroupIcon != null) {
+            String avatarUrl = (groupIcon != null && !groupIcon.isEmpty()) ? groupIcon : callerPhoto;
+            if (!avatarUrl.isEmpty()) {
+                Glide.with(this).load(avatarUrl).circleCrop().into(ivGroupIcon);
+            }
         }
 
         tvGroupName.setText(groupName != null ? groupName : "Group");
