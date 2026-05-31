@@ -15,13 +15,18 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Games"/>
 
-        <!-- Single game WebView player -->
+        <!--
+            Single game WebView player.
+            android:screenOrientation="unspecified" — orientation is set
+            programmatically in GameActivity.onCreate() based on EXTRA_LANDSCAPE.
+            Portrait games → portrait, Landscape games (car racing) → sensorLandscape.
+        -->
         <activity
             android:name="com.callx.app.activities.GameActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
+            android:screenOrientation="unspecified"
             android:hardwareAccelerated="true"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Games.Fullscreen"/>
 

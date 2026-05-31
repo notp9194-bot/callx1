@@ -2,6 +2,7 @@ package com.callx.app.activities;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
@@ -20,7 +21,6 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -43,11 +43,13 @@ import com.google.android.material.snackbar.Snackbar;
  *  - Back press → WebView history traverse, last pe Activity finish
  *  - Internet check before loading
  *  - No-internet Snackbar
+ *  - Landscape mode support via EXTRA_LANDSCAPE = true
  *
  * Usage:
  *   Intent i = new Intent(context, GameActivity.class);
- *   i.putExtra("url",   "https://callx-server.onrender.com/bubble-pop-game.html");
- *   i.putExtra("title", "Bubble Pop");
+ *   i.putExtra("url",       "https://callx-server.onrender.com/car-racing-3d.html");
+ *   i.putExtra("title",     "Highway Rush 3D");
+ *   i.putExtra("landscape", true);   // optional — default false (portrait)
  *   startActivity(i);
  */
 public class GameActivity extends AppCompatActivity {
@@ -55,8 +57,9 @@ public class GameActivity extends AppCompatActivity {
     private static final String TAG = "GameActivity";
 
     // ── Intent extras ─────────────────────────────────────────────────────────
-    public static final String EXTRA_URL   = "url";
-    public static final String EXTRA_TITLE = "title";
+    public static final String EXTRA_URL       = "url";
+    public static final String EXTRA_TITLE     = "title";
+    public static final String EXTRA_LANDSCAPE = "landscape";
 
     // ── Views ──────────────────────────────────────────────────────────────────
     private WebView          webView;
@@ -69,14 +72,22 @@ public class GameActivity extends AppCompatActivity {
     private TextView         btnBackError;
     private CoordinatorLayout rootLayout;
 
-    private String gameUrl   = "";
-    private String gameTitle = "Game";
+    private String  gameUrl   = "";
+    private String  gameTitle = "Game";
     private boolean errorShown = false;
 
     // ─────────────────────────────────────────────────────────────────────────
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // ── Orientation — landscape games (e.g. car racing) ───────────────
+        boolean wantLandscape = getIntent().getBooleanExtra(EXTRA_LANDSCAPE, false);
+        if (wantLandscape) {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        } else {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        }
 
         // Full-screen flags — no status bar, no nav bar
         getWindow().setFlags(
@@ -136,7 +147,7 @@ public class GameActivity extends AppCompatActivity {
         // Media auto-play (game sounds)
         s.setMediaPlaybackRequiresUserGesture(false);
 
-        // Cache — game assets faster laod honge
+        // Cache — game assets faster load honge
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
         // Mixed content — HTTP resources over HTTPS (game assets)
@@ -259,7 +270,6 @@ public class GameActivity extends AppCompatActivity {
     @Override
     public void onBackPressed() {
         if (llError.getVisibility() == View.VISIBLE) {
-            // Error screen pe hain — seedha exit
             finish();
             return;
         }
@@ -280,19 +290,16 @@ public class GameActivity extends AppCompatActivity {
         return super.onKeyDown(keyCode, event);
     }
 
-    // ── Lifecycle — pause/resume WebView & audio ──────────────────────────────
-    @Override
-    protected void onResume() {
-        super.onResume();
-        webView.onResume();
-        // Hide system UI again when returning to game
-        hideSystemUI();
-    }
-
     @Override
     protected void onPause() {
         super.onPause();
-        webView.onPause();
+        if (webView != null) webView.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) webView.onResume();
     }
 
     @Override
@@ -302,23 +309,5 @@ public class GameActivity extends AppCompatActivity {
             webView.destroy();
         }
         super.onDestroy();
-    }
-
-    // ── Immersive fullscreen ───────────────────────────────────────────────────
-    private void hideSystemUI() {
-        View decorView = getWindow().getDecorView();
-        decorView.setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_FULLSCREEN);
-    }
-
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideSystemUI();
     }
 }
