@@ -40,7 +40,7 @@
         android:orientation="vertical"
         android:background="@drawable/bubble_sent"
         android:minWidth="80dp"
-        android:maxWidth="280dp">
+>
 
         <!-- ═══ UPGRADED REPLY PREVIEW — left border + clickable ═══ -->
         <LinearLayout

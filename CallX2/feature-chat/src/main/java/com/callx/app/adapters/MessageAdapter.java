@@ -223,6 +223,22 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 com.callx.app.utils.ChatThemeManager
                         .get(ctx)
                         .applyBubble(llBubble, sent, type, hasReply);
+
+                // Fix: enforce maxWidth (75% screen) and correct gravity so long
+                // messages always align right (sent) or left (received).
+                int screenW = ctx.getResources().getDisplayMetrics().widthPixels;
+                int maxW    = (int) (screenW * 0.75f);
+                android.view.ViewGroup.LayoutParams lp = llBubble.getLayoutParams();
+                if (lp instanceof android.widget.LinearLayout.LayoutParams) {
+                    android.widget.LinearLayout.LayoutParams llp =
+                            (android.widget.LinearLayout.LayoutParams) lp;
+                    llp.width   = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+                    llp.gravity = sent
+                            ? android.view.Gravity.END
+                            : android.view.Gravity.START;
+                    llBubble.setLayoutParams(llp);
+                }
+                llBubble.setMaxWidth(maxW);
             }
         } catch (Exception ignored) {}
 
