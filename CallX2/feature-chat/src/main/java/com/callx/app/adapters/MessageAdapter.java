@@ -227,15 +227,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 // Fix: correct gravity so long messages always align
                 // right (sent) or left (received).
                 android.view.ViewGroup.LayoutParams lp = llBubble.getLayoutParams();
-                if (lp instanceof android.widget.LinearLayout.LayoutParams) {
-                    android.widget.LinearLayout.LayoutParams llp =
-                            (android.widget.LinearLayout.LayoutParams) lp;
-                    llp.width   = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
-                    llp.gravity = sent
-                            ? android.view.Gravity.END
-                            : android.view.Gravity.START;
-                    llBubble.setLayoutParams(llp);
-                }
             }
         } catch (Exception ignored) {}
 
