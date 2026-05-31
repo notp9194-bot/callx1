@@ -82,8 +82,31 @@ public class GamesHubActivity extends AppCompatActivity {
             "Speed mein gadi chalao aur obstacles se bachao! 🚦",
             "https://callx-server.onrender.com/car.html"
         ));
+        list.add(new GameItem(
+            "🎲",
+            "Ludo",
+            "Classic ludo khelo doston ke saath! 🏆",
+            "https://callx-server.onrender.com/ludo.html"
+        ));
+        list.add(new GameItem(
+            "🐍",
+            "Saap Sidi",
+            "Classic saap sidi khelo aur masti karo! 🎯",
+            "https://callx-server.onrender.com/saap.html"
+        ));
+        list.add(new GameItem(
+            "🎣",
+            "Fish Catching",
+            "Machhli pakdo aur score badhao! 🐟",
+            "https://callx-server.onrender.com/fish.html"
+        ));
+        list.add(new GameItem(
+            "⚽",
+            "Football",
+            "Football khelo aur goal karo! 🏆",
+            "https://callx-server.onrender.com/football.html"
+        ));
         // Yahan future games add karo:
-        // list.add(new GameItem("🐍", "Snake", "Classic snake game!", "https://..."));
         return list;
     }
 
