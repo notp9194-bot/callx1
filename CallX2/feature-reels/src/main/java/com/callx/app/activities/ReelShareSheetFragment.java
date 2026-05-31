@@ -17,6 +17,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import android.widget.FrameLayout;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
@@ -123,6 +126,23 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         }
 
         if (reelId == null) dismiss();
+    }
+
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        BottomSheetDialog d = (BottomSheetDialog) getDialog();
+        if (d == null) return;
+        FrameLayout bs = d.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (bs == null) return;
+        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(bs);
+        behavior.setHideable(true);
+        behavior.setSkipCollapsed(true);
+        behavior.setFitToContents(true);
+        behavior.setDraggable(true);
+        behavior.setHalfExpandedRatio(0.5f);
+        behavior.setExpandedOffset(0);
     }
 
     @Nullable

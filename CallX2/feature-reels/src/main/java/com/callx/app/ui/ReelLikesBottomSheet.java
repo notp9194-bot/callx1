@@ -16,6 +16,9 @@ import com.callx.app.activities.UserReelsActivity;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import android.widget.FrameLayout;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
 
 import java.util.*;
@@ -84,6 +87,23 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
     @Nullable @Override
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        BottomSheetDialog d = (BottomSheetDialog) getDialog();
+        if (d == null) return;
+        FrameLayout bs = d.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (bs == null) return;
+        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(bs);
+        behavior.setHideable(true);
+        behavior.setSkipCollapsed(true);
+        behavior.setFitToContents(true);
+        behavior.setDraggable(true);
+        behavior.setHalfExpandedRatio(0.5f);
+        behavior.setExpandedOffset(0);
+    }
+
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {

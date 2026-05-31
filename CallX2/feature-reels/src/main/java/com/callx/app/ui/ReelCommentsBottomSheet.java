@@ -84,7 +84,8 @@ public class ReelCommentsBottomSheet extends BottomSheetDialogFragment {
     private int    commentsCount;
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
-    @Nullable @Override
+
+    @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
