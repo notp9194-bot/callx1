@@ -40,13 +40,14 @@
     -->
     <ImageView
         android:id="@+id/iv_play_pause_indicator"
-        android:layout_width="72dp"
-        android:layout_height="72dp"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
         android:layout_gravity="center"
         android:src="@drawable/ic_pause"
         android:alpha="0"
-        android:background="#66000000"
-        android:padding="14dp"
+        android:background="@drawable/bg_play_pause_btn"
+        android:padding="20dp"
+        android:elevation="4dp"
         android:contentDescription="Play/Pause indicator"/>
 
     <!-- Top row: mute button — paddingTop absorbs status-bar height (set in code) -->
@@ -86,10 +87,12 @@
         <!-- Like -->
         <ImageButton
             android:id="@+id/btn_like"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_heart"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_reel_like_btn"
+            android:padding="10dp"
+            android:elevation="2dp"
             android:contentDescription="Like"/>
         <TextView
             android:id="@+id/tv_likes_count"
@@ -111,10 +114,12 @@
         <!-- Comment -->
         <ImageButton
             android:id="@+id/btn_comment"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_comment_reel"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_reel_comment_btn"
+            android:padding="10dp"
+            android:elevation="2dp"
             android:contentDescription="Comment"/>
         <TextView
             android:id="@+id/tv_comments_count"
@@ -136,10 +141,12 @@
         <!-- Share -->
         <ImageButton
             android:id="@+id/btn_share"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_share_reel"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_reel_share_btn"
+            android:padding="10dp"
+            android:elevation="2dp"
             android:contentDescription="Share"/>
         <TextView
             android:id="@+id/tv_shares_count"
@@ -161,10 +168,12 @@
         <!-- Repost -->
         <ImageButton
             android:id="@+id/btn_repost"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_repost"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_reel_repost_btn"
+            android:padding="10dp"
+            android:elevation="2dp"
             android:contentDescription="Repost"/>
         <TextView
             android:id="@+id/tv_repost_count"
@@ -182,7 +191,9 @@
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:src="@drawable/ic_more_vert"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_reel_more_btn"
+            android:padding="8dp"
+            android:elevation="2dp"
             android:contentDescription="More"/>
     </LinearLayout>
 
