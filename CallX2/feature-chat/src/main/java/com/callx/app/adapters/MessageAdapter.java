@@ -224,9 +224,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                         .get(ctx)
                         .applyBubble(llBubble, sent, type, hasReply);
 
-                // Fix: correct gravity so long messages always align
-                // right (sent) or left (received).
-                android.view.ViewGroup.LayoutParams lp = llBubble.getLayoutParams();
             }
         } catch (Exception ignored) {}
 
