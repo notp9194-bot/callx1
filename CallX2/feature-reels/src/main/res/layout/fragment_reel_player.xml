@@ -30,6 +30,7 @@
         android:layout_height="100dp"
         android:layout_gravity="center"
         android:src="@drawable/ic_heart_filled"
+        android:tint="#FF416C"
         android:visibility="gone"
         android:alpha="0"
         android:contentDescription="Like animation"/>
@@ -44,6 +45,7 @@
         android:layout_height="72dp"
         android:layout_gravity="center"
         android:src="@drawable/ic_pause"
+        android:tint="#A855F7"
         android:alpha="0"
         android:background="#66000000"
         android:padding="14dp"
@@ -65,6 +67,7 @@
             android:layout_width="38dp"
             android:layout_height="38dp"
             android:src="@drawable/ic_volume_on"
+            android:tint="#FFD700"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Mute"/>
     </LinearLayout>
@@ -97,7 +100,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textColor="#FFFFFF"
+            android:textColor="#FF416C"
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginBottom="12dp"
@@ -123,7 +126,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textColor="#FFFFFF"
+            android:textColor="#00C6FF"
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginBottom="12dp"
@@ -149,7 +152,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textColor="#FFFFFF"
+            android:textColor="#00F260"
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginBottom="16dp"
@@ -175,7 +178,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textColor="#FFFFFF"
+            android:textColor="#A855F7"
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginBottom="16dp"/>
@@ -235,7 +238,7 @@
                     android:layout_gravity="center"
                     android:src="@drawable/ic_person"
                     app:civ_border_width="1.5dp"
-                    app:civ_border_color="@color/white"/>
+                    app:civ_border_color="#FF6B35"/>
 
                 <TextView
                     android:id="@+id/btn_follow_overlay"
@@ -255,7 +258,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@user"
-                android:textColor="#FFFFFF"
+                android:textColor="#FFE082"
                 android:textSize="15sp"
                 android:fontFamily="sans-serif-medium"/>
             <TextView
@@ -318,6 +321,7 @@
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:src="@drawable/ic_music_disc"
+                android:tint="#00E5FF"
                 android:contentDescription="Music disc"/>
 
             <TextView
@@ -326,7 +330,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
                 android:text="Original Audio"
-                android:textColor="#FFFFFF"
+                android:textColor="#00E5FF"
                 android:textSize="12sp"
                 android:singleLine="true"
                 android:ellipsize="marquee"
@@ -480,8 +484,8 @@
         android:layout_gravity="bottom"
         android:max="1000"
         android:progress="0"
-        android:progressTint="@color/white"
-        android:progressBackgroundTint="#44FFFFFF"
+        android:progressTint="#FF416C"
+        android:progressBackgroundTint="#44FF416C"
         android:layout_marginBottom="0dp"/>
 
     <!-- Buffering indicator -->
@@ -490,7 +494,7 @@
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_gravity="center"
-        android:indeterminateTint="#FFFFFF"
+        android:indeterminateTint="#A855F7"
         android:visibility="gone"/>
 
     <!-- Emoji reaction panel -->
@@ -555,7 +559,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Reposted from @creator"
-                android:textColor="#FFFFFF"
+                android:textColor="#00F260"
                 android:textSize="13sp"
                 android:fontFamily="sans-serif-medium"
                 android:maxLines="1"
@@ -615,7 +619,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0 reposts"
-            android:textColor="#FFFFFF"
+            android:textColor="#A855F7"
             android:textSize="12sp"/>
     </LinearLayout>
 
