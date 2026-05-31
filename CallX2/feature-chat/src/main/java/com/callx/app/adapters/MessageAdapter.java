@@ -224,10 +224,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                         .get(ctx)
                         .applyBubble(llBubble, sent, type, hasReply);
 
-                // Fix: enforce maxWidth (75% screen) and correct gravity so long
-                // messages always align right (sent) or left (received).
-                int screenW = ctx.getResources().getDisplayMetrics().widthPixels;
-                int maxW    = (int) (screenW * 0.75f);
+                // Fix: correct gravity so long messages always align
+                // right (sent) or left (received).
                 android.view.ViewGroup.LayoutParams lp = llBubble.getLayoutParams();
                 if (lp instanceof android.widget.LinearLayout.LayoutParams) {
                     android.widget.LinearLayout.LayoutParams llp =
@@ -237,9 +235,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                             ? android.view.Gravity.END
                             : android.view.Gravity.START;
                     llBubble.setLayoutParams(llp);
-                }
-                if (llBubble instanceof android.widget.LinearLayout) {
-                    ((android.widget.LinearLayout) llBubble).setMaxWidth(maxW);
                 }
             }
         } catch (Exception ignored) {}
