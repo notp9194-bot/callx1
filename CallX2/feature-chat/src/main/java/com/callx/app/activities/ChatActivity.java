@@ -795,6 +795,16 @@ public class ChatActivity extends AppCompatActivity {
                 binding.btnSend.setVisibility(hasText ? View.VISIBLE : View.GONE);
                 binding.btnMic.setVisibility(hasText ? View.GONE : View.VISIBLE);
 
+                // Character counter: 200 se kam bacha ho toh dikhao
+                int remaining = MAX_MESSAGE_LENGTH - s.length();
+                if (remaining <= 200) {
+                    binding.etMessage.setError(remaining < 0
+                        ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
+                        : remaining + " characters remaining");
+                } else {
+                    binding.etMessage.setError(null);
+                }
+
                 // Typing debounce: type karte waqt "typing" set karo,
                 // 2 sec baad koi input nahi toh auto-clear
                 if (hasText) {
@@ -817,9 +827,16 @@ public class ChatActivity extends AppCompatActivity {
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
     }
 
+    private static final int MAX_MESSAGE_LENGTH = 4000;
+
     private void sendTextMessage() {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;
+        if (text.length() > MAX_MESSAGE_LENGTH) {
+            binding.etMessage.setError("Message too long! Max " + MAX_MESSAGE_LENGTH + " characters allowed.");
+            Toast.makeText(this, "Message too long! Max " + MAX_MESSAGE_LENGTH + " characters.", Toast.LENGTH_SHORT).show();
+            return;
+        }
         binding.etMessage.setText("");
         // setText ke baad post() se style apply karo — setText typeface disturb karta hai
         binding.etMessage.post(() ->

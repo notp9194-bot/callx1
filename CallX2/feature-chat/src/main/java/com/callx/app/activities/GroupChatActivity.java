@@ -143,6 +143,7 @@ public class GroupChatActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        applyScreenTheme();
 
         groupId     = getIntent().getStringExtra("groupId");
         groupName   = getIntent().getStringExtra("groupName");
@@ -529,6 +530,17 @@ public class GroupChatActivity extends AppCompatActivity {
                 boolean has = s.toString().trim().length() > 0;
                 binding.btnSend.setVisibility(has ? View.VISIBLE : View.GONE);
                 binding.btnMic.setVisibility(has ? View.GONE : View.VISIBLE);
+
+                // Character counter: 200 se kam bacha ho toh dikhao
+                int remaining = MAX_MESSAGE_LENGTH - s.length();
+                if (remaining <= 200) {
+                    binding.etMessage.setError(remaining < 0
+                        ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
+                        : remaining + " characters remaining");
+                } else {
+                    binding.etMessage.setError(null);
+                }
+
                 if (has) {
                     setMyTyping(true);
                     typingHandler.removeCallbacks(stopTyping);
@@ -545,9 +557,16 @@ public class GroupChatActivity extends AppCompatActivity {
         binding.btnMic.setOnClickListener(v -> toggleRecording());
     }
 
+    private static final int MAX_MESSAGE_LENGTH = 4000;
+
     private void sendText() {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;
+        if (text.length() > MAX_MESSAGE_LENGTH) {
+            binding.etMessage.setError("Message too long! Max " + MAX_MESSAGE_LENGTH + " characters allowed.");
+            Toast.makeText(this, "Message too long! Max " + MAX_MESSAGE_LENGTH + " characters.", Toast.LENGTH_SHORT).show();
+            return;
+        }
         binding.etMessage.setText("");
         // setText ke baad post() se style re-apply karo — setText typeface disturb karta hai
         binding.etMessage.post(() ->
@@ -557,8 +576,12 @@ public class GroupChatActivity extends AppCompatActivity {
         setMyTyping(false);
         Message m = buildOutgoing();
         m.type = "text";
-        m.text = text;
         m.fontStyle = com.callx.app.utils.TypingStyleManager.get(this).getCurrentStyle();
+        // Samsung Script style — text ko Unicode Mathematical Script mein convert karo
+        if (m.fontStyle == com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT) {
+            text = com.callx.app.utils.UnicodeStyler.toScript(text);
+        }
+        m.text = text;
         pushMessage(m, text);
         clearReply();
     }
@@ -1229,6 +1252,10 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         menu.add(0, R.id.menu_starred, 3, "⭐ Starred Messages")
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_chat_theme, 4, "🎨 Chat Theme")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_typing_style, 5, "✍️ Typing Style")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         if (isAdmin) {
             menu.add(0, R.id.menu_admin_panel, 4, "👑 Admin Panel")
                     .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
@@ -1261,7 +1288,103 @@ public class GroupChatActivity extends AppCompatActivity {
         }
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
+        if (id == R.id.action_chat_theme)   { showThemePicker();      return true; }
+        if (id == R.id.action_typing_style) { showTypingStylePicker(); return true; }
         return super.onOptionsItemSelected(item);
+    }
+
+    // ── Apply Chat Screen Theme ───────────────────────────────────────────
+    private void applyScreenTheme() {
+        com.callx.app.utils.ChatThemeManager mgr =
+                com.callx.app.utils.ChatThemeManager.get(this);
+
+        android.view.View toolbar   = binding.toolbar;
+        android.view.View chatRoot  = binding.getRoot();
+        android.view.View inputRow  = binding.llInputRow;
+        android.view.View replyAccent = binding.viewReplyAccent;
+
+        if (binding.tvReplyBarName != null) {
+            binding.tvReplyBarName.setTextColor(mgr.getPrimaryColor());
+        }
+
+        mgr.applyScreenTheme(
+                toolbar,
+                chatRoot,
+                inputRow,
+                binding.btnSend,
+                binding.btnMic,
+                binding.fabBackToLatest,
+                replyAccent);
+
+        com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage);
+    }
+
+    // ── Chat Bubble Theme Picker ──────────────────────────────────────────
+    private void showThemePicker() {
+        com.callx.app.utils.ChatThemeManager mgr =
+                com.callx.app.utils.ChatThemeManager.get(this);
+        int current = mgr.getCurrentTheme();
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("🎨 Choose Bubble Theme")
+            .setSingleChoiceItems(
+                com.callx.app.utils.ChatThemeManager.THEME_NAMES,
+                current,
+                (dialog, which) -> {
+                    mgr.setTheme(which);
+                    pagingAdapter.notifyDataSetChanged();
+                    applyScreenTheme();
+                    dialog.dismiss();
+                })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    // ── Typing Style Picker ───────────────────────────────────────────────
+    private void showTypingStylePicker() {
+        com.callx.app.utils.TypingStyleManager mgr =
+                com.callx.app.utils.TypingStyleManager.get(this);
+        int current = mgr.getCurrentStyle();
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("✍️ Choose Typing Style")
+            .setSingleChoiceItems(
+                com.callx.app.utils.TypingStyleManager.STYLE_NAMES,
+                current,
+                (dialog, which) -> {
+                    if (which == com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG) {
+                        dialog.dismiss();
+                        showSamsungStyleSubmenu(mgr);
+                        return;
+                    }
+                    mgr.setStyle(which);
+                    dialog.dismiss();
+                    binding.etMessage.post(() ->
+                        mgr.applyToInput(binding.etMessage)
+                    );
+                })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void showSamsungStyleSubmenu(com.callx.app.utils.TypingStyleManager mgr) {
+        String scriptPreview = com.callx.app.utils.UnicodeStyler.toScript("Samsung Style");
+        String[] options = {
+            "🅢 Samsung One (Font)",
+            scriptPreview + " (Script ✨)"
+        };
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("🅢 Samsung Style — Choose")
+            .setItems(options, (dialog, which) -> {
+                if (which == 0) {
+                    mgr.setStyle(com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG);
+                } else {
+                    mgr.setStyle(com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT);
+                }
+                binding.etMessage.post(() ->
+                    mgr.applyToInput(binding.etMessage)
+                );
+            })
+            .setNegativeButton("Back", (d, w) -> showTypingStylePicker())
+            .show();
     }
 
     private int dp(int dp) {
