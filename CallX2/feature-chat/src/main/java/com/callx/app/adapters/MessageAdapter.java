@@ -238,7 +238,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                             : android.view.Gravity.START;
                     llBubble.setLayoutParams(llp);
                 }
-                llBubble.setMaxWidth(maxW);
+                if (llBubble instanceof android.widget.LinearLayout) {
+                    ((android.widget.LinearLayout) llBubble).setMaxWidth(maxW);
+                }
             }
         } catch (Exception ignored) {}
 
