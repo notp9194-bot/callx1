@@ -21,11 +21,20 @@ import java.util.List;
 /**
  * GamesHubActivity
  *
- * Games ki list dikhata hai.
+ * Games ki list dikhata hai. Abhi sirf Bubble Pop hai,
+ * baad mein aur games add kar sakte hain.
+ *
  * Kisi bhi module se open karo via Class.forName reflection:
  *
  *   Intent i = new Intent();
  *   i.setClassName(context.getPackageName(), "com.callx.app.activities.GamesHubActivity");
+ *   context.startActivity(i);
+ *
+ * Ya seedha GameActivity:
+ *   Intent i = new Intent();
+ *   i.setClassName(context.getPackageName(), "com.callx.app.activities.GameActivity");
+ *   i.putExtra("url",   "https://callx-server.onrender.com/bubble-pop-game.html");
+ *   i.putExtra("title", "Bubble Pop");
  *   context.startActivity(i);
  */
 public class GamesHubActivity extends AppCompatActivity {
@@ -49,39 +58,32 @@ public class GamesHubActivity extends AppCompatActivity {
         public String name;
         public String description;
         public String url;
-        public boolean landscape;
 
-        public GameItem(String emoji, String name, String description, String url, boolean landscape) {
+        public GameItem(String emoji, String name, String description, String url) {
             this.emoji       = emoji;
             this.name        = name;
             this.description = description;
             this.url         = url;
-            this.landscape   = landscape;
         }
     }
 
-    // ── Games list ────────────────────────────────────────────────────────────
+    // ── Games list — yahan aur games add karo ────────────────────────────────
     private List<GameItem> buildGameList() {
         List<GameItem> list = new ArrayList<>();
-
-        list.add(new GameItem(
-            "🏎️",
-            "Highway Rush 3D",
-            "3D car racing! Traffic dodge karo, nitro boost karo, high score banao! 🔥",
-            "https://callx-server.onrender.com/car-racing-3d.html",
-            true
-        ));
-
         list.add(new GameItem(
             "🫧",
             "Bubble Pop",
             "Colorful bubbles phodo aur high score banao! 🎯",
-            "https://callx-server.onrender.com/bubble-pop-game.html",
-            false
+            "https://callx-server.onrender.com/bubble-pop-game.html"
         ));
-
+        list.add(new GameItem(
+            "🏎️",
+            "Car Racing",
+            "Speed mein gadi chalao aur obstacles se bachao! 🚦",
+            "https://callx-server.onrender.com/car.html"
+        ));
         // Yahan future games add karo:
-        // list.add(new GameItem("🐍", "Snake", "Classic snake game!", "https://...", false));
+        // list.add(new GameItem("🐍", "Snake", "Classic snake game!", "https://..."));
         return list;
     }
 
@@ -111,9 +113,8 @@ public class GamesHubActivity extends AppCompatActivity {
 
             View.OnClickListener openGame = v -> {
                 Intent i = new Intent(GamesHubActivity.this, GameActivity.class);
-                i.putExtra(GameActivity.EXTRA_URL,       item.url);
-                i.putExtra(GameActivity.EXTRA_TITLE,     item.name);
-                i.putExtra(GameActivity.EXTRA_LANDSCAPE, item.landscape);
+                i.putExtra(GameActivity.EXTRA_URL,   item.url);
+                i.putExtra(GameActivity.EXTRA_TITLE, item.name);
                 startActivity(i);
             };
 
