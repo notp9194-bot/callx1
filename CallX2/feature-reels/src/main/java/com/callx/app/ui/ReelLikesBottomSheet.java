@@ -86,8 +86,6 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
     private String myUid;
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
-    @Nullable @Override
-
     @Override
     public void onStart() {
         super.onStart();
