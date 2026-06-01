@@ -77,7 +77,7 @@
             android:layout_width="48dp" android:layout_height="48dp"
             android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="?attr/colorOnSurface"
+            android:tint="#00C6FF"
             android:contentDescription="Back"/>
 
         <LinearLayout
@@ -93,7 +93,7 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="User" android:textSize="17sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="?attr/colorOnSurface"
+                    android:textColor="#FFE082"
                     android:maxLines="1" android:ellipsize="end"/>
 
                 <ImageView android:id="@+id/iv_verified"
@@ -112,7 +112,7 @@
             android:layout_width="44dp" android:layout_height="44dp"
             android:src="@drawable/ic_send"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="?attr/colorOnSurface"
+            android:tint="#00F260"
             android:contentDescription="Send" android:padding="10dp"/>
 
         <Button android:id="@+id/btn_follow"
@@ -128,7 +128,7 @@
             android:layout_width="40dp" android:layout_height="40dp"
             android:src="@drawable/ic_reel_creator"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="?attr/colorOnSurface"
+            android:tint="#A855F7"
             android:contentDescription="Creator Hub"
             android:padding="8dp" android:visibility="gone"/>
 
@@ -136,7 +136,7 @@
             android:layout_width="40dp" android:layout_height="40dp"
             android:src="@drawable/ic_settings"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="?attr/colorOnSurface"
+            android:tint="#FFA500"
             android:contentDescription="Settings"
             android:padding="8dp" android:visibility="gone"/>
 
@@ -144,7 +144,7 @@
             android:layout_width="40dp" android:layout_height="40dp"
             android:src="@drawable/ic_more_vert"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="?attr/colorOnSurface"
+            android:tint="#FF416C"
             android:contentDescription="More options"/>
     </LinearLayout>
 
@@ -158,19 +158,19 @@
         android:paddingTop="14dp" android:paddingBottom="10dp">
 
         <!-- Avatar with story ring -->
-        <FrameLayout android:layout_width="115dp" android:layout_height="115dp">
+        <FrameLayout android:layout_width="90dp" android:layout_height="90dp">
 
             <View android:id="@+id/view_story_ring"
-                android:layout_width="115dp" android:layout_height="115dp"
+                android:layout_width="90dp" android:layout_height="90dp"
                 android:background="@drawable/bg_story_ring"
                 android:visibility="gone"/>
 
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_avatar"
-                android:layout_width="104dp" android:layout_height="104dp"
+                android:layout_width="80dp" android:layout_height="80dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_person"
-                app:civ_border_width="2.5dp"
+                app:civ_border_width="2dp"
                 app:civ_border_color="@color/brand_primary"/>
 
             <View android:layout_width="16dp" android:layout_height="16dp"
@@ -195,11 +195,11 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="0" android:textSize="19sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#00C6FF"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="FOLLOWERS" android:textSize="10sp"
                     android:letterSpacing="0.04"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
+                    android:textColor="#6BCFEF"/>
             </LinearLayout>
 
             <LinearLayout android:id="@+id/layout_following_click"
@@ -211,11 +211,11 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="0" android:textSize="19sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#00F260"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="FOLLOWING" android:textSize="10sp"
                     android:letterSpacing="0.04"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
+                    android:textColor="#6BE8A8"/>
             </LinearLayout>
 
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
@@ -224,11 +224,11 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="0" android:textSize="19sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#A855F7"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="REELS" android:textSize="10sp"
                     android:letterSpacing="0.04"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
+                    android:textColor="#C084FC"/>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
@@ -242,13 +242,14 @@
         android:foreground="?attr/selectableItemBackground"
         android:visibility="gone">
 
-        <!-- Overlapping avatars container -->
+        <!-- Overlapping avatars container (fixed 62dp wide for up to 3 avatars) -->
         <FrameLayout
             android:id="@+id/frame_mutual_avatars"
             android:layout_width="62dp"
             android:layout_height="30dp"
             android:layout_marginEnd="10dp">
 
+            <!-- Avatar 3 (back) -->
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_mutual_3"
                 android:layout_width="28dp" android:layout_height="28dp"
@@ -260,6 +261,7 @@
                 app:civ_border_color="?attr/colorSurface"
                 xmlns:app="http://schemas.android.com/apk/res-auto"/>
 
+            <!-- Avatar 2 (middle) -->
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_mutual_2"
                 android:layout_width="28dp" android:layout_height="28dp"
@@ -271,6 +273,7 @@
                 app:civ_border_color="?attr/colorSurface"
                 xmlns:app="http://schemas.android.com/apk/res-auto"/>
 
+            <!-- Avatar 1 (front) -->
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_mutual_1"
                 android:layout_width="28dp" android:layout_height="28dp"
@@ -283,6 +286,7 @@
                 xmlns:app="http://schemas.android.com/apk/res-auto"/>
         </FrameLayout>
 
+        <!-- "Followed by name1, name2 and X others" -->
         <TextView android:id="@+id/tv_mutual_followers"
             android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -448,6 +452,7 @@
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/divider"/>
 
+    <!-- Action buttons: Message | Call | Video | Status -->
     <!-- Action buttons: Message | Call | Video | X | YouTube -->
     <LinearLayout android:id="@+id/layout_actions"
         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -458,28 +463,26 @@
         <!-- Chat / Message button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="60dp" android:layout_height="60dp"
+            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_message"
                     android:layout_width="46dp" android:layout_height="46dp"
-                    android:layout_gravity="center"
                     android:src="@drawable/ic_send"
                     android:background="@drawable/bg_circle_action"
-                    android:tint="@color/brand_primary"
+                    android:tint="#00C6FF"
                     android:contentDescription="Message" android:padding="13dp"/>
-                <!-- Avatar peeking out from top — user ki chat profile image -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_chat"
-                    android:layout_width="46dp" android:layout_height="46dp"
+                    android:layout_width="24dp" android:layout_height="24dp"
                     android:layout_gravity="center"
-                    android:elevation="6dp"
+                    android:elevation="4dp"
                     android:visibility="invisible"
-                    app:civ_border_width="2.5dp"
+                    app:civ_border_width="1.5dp"
                     app:civ_border_color="@color/brand_primary"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Message" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#00C6FF" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
         <!-- Audio Call button -->
@@ -489,11 +492,11 @@
                 android:layout_width="46dp" android:layout_height="46dp"
                 android:src="@drawable/ic_phone"
                 android:background="@drawable/bg_circle_action"
-                android:tint="@color/brand_primary"
+                android:tint="#00F260"
                 android:contentDescription="Audio Call" android:padding="13dp"/>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Call" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#00F260" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
         <!-- Video Call button -->
@@ -503,65 +506,61 @@
                 android:layout_width="46dp" android:layout_height="46dp"
                 android:src="@drawable/ic_video_call"
                 android:background="@drawable/bg_circle_action"
-                android:tint="@color/brand_primary"
+                android:tint="#A855F7"
                 android:contentDescription="Video Call" android:padding="13dp"/>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Video" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#A855F7" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
         <!-- X button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="60dp" android:layout_height="60dp"
+            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_open_x"
                     android:layout_width="46dp" android:layout_height="46dp"
-                    android:layout_gravity="center"
                     android:src="@drawable/ic_x_logo"
                     android:background="@drawable/bg_social_x_btn"
                     android:tint="@color/white"
                     android:contentDescription="View X Profile" android:padding="13dp"/>
-                <!-- User ki X profile avatar -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_x"
-                    android:layout_width="46dp" android:layout_height="46dp"
+                    android:layout_width="24dp" android:layout_height="24dp"
                     android:layout_gravity="center"
-                    android:elevation="6dp"
+                    android:elevation="4dp"
                     android:visibility="invisible"
-                    app:civ_border_width="2.5dp"
+                    app:civ_border_width="1.5dp"
                     app:civ_border_color="#000000"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="X" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#CCCCCC" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
         <!-- YouTube button with avatar peek animation -->
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="60dp" android:layout_height="60dp"
+            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
                 android:clipChildren="false" android:clipToPadding="false">
                 <ImageButton android:id="@+id/btn_open_youtube"
                     android:layout_width="46dp" android:layout_height="46dp"
-                    android:layout_gravity="center"
                     android:src="@drawable/ic_youtube"
                     android:background="@drawable/bg_social_youtube_btn"
                     android:tint="@color/white"
                     android:contentDescription="View YouTube Channel" android:padding="13dp"/>
-                <!-- User ki YouTube channel avatar -->
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_anim_youtube"
-                    android:layout_width="46dp" android:layout_height="46dp"
+                    android:layout_width="24dp" android:layout_height="24dp"
                     android:layout_gravity="center"
-                    android:elevation="6dp"
+                    android:elevation="4dp"
                     android:visibility="invisible"
-                    app:civ_border_width="2.5dp"
+                    app:civ_border_width="1.5dp"
                     app:civ_border_color="#FF0000"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="YouTube" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#FF0000" android:layout_marginTop="5dp"/>
         </LinearLayout>
     </LinearLayout>
 
@@ -629,15 +628,15 @@
                 android:visibility="gone">
 
                 <ImageView android:layout_width="64dp" android:layout_height="64dp"
-                    android:src="@drawable/ic_lock" android:alpha="0.6"
-                    android:tint="?attr/colorOnSurface"
+                    android:src="@drawable/ic_lock" android:alpha="0.8"
+                    android:tint="#A855F7"
                     android:contentDescription="Private account"/>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:text="This account is private"
                     android:textSize="17sp" android:fontFamily="sans-serif-medium"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#CE93D8"/>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -651,6 +650,7 @@
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:layout_marginTop="48dp"
+                android:indeterminateTint="#A855F7"
                 android:visibility="gone"/>
 
             <!-- Empty state -->
@@ -661,14 +661,15 @@
 
                 <ImageView android:id="@+id/iv_empty_icon"
                     android:layout_width="64dp" android:layout_height="64dp"
-                    android:src="@drawable/ic_reels" android:alpha="0.3"
+                    android:src="@drawable/ic_reels" android:alpha="0.6"
+                    android:tint="#FF416C"
                     android:contentDescription="Empty"/>
 
                 <TextView android:id="@+id/tv_empty_title"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginTop="16dp" android:text="No Reels Yet"
                     android:textSize="18sp" android:fontFamily="sans-serif-medium"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#FF416C"/>
 
                 <TextView android:id="@+id/tv_empty_subtitle"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
