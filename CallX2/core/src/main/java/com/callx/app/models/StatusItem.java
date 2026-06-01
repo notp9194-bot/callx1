@@ -118,6 +118,22 @@ public class StatusItem {
     // ── Boomerang ────────────────────────────────────────
     public boolean isBoomerang;
 
+    /** Returns the emoji reaction from the given uid, or null */
+    @Exclude
+    public String getReaction(String uid) {
+        if (reactions == null || uid == null) return null;
+        return reactions.get(uid);
+    }
+
+    /** Returns total count of viewers who reacted with this emoji */
+    @Exclude
+    public int getReactionCount(String emoji) {
+        if (reactions == null || emoji == null) return 0;
+        int count = 0;
+        for (String v : reactions.values()) if (emoji.equals(v)) count++;
+        return count;
+    }
+
     /** Convert to Firebase-compatible Map */
     @Exclude
     public Map<String, Object> toMap() {

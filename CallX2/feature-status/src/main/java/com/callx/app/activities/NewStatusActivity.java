@@ -78,6 +78,10 @@ public class NewStatusActivity extends AppCompatActivity {
     };
 
     // ── Result Launchers ──────────────────────────────────
+    // Declare URIs BEFORE launchers to avoid illegal forward reference
+    private Uri videoCaptureUri;
+    private Uri imageCaptureUri;
+
     private final ActivityResultLauncher<String> imagePicker =
         registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri != null) { mediaUri = uri; mediaType = "image"; type = "image"; showMediaPreview(uri, "image"); }
@@ -90,7 +94,6 @@ public class NewStatusActivity extends AppCompatActivity {
                 mediaUri = videoCaptureUri; mediaType = "video"; type = "video"; showMediaPreview(videoCaptureUri, "video");
             }
         });
-    private Uri videoCaptureUri;
 
     private final ActivityResultLauncher<String> videoPicker =
         registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
@@ -103,7 +106,6 @@ public class NewStatusActivity extends AppCompatActivity {
                 mediaUri = imageCaptureUri; mediaType = "image"; type = "image"; showMediaPreview(imageCaptureUri, "image");
             }
         });
-    private Uri imageCaptureUri;
 
     private final ActivityResultLauncher<Intent> trimLauncher =
         registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -169,7 +171,7 @@ public class NewStatusActivity extends AppCompatActivity {
         root.addView(tvCharCount); updateCharCount();
 
         // ── BG color picker ────────────────────────────────
-        HorizontalScrollView hsvBg = new HorizontalScrollView(this); hsvBg.setScrollbars(0);
+        HorizontalScrollView hsvBg = new HorizontalScrollView(this); 
         bgColorRow = new LinearLayout(this); bgColorRow.setOrientation(LinearLayout.HORIZONTAL);
         bgColorRow.setPadding(dp(12),dp(8),dp(12),dp(8));
         for (int i = 0; i < BG_COLORS.length; i++) {
@@ -215,7 +217,7 @@ public class NewStatusActivity extends AppCompatActivity {
         tvLinkPreview.setTextSize(12); tvLinkPreview.setVisibility(View.GONE); root.addView(tvLinkPreview);
 
         // ── Creator tools row ─────────────────────────────
-        HorizontalScrollView hsvTools = new HorizontalScrollView(this); hsvTools.setScrollbars(0);
+        HorizontalScrollView hsvTools = new HorizontalScrollView(this); 
         creatorTools = new LinearLayout(this); creatorTools.setOrientation(LinearLayout.HORIZONTAL);
         creatorTools.setPadding(dp(12),dp(4),dp(12),dp(4));
         for (String tool : new String[]{"📷 Camera","🎥 Video","🎭 GIF","✂ Trim","🖼 Collage","✏ Draw","🔄 Boomerang","✨ Template","🤖 AI Caption","🎵 Music","📊 Poll","⏱ Countdown"}) {
@@ -336,7 +338,8 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void showPrivacyPicker() {
-        StatusPrivacyBottomSheet.show(this, (mode, except, only, cfUids) -> {
+        String myUid = FirebaseUtils.getCurrentUid();
+        StatusPrivacyBottomSheet.show(this, myUid, (mode, selectedUids) -> {
             privacy = mode; isCloseFriends = "close_friends".equals(mode);
             String emoji = "everyone".equals(mode) ? "🌍" : "close_friends".equals(mode) ? "⭐" : "🔒";
             tvPrivacy.setText(emoji + " " + mode.substring(0,1).toUpperCase() + mode.substring(1).replace("_"," "));
@@ -419,49 +422,55 @@ public class NewStatusActivity extends AppCompatActivity {
         if ("image".equals(mediaType)) {
             pbCompress.setVisibility(View.VISIBLE);
             ImageCompressor.compress(this, mediaUri, new ImageCompressor.Callback() {
-                @Override public void onSuccess(File full, File thumb) {
+                @Override public void onSuccess(ImageCompressor.Result compressed) {
                     pbCompress.setVisibility(View.GONE);
-                    CloudinaryUploader.uploadImage(full, thumb, new CloudinaryUploader.UploadCallback() {
-                        @Override public void onSuccess(String imgUrl, String thumbUrl) {
-                            pbUpload.setProgress(100); saveStatusToFirebase(text, caption, imgUrl, thumbUrl, resolvedUids);
-                        }
-                        @Override public void onProgress(int pct) { pbUpload.setProgress(pct); }
-                        @Override public void onError(String err) {
-                            if (uploadAttempt < 3) { // FIX: retry up to 3 times
-                                int delay = (int)(1000 * Math.pow(2, uploadAttempt - 1));
-                                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                                    () -> uploadMedia(text, caption, resolvedUids), delay);
-                            } else {
-                                pbUpload.setVisibility(View.GONE);
-                                Toast.makeText(NewStatusActivity.this, "Upload failed after 3 attempts: " + err, Toast.LENGTH_LONG).show();
-                                // Offer to save to offline queue
-                                offerOfflineQueue(text, caption);
+                    Uri fullUri = Uri.fromFile(compressed.fullFile);
+                    CloudinaryUploader.upload(NewStatusActivity.this, fullUri, "statuses", "image",
+                        new CloudinaryUploader.UploadCallback() {
+                            @Override public void onSuccess(CloudinaryUploader.Result result) {
+                                pbUpload.setProgress(100);
+                                String imgUrl   = result.secureUrl;
+                                String thumbUrl = result.thumbnailUrl != null ? result.thumbnailUrl : imgUrl;
+                                saveStatusToFirebase(text, caption, imgUrl, thumbUrl, resolvedUids);
                             }
-                        }
-                    });
+                            @Override public void onError(String err) {
+                                if (uploadAttempt < 3) {
+                                    int delay = (int)(1000 * Math.pow(2, uploadAttempt - 1));
+                                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                                        () -> uploadMedia(text, caption, resolvedUids), delay);
+                                } else {
+                                    pbUpload.setVisibility(View.GONE);
+                                    Toast.makeText(NewStatusActivity.this, "Upload failed after 3 attempts: " + err, Toast.LENGTH_LONG).show();
+                                    offerOfflineQueue(text, caption);
+                                }
+                            }
+                        });
                 }
-                @Override public void onError(String e) { pbCompress.setVisibility(View.GONE); Toast.makeText(NewStatusActivity.this, "Compress error: " + e, Toast.LENGTH_SHORT).show(); }
+                @Override public void onError(Exception e) { pbCompress.setVisibility(View.GONE); Toast.makeText(NewStatusActivity.this, "Compress error: " + e.getMessage(), Toast.LENGTH_SHORT).show(); }
             });
         } else {
-            // Video upload with compression
+            // Video upload
             Toast.makeText(this,"Uploading video…",Toast.LENGTH_SHORT).show();
-            CloudinaryUploader.uploadVideo(mediaUri, new CloudinaryUploader.UploadCallback() {
-                @Override public void onSuccess(String vidUrl, String thumbUrl) {
-                    pbUpload.setProgress(100); saveStatusToFirebase(text, caption, vidUrl, thumbUrl, resolvedUids);
-                }
-                @Override public void onProgress(int pct) { pbUpload.setProgress(pct); }
-                @Override public void onError(String err) {
-                    if (uploadAttempt < 3) {
-                        int delay = (int)(1000 * Math.pow(2, uploadAttempt - 1));
-                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                            () -> uploadMedia(text, caption, resolvedUids), delay);
-                    } else {
-                        pbUpload.setVisibility(View.GONE);
-                        Toast.makeText(NewStatusActivity.this,"Upload failed: "+err,Toast.LENGTH_LONG).show();
-                        offerOfflineQueue(text, caption);
+            CloudinaryUploader.upload(this, mediaUri, "statuses", "video",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result result) {
+                        pbUpload.setProgress(100);
+                        String vidUrl   = result.secureUrl;
+                        String thumbUrl = result.thumbnailUrl != null ? result.thumbnailUrl : vidUrl;
+                        saveStatusToFirebase(text, caption, vidUrl, thumbUrl, resolvedUids);
                     }
-                }
-            });
+                    @Override public void onError(String err) {
+                        if (uploadAttempt < 3) {
+                            int delay = (int)(1000 * Math.pow(2, uploadAttempt - 1));
+                            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                                () -> uploadMedia(text, caption, resolvedUids), delay);
+                        } else {
+                            pbUpload.setVisibility(View.GONE);
+                            Toast.makeText(NewStatusActivity.this,"Upload failed: "+err,Toast.LENGTH_LONG).show();
+                            offerOfflineQueue(text, caption);
+                        }
+                    }
+                });
         }
     }
 

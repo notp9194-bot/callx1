@@ -37,7 +37,7 @@ public final class StatusDeltaSyncHelper {
                     StatusItem item = c.getValue(StatusItem.class);
                     if (item == null || item.deleted) continue;
                     newItems.add(item);
-                    if (item.timestamp != null && item.timestamp > latest) latest = item.timestamp;
+                    if (item.timestamp instanceof Long && (Long) item.timestamp > latest) latest = (Long) item.timestamp;
                 }
                 if (latest > lastTs) saveLastSyncTs(ctx, ownerUid, latest);
                 if (cb != null) cb.onNewStatuses(newItems);

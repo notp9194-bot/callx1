@@ -238,11 +238,11 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             h.ring.setVisibility(View.VISIBLE);
             h.ivAdd.setVisibility(View.GONE);
             h.tvName.setText("My Status");
-            String timeSub = timeFmt.format(new Date(latest.timestamp != null ? latest.timestamp : 0));
+            String timeSub = timeFmt.format(new Date((latest.timestamp instanceof Long) ? (Long) latest.timestamp : 0L));
             h.tvSub.setText(timeSub + " · " + myStatuses.size() + " update" + (myStatuses.size() > 1 ? "s" : "")
-                    + " · " + latest.getExpiryLabel());
-            if (latest.ownerPhoto != null && !latest.ownerPhoto.isEmpty()) {
-                Glide.with(ctx).load(latest.ownerPhoto)
+                    + (latest.expiresAt != null ? " · expires in " + getExpiryLabel(latest) : ""));
+            if (latest.ownerPhotoUrl != null && !latest.ownerPhotoUrl.isEmpty()) {
+                Glide.with(ctx).load(latest.ownerPhotoUrl)
                      .placeholder(R.drawable.ic_person).into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
@@ -337,6 +337,17 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
     }
 
     // ── ViewHolders ───────────────────────────────────────────────────────
+
+    /** Helper: calculate expiry label from StatusItem.expiresAt */
+    private static String getExpiryLabel(StatusItem item) {
+        if (item.expiresAt == null) return "";
+        long remaining = item.expiresAt - System.currentTimeMillis();
+        if (remaining <= 0) return "expired";
+        long hours = remaining / 3_600_000;
+        if (hours >= 1) return hours + "h left";
+        long mins = remaining / 60_000;
+        return mins + "m left";
+    }
 
     static class MyStatusVH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;

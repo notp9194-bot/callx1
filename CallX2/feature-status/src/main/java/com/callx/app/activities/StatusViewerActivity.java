@@ -18,6 +18,7 @@ import androidx.media3.exoplayer.*;
 import androidx.media3.ui.PlayerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.bottomsheet.*;
+import com.callx.app.cache.StatusVideoCacheManager;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.*;
 import com.callx.app.views.*;
@@ -46,6 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class StatusViewerActivity extends AppCompatActivity {
     // ── Extras ────────────────────────────────────────────
     public static final String EXTRA_OWNER_UID     = "ownerUid";
+    public static final String EXTRA_OWNER_NAME    = "ownerName";
     public static final String EXTRA_ALL_UIDS      = "allOwnerUids";
     public static final String EXTRA_START_INDEX   = "currentOwnerIndex";
     public static final String EXTRA_HIGHLIGHT_ID  = "highlightAlbumId";
@@ -236,8 +238,8 @@ public class StatusViewerActivity extends AppCompatActivity {
             pause();
             StatusItem item = currentItem();
             if (item == null) return;
-            StatusReactionBottomSheet.show(this, item, reaction -> {
-                StatusSeenTracker.reactTo(item.ownerUid, item.id, reaction, null, ok -> {});
+            StatusReactionBottomSheet.show(this, item, myUid, (emoji, removed) -> {
+                StatusSeenTracker.reactTo(item.ownerUid, item.id, emoji, null, ok -> {});
                 StatusHapticHelper.reaction(btnReact);
                 resume();
             });

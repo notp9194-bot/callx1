@@ -125,8 +125,10 @@ public class StatusVideoTrimActivity extends AppCompatActivity {
     }
 
     private void trimVideo(Uri input, long start, long end) {
-        ProgressDialog pd = new ProgressDialog(this);
-        pd.setMessage("Trimming video…"); pd.show();
+        // ProgressDialog deprecated — use AlertDialog with ProgressBar instead
+        android.app.AlertDialog pd = new android.app.AlertDialog.Builder(this)
+            .setMessage("Trimming video…").setCancelable(false).create();
+        pd.show();
         new Thread(() -> {
             try {
                 File out = new File(getCacheDir(), "trimmed_" + System.currentTimeMillis() + ".mp4");

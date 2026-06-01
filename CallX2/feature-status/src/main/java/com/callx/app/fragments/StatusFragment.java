@@ -136,10 +136,12 @@ public class StatusFragment extends Fragment implements StatusCacheManager.Statu
             StatusCloseFriendsManager.startRealtimeSync(requireContext(), myUid);
         }
 
-        // Init adapter
-        statusAdapter = new StatusListAdapter(myUid,
-            (ownerUid, items) -> openStatusViewer(ownerUid, items),
-            () -> startActivity(new Intent(getContext(), NewStatusActivity.class))
+        // Init adapter — myStatuses starts empty, updated in rebuildAdapter()
+        List<StatusItem> myInitialStatuses = new ArrayList<>();
+        statusAdapter = new StatusListAdapter(myUid, myInitialStatuses,
+            () -> openStatusViewer(myUid, myInitialStatuses),
+            () -> startActivity(new Intent(getContext(), NewStatusActivity.class)),
+            (ownerUid, ownerName) -> openStatusViewer(ownerUid, contactsMap.containsKey(ownerUid) ? contactsMap.get(ownerUid) : new ArrayList<>())
         );
         rvStatus.setAdapter(statusAdapter);
         rvStatus.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
@@ -152,7 +154,7 @@ public class StatusFragment extends Fragment implements StatusCacheManager.Statu
         // Load highlights for strip
         loadHighlightsStrip();
         // Register cache observer
-        StatusCacheManager.getInstance().addObserver(this);
+        StatusCacheManager.getInstance(requireContext()).addObserver(this);
     }
 
     private void loadHighlightsStrip() {
@@ -254,8 +256,30 @@ public class StatusFragment extends Fragment implements StatusCacheManager.Statu
             if (allSeen) seen.add(uid); else unseen.add(uid);
         }
         List<StatusItem> myItems = myUid != null ? (contactsMap.containsKey(myUid) ? contactsMap.get(myUid) : new ArrayList<>()) : new ArrayList<>();
-        statusAdapter.setData(myUid, myName, myItems, unseen, seen, muted, contactsMap,
-                requireContext(), StatusCloseFriendsManager::isCloseFriend);
+        // Build Entry lists for update()
+        List<StatusListAdapter.Entry> unseenEntries = new ArrayList<>(), seenEntries = new ArrayList<>(), mutedEntries = new ArrayList<>();
+        for (String uid : unseen) {
+            List<StatusItem> its = contactsMap.containsKey(uid) ? contactsMap.get(uid) : new ArrayList<>();
+            if (its.isEmpty()) continue;
+            StatusItem latest = its.get(its.size() - 1);
+            long ts = (latest.timestamp instanceof Long) ? (Long) latest.timestamp : 0L;
+            unseenEntries.add(new StatusListAdapter.Entry(uid, latest.ownerName, latest.ownerPhotoUrl, ts, its.size(), its.size(), latest, false, null));
+        }
+        for (String uid : seen) {
+            List<StatusItem> its = contactsMap.containsKey(uid) ? contactsMap.get(uid) : new ArrayList<>();
+            if (its.isEmpty()) continue;
+            StatusItem latest = its.get(its.size() - 1);
+            long ts = (latest.timestamp instanceof Long) ? (Long) latest.timestamp : 0L;
+            seenEntries.add(new StatusListAdapter.Entry(uid, latest.ownerName, latest.ownerPhotoUrl, ts, its.size(), 0, latest, false, null));
+        }
+        for (String uid : muted) {
+            List<StatusItem> its = contactsMap.containsKey(uid) ? contactsMap.get(uid) : new ArrayList<>();
+            if (its.isEmpty()) continue;
+            StatusItem latest = its.get(its.size() - 1);
+            long ts = (latest.timestamp instanceof Long) ? (Long) latest.timestamp : 0L;
+            mutedEntries.add(new StatusListAdapter.Entry(uid, latest.ownerName, latest.ownerPhotoUrl, ts, its.size(), 0, latest, true, null));
+        }
+        statusAdapter.update(unseenEntries, seenEntries, mutedEntries);
         // Empty state
         boolean isEmpty = unseen.isEmpty() && seen.isEmpty() && muted.isEmpty() && (myItems == null || myItems.isEmpty());
         layoutEmptyState.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
@@ -276,13 +300,13 @@ public class StatusFragment extends Fragment implements StatusCacheManager.Statu
     private void loadFromRoom() { /* Room DB load — same as before */ }
     private void saveToRoom()   { /* Room DB save — same as before */ }
 
-    @Override public void onStatusDataChanged() { if (getActivity() != null) getActivity().runOnUiThread(this::rebuildAdapter); }
+    @Override public void onStatusDataUpdated() { if (getActivity() != null) getActivity().runOnUiThread(this::rebuildAdapter); }
 
     @Override public void onDestroyView() {
         super.onDestroyView();
         if (statusRef != null && statusListener != null) statusRef.removeEventListener(statusListener);
         if (seenRef   != null && seenListener   != null) seenRef.removeEventListener(seenListener);
-        StatusCacheManager.getInstance().removeObserver(this);
+        StatusCacheManager.getInstance(requireContext()).removeObserver(this);
         if (myUid != null) { StatusMuteManager.stopRealtimeSync(myUid); StatusCloseFriendsManager.stopRealtimeSync(myUid); }
     }
 
