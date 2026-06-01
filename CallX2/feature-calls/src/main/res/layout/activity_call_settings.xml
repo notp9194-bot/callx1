@@ -1,187 +1,393 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background">
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
 
+    <!-- Toolbar -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingBottom="32dp">
+        android:layout_height="?attr/actionBarSize"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="8dp"
+        android:background="?attr/colorPrimary"
+        android:elevation="4dp">
 
-        <!-- Toolbar -->
+        <ImageButton
+            android:id="@+id/btnCallSettingsBack"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"
+            android:tint="#FFFFFF"/>
+
+        <TextView
+            android:id="@+id/tvCallSettingsTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginStart="4dp"
+            android:text="Call Settings"/>
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="8dp"
-            android:background="@color/surface_card">
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="24dp">
 
-            <ImageButton
-                android:id="@+id/btnCallSettingsBack"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:src="@drawable/ic_back"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Back"/>
-
+            <!-- ── AUDIO QUALITY ──────────────────────────────────────── -->
             <TextView
-                android:id="@+id/tvCallSettingsTitle"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Call Settings"
-                android:textSize="18sp"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="13sp"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
-                android:layout_marginStart="8dp"/>
-        </LinearLayout>
+                android:text="AUDIO QUALITY"/>
 
-        <!-- ── AUDIO QUALITY ──────────────────────────── -->
-        <TextView style="@style/SettingsSectionHeader" android:text="Audio Quality"/>
-
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Noise Suppression"/>
-                <TextView style="@style/SettingsSubtitle" android:text="Reduce background noise"/>
-            </LinearLayout>
-            <Switch android:id="@+id/switchNoiseSuppression" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
-
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Echo Cancellation"/>
-                <TextView style="@style/SettingsSubtitle" android:text="Remove echo from speaker"/>
-            </LinearLayout>
-            <Switch android:id="@+id/switchEchoCancellation" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
-
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Auto Gain Control"/>
-                <TextView style="@style/SettingsSubtitle" android:text="Normalize microphone volume"/>
-            </LinearLayout>
-            <Switch android:id="@+id/switchAutoGain" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
-
-        <!-- ── VIDEO QUALITY ──────────────────────────── -->
-        <TextView style="@style/SettingsSectionHeader" android:text="Video Quality"/>
-
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Resolution"/>
-                <TextView style="@style/SettingsSubtitle" android:text="HD uses more data"/>
-            </LinearLayout>
-            <RadioGroup
-                android:id="@+id/rgVideoQuality"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                <RadioButton android:id="@+id/rbVideoQualityHD"  android:text="HD"  android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-                <RadioButton android:id="@+id/rbVideoQualitySD"  android:text="SD"  android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp"/>
-            </RadioGroup>
-        </LinearLayout>
-
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Frame Rate"/>
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Noise Suppression"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Reduce background noise"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchNoiseSuppression"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <RadioGroup
-                android:id="@+id/rgFrameRate"
-                android:layout_width="wrap_content"
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:layout_marginHorizontal="16dp" android:background="#1F000000"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                <RadioButton android:id="@+id/rbFps30" android:text="30fps" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-                <RadioButton android:id="@+id/rbFps24" android:text="24fps" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp"/>
-                <RadioButton android:id="@+id/rbFps15" android:text="15fps" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp"/>
-            </RadioGroup>
-        </LinearLayout>
-
-        <!-- ── AUDIO ROUTING ──────────────────────────── -->
-        <TextView style="@style/SettingsSectionHeader" android:text="Audio Routing"/>
-
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Default output"/>
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Echo Cancellation"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Remove echo from speaker"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchEchoCancellation"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <RadioGroup
-                android:id="@+id/rgRouting"
-                android:layout_width="wrap_content"
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:layout_marginHorizontal="16dp" android:background="#1F000000"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                <RadioButton android:id="@+id/rbRoutingEarpiece" android:text="Earpiece" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-                <RadioButton android:id="@+id/rbRoutingSpeaker"  android:text="Speaker"  android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp"/>
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Auto Gain Control"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Normalize microphone volume"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchAutoGain"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <!-- ── VIDEO QUALITY ─────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:text="VIDEO QUALITY"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp" android:paddingBottom="4dp"
+                android:textSize="14sp" android:text="Resolution"/>
+            <RadioGroup android:id="@+id/rgVideoQuality"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp">
+                <RadioButton android:id="@+id/rbVideoQualityHD"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="HD (1280x720) — Best quality"/>
+                <RadioButton android:id="@+id/rbVideoQualitySD"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="SD (640x480) — Save data"/>
             </RadioGroup>
-        </LinearLayout>
 
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Auto-switch to speaker on video"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp" android:paddingTop="12dp" android:paddingBottom="4dp"
+                android:textSize="14sp" android:text="Frame Rate"/>
+            <RadioGroup android:id="@+id/rgFrameRate"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp">
+                <RadioButton android:id="@+id/rbFps30"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="30 fps — Smooth"/>
+                <RadioButton android:id="@+id/rbFps24"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="24 fps — Balanced"/>
+                <RadioButton android:id="@+id/rbFps15"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="15 fps — Save battery"/>
+            </RadioGroup>
+
+            <!-- ── AUDIO ROUTING ─────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:text="AUDIO ROUTING"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp" android:paddingBottom="4dp"
+                android:textSize="14sp" android:text="Default Audio Output"/>
+            <RadioGroup android:id="@+id/rgRouting"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp">
+                <RadioButton android:id="@+id/rbRoutingEarpiece"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Earpiece (in-ear)"/>
+                <RadioButton android:id="@+id/rbRoutingSpeaker"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Speaker (loudspeaker)"/>
+            </RadioGroup>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Auto-switch to speaker on video"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Automatically use speaker when video is on"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchAutoSpeakerVideo"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <Switch android:id="@+id/switchAutoSpeakerVideo" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
 
-        <!-- ── NOTIFICATIONS ──────────────────────────── -->
-        <TextView style="@style/SettingsSectionHeader" android:text="Notifications"/>
+            <!-- ── NOTIFICATIONS ─────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:text="NOTIFICATIONS"/>
 
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Caller name on lock screen"/>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Missed Call Notifications"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Alert when you miss a call"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchMissedNotif"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <Switch android:id="@+id/switchLockscreenName" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
 
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Missed call notifications"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:layout_marginHorizontal="16dp" android:background="#1F000000"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Show Caller Name on Lock Screen"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchLockscreenName"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <Switch android:id="@+id/switchMissedNotif" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
 
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Silent ringtone"/>
-                <TextView style="@style/SettingsSubtitle" android:text="Vibrate only"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:layout_marginHorizontal="16dp" android:background="#1F000000"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Silent Ringtone"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Vibrate only, no ringtone sound"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchSilentRingtone"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <Switch android:id="@+id/switchSilentRingtone" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
 
-        <!-- ── PRIVACY ─────────────────────────────────── -->
-        <TextView style="@style/SettingsSectionHeader" android:text="Privacy"/>
+            <!-- ── PRIVACY ───────────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:text="PRIVACY"/>
 
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Show &quot;In a call&quot; status"/>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Show &quot;In a call&quot; status"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Let others see when you are in a call"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchShowInCallStatus"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <Switch android:id="@+id/switchShowInCallStatus" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
 
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Block unknown callers"/>
-                <TextView style="@style/SettingsSubtitle" android:text="Only allow calls from contacts"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:layout_marginHorizontal="16dp" android:background="#1F000000"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Block Unknown Callers"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Only allow calls from contacts"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchBlockUnknown"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <Switch android:id="@+id/switchBlockUnknown" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
 
-        <!-- ── ADVANCED ────────────────────────────────── -->
-        <TextView style="@style/SettingsSectionHeader" android:text="Advanced"/>
+            <!-- ── ADVANCED ──────────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:text="ADVANCED"/>
 
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Data Saver"/>
-                <TextView style="@style/SettingsSubtitle" android:text="Limits video to SD and 15fps"/>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Data Saver"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Limit video to SD quality and 15 fps"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchDataSaver"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <Switch android:id="@+id/switchDataSaver" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        </LinearLayout>
 
-        <LinearLayout style="@style/SettingsItem">
-            <LinearLayout style="@style/SettingsItemText">
-                <TextView style="@style/SettingsTitle" android:text="Keep screen on during call"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:layout_marginHorizontal="16dp" android:background="#1F000000"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="14dp"
+                android:gravity="center_vertical">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="15sp" android:text="Keep Screen On"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:text="Prevent screen from dimming during calls"/>
+                </LinearLayout>
+                <Switch android:id="@+id/switchKeepScreenOn"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
             </LinearLayout>
-            <Switch android:id="@+id/switchKeepScreenOn" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+
         </LinearLayout>
-    </LinearLayout>
-</ScrollView>
+    </ScrollView>
+</LinearLayout>
