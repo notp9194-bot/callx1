@@ -13,23 +13,17 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 /**
- * StatusSeenByBottomSheet v26 — Full seen-by list with avatars + timestamps.
- * FIX v26: show() now accepts optional Runnable onDismiss — called via setOnDismissListener,
- *           replacing the brittle 300 ms Handler delay in StatusViewerActivity.
- * FIX v26: Avatar loading now tries thumbUrl first, falls back to photoUrl (consistent
- *           with SeenBy's own Firebase read logic).
+ * StatusSeenByBottomSheet v25 — Full seen-by list with avatars + timestamps.
+ * FIX: Old code showed raw UIDs in AlertDialog — now shows proper user cards.
+ * NEW: Avatar, display name, time seen, reaction emoji for each viewer.
+ * NEW: Search bar to filter viewers.
+ * NEW: Reaction breakdown summary at top.
  */
 public class StatusSeenByBottomSheet {
 
-    /** Legacy overload — no dismiss callback (used when caller doesn't need resume). */
     public static void show(Context ctx, StatusItem item) {
-        show(ctx, item, null);
-    }
-
-    public static void show(Context ctx, StatusItem item, Runnable onDismiss) {
         if (item.seenBy == null || item.seenBy.isEmpty()) {
             Toast.makeText(ctx, "No viewers yet", Toast.LENGTH_SHORT).show();
-            if (onDismiss != null) onDismiss.run();
             return;
         }
 
@@ -80,12 +74,6 @@ public class StatusSeenByBottomSheet {
 
         scroll.addView(root);
         sheet.setContentView(scroll);
-
-        // FIX v26: proper dismiss listener instead of Handler delay
-        if (onDismiss != null) {
-            sheet.setOnDismissListener(d -> onDismiss.run());
-        }
-
         sheet.show();
 
         // Resolve UIDs → user profiles from Firebase
@@ -99,10 +87,9 @@ public class StatusSeenByBottomSheet {
             FirebaseUtils.db().getReference("users").child(uid).get()
                 .addOnSuccessListener(snap -> {
                     String name  = snap.child("name").getValue(String.class);
-                    // FIX v26: thumbUrl first, fallback photoUrl
                     String photo = snap.child("thumbUrl").getValue(String.class);
                     if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
-                    final String fname  = name  != null ? name  : fUid;
+                    final String fname = name  != null ? name  : fUid;
                     final String fphoto = photo;
                     loaded[0]++;
                     if (loaded[0] == uids.size()) progress.setVisibility(View.GONE);

@@ -14,19 +14,12 @@ import com.google.firebase.database.*;
 import java.util.*;
 
 /**
- * StatusForwardBottomSheet v26 — Forward a status to one or more contacts.
+ * StatusForwardBottomSheet v25 — Forward a status to one or more contacts.
  * NEW: Multi-select contacts, search bar, send as chat message.
- * FIX v26: show() accepts optional Runnable onDismiss for progress resume (no Handler hack).
- * FIX v26: Contact photos try thumbUrl first, then photoUrl fallback.
  */
 public class StatusForwardBottomSheet {
 
-    /** Legacy overload — no dismiss callback. */
     public static void show(Context ctx, StatusItem item, String myUid) {
-        show(ctx, item, myUid, null);
-    }
-
-    public static void show(Context ctx, StatusItem item, String myUid, Runnable onDismiss) {
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -64,12 +57,6 @@ public class StatusForwardBottomSheet {
         root.addView(sendBtn);
 
         sheet.setContentView(root);
-
-        // FIX v26: proper dismiss callback — resume status progress in StatusViewerActivity
-        if (onDismiss != null) {
-            sheet.setOnDismissListener(d -> onDismiss.run());
-        }
-
         sheet.show();
 
         Set<String> selected = new HashSet<>();
@@ -80,9 +67,7 @@ public class StatusForwardBottomSheet {
             for (DataSnapshot c : snap.getChildren()) {
                 String uid = c.getKey();
                 String name  = c.child("name").getValue(String.class);
-                // FIX v26: try thumbUrl first (consistent with SeenBy sheet)
-                String photo = c.child("thumbUrl").getValue(String.class);
-                if (photo == null) photo = c.child("photoUrl").getValue(String.class);
+                String photo = c.child("photoUrl").getValue(String.class);
                 if (uid != null) allContacts.add(new String[]{uid, name != null ? name : uid, photo});
             }
             renderContacts(ctx, listContainer, allContacts, selected, sendBtn,

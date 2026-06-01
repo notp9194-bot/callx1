@@ -1,50 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     android:background="@android:color/background_light">
 
-    <LinearLayout
+    <!-- Search bar (NEW v25) -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/til_status_search"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="4dp"
+        app:startIconDrawable="@android:drawable/ic_menu_search"
+        app:hintAnimationEnabled="true">
 
-        <!-- Search bar (v25) -->
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/til_status_search"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/et_status_search"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="12dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="4dp"
-            app:startIconDrawable="@android:drawable/ic_menu_search"
-            app:hintAnimationEnabled="true">
+            android:hint="Search statuses…"
+            android:singleLine="true"
+            android:imeOptions="actionSearch"
+            android:inputType="text"/>
+    </com.google.android.material.textfield.TextInputLayout>
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_status_search"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Search statuses…"
-                android:singleLine="true"
-                android:imeOptions="actionSearch"
-                android:inputType="text"/>
-        </com.google.android.material.textfield.TextInputLayout>
+    <!-- Status list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_status"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="80dp"/>
 
-        <!-- Status list -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_status"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipToPadding="false"
-            android:paddingBottom="80dp"/>
-
-    </LinearLayout>
-
-    <!-- FAB: Add new status -->
+    <!-- FAB (NEW v25) -->
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
         android:id="@+id/fab_new_status"
         android:layout_width="wrap_content"
@@ -53,20 +46,19 @@
         android:layout_margin="16dp"
         android:text="Add Status"
         app:icon="@android:drawable/ic_input_add"
-        app:layout_anchor="@id/fab_new_status"
-        app:layout_anchorGravity="bottom|end"/>
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentEnd="true"/>
 
-    <!-- Archive shortcut button: FIX v25 — was visibility="gone", now visible -->
+    <!-- Archive shortcut (NEW v25) -->
     <ImageButton
         android:id="@+id/btn_status_archive"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_margin="16dp"
         android:src="@android:drawable/ic_menu_manage"
-        android:background="@drawable/bg_circle_dark"
-        android:padding="10dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Archive"
-        android:visibility="visible"/>
+        android:visibility="gone"/>
 
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+</LinearLayout>
