@@ -23,7 +23,7 @@
         android:text="Likes and plays"
         android:textSize="16sp"
         android:fontFamily="sans-serif-medium"
-        android:textColor="?attr/colorOnSurface"
+        android:textColor="#FF416C"
         android:gravity="center"/>
 
     <!-- Likes + Plays counts row -->
@@ -46,6 +46,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_heart"
+                android:tint="#FF416C"
                 android:layout_marginEnd="6dp"
                 android:contentDescription="Likes"/>
 
@@ -56,7 +57,7 @@
                 android:text="0"
                 android:textSize="16sp"
                 android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"/>
+                android:textColor="#FF416C"/>
         </LinearLayout>
 
         <!-- Play icon + plays count -->
@@ -70,6 +71,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_play"
+                android:tint="#A855F7"
                 android:layout_marginEnd="6dp"
                 android:contentDescription="Plays"/>
 
@@ -80,7 +82,7 @@
                 android:text="0"
                 android:textSize="16sp"
                 android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"/>
+                android:textColor="#A855F7"/>
         </LinearLayout>
     </LinearLayout>
 
@@ -99,7 +101,7 @@
         android:text="Liked by"
         android:textSize="15sp"
         android:fontFamily="sans-serif-medium"
-        android:textColor="?attr/colorOnSurface"/>
+        android:textColor="#FF416C"/>
 
     <!-- Search bar -->
     <LinearLayout
@@ -156,7 +158,7 @@
             android:layout_gravity="center"
             android:text="No likes yet"
             android:textSize="14sp"
-            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textColor="#FF8FAB"
             android:visibility="gone"/>
     </FrameLayout>
 

@@ -23,7 +23,7 @@
         android:text="Shares and reposts"
         android:textSize="16sp"
         android:fontFamily="sans-serif-medium"
-        android:textColor="?attr/colorOnSurface"
+        android:textColor="#00F260"
         android:gravity="center"/>
 
     <!-- Shares + Reposts counts row -->
@@ -46,6 +46,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_share_reel"
+                android:tint="#00F260"
                 android:layout_marginEnd="6dp"
                 android:contentDescription="Shares"/>
 
@@ -56,7 +57,7 @@
                 android:text="0"
                 android:textSize="16sp"
                 android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"/>
+                android:textColor="#00F260"/>
         </LinearLayout>
 
         <!-- Repost icon + reposts count -->
@@ -70,6 +71,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_repost"
+                android:tint="#A855F7"
                 android:layout_marginEnd="6dp"
                 android:contentDescription="Reposts"/>
 
@@ -80,7 +82,7 @@
                 android:text="0"
                 android:textSize="16sp"
                 android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"/>
+                android:textColor="#A855F7"/>
         </LinearLayout>
     </LinearLayout>
 
@@ -99,7 +101,7 @@
         android:text="Shared by"
         android:textSize="15sp"
         android:fontFamily="sans-serif-medium"
-        android:textColor="?attr/colorOnSurface"/>
+        android:textColor="#00F260"/>
 
     <!-- Search bar -->
     <LinearLayout
@@ -156,7 +158,7 @@
             android:layout_gravity="center"
             android:text="No reposts yet"
             android:textSize="14sp"
-            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textColor="#6BE8A8"
             android:visibility="gone"/>
     </FrameLayout>
 

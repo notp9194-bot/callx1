@@ -24,7 +24,7 @@
         android:text="Comments"
         android:textSize="16sp"
         android:fontFamily="sans-serif-medium"
-        android:textColor="?attr/colorOnSurface"
+        android:textColor="#00C6FF"
         android:gravity="center"/>
 
     <!-- Comment icon + count row -->
@@ -39,6 +39,7 @@
             android:layout_width="20dp"
             android:layout_height="20dp"
             android:src="@drawable/ic_comment_reel"
+            android:tint="#00C6FF"
             android:layout_marginEnd="6dp"
             android:contentDescription="Comments"/>
 
@@ -49,7 +50,7 @@
             android:text="0"
             android:textSize="16sp"
             android:fontFamily="sans-serif-medium"
-            android:textColor="?attr/colorOnSurface"/>
+            android:textColor="#00C6FF"/>
 
     </LinearLayout>
 
@@ -68,7 +69,7 @@
         android:text="All comments"
         android:textSize="15sp"
         android:fontFamily="sans-serif-medium"
-        android:textColor="?attr/colorOnSurface"/>
+        android:textColor="#00C6FF"/>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -124,7 +125,7 @@
             android:layout_gravity="center"
             android:text="No comments yet"
             android:textSize="14sp"
-            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textColor="#6BCFEF"
             android:visibility="gone"/>
     </FrameLayout>
 
@@ -176,7 +177,7 @@
             android:src="@drawable/ic_send"
             android:background="@drawable/bg_circle_action"
             android:contentDescription="Send comment"
-            android:tint="@color/brand_primary"/>
+            android:tint="#00C6FF"/>
 
     </LinearLayout>
 
