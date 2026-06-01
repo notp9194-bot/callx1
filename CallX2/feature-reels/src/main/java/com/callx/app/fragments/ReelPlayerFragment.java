@@ -77,7 +77,8 @@ import java.util.List;
  *  ✅ Speed control, download, auto-advance, emoji reactions, hashtag chips
  */
 @androidx.annotation.OptIn(markerClass = UnstableApi.class)
-public class ReelPlayerFragment extends Fragment {
+public class ReelPlayerFragment extends Fragment
+        implements com.callx.app.ui.ReelMoreBottomSheet.OnItemClickListener {
 
     private static final float[] SPEED_STEPS  = {0.5f, 1.0f, 1.5f, 2.0f};
     /** Rate-limit repost button: 2 seconds between actions (anti-spam). */
@@ -1275,56 +1276,53 @@ public class ReelPlayerFragment extends Fragment {
 
     private void showMoreOptions() {
         if (!isAdded() || getContext() == null || reel == null) return;
-        String myUid   = safeMyUid();
-        boolean isOwner = myUid != null && myUid.equals(reel.uid);
+        String  myUid      = safeMyUid();
+        boolean isOwner    = myUid != null && myUid.equals(reel.uid);
+        String  speedLabel = "Speed: " + SPEED_LABELS[speedIndex];
 
-        // Build speed label for display
-        String speedLabel = "Speed: " + SPEED_LABELS[speedIndex];
-        String saveLabel  = isSaved ? "Unsave" : "Save";
-        String[] opts = isOwner
-            ? new String[]{saveLabel, "Bookmark Collections", speedLabel, "Download",
-                           "Edit Reel", "Analytics", "Pinned Comments",
-                           "Duet", "Stitch", "Share to Story",
-                           "QR Code", "Collab Request",
-                           "Copy Link", "Delete"}
-            : new String[]{saveLabel, "Bookmark Collections", speedLabel, "Download",
-                           "Duet", "Stitch", "Video Reply",
-                           "Share to Story", "Collab Request",
-                           "Not Interested", "Copy Link", "Report"};
+        com.callx.app.ui.ReelMoreBottomSheet sheet =
+            com.callx.app.ui.ReelMoreBottomSheet.newInstance(isOwner, isSaved, speedLabel);
+        sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelMoreBottomSheet.TAG);
+    }
 
-        new android.app.AlertDialog.Builder(getContext())
-            .setTitle(null)
-            .setItems(opts, (dialog, which) -> {
-                if (isOwner) {
-                    if      (which == 0)  toggleSave();
-                    else if (which == 1)  openBookmarkCollections();
-                    else if (which == 2)  showSpeedPicker();
-                    else if (which == 3)  downloadReel();
-                    else if (which == 4)  openReelEdit();
-                    else if (which == 5)  openReelAnalytics();
-                    else if (which == 6)  openPinnedComments();
-                    else if (which == 7)  openDuet();
-                    else if (which == 8)  openStitch();
-                    else if (which == 9)  openShareToStory();
-                    else if (which == 10) openReelQRCode();
-                    else if (which == 11) openCollabRequest();
-                    else if (which == 12) copyReelLink();
-                    else                  confirmDeleteReel();
-                } else {
-                    if      (which == 0)  toggleSave();
-                    else if (which == 1)  openBookmarkCollections();
-                    else if (which == 2)  showSpeedPicker();
-                    else if (which == 3)  downloadReel();
-                    else if (which == 4)  openDuet();
-                    else if (which == 5)  openStitch();
-                    else if (which == 6)  openVideoReply();
-                    else if (which == 7)  openShareToStory();
-                    else if (which == 8)  openCollabRequest();
-                    else if (which == 9)  markNotInterested();
-                    else if (which == 10) copyReelLink();
-                    else                  openReelReport();
-                }
-            }).show();
+    @Override
+    public void onMoreItemClick(String action) {
+        switch (action) {
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_SAVE:
+                toggleSave(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_BOOKMARK_COLLECTIONS:
+                openBookmarkCollections(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_SPEED:
+                showSpeedPicker(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_DOWNLOAD:
+                downloadReel(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_DUET:
+                openDuet(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_STITCH:
+                openStitch(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_VIDEO_REPLY:
+                openVideoReply(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_SHARE_TO_STORY:
+                openShareToStory(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_COLLAB_REQUEST:
+                openCollabRequest(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_NOT_INTERESTED:
+                markNotInterested(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_COPY_LINK:
+                copyReelLink(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_REPORT:
+                openReelReport(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_EDIT:
+                openReelEdit(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_ANALYTICS:
+                openReelAnalytics(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_PINNED_COMMENTS:
+                openPinnedComments(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_QR_CODE:
+                openReelQRCode(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_DELETE:
+                confirmDeleteReel(); break;
+        }
     }
 
     private void showSpeedPicker() {
