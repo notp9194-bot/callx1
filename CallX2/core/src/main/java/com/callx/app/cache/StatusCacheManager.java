@@ -200,8 +200,8 @@ public class StatusCacheManager {
                         } catch (Exception ignored) {}
                     }
                     items.sort((a, b) -> {
-                        long ta = a.timestamp == null ? 0 : a.timestamp;
-                        long tb = b.timestamp == null ? 0 : b.timestamp;
+                        long ta = (a.timestamp instanceof Long) ? (Long) a.timestamp : 0L;
+                        long tb = (b.timestamp instanceof Long) ? (Long) b.timestamp : 0L;
                         return Long.compare(ta, tb);
                     });
                     if (!items.isEmpty()) statusMap.put(uid, items);

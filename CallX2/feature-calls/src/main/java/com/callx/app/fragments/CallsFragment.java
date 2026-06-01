@@ -920,8 +920,8 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                     }
                 }
                 Collections.sort(allLogs, (a, b) -> {
-                    long ta = a.timestamp == null ? 0 : a.timestamp;
-                    long tb = b.timestamp == null ? 0 : b.timestamp;
+                    long ta = a.timestamp != null ? a.timestamp : 0L;
+                    long tb = b.timestamp != null ? b.timestamp : 0L;
                     return Long.compare(tb, ta);
                 });
                 applyFilter();
