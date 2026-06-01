@@ -100,7 +100,7 @@ public class NewStatusActivity extends AppCompatActivity {
             if (uri != null) { mediaUri = uri; mediaType = "video"; type = "video"; showMediaPreview(uri, "video"); }
         });
 
-    private final ActivityResultLauncher<String> imageCaptLauncher =
+    private final ActivityResultLauncher<Uri> imageCaptLauncher =
         registerForActivityResult(new ActivityResultContracts.TakePicture(), success -> {
             if (success && imageCaptureUri != null) {
                 mediaUri = imageCaptureUri; mediaType = "image"; type = "image"; showMediaPreview(imageCaptureUri, "image");

@@ -163,15 +163,15 @@ public class StatusBackgroundService extends Service {
                     if (item.timestamp == null) return;
 
                     // Avoid notifying for items posted > 30 s ago (reconnect flush)
-                    long age = System.currentTimeMillis() - item.timestamp;
+                    long age = System.currentTimeMillis() - (Long) item.timestamp;
                     if (age > 30_000L) return;
 
                     // Don't notify for own statuses
                     if (myUid.equals(item.ownerUid)) return;
 
                     postNotificationIfNew(
-                            item.ownerUid, item.ownerName, item.ownerPhoto,
-                            item.type, item.text, item.mediaUrl, item.timestamp);
+                            item.ownerUid, item.ownerName, item.ownerPhotoUrl,
+                            item.type, item.text, item.mediaUrl, (Long) item.timestamp);
                 } catch (Exception e) {
                     Log.w(TAG, "onChildAdded error: " + e.getMessage());
                 }
