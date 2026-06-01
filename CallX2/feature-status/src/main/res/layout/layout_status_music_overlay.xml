@@ -13,7 +13,7 @@
             android:textSize="12sp" android:textColor="#FFFFFF" android:maxLines="1"
             android:ellipsize="marquee" android:marqueeRepeatLimit="marquee_forever"
             android:singleLine="true" android:focusable="true"
-            android:focusableInTouchMode="true" android:selected="true"/>
+            android:focusableInTouchMode="true"/>
         <TextView android:id="@+id/tv_music_artist"
             android:layout_width="140dp" android:layout_height="wrap_content"
             android:textSize="10sp" android:textColor="#CCCCCC" android:maxLines="1"
