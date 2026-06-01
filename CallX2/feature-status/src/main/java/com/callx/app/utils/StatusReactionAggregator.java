@@ -218,7 +218,8 @@ public final class StatusReactionAggregator {
                             ownerUid, reactorUid,
                             reactorName != null ? reactorName : "Someone",
                             reactorPhoto != null ? reactorPhoto : "",
-                            emoji);
+                            emoji,
+                            ownerUid);
                     } catch (Exception ignored) {}
                 }
                 @Override
