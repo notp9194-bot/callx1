@@ -207,7 +207,6 @@
             android:src="@drawable/ic_play"
             android:tint="#A855F7"
             android:background="@drawable/bg_circle_action"
-            android:tint="#FFFFFF"
             android:padding="14dp"
             android:contentDescription="Preview selection"/>
 

@@ -157,7 +157,6 @@
             android:src="@drawable/ic_play"
             android:tint="#A855F7"
             android:background="@drawable/circle_primary"
-            android:tint="@color/white"
             android:padding="14dp"
             android:contentDescription="Record duet"/>
     </LinearLayout>

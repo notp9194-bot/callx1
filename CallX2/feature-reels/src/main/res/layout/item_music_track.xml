@@ -125,7 +125,6 @@
         android:src="@drawable/ic_bookmark"
             android:tint="#00C6FF"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:tint="?attr/colorOnSurface"
         android:contentDescription="Save sound"
         android:layout_marginEnd="4dp"/>
 
@@ -137,7 +136,6 @@
         android:src="@drawable/ic_play"
             android:tint="#A855F7"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:tint="?attr/colorOnSurface"
         android:contentDescription="Preview"/>
 
     <!-- Select button -->

@@ -133,7 +133,6 @@
                 android:src="@drawable/ic_play"
             android:tint="#A855F7"
                 android:background="@drawable/bg_circle_white"
-                android:tint="@color/brand_primary"
                 android:padding="8dp"
                 android:contentDescription="Play"/>
         </LinearLayout>

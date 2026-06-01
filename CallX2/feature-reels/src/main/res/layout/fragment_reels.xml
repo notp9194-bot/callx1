@@ -80,7 +80,6 @@
             android:src="@drawable/ic_search"
             android:tint="#6BCFEF"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="@color/white"
             android:contentDescription="Search"
             android:layout_marginEnd="4dp"/>
 
