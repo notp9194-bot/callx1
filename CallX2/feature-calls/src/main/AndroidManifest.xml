@@ -29,6 +29,11 @@
         <activity android:name="com.callx.app.activities.GroupCallSettingsActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <!-- FIX: CallSettingsActivity was missing — caused ActivityNotFoundException crash on video call -->
+        <activity android:name="com.callx.app.activities.CallSettingsActivity"
+            android:label="Call Settings"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
 
         <service android:name="com.callx.app.services.CallForegroundService"
             android:exported="false"
