@@ -1,11 +1,9 @@
 package com.callx.app.activities;
 
-import android.content.DialogInterface;
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
-import androidx.appcompat.app.AlertDialog;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
 import com.bumptech.glide.Glide;
@@ -15,144 +13,136 @@ import com.google.firebase.database.*;
 import java.util.*;
 
 /**
- * StatusHighlightsActivity v26 — FIX: Long-press now offers Delete AND Rename.
- * Also: media playback support for video thumbnails.
+ * StatusHighlightsActivity — Browse highlights albums.
+ * Shows album list; tap album → view statuses in that album.
+ * Long-press album → delete/rename.
  */
 public class StatusHighlightsActivity extends AppCompatActivity {
-    private String myUid;
-    private final List<Album> albums = new ArrayList<>();
+
+    private RecyclerView rv;
+    private TextView tvEmpty;
+    private ProgressBar progress;
+    private final Map<String, List<StatusItem>> albumMap = new LinkedHashMap<>();
     private AlbumAdapter adapter;
+    private String ownerUid;
 
-    static class Album {
-        String id, name, coverUrl; int itemCount; long lastUpdated;
-    }
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
 
-    @Override protected void onCreate(Bundle b) {
-        super.onCreate(b);
-        myUid = FirebaseUtils.getCurrentUid();
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(0,0,0,0);
+        androidx.appcompat.widget.Toolbar toolbar = new androidx.appcompat.widget.Toolbar(this);
+        toolbar.setTitle("Highlights");
+        toolbar.setNavigationIcon(android.R.drawable.ic_menu_revert);
+        toolbar.setNavigationOnClickListener(v -> finish());
+        root.addView(toolbar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // Toolbar
-        androidx.appcompat.widget.Toolbar tb = new androidx.appcompat.widget.Toolbar(this);
-        tb.setTitle("Highlights"); tb.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
-        tb.setNavigationOnClickListener(v -> finish());
-        root.addView(tb);
-
-        // RecyclerView
-        RecyclerView rv = new RecyclerView(this);
-        rv.setLayoutManager(new GridLayoutManager(this, 2));
-        rv.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        progress = new ProgressBar(this);
+        root.addView(progress);
+        tvEmpty = new TextView(this);
+        tvEmpty.setText("No highlights yet\nAdd statuses to highlights from the viewer.");
+        tvEmpty.setGravity(android.view.Gravity.CENTER);
+        tvEmpty.setPadding(0, 64, 0, 0);
+        tvEmpty.setVisibility(View.GONE);
+        root.addView(tvEmpty);
+        rv = new RecyclerView(this);
+        rv.setLayoutManager(new GridLayoutManager(this, 3));
         adapter = new AlbumAdapter();
-        rv.setAdapter(adapter); root.addView(rv);
-
-        // Empty state
-        TextView tvEmpty = new TextView(this); tvEmpty.setText("No highlights yet. Add your favourite statuses!");
-        tvEmpty.setVisibility(View.GONE); tvEmpty.setGravity(android.view.Gravity.CENTER);
-        tvEmpty.setPadding(40,80,40,0); root.addView(tvEmpty);
-
+        rv.setAdapter(adapter);
+        root.addView(rv, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
-        loadAlbums(tvEmpty);
+
+        ownerUid = getIntent().getStringExtra("ownerUid");
+        if (ownerUid == null) {
+            try { ownerUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { finish(); return; }
+        }
+        loadHighlights();
     }
 
-    private void loadAlbums(TextView tvEmpty) {
-        StatusHighlightManager.getHighlightsRef(myUid)
-            .addValueEventListener(new ValueEventListener() {
-                @Override public void onDataChange(DataSnapshot snap) {
-                    albums.clear();
+    private void loadHighlights() {
+        StatusHighlightManager.getHighlightsRef(ownerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    progress.setVisibility(View.GONE);
+                    albumMap.clear();
                     for (DataSnapshot albumSnap : snap.getChildren()) {
-                        Album a = new Album(); a.id = albumSnap.getKey(); a.itemCount = 0;
-                        for (DataSnapshot item : albumSnap.getChildren()) {
-                            a.itemCount++;
-                            String name = item.child("highlightAlbumName").getValue(String.class);
-                            if (name != null && a.name == null) a.name = name;
-                            String url = item.child("mediaUrl").getValue(String.class);
-                            if (a.coverUrl == null && url != null) a.coverUrl = url;
-                            Long ts = item.child("timestamp").getValue(Long.class);
-                            if (ts != null && ts > a.lastUpdated) a.lastUpdated = ts;
+                        String albumId = albumSnap.getKey();
+                        if (albumId == null) continue;
+                        List<StatusItem> list = new ArrayList<>();
+                        for (DataSnapshot c : albumSnap.getChildren()) {
+                            StatusItem item = c.getValue(StatusItem.class);
+                            if (item != null) list.add(item);
                         }
-                        if (a.name == null && a.id != null) a.name = a.id;
-                        if (a.name != null) albums.add(a);
+                        if (!list.isEmpty()) albumMap.put(albumId, list);
                     }
                     adapter.notifyDataSetChanged();
-                    tvEmpty.setVisibility(albums.isEmpty() ? View.VISIBLE : View.GONE);
+                    tvEmpty.setVisibility(albumMap.isEmpty() ? View.VISIBLE : View.GONE);
                 }
-                @Override public void onCancelled(DatabaseError e) {}
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    progress.setVisibility(View.GONE);
+                }
             });
     }
 
-    void showAlbumOptions(Album album) {
-        new AlertDialog.Builder(this)
-            .setTitle(album.name)
-            // FIX: Now has both Delete AND Rename options
-            .setItems(new String[]{"📝 Rename album", "🗑 Delete album"}, (dialog, which) -> {
-                if (which == 0) showRenameDialog(album);
-                else            confirmDeleteAlbum(album);
-            })
-            .show();
-    }
-
-    void showRenameDialog(Album album) {
-        EditText et = new EditText(this); et.setText(album.name); et.selectAll();
-        int pad = Math.round(20 * getResources().getDisplayMetrics().density);
-        et.setPadding(pad,pad,pad,pad);
-        new AlertDialog.Builder(this).setTitle("Rename Album")
-            .setView(et)
-            .setPositiveButton("Rename", (d, w) -> {
-                String newName = et.getText().toString().trim();
-                if (!newName.isEmpty()) {
-                    StatusHighlightManager.renameAlbum(myUid, album.id, newName);
-                    Toast.makeText(this, "Album renamed", Toast.LENGTH_SHORT).show();
-                }
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
-    }
-
-    void confirmDeleteAlbum(Album album) {
-        new AlertDialog.Builder(this).setTitle("Delete \"" + album.name + "\"?")
-            .setMessage("This will remove all " + album.itemCount + " items from this highlight.")
-            .setPositiveButton("Delete", (d, w) -> {
-                StatusHighlightManager.getAlbumRef(myUid, album.id).removeValue();
-                Toast.makeText(this, "Album deleted", Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null).show();
-    }
-
-    void openAlbum(Album album) {
-        Intent i = new Intent(this, StatusViewerActivity.class);
-        i.putExtra("ownerUid", myUid);
-        i.putExtra("highlightAlbumId", album.id);
-        i.putExtra("highlightAlbumName", album.name);
-        startActivity(i);
-    }
-
     class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.VH> {
-        @Override public int getItemCount() { return albums.size(); }
-        @Override public VH onCreateViewHolder(ViewGroup p, int t) {
-            FrameLayout fl = new FrameLayout(p.getContext()); int sz = p.getWidth()/2;
-            fl.setLayoutParams(new RecyclerView.LayoutParams(sz, sz));
-            return new VH(fl);
+        @NonNull @Override
+        public VH onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
+            LinearLayout card = new LinearLayout(parent.getContext());
+            card.setOrientation(LinearLayout.VERTICAL);
+            int w = parent.getWidth() / 3;
+            card.setLayoutParams(new RecyclerView.LayoutParams(w, (int)(w * 1.3f)));
+            return new VH(card);
         }
-        @Override public void onBindViewHolder(VH h, int pos) {
-            Album a = albums.get(pos); FrameLayout fl = (FrameLayout) h.itemView; fl.removeAllViews();
-            ImageView iv = new ImageView(fl.getContext());
-            iv.setLayoutParams(new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            if (a.coverUrl != null) Glide.with(fl.getContext()).load(a.coverUrl).centerCrop().into(iv);
-            else iv.setBackgroundColor(android.graphics.Color.DKGRAY);
-            fl.addView(iv);
-            // Overlay
-            LinearLayout overlay = new LinearLayout(fl.getContext()); overlay.setOrientation(LinearLayout.VERTICAL);
-            overlay.setGravity(android.view.Gravity.BOTTOM); overlay.setBackgroundColor(android.graphics.Color.parseColor("#55000000"));
-            overlay.setLayoutParams(new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-            overlay.setPadding(12,0,12,12);
-            TextView tvName = new TextView(fl.getContext()); tvName.setText(a.name); tvName.setTextColor(android.graphics.Color.WHITE); tvName.setTextSize(14); tvName.setTypeface(null, android.graphics.Typeface.BOLD);
-            TextView tvCnt  = new TextView(fl.getContext()); tvCnt.setText(a.itemCount + " items"); tvCnt.setTextColor(android.graphics.Color.LTGRAY); tvCnt.setTextSize(11);
-            overlay.addView(tvName); overlay.addView(tvCnt); fl.addView(overlay);
-            fl.setOnClickListener(v -> openAlbum(a));
-            fl.setOnLongClickListener(v -> { showAlbumOptions(a); return true; });
+        @Override public void onBindViewHolder(@NonNull VH h, int pos) {
+            List<String> keys = new ArrayList<>(albumMap.keySet());
+            if (pos >= keys.size()) return;
+            String albumId = keys.get(pos);
+            List<StatusItem> list = albumMap.get(albumId);
+            if (list == null || list.isEmpty()) return;
+            StatusItem cover = list.get(0);
+            String albumName = cover.highlightAlbumName != null ? cover.highlightAlbumName : albumId;
+            String url = cover.thumbnailUrl != null ? cover.thumbnailUrl : cover.mediaUrl;
+            if (url != null && !url.isEmpty()) Glide.with(h.iv).load(url).centerCrop().into(h.iv);
+            else if (cover.bgColor != null) h.iv.setBackgroundColor(android.graphics.Color.parseColor(cover.bgColor));
+            h.tvName.setText(albumName);
+            h.tvCount.setText(list.size() + (list.size() == 1 ? " status" : " statuses"));
+            h.itemView.setOnClickListener(v -> {
+                android.content.Intent i = new android.content.Intent(StatusHighlightsActivity.this, StatusViewerActivity.class);
+                i.putExtra(StatusViewerActivity.EXTRA_OWNER_UID, ownerUid);
+                i.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, albumName);
+                startActivity(i);
+            });
+            h.itemView.setOnLongClickListener(v -> {
+                new androidx.appcompat.app.AlertDialog.Builder(StatusHighlightsActivity.this)
+                    .setTitle(albumName)
+                    .setItems(new String[]{"Delete album", "Cancel"}, (d, w2) -> {
+                        if (w2 == 0) {
+                            StatusHighlightManager.getAlbumRef(ownerUid, albumId).removeValue();
+                            albumMap.remove(albumId);
+                            notifyDataSetChanged();
+                            tvEmpty.setVisibility(albumMap.isEmpty() ? View.VISIBLE : View.GONE);
+                        }
+                    }).show();
+                return true;
+            });
         }
-        class VH extends RecyclerView.ViewHolder { VH(View v){super(v);} }
+        @Override public int getItemCount() { return albumMap.size(); }
+        class VH extends RecyclerView.ViewHolder {
+            ImageView iv; TextView tvName, tvCount;
+            VH(LinearLayout c) {
+                super(c);
+                iv = new ImageView(c.getContext());
+                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                iv.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+                c.addView(iv);
+                tvName = new TextView(c.getContext()); tvName.setTextSize(13); tvName.setPadding(8,4,8,0);
+                tvName.setTypeface(null, android.graphics.Typeface.BOLD); c.addView(tvName);
+                tvCount = new TextView(c.getContext()); tvCount.setTextSize(11);
+                tvCount.setTextColor(android.graphics.Color.GRAY); tvCount.setPadding(8,0,8,4); c.addView(tvCount);
+            }
+        }
     }
 }
