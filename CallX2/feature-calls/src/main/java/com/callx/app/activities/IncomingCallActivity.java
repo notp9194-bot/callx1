@@ -1,283 +1,239 @@
-package com.callx.app.activities;
+  package com.callx.app.activities;
+  import android.app.NotificationManager;
+  import android.content.Context;
+  import android.content.Intent;
+  import android.media.AudioAttributes;
+  import android.media.MediaPlayer;
+  import android.media.RingtoneManager;
+  import android.net.Uri;
+  import android.os.Bundle;
+  import android.os.Handler;
+  import android.os.Looper;
+  import android.os.PowerManager;
+  import androidx.appcompat.app.AppCompatActivity;
+  import com.callx.app.calls.databinding.ActivityIncomingCallBinding;
+  import com.callx.app.services.IncomingRingService;
+  import com.callx.app.utils.Constants;
+  import com.callx.app.utils.FirebaseUtils;
+  import com.google.firebase.database.DataSnapshot;
+  import com.google.firebase.database.DatabaseError;
+  import com.google.firebase.database.ValueEventListener;
+  import com.callx.app.db.AppDatabase;
+  import com.callx.app.db.entity.CallLogEntity;
+  import com.callx.app.utils.FirebaseUtils;
+  import java.util.HashMap;
+  import java.util.Map;
+  import java.util.concurrent.Executors;
+  public class IncomingCallActivity extends AppCompatActivity {
+      private ActivityIncomingCallBinding binding;
+      private MediaPlayer ringtonePlayer;
+      private PowerManager.WakeLock wakeLock;
+      private String callId, fromUid, fromName, fromPhoto, fromThumb; // FIX-1: added fromThumb
+      private boolean isVideo, acted = false;
+      private ValueEventListener statusListener;
+      private final Handler autoRejectHandler = new Handler(Looper.getMainLooper());
+      private static final int AUTO_REJECT_MS = 60_000;
+      @Override
+      protected void onCreate(Bundle savedInstanceState) {
+          super.onCreate(savedInstanceState);
+          binding = ActivityIncomingCallBinding.inflate(getLayoutInflater());
+          setContentView(binding.getRoot());
+          // Read extras — support both new Constants keys and legacy string keys
+          callId   = getIntent().getStringExtra(Constants.EXTRA_CALL_ID);
+          fromUid  = getIntent().getStringExtra(Constants.EXTRA_PARTNER_UID);
+          fromName = getIntent().getStringExtra(Constants.EXTRA_PARTNER_NAME);
+          isVideo  = getIntent().getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
+          if (callId  == null) callId  = getIntent().getStringExtra("callId");
+          if (fromUid == null) fromUid = getIntent().getStringExtra("fromUid");
+          if (fromName== null) fromName= getIntent().getStringExtra("fromName");
+          if (!isVideo) isVideo = getIntent().getBooleanExtra("video", false);
+          // FIX-9: read photo so it can be passed to CallActivity
+          fromPhoto = getIntent().getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
+          if (fromPhoto == null) fromPhoto = getIntent().getStringExtra("partnerPhoto");
+          // FIX-1: read thumb (100×100 WebP) for fast avatar in CallActivity
+          fromThumb = getIntent().getStringExtra("partnerThumb");
+          if (fromThumb == null) fromThumb = "";
+          binding.tvCallerName.setText(fromName == null ? "Unknown" : fromName);
+          binding.tvCallerSub.setText(isVideo ? "Incoming video CallX..." : "Incoming CallX...");
+          acquireWakeLock();
+          startLoopingRingtone();
+          watchCallStatus();
+          // Auto-reject after 60 s if user ignores the call
+          autoRejectHandler.postDelayed(() -> { if (!acted) reject(); }, AUTO_REJECT_MS);
+          binding.btnAccept.setOnClickListener(v -> accept());
+          binding.btnReject.setOnClickListener(v -> reject());
+      }
+      private void acquireWakeLock() {
+          try {
+              PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+              if (pm == null) return;
+              wakeLock = pm.newWakeLock(
+                  PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                  "callx:incoming_call");
+              wakeLock.acquire(AUTO_REJECT_MS + 5_000L);
+          } catch (Exception ignored) {}
+      }
+      /** Looping ringtone via MediaPlayer — plays until accept/reject/timeout */
+      private void startLoopingRingtone() {
+          try {
+              Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+              ringtonePlayer = new MediaPlayer();
+              ringtonePlayer.setDataSource(this, uri);
+              ringtonePlayer.setAudioAttributes(new AudioAttributes.Builder()
+                  .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                  .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                  .build());
+              ringtonePlayer.setLooping(true);
+              ringtonePlayer.prepare();
+              ringtonePlayer.start();
+          } catch (Exception ignored) {}
+      }
+      private void stopRingtone() {
+          try {
+              if (ringtonePlayer != null) {
+                  ringtonePlayer.stop();
+                  ringtonePlayer.release();
+                  ringtonePlayer = null;
+              }
+          } catch (Exception ignored) {}
+      }
+      /** Watch Firebase — auto-dismiss if caller cancels before answer */
+      private void watchCallStatus() {
+          if (callId == null || callId.isEmpty()) return;
+          statusListener = new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot s) {
+                  String st = s.getValue(String.class);
+                  if ("ended".equals(st) || "cancelled".equals(st)) {
+                      runOnUiThread(() -> { if (!acted) reject(); });
+                  }
+              }
+              @Override public void onCancelled(DatabaseError e) {}
+          };
+          FirebaseUtils.db().getReference("activeCalls")
+              .child(callId).child("status").addValueEventListener(statusListener);
+      }
+      private void accept() {
+          if (acted) return;
+          acted = true;
+          autoRejectHandler.removeCallbacksAndMessages(null);
+          stopRingtone();
+          stopIncomingRingService();
+          cancelRingNotification();
+          if (callId != null && !callId.isEmpty()) {
+              FirebaseUtils.db().getReference("activeCalls")
+                  .child(callId).child("status").setValue("accepted");
+          }
+          Intent i = new Intent(this, CallActivity.class);
+          i.putExtra("partnerUid",   fromUid);
+          i.putExtra("partnerName",  fromName != null ? fromName : "");
+          i.putExtra("partnerPhoto", fromPhoto != null ? fromPhoto : ""); // FIX-9
+          i.putExtra("partnerThumb", fromThumb != null ? fromThumb : ""); // FIX-1
+          i.putExtra("isCaller",     false);
+          i.putExtra("video",        isVideo);
+          i.putExtra("callId",       callId);
+          startActivity(i);
+          finish();
+      }
+      private void reject() {
+          if (acted) return;
+          acted = true;
+          autoRejectHandler.removeCallbacksAndMessages(null);
+          stopRingtone();
+          stopIncomingRingService();
+          cancelRingNotification();
+          if (callId != null && !callId.isEmpty()) {
+              FirebaseUtils.db().getReference("activeCalls")
+                  .child(callId).child("status").setValue("rejected");
+          }
+          // ── Missed call log ──────────────────────────────────────────────
+          // B (callee) ne reject/ignore kiya → dono ke liye "missed" entry likho
+          logMissedCall();
+          finish();
+      }
 
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
-import android.media.Ringtone;
-import android.media.RingtoneManager;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
-import android.view.View;
-import android.view.WindowManager;
-import android.widget.ImageView;
-import android.widget.TextView;
+      /**
+       * Dono parties ke Firebase call log me "missed" entry likhta hai:
+       *   B (callee/hum) → direction = "missed"
+       *   A (caller/fromUid) → direction = "missed"
+       * Aur B ke Room DB me bhi cache karta hai.
+       */
+      private void logMissedCall() {
+          String myUid = FirebaseUtils.getCurrentUid();
+          if (myUid == null || fromUid == null || fromUid.isEmpty()) return;
 
-import androidx.appcompat.app.AppCompatActivity;
+          long ts = System.currentTimeMillis();
+          String media = isVideo ? "video" : "audio";
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.RequestOptions;
-import com.callx.app.calls.R;
-import com.callx.app.services.IncomingRingService;
-import com.callx.app.utils.Constants;
-import com.callx.app.utils.FirebaseUtils;
-import com.google.firebase.database.DataSnapshot;
-import com.google.firebase.database.DatabaseError;
-import com.google.firebase.database.ValueEventListener;
+          // ── B ke liye (callee = hum) ──
+          Map<String, Object> myMissed = new HashMap<>();
+          myMissed.put("partnerUid",  fromUid);
+          myMissed.put("partnerName", fromName != null ? fromName : "");
+          myMissed.put("direction",   "missed");
+          myMissed.put("mediaType",   media);
+          myMissed.put("timestamp",   ts);
+          myMissed.put("duration",    0L);
+          FirebaseUtils.getCallsRef(myUid).push().setValue(myMissed)
+              .addOnFailureListener(e -> android.util.Log.w("IncomingCall", "B missed-log failed", e));
 
-/**
- * IncomingCallActivity — Full-screen incoming call UI.
- *
- * Production improvements:
- *  - Avatar loading via Glide (thumb → full → initial fallback)
- *  - Auto-reject after CALL_TIMEOUT_MS with missed-call log
- *  - "Call Ended" overlay if caller cancelled before answer
- *  - Vibration pattern with proper VibrationEffect API (Android O+)
- *  - ACTION_DECLINED/ACTION_CANCELLED broadcast for callee notification cleanup
- *  - SHOW_WHEN_LOCKED flag so full-screen displays over lock screen
- *  - Battery: Ringtone released on stop; Vibrator cancelled on stop
- */
-public class IncomingCallActivity extends AppCompatActivity {
+          // ── A ke liye (caller = fromUid) — unhe bhi missed dikhao ──
+          FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot snap) {
+                  String myName = snap.child("name").getValue(String.class);
+                  Map<String, Object> callerMissed = new HashMap<>();
+                  callerMissed.put("partnerUid",  myUid);
+                  callerMissed.put("partnerName", myName != null ? myName : "");
+                  callerMissed.put("direction",   "missed");
+                  callerMissed.put("mediaType",   media);
+                  callerMissed.put("timestamp",   ts);
+                  callerMissed.put("duration",    0L);
+                  FirebaseUtils.getCallsRef(fromUid).push().setValue(callerMissed)
+                      .addOnFailureListener(e -> android.util.Log.w("IncomingCall", "A missed-log failed", e));
+              }
+              @Override public void onCancelled(DatabaseError e) {}
+          });
 
-    private String callId, callerUid, callerName, callerPhoto, callerThumb;
-    private boolean isVideo;
-
-    // UI
-    private TextView   tvCallerName, tvCallType, tvCallStatus;
-    private ImageView  ivAvatar;
-
-    // Ringtone / vibrate
-    private Ringtone ringtone;
-    private Vibrator vibrator;
-    private static final long[] VIBRATE_PATTERN = {0, 700, 500, 700, 500};
-
-    // Timeouts
-    private final Handler  timeoutHandler    = new Handler(Looper.getMainLooper());
-    private Runnable       timeoutRunnable;
-
-    // Broadcast receiver for ACTION_ACCEPTED / ACTION_DECLINED from notification
-    private BroadcastReceiver actionReceiver;
-
-    // Firebase: watch for caller cancel
-    private ValueEventListener callStatusListener;
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        // Show over lock screen
-        getWindow().addFlags(
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-            | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-            | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
-
-        setContentView(R.layout.activity_incoming_call);
-
-        callId      = getIntent().getStringExtra(Constants.EXTRA_CALL_ID);
-        callerUid   = getIntent().getStringExtra(Constants.EXTRA_PARTNER_UID);
-        callerName  = getIntent().getStringExtra(Constants.EXTRA_PARTNER_NAME);
-        callerPhoto = getIntent().getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
-        callerThumb = getIntent().getStringExtra("partnerThumb");
-        isVideo     = getIntent().getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
-
-        if (callId == null || callerUid == null) { finish(); return; }
-
-        tvCallerName = findViewById(R.id.tv_caller_name);
-        tvCallType   = findViewById(R.id.tv_caller_sub);
-        tvCallStatus = findViewById(R.id.tv_caller_sub);
-        ivAvatar     = findViewById(R.id.iv_caller_avatar);
-
-        // Caller name
-        if (tvCallerName != null) tvCallerName.setText(callerName != null ? callerName : "Unknown");
-        // Call type label
-        if (tvCallType != null)   tvCallType.setText(isVideo ? "Incoming video call" : "Incoming voice call");
-        if (tvCallStatus != null) tvCallStatus.setVisibility(View.GONE);
-
-        // Avatar loading — thumb first (faster), fall back to full photo
-        loadAvatar();
-
-        // Buttons
-        View btnAccept  = findViewById(R.id.btn_accept);
-        View btnDecline = findViewById(R.id.btn_reject);
-        if (btnAccept  != null) btnAccept.setOnClickListener(v  -> acceptCall());
-        if (btnDecline != null) btnDecline.setOnClickListener(v -> declineCall());
-
-        // Stop IncomingRingService (it showed the HUN; we're full-screen now)
-        try { stopService(new Intent(this, IncomingRingService.class)); } catch (Exception ignored) {}
-
-        startRingtoneAndVibration();
-        registerActionReceiver();
-        watchCallStatus();
-        scheduleAutoReject();
-    }
-
-    // ── Avatar ────────────────────────────────────────────────────────────
-
-    private void loadAvatar() {
-        if (ivAvatar == null) return;
-        // Try thumb first for speed, then full photo
-        String url = (callerThumb != null && !callerThumb.isEmpty()) ? callerThumb
-                   : (callerPhoto != null && !callerPhoto.isEmpty()) ? callerPhoto
-                   : null;
-        if (url != null) {
-            Glide.with(this)
-                .load(url)
-                .apply(RequestOptions.circleCropTransform()
-                    .placeholder(R.drawable.ic_person)
-                    .error(R.drawable.ic_person))
-                .into(ivAvatar);
-        }
-    }
-
-    // ── Ringtone + vibration ──────────────────────────────────────────────
-
-    private void startRingtoneAndVibration() {
-        try {
-            Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-            ringtone = RingtoneManager.getRingtone(this, ringtoneUri);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                ringtone.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build());
-                ringtone.setLooping(true);
-            }
-            ringtone.play();
-        } catch (Exception ignored) {}
-
-        try {
-            vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-            if (vibrator != null && vibrator.hasVibrator()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createWaveform(VIBRATE_PATTERN, 0));
-                } else {
-                    //noinspection deprecation
-                    vibrator.vibrate(VIBRATE_PATTERN, 0);
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private void stopRingtoneAndVibration() {
-        try { if (ringtone != null && ringtone.isPlaying()) ringtone.stop(); } catch (Exception ignored) {}
-        try { if (vibrator != null) vibrator.cancel(); } catch (Exception ignored) {}
-    }
-
-    // ── Broadcast receiver (from notification buttons) ────────────────────
-
-    private void registerActionReceiver() {
-        actionReceiver = new BroadcastReceiver() {
-            @Override public void onReceive(Context ctx, Intent intent) {
-                String action = intent.getAction();
-                if (Constants.ACTION_ACCEPT_CALL.equals(action))  acceptCall();
-                else if (Constants.ACTION_DECLINE_CALL.equals(action)) declineCall();
-            }
-        };
-        IntentFilter f = new IntentFilter();
-        f.addAction(Constants.ACTION_ACCEPT_CALL);
-        f.addAction(Constants.ACTION_DECLINE_CALL);
-        try { registerReceiver(actionReceiver, f); } catch (Exception ignored) {}
-    }
-
-    // ── Firebase: watch for caller cancel ─────────────────────────────────
-
-    private void watchCallStatus() {
-        if (callId == null) return;
-        callStatusListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                String st = snap.getValue(String.class);
-                if ("cancelled".equals(st) || "ended".equals(st)) {
-                    stopRingtoneAndVibration();
-                    showCallEnded("Call ended");
-                }
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        FirebaseUtils.db().getReference("activeCalls")
-            .child(callId).child("status")
-            .addValueEventListener(callStatusListener);
-    }
-
-    // ── Auto-reject timeout ───────────────────────────────────────────────
-
-    private void scheduleAutoReject() {
-        timeoutRunnable = () -> {
-            // Log missed call on our side
-            String myUid = FirebaseUtils.getCurrentUid();
-            if (myUid != null) {
-                java.util.Map<String, Object> log = new java.util.HashMap<>();
-                log.put("partnerUid",  callerUid);
-                log.put("partnerName", callerName != null ? callerName : "");
-                log.put("direction",   "missed");
-                log.put("mediaType",   isVideo ? "video" : "audio");
-                log.put("timestamp",   System.currentTimeMillis());
-                log.put("duration",    0L);
-                FirebaseUtils.getCallsRef(myUid).push().setValue(log);
-            }
-            declineCall();
-        };
-        timeoutHandler.postDelayed(timeoutRunnable, Constants.CALL_TIMEOUT_MS);
-    }
-
-    private void showCallEnded(String msg) {
-        if (tvCallStatus != null) {
-            tvCallStatus.setText(msg);
-            tvCallStatus.setVisibility(View.VISIBLE);
-        }
-        timeoutHandler.postDelayed(this::finish, 2_000);
-    }
-
-    // ── Accept / Decline ──────────────────────────────────────────────────
-
-    private void acceptCall() {
-        stopRingtoneAndVibration();
-        if (timeoutRunnable != null) timeoutHandler.removeCallbacks(timeoutRunnable);
-
-        Intent callIntent = new Intent(this, CallActivity.class);
-        callIntent.putExtra("partnerUid",   callerUid);
-        callIntent.putExtra("partnerName",  callerName);
-        callIntent.putExtra("partnerPhoto", callerPhoto);
-        callIntent.putExtra("partnerThumb", callerThumb);
-        callIntent.putExtra("callId",       callId);
-        callIntent.putExtra("isCaller",     false);
-        callIntent.putExtra("video",        isVideo);
-        callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        startActivity(callIntent);
-        finish();
-    }
-
-    private void declineCall() {
-        stopRingtoneAndVibration();
-        if (timeoutRunnable != null) timeoutHandler.removeCallbacks(timeoutRunnable);
-        if (callId != null) {
-            FirebaseUtils.db().getReference("activeCalls")
-                .child(callId).child("status").setValue("rejected");
-        }
-        finish();
-    }
-
-    // ── Lifecycle ─────────────────────────────────────────────────────────
-
-    @Override
-    protected void onDestroy() {
-        stopRingtoneAndVibration();
-        if (timeoutRunnable != null) timeoutHandler.removeCallbacks(timeoutRunnable);
-        try { if (actionReceiver != null) unregisterReceiver(actionReceiver); } catch (Exception ignored) {}
-        try {
-            if (callStatusListener != null && callId != null)
-                FirebaseUtils.db().getReference("activeCalls")
-                    .child(callId).child("status")
-                    .removeEventListener(callStatusListener);
-        } catch (Exception ignored) {}
-        super.onDestroy();
-    }
-}
+          // ── Room cache — B ke liye ──
+          Executors.newSingleThreadExecutor().execute(() -> {
+              try {
+                  CallLogEntity entity = new CallLogEntity();
+                  entity.id          = java.util.UUID.randomUUID().toString();
+                  entity.partnerUid  = fromUid;
+                  entity.partnerName = fromName != null ? fromName : "";
+                  entity.direction   = "missed";
+                  entity.mediaType   = media;
+                  entity.timestamp   = ts;
+                  entity.duration    = 0L;
+                  AppDatabase.getInstance(getApplicationContext())
+                      .callLogDao().insertCallLog(entity);
+              } catch (Exception ex) {
+                  android.util.Log.w("IncomingCall", "Room missed-log failed", ex);
+              }
+          });
+      }
+      private void stopIncomingRingService() {
+          try { stopService(new Intent(this, IncomingRingService.class)); }
+          catch (Exception ignored) {}
+      }
+      private void cancelRingNotification() {
+          try {
+              NotificationManager nm = (NotificationManager)
+                  getSystemService(Context.NOTIFICATION_SERVICE);
+              if (nm != null) nm.cancel(Constants.CALL_RING_NOTIF_ID);
+          } catch (Exception ignored) {}
+      }
+      @Override
+      protected void onDestroy() {
+          autoRejectHandler.removeCallbacksAndMessages(null);
+          stopRingtone();
+          if (wakeLock != null && wakeLock.isHeld()) {
+              try { wakeLock.release(); } catch (Exception ignored) {}
+          }
+          if (statusListener != null && callId != null && !callId.isEmpty()) {
+              try {
+                  FirebaseUtils.db().getReference("activeCalls")
+                      .child(callId).child("status").removeEventListener(statusListener);
+              } catch (Exception ignored) {}
+          }
+          super.onDestroy();
+      }
+  }

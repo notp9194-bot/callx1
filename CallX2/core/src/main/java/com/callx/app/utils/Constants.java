@@ -248,24 +248,5 @@ public class Constants {
       // ── Notification Center ───────────────────────────────────────────────
       public static final String FILTER_GROUPS              = "group";
   
-      
-    // ── 1:1 Call Settings SharedPreferences ──────────────────────────────
-    public static final String CALL_SETTINGS_1TO1_PREFS = "call_settings_1to1";
-
-    // ── Active speaker detection threshold (GroupCallActivity) ────────────
-    /** Audio level threshold (0.0–1.0) above which a participant is "speaking" */
-    public static final double ACTIVE_SPEAKER_THRESHOLD = 0.05;
-    /** How long (ms) a participant must be below threshold before losing "active" status */
-    public static final long   ACTIVE_SPEAKER_SILENCE_MS = 1_500L;
-
-    // ── Call reconnection state machine ──────────────────────────────────
-    /** Delay before first ICE restart attempt (ms) */
-    public static final long   ICE_RESTART_DELAY_MS      = 2_000L;
-    /** Backoff multiplier for subsequent ICE restart attempts */
-    public static final float  ICE_RESTART_BACKOFF       = 2.0f;
-
-    // ── Network quality display ───────────────────────────────────────────
-    public static final String ACTION_CALL_QUALITY_UPDATE = "com.callx.app.CALL_QUALITY_UPDATE";
-
-    private Constants() {}
+      private Constants() {}
   }

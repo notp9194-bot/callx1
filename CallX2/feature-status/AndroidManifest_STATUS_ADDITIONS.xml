@@ -1,0 +1,58 @@
+<!-- STATUS ADDITIONS for AndroidManifest.xml — v25 -->
+<!-- Merge these activity declarations into your main AndroidManifest.xml -->
+<!-- under the <application> tag -->
+
+<!--
+<activity
+    android:name="com.callx.app.activities.StatusViewerActivity"
+    android:exported="false"
+    android:screenOrientation="portrait"
+    android:windowSoftInputMode="adjustResize"
+    android:theme="@style/Theme.App.Immersive"/>
+
+<activity
+    android:name="com.callx.app.activities.NewStatusActivity"
+    android:exported="false"
+    android:screenOrientation="portrait"
+    android:windowSoftInputMode="adjustPan"/>
+
+<activity
+    android:name="com.callx.app.activities.StatusArchiveActivity"
+    android:exported="false"
+    android:screenOrientation="portrait"/>
+
+<activity
+    android:name="com.callx.app.activities.StatusHighlightsActivity"
+    android:exported="false"
+    android:screenOrientation="portrait"/>
+
+Permissions needed (add to manifest root):
+<uses-permission android:name="android.permission.CAMERA"/>
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+    android:maxSdkVersion="28"/>
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+    android:maxSdkVersion="32"/>
+<uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+<uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+
+Firebase Realtime Database rules — add these paths:
+{
+  "rules": {
+    "statusHighlights": {
+      "$uid": { ".read": "$uid === auth.uid", ".write": "$uid === auth.uid" }
+    },
+    "statusArchive": {
+      "$uid": { ".read": "$uid === auth.uid", ".write": "$uid === auth.uid" }
+    },
+    "statusAnalytics": {
+      "$ownerUid": { ".read": "$ownerUid === auth.uid", ".write": "auth != null" }
+    },
+    "closeFriends": {
+      "$uid": { ".read": "$uid === auth.uid", ".write": "$uid === auth.uid" }
+    },
+    "statusSeen": {
+      "$viewerUid": { ".read": "$viewerUid === auth.uid", ".write": "$viewerUid === auth.uid" }
+    }
+  }
+}
+-->

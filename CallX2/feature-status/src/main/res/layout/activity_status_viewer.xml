@@ -41,7 +41,7 @@
 
     </FrameLayout>
 
-    <!-- ── Touch capture layer (above content, below UI chrome) ── -->
+    <!-- ── Touch capture layer (must be above content, below UI chrome) ── -->
     <View
         android:id="@+id/touch_layer"
         android:layout_width="match_parent"
@@ -66,7 +66,7 @@
             android:paddingBottom="4dp"
             android:gravity="center_vertical"/>
 
-        <!-- Header: avatar + name + timestamp + action buttons + close -->
+        <!-- Header: avatar + name + timestamp + close -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -111,37 +111,14 @@
 
             </LinearLayout>
 
-            <!-- Download (owner only — shown/hidden in code) -->
-            <ImageButton
-                android:id="@+id/btn_download"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_download"
-                android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Download"
-                android:visibility="gone"/>
-
-            <!-- Add to Highlights (owner only — shown/hidden in code) -->
-            <ImageButton
-                android:id="@+id/btn_highlight"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_highlight_star"
-                android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Add to highlights"
-                android:visibility="gone"/>
-
-            <!-- More options -->
+            <!-- Mute / more options -->
             <ImageButton
                 android:id="@+id/btn_more"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:src="@android:drawable/ic_menu_more"
                 android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="More options"/>
+                android:background="?attr/selectableItemBackgroundBorderless"/>
 
             <!-- Close -->
             <ImageButton
@@ -150,8 +127,7 @@
                 android:layout_height="40dp"
                 android:src="@drawable/ic_back"
                 android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Close"/>
+                android:background="?attr/selectableItemBackgroundBorderless"/>
 
         </LinearLayout>
 
@@ -170,7 +146,7 @@
         android:background="@drawable/bg_circle_dark"
         android:padding="8dp"
         android:visibility="gone"
-        android:contentDescription="Mute video"/>
+        android:contentDescription="Mute"/>
 
     <!-- ── Bottom chrome ── -->
     <LinearLayout
@@ -198,7 +174,7 @@
             android:shadowDy="1"
             android:visibility="gone"/>
 
-        <!-- Seen-by info: "👁 Seen by N  ❤️ 3  😂 1" (owner only) -->
+        <!-- Seen-by info (visible to owner only — tap to see viewer list) -->
         <TextView
             android:id="@+id/tv_seen_by"
             android:layout_width="wrap_content"
@@ -252,7 +228,7 @@
                 android:src="@drawable/ic_status_notification"
                 android:tint="@color/white"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="React with emoji"/>
+                android:contentDescription="React"/>
 
             <!-- Send reply -->
             <ImageButton
