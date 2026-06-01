@@ -14,7 +14,7 @@
         android:layout_height="wrap_content"
         android:textSize="13sp"
         android:textStyle="bold"
-        android:textColor="#222222"/>
+        android:textColor="#FFFFFF"/>
 
     <TextView
         android:id="@+id/tv_text"

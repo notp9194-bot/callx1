@@ -93,7 +93,7 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="User" android:textSize="17sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="#FFE082"
+                    android:textColor="#FFFFFF"
                     android:maxLines="1" android:ellipsize="end"/>
 
                 <ImageView android:id="@+id/iv_verified"
