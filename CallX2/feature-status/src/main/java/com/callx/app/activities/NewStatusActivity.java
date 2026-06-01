@@ -717,8 +717,8 @@ public class NewStatusActivity extends AppCompatActivity {
     private void setPosting(boolean posting) {
         binding.btnPost.setEnabled(!posting);
         binding.btnPost.setText(posting ? "Posting…" : "Post");
-        if (binding.progressUpload != null)
-            binding.progressUpload.setVisibility(posting ? View.VISIBLE : View.GONE);
+        if (binding.uploadProgress != null)
+            binding.uploadProgress.setVisibility(posting ? View.VISIBLE : View.GONE);
     }
 
     private void setHint(String hint) {
@@ -726,7 +726,7 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private String safePhoto() {
-        try { return FirebaseUtils.getCurrentPhotoUrl(); } catch (Exception e) { return ""; }
+        try { com.google.firebase.auth.FirebaseUser u = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser(); if (u != null && u.getPhotoUrl() != null) return u.getPhotoUrl().toString(); return ""; } catch (Exception e) { return ""; }
     }
 
     private String safeUid() {

@@ -159,7 +159,7 @@ public class StatusBackgroundService extends Service {
             public void onChildAdded(DataSnapshot snap, String prev) {
                 try {
                     StatusItem item = snap.getValue(StatusItem.class);
-                    if (item == null || item.deleted || item.isExpired()) return;
+                    if (item == null || item.deleted || (item.expiresAt != null && item.expiresAt < System.currentTimeMillis())) return;
                     if (item.timestamp == null) return;
 
                     // Avoid notifying for items posted > 30 s ago (reconnect flush)
