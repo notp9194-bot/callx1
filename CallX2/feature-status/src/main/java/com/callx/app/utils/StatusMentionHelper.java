@@ -1,82 +1,76 @@
 package com.callx.app.utils;
 
-import android.text.SpannableString;
-import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
 import android.graphics.Color;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import android.text.*;
+import android.text.style.ForegroundColorSpan;
+import com.google.firebase.database.*;
+import java.util.*;
+import java.util.concurrent.atomic.*;
+import java.util.regex.*;
 
-/**
- * StatusMentionHelper — @mention parsing and highlighting for status text.
- * Detects @username patterns, resolves UIDs, and highlights in text.
- */
+/** StatusMentionHelper v26 — FIX: UID resolution from username lookup. */
 public final class StatusMentionHelper {
-
     private static final Pattern MENTION_PATTERN = Pattern.compile("@([\\w.]+)");
     private static final int MENTION_COLOR = Color.parseColor("#1DA1F2");
-
     private StatusMentionHelper() {}
 
-    public static class MentionResult {
-        public List<String> mentionedNames = new ArrayList<>();
-        public Map<String, String> mentionNames = new HashMap<>(); // uid → name (filled after resolution)
-        public String cleanText;
+    public interface MentionResolutionCallback {
+        void onResolved(Map<String, String> usernameToUid); // username → uid
     }
 
-    /** Extract @mention names from text. */
-    public static MentionResult extract(String text) {
-        MentionResult r = new MentionResult();
-        r.cleanText = text;
-        if (text == null) return r;
+    public static List<String> extractNames(String text) {
+        List<String> names = new ArrayList<>();
+        if (text == null) return names;
         Matcher m = MENTION_PATTERN.matcher(text);
-        while (m.find()) {
-            String name = m.group(1);
-            if (name != null && !r.mentionedNames.contains(name)) {
-                r.mentionedNames.add(name);
-            }
-        }
-        return r;
+        while (m.find()) { String n = m.group(1); if (n != null && !names.contains(n)) names.add(n); }
+        return names;
     }
 
     public static boolean hasMention(String text) {
-        if (text == null) return false;
-        return MENTION_PATTERN.matcher(text).find();
+        return text != null && MENTION_PATTERN.matcher(text).find();
     }
 
-    /** Highlight @mentions in a SpannableString with blue color. */
     public static SpannableString highlight(String text) {
         if (text == null) return new SpannableString("");
         SpannableString ss = new SpannableString(text);
         Matcher m = MENTION_PATTERN.matcher(text);
-        while (m.find()) {
-            ss.setSpan(new ForegroundColorSpan(MENTION_COLOR),
-                    m.start(), m.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
+        while (m.find()) ss.setSpan(new ForegroundColorSpan(MENTION_COLOR),
+                m.start(), m.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return ss;
     }
 
-    /** Notify mentioned users via Firebase (fire-and-forget). */
+    /** FIX: Resolve @username → UID via Firebase users node (username field lookup) */
+    public static void resolveUids(List<String> usernames, MentionResolutionCallback cb) {
+        if (usernames == null || usernames.isEmpty()) { if (cb != null) cb.onResolved(new HashMap<>()); return; }
+        Map<String, String> result = new HashMap<>();
+        AtomicInteger remaining = new AtomicInteger(usernames.size());
+        for (String username : usernames) {
+            FirebaseUtils.db().getReference("users")
+                .orderByChild("username").equalTo(username).limitToFirst(1)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snap) {
+                        for (DataSnapshot c : snap.getChildren()) {
+                            if (c.getKey() != null) result.put(username, c.getKey());
+                        }
+                        if (remaining.decrementAndGet() == 0 && cb != null) cb.onResolved(result);
+                    }
+                    @Override public void onCancelled(DatabaseError e) {
+                        if (remaining.decrementAndGet() == 0 && cb != null) cb.onResolved(result);
+                    }
+                });
+        }
+    }
+
     public static void notifyMentions(String ownerUid, String ownerName,
-                                       String statusId, List<String> mentionedUids) {
-        if (mentionedUids == null || mentionedUids.isEmpty()) return;
-        for (String uid : mentionedUids) {
+                                       String statusId, Map<String, String> usernameToUid) {
+        if (usernameToUid == null || usernameToUid.isEmpty()) return;
+        for (String uid : usernameToUid.values()) {
             if (uid == null || uid.equals(ownerUid)) continue;
-            java.util.Map<String, Object> notif = new java.util.HashMap<>();
-            notif.put("type",      "status_mention");
-            notif.put("fromUid",   ownerUid);
-            notif.put("fromName",  ownerName);
-            notif.put("statusId",  statusId);
-            notif.put("timestamp", com.google.firebase.database.ServerValue.TIMESTAMP);
-            FirebaseUtils.db()
-                .getReference("notifications")
-                .child(uid)
-                .push()
-                .setValue(notif);
+            Map<String, Object> n = new HashMap<>();
+            n.put("type","status_mention"); n.put("fromUid",ownerUid);
+            n.put("fromName",ownerName); n.put("statusId",statusId);
+            n.put("timestamp", ServerValue.TIMESTAMP);
+            FirebaseUtils.db().getReference("notifications").child(uid).push().setValue(n);
         }
     }
 }

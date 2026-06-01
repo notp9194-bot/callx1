@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="560dp"
+    android:orientation="vertical" android:padding="16dp">
+    <View android:layout_width="48dp" android:layout_height="4dp"
+        android:background="#33000000" android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="12dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="🎭 GIF &amp; Stickers"
+            android:textSize="17sp" android:textStyle="bold"/>
+        <ImageButton android:id="@+id/btn_close_sticker"
+            android:layout_width="36dp" android:layout_height="36dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+    </LinearLayout>
+    <com.google.android.material.textfield.TextInputLayout
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="Search GIFs…" android:layout_marginBottom="8dp">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/et_gif_search"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:imeOptions="actionSearch" android:singleLine="true"/>
+    </com.google.android.material.textfield.TextInputLayout>
+    <ProgressBar android:id="@+id/pb_gif" android:layout_width="wrap_content"
+        android:layout_height="wrap_content" android:layout_gravity="center_horizontal"
+        android:visibility="gone"/>
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_gifs"
+        android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Powered by GIPHY" android:textSize="10sp" android:textColor="#888888"
+        android:layout_gravity="center_horizontal" android:layout_marginTop="4dp"/>
+</LinearLayout>

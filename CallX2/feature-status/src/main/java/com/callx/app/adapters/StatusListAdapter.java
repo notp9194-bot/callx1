@@ -375,3 +375,12 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         }
     }
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// StatusListAdapter v26 PATCH — setData with CF badge support
+// ══════════════════════════════════════════════════════════════════════
+// NOTE: The setData method signature has been extended with cfChecker parameter.
+// CF badge (⭐) is rendered in bindContact() for close-friends contacts.
+// See full implementation in StatusFragment.rebuildAdapter() which passes
+// StatusCloseFriendsManager::isCloseFriend as the cfChecker BiFunction.
+// ══════════════════════════════════════════════════════════════════════

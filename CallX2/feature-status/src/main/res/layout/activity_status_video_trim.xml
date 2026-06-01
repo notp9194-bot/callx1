@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#000000">
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_view_trim"
+        android:layout_width="match_parent" android:layout_height="260dp"/>
+    <TextView android:id="@+id/tv_trim_duration"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Load video…" android:textColor="#FFFFFF"
+        android:padding="16dp" android:textSize="13sp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="16dp">
+        <TextView android:id="@+id/tv_start_label"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Start: 0.0s" android:textColor="#FFFFFF" android:textSize="13sp"/>
+        <SeekBar android:id="@+id/sb_trim_start"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:max="3000" android:progress="0" android:layout_marginTop="4dp"/>
+        <TextView android:id="@+id/tv_end_label"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="End: 30.0s" android:textColor="#FFFFFF" android:textSize="13sp"
+            android:layout_marginTop="12dp"/>
+        <SeekBar android:id="@+id/sb_trim_end"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:max="3000" android:progress="3000" android:layout_marginTop="4dp"/>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:padding="16dp" android:gravity="center">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_trim_cancel"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Cancel"
+            android:textColor="#FFFFFF" android:strokeColor="#FFFFFF"/>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_trim_confirm"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="✂ Trim &amp; Use"
+            android:layout_marginStart="12dp"/>
+    </LinearLayout>
+</LinearLayout>

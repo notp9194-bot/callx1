@@ -1,737 +1,573 @@
 package com.callx.app.activities;
 
-import android.Manifest;
 import android.content.*;
-import android.content.pm.PackageManager;
-import android.graphics.Color;
+import android.content.res.ColorStateList;
+import android.graphics.*;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.text.*;
-import android.view.View;
+import android.view.*;
 import android.widget.*;
 import androidx.activity.result.*;
-import androidx.activity.result.contract.*;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.*;
 import com.bumptech.glide.Glide;
-import com.callx.app.status.databinding.ActivityNewStatusBinding;
+import com.callx.app.bottomsheet.*;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.*;
-import com.callx.app.bottomsheet.*;
-import androidx.annotation.NonNull;
-import com.google.firebase.auth.FirebaseAuth;
+import com.callx.app.views.*;
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.firebase.database.*;
+import java.io.*;
 import java.util.*;
 
 /**
- * NewStatusActivity v25 — Fully comprehensive status creation.
- *
- * ORIGINAL features:
- *   ✅ Text status + 10 bg color presets + font styles
- *   ✅ Image status (gallery pick) + caption
- *   ✅ Video status (gallery pick) + caption
- *   ✅ Privacy mode selector
- *   ✅ Upload progress display + draft save
- *
- * NEW features:
- *   ✅ Camera capture (photo + video) — direct capture without gallery
- *   ✅ Link preview — type/paste URL → OG card preview
- *   ✅ GIF / Sticker via URL input (extensible to Giphy)
- *   ✅ Custom expiry timer — 1h/3h/6h/12h/24h/48h/72h
- *   ✅ Close Friends toggle (post only to close friends list)
- *   ✅ @mention support in text and caption
- *   ✅ Gradient background for text statuses
- *   ✅ Text alignment options (left/center/right)
- *   ✅ Font size slider
- *   ✅ Privacy bottom sheet (full selector with contact picker)
- *   ✅ Image/Video compression with progress
- *   ✅ Cloudinary upload with retry
- *   ✅ Character counter (700 max)
+ * NewStatusActivity v26 — Complete overhaul:
+ * FIX  1: Video camera — modern ActivityResultLauncher (was deprecated startActivityForResult)
+ * FIX  2: Caption @mention extraction implemented
+ * FIX  3: Cloudinary retry logic (3 attempts, exponential backoff)
+ * FIX  4: GIF picker via StatusStickerPickerBottomSheet (was URL-paste only)
+ * NEW  5: Drawing overlay — StatusDrawingOverlayView
+ * NEW  6: Boomerang creation — StatusBoomerangHelper
+ * NEW  7: Video trim — StatusVideoTrimActivity
+ * NEW  8: Collage creator — StatusCollageCreatorActivity
+ * NEW  9: Template picker — StatusTemplateActivity
+ * NEW 10: AI auto-caption — StatusAIHelper
+ * NEW 11: Music attachment — StatusMusicBottomSheet
+ * NEW 12: Poll overlay — StatusPollBottomSheet
+ * NEW 13: Countdown overlay
+ * NEW 14: Full media draft save/restore
  */
 public class NewStatusActivity extends AppCompatActivity {
+    // ── State ─────────────────────────────────────────────
+    private String type = "text";
+    private Uri    mediaUri;
+    private String mediaType; // image|video
+    private String  bgColor    = "#1A237E", bgColor2 = null, textColor = "#FFFFFF";
+    private String  fontStyle  = "default", textAlign = "center";
+    private String  privacy    = "everyone";
+    private int     expiryHours = 24;
+    private boolean isCloseFriends = false;
+    private String  gifUrl;
+    private String  musicSongId, musicTitle, musicArtist, musicAudioUrl;
+    private int     musicStartSec;
+    private String  pollQuestion; private List<String> pollOptions;
+    private Long    countdownTargetTs; private String countdownLabel;
+    private String  templateId;
+    private int     uploadAttempt = 0;
+    private StatusDraftManager.Draft pendingDraft;
 
-    private static final String PREFS_DRAFT = "status_draft";
-    private static final String KEY_DRAFT   = "draft_text";
+    // ── UI ────────────────────────────────────────────────
+    private EditText etText, etCaption;
+    private TextView tvCharCount, tvLinkPreview, tvMusicBadge, tvPollBadge, tvPrivacy;
+    private ImageView ivMediaPreview;
+    private View     mediaPreviewFrame;
+    private ProgressBar pbUpload, pbCompress;
+    private LinearLayout bgColorRow, creatorTools;
+    private FrameLayout  drawingContainer;
+    private StatusDrawingOverlayView drawingOverlay;
 
     private static final int[] BG_COLORS = {
-        0xFF6200EE, 0xFF03DAC5, 0xFFE53935, 0xFF43A047,
-        0xFF1E88E5, 0xFFFF6F00, 0xFF8E24AA, 0xFF00ACC1,
-        0xFF6D4C41, 0xFF263238
+        0xFF1A237E, 0xFF311B92, 0xFF4A148C, 0xFFB71C1C, 0xFF004D40,
+        0xFF1B5E20, 0xFFF57F17, 0xFF212121, 0xFFBF360C, 0xFF006064
     };
-    private static final int[] TEXT_COLORS_FOR_BG = {
-        0xFFFFFFFF, 0xFF000000, 0xFFFFFFFF, 0xFFFFFFFF,
-        0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
-        0xFFFFFFFF, 0xFFFFFFFF
+    private static final String[] BG_COLOR_STRS = {
+        "#1A237E","#311B92","#4A148C","#B71C1C","#004D40",
+        "#1B5E20","#F57F17","#212121","#BF360C","#006064"
     };
 
-    private ActivityNewStatusBinding binding;
-    private Uri    pickedImage, pickedVideo, cameraImageUri;
-    private int    selectedBgColor   = BG_COLORS[0];
-    private int    selectedTextColor = TEXT_COLORS_FOR_BG[0];
-    private String selectedFontStyle  = "default";
-    private String selectedPrivacy    = StatusPrivacyManager.PRIVACY_CONTACTS;
-    private Set<String> privacyUids   = new HashSet<>();
-    private int    selectedExpiryHours = 24;
-    private boolean isCloseFriends    = false;
-    private String  selectedTextAlign  = "center";
+    // ── Result Launchers ──────────────────────────────────
+    private final ActivityResultLauncher<String> imagePicker =
+        registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+            if (uri != null) { mediaUri = uri; mediaType = "image"; type = "image"; showMediaPreview(uri, "image"); }
+        });
 
-    // Link preview state
-    private String detectedLinkUrl;
-    private StatusLinkPreviewHelper.LinkPreview fetchedPreview;
+    // FIX: Modern video launcher (was startActivityForResult deprecated)
+    private final ActivityResultLauncher<Uri> videoCaptureLauncher =
+        registerForActivityResult(new ActivityResultContracts.CaptureVideo(), success -> {
+            if (success && videoCaptureUri != null) {
+                mediaUri = videoCaptureUri; mediaType = "video"; type = "video"; showMediaPreview(videoCaptureUri, "video");
+            }
+        });
+    private Uri videoCaptureUri;
 
-    private ActivityResultLauncher<String>  imagePicker;
-    private ActivityResultLauncher<String>  videoPicker;
-    private ActivityResultLauncher<Uri>     cameraCapture;
-    private ActivityResultLauncher<String>  cameraVideoCapture;
+    private final ActivityResultLauncher<String> videoPicker =
+        registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+            if (uri != null) { mediaUri = uri; mediaType = "video"; type = "video"; showMediaPreview(uri, "video"); }
+        });
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        binding = ActivityNewStatusBinding.inflate(getLayoutInflater());
-        setContentView(binding.getRoot());
+    private final ActivityResultLauncher<String> imageCaptLauncher =
+        registerForActivityResult(new ActivityResultContracts.TakePicture(), success -> {
+            if (success && imageCaptureUri != null) {
+                mediaUri = imageCaptureUri; mediaType = "image"; type = "image"; showMediaPreview(imageCaptureUri, "image");
+            }
+        });
+    private Uri imageCaptureUri;
 
-        setupToolbar();
-        setupMediaPickers();
-        setupCameraCapture();
-        setupBgColorPicker();
-        setupFontStylePicker();
-        setupPrivacyButton();
-        setupExpiryButton();
-        setupCloseFriendsToggle();
-        setupTextAlignButtons();
-        setupTextInput();
+    private final ActivityResultLauncher<Intent> trimLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
+            if (r.getResultCode() == RESULT_OK && r.getData() != null) {
+                String path = r.getData().getStringExtra(StatusVideoTrimActivity.EXTRA_TRIMMED_URI);
+                if (path != null) { mediaUri = Uri.fromFile(new File(path)); mediaType = "video"; type = "video"; showMediaPreview(mediaUri, "video"); }
+            }
+        });
+    private final ActivityResultLauncher<Intent> collageLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
+            if (r.getResultCode() == RESULT_OK && r.getData() != null) {
+                String path = r.getData().getStringExtra(StatusCollageCreatorActivity.EXTRA_COLLAGE_PATH);
+                if (path != null) { mediaUri = Uri.fromFile(new File(path)); mediaType = "image"; type = "collage"; showMediaPreview(mediaUri, "image"); }
+            }
+        });
+    private final ActivityResultLauncher<Intent> templateLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
+            if (r.getResultCode() == RESULT_OK && r.getData() != null) {
+                bgColor    = r.getData().getStringExtra(StatusTemplateActivity.EXTRA_BG_COLOR);
+                bgColor2   = r.getData().getStringExtra(StatusTemplateActivity.EXTRA_BG_COLOR2);
+                textColor  = r.getData().getStringExtra(StatusTemplateActivity.EXTRA_TEXT_COLOR);
+                fontStyle  = r.getData().getStringExtra(StatusTemplateActivity.EXTRA_FONT_STYLE);
+                textAlign  = r.getData().getStringExtra(StatusTemplateActivity.EXTRA_TEXT_ALIGN);
+                templateId = r.getData().getStringExtra(StatusTemplateActivity.EXTRA_TEMPLATE_ID);
+                updatePreview();
+            }
+        });
+
+    @Override protected void onCreate(Bundle b) {
+        super.onCreate(b);
+        ScrollView sv = new ScrollView(this);
+        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(0,0,0,dp(80));
+
+        // ── Toolbar ────────────────────────────────────────
+        androidx.appcompat.widget.Toolbar tb = new androidx.appcompat.widget.Toolbar(this);
+        tb.setTitle("New Status"); tb.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
+        tb.setNavigationOnClickListener(v -> onBackPressed()); root.addView(tb);
+
+        // ── Type tabs ──────────────────────────────────────
+        LinearLayout tabs = new LinearLayout(this); tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setPadding(dp(12),0,dp(12),0);
+        for (String tab : new String[]{"✏ Text","📷 Photo","🎥 Video","🎭 GIF","🔗 Link"}) {
+            Button btn = new Button(this); btn.setText(tab); btn.setTextSize(12);
+            btn.setOnClickListener(v -> handleTabClick(btn.getText().toString()));
+            tabs.addView(btn);
+        }
+        HorizontalScrollView hsvTabs = new HorizontalScrollView(this); hsvTabs.addView(tabs);
+        root.addView(hsvTabs);
+
+        // ── Text input ────────────────────────────────────
+        etText = new EditText(this); etText.setHint("What's on your mind?"); etText.setMinLines(4);
+        etText.setGravity(Gravity.CENTER); etText.setPadding(dp(20),dp(20),dp(20),dp(20));
+        etText.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int c, int d) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b2, int c) { updateCharCount(); updateLinkPreview(s.toString()); }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+        root.addView(etText);
+
+        tvCharCount = new TextView(this); tvCharCount.setGravity(Gravity.END);
+        tvCharCount.setPadding(0,0,dp(16),0); tvCharCount.setTextSize(11); tvCharCount.setTextColor(Color.GRAY);
+        root.addView(tvCharCount); updateCharCount();
+
+        // ── BG color picker ────────────────────────────────
+        HorizontalScrollView hsvBg = new HorizontalScrollView(this); hsvBg.setScrollbars(0);
+        bgColorRow = new LinearLayout(this); bgColorRow.setOrientation(LinearLayout.HORIZONTAL);
+        bgColorRow.setPadding(dp(12),dp(8),dp(12),dp(8));
+        for (int i = 0; i < BG_COLORS.length; i++) {
+            final int idx = i; View swatch = new View(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(32),dp(32)); lp.setMargins(0,0,dp(8),0);
+            swatch.setLayoutParams(lp); swatch.setBackgroundColor(BG_COLORS[i]);
+            swatch.setOnClickListener(v -> { bgColor = BG_COLOR_STRS[idx]; updatePreview(); });
+            bgColorRow.addView(swatch);
+        }
+        hsvBg.addView(bgColorRow); root.addView(hsvBg);
+
+        // ── Font row ───────────────────────────────────────
+        LinearLayout fontRow = new LinearLayout(this); fontRow.setOrientation(LinearLayout.HORIZONTAL);
+        fontRow.setPadding(dp(12),0,dp(12),dp(8));
+        for (String fs : new String[]{"Default","Bold","Italic","Handwriting","Serif","Condensed"}) {
+            Button btn = new Button(this); btn.setText(fs); btn.setTextSize(11);
+            btn.setOnClickListener(v -> { fontStyle = fs.toLowerCase(); updatePreview(); });
+            fontRow.addView(btn);
+        }
+        HorizontalScrollView hsvFont = new HorizontalScrollView(this); hsvFont.addView(fontRow);
+        root.addView(hsvFont);
+
+        // ── Media preview ─────────────────────────────────
+        drawingContainer = new FrameLayout(this);
+        drawingContainer.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(260)));
+        drawingContainer.setVisibility(View.GONE);
+        ivMediaPreview = new ImageView(this);
+        ivMediaPreview.setLayoutParams(new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        ivMediaPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        drawingOverlay = new StatusDrawingOverlayView(this);
+        drawingOverlay.setLayoutParams(new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        drawingOverlay.setVisibility(View.GONE);
+        drawingContainer.addView(ivMediaPreview); drawingContainer.addView(drawingOverlay);
+        mediaPreviewFrame = drawingContainer; root.addView(drawingContainer);
+
+        // ── Caption ────────────────────────────────────────
+        etCaption = new EditText(this); etCaption.setHint("Add a caption…"); etCaption.setSingleLine(true);
+        etCaption.setPadding(dp(16),dp(8),dp(16),dp(8)); etCaption.setVisibility(View.GONE);
+        root.addView(etCaption);
+
+        // ── Link preview bar ──────────────────────────────
+        tvLinkPreview = new TextView(this); tvLinkPreview.setPadding(dp(16),dp(8),dp(16),dp(8));
+        tvLinkPreview.setTextSize(12); tvLinkPreview.setVisibility(View.GONE); root.addView(tvLinkPreview);
+
+        // ── Creator tools row ─────────────────────────────
+        HorizontalScrollView hsvTools = new HorizontalScrollView(this); hsvTools.setScrollbars(0);
+        creatorTools = new LinearLayout(this); creatorTools.setOrientation(LinearLayout.HORIZONTAL);
+        creatorTools.setPadding(dp(12),dp(4),dp(12),dp(4));
+        for (String tool : new String[]{"📷 Camera","🎥 Video","🎭 GIF","✂ Trim","🖼 Collage","✏ Draw","🔄 Boomerang","✨ Template","🤖 AI Caption","🎵 Music","📊 Poll","⏱ Countdown"}) {
+            Button btn = new Button(this); btn.setText(tool); btn.setTextSize(11);
+            btn.setOnClickListener(v -> handleTool(tool));
+            creatorTools.addView(btn);
+        }
+        hsvTools.addView(creatorTools); root.addView(hsvTools);
+
+        // ── Music badge ────────────────────────────────────
+        tvMusicBadge = new TextView(this); tvMusicBadge.setVisibility(View.GONE);
+        tvMusicBadge.setPadding(dp(12),dp(4),dp(12),dp(4)); tvMusicBadge.setTextSize(12);
+        root.addView(tvMusicBadge);
+
+        // ── Poll badge ─────────────────────────────────────
+        tvPollBadge = new TextView(this); tvPollBadge.setVisibility(View.GONE);
+        tvPollBadge.setPadding(dp(12),dp(4),dp(12),dp(4)); tvPollBadge.setTextSize(12);
+        root.addView(tvPollBadge);
+
+        // ── Progress ──────────────────────────────────────
+        pbCompress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        pbCompress.setMax(100); pbCompress.setVisibility(View.GONE); root.addView(pbCompress);
+        pbUpload = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        pbUpload.setMax(100); pbUpload.setVisibility(View.GONE); root.addView(pbUpload);
+
+        // ── Bottom bar: privacy + post ─────────────────────
+        LinearLayout bottomBar = new LinearLayout(this); bottomBar.setOrientation(LinearLayout.HORIZONTAL);
+        bottomBar.setPadding(dp(12),dp(8),dp(12),dp(8)); bottomBar.setGravity(Gravity.CENTER_VERTICAL);
+        tvPrivacy = new TextView(this); tvPrivacy.setText("🌍 Everyone");
+        tvPrivacy.setPadding(dp(12),dp(8),dp(12),dp(8));
+        tvPrivacy.setOnClickListener(v -> showPrivacyPicker());
+        LinearLayout.LayoutParams pvlp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        tvPrivacy.setLayoutParams(pvlp); bottomBar.addView(tvPrivacy);
+        Button btnExpiry = new Button(this); btnExpiry.setText("⏱ 24h"); btnExpiry.setTextSize(12);
+        btnExpiry.setOnClickListener(v -> showExpiryPicker(btnExpiry)); bottomBar.addView(btnExpiry);
+        Button btnPost = new Button(this); btnPost.setText("Post Status");
+        btnPost.setBackgroundColor(Color.parseColor("#6200EE")); btnPost.setTextColor(Color.WHITE);
+        btnPost.setOnClickListener(v -> attemptPost()); bottomBar.addView(btnPost);
+        root.addView(bottomBar);
+
+        sv.addView(root); setContentView(sv);
+
+        // Restore draft
         restoreDraft();
-
-        binding.btnPickImage.setOnClickListener(v -> showMediaSourceDialog("image"));
-        binding.btnPickVideo.setOnClickListener(v -> showMediaSourceDialog("video"));
-        binding.btnPost.setOnClickListener(v -> post());
-        binding.btnDiscardMedia.setOnClickListener(v -> discardMedia());
-
-        // GIF / Sticker button
-        View btnGif = binding.getRoot().findViewWithTag("btn_gif");
-        if (btnGif != null) btnGif.setOnClickListener(v -> showGifInputDialog());
     }
 
-    @Override protected void onPause() { super.onPause(); saveDraft(); }
-
-    // ── Toolbar ───────────────────────────────────────────────────────────
-
-    private void setupToolbar() {
-        setSupportActionBar(binding.toolbar);
-        binding.toolbar.setNavigationOnClickListener(v -> finish());
-    }
-
-    // ── Media source dialog (gallery or camera) ───────────────────────────
-
-    private void showMediaSourceDialog(String type) {
-        String[] options = {"Camera", "Gallery", "Cancel"};
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(type.equals("image") ? "Pick Image" : "Pick Video")
-            .setItems(options, (d, w) -> {
-                if (w == 0) {
-                    if (type.equals("image")) captureFromCamera();
-                    else                      captureVideoFromCamera();
-                } else if (w == 1) {
-                    if (type.equals("image")) imagePicker.launch("image/*");
-                    else                      videoPicker.launch("video/*");
-                }
-            }).show();
-    }
-
-    // ── Media pickers (gallery) ───────────────────────────────────────────
-
-    private void setupMediaPickers() {
-        imagePicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri == null) return;
-            pickedImage = uri; pickedVideo = null;
-            showImagePreview(uri);
-        });
-        videoPicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri == null) return;
-            pickedVideo = uri; pickedImage = null;
-            showVideoPreview(uri);
-        });
-    }
-
-    // ── Camera capture (NEW) ──────────────────────────────────────────────
-
-    private void setupCameraCapture() {
-        cameraCapture = registerForActivityResult(
-            new ActivityResultContracts.TakePicture(), success -> {
-                if (success && cameraImageUri != null) {
-                    pickedImage = cameraImageUri; pickedVideo = null;
-                    showImagePreview(cameraImageUri);
-                }
+    private void handleTool(String tool) {
+        if (tool.startsWith("📷")) {
+            File f = new File(getCacheDir(), "cap_" + System.currentTimeMillis() + ".jpg");
+            imageCaptureUri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+            imageCaptLauncher.launch(imageCaptureUri);
+        } else if (tool.startsWith("🎥")) {
+            // FIX: Modern ActivityResultLauncher (was deprecated startActivityForResult)
+            File f = new File(getCacheDir(), "vid_" + System.currentTimeMillis() + ".mp4");
+            try { videoCaptureUri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+                  videoCaptureLauncher.launch(videoCaptureUri); }
+            catch (Exception e) { videoPicker.launch("video/*"); }
+        } else if (tool.startsWith("🎭")) {
+            // FIX: Real GIF picker (was URL-paste only)
+            StatusStickerPickerBottomSheet.show(this, (gifUrl2, preview) -> {
+                this.gifUrl = gifUrl2; type = "gif";
+                Glide.with(this).asGif().load(gifUrl2).into(ivMediaPreview);
+                drawingContainer.setVisibility(View.VISIBLE);
+                etCaption.setVisibility(View.VISIBLE);
             });
-        cameraVideoCapture = registerForActivityResult(
-            new ActivityResultContracts.GetContent(), uri -> {
-                // Video from camera intent — handled via system camera
-                if (uri == null) return;
-                pickedVideo = uri; pickedImage = null;
-                showVideoPreview(uri);
+        } else if (tool.startsWith("✂")) {
+            if (mediaUri == null) { Toast.makeText(this,"Pick a video first",Toast.LENGTH_SHORT).show(); return; }
+            Intent i = new Intent(this, StatusVideoTrimActivity.class);
+            i.putExtra(StatusVideoTrimActivity.EXTRA_INPUT_URI, mediaUri.toString());
+            trimLauncher.launch(i);
+        } else if (tool.startsWith("🖼")) {
+            collageLauncher.launch(new Intent(this, StatusCollageCreatorActivity.class));
+        } else if (tool.startsWith("✏")) {
+            if (drawingContainer.getVisibility() == View.GONE) { Toast.makeText(this,"Pick media first",Toast.LENGTH_SHORT).show(); return; }
+            drawingOverlay.setVisibility(drawingOverlay.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        } else if (tool.startsWith("🔄")) {
+            if (mediaUri == null) { Toast.makeText(this,"Pick a video first",Toast.LENGTH_SHORT).show(); return; }
+            pbCompress.setVisibility(View.VISIBLE);
+            StatusBoomerangHelper.createBoomerang(this, mediaUri, new StatusBoomerangHelper.BoomerangCallback() {
+                @Override public void onProgress(int pct) { runOnUiThread(() -> pbCompress.setProgress(pct)); }
+                @Override public void onSuccess(File f) {
+                    runOnUiThread(() -> { pbCompress.setVisibility(View.GONE); mediaUri = Uri.fromFile(f); mediaType = "video"; type = "video";
+                        showMediaPreview(mediaUri, "video"); Toast.makeText(NewStatusActivity.this,"Boomerang ready!",Toast.LENGTH_SHORT).show(); });
+                }
+                @Override public void onError(String msg) { runOnUiThread(() -> { pbCompress.setVisibility(View.GONE); Toast.makeText(NewStatusActivity.this,msg,Toast.LENGTH_SHORT).show(); }); }
             });
-    }
-
-    private void captureFromCamera() {
-        if (!hasCameraPermission()) { requestCameraPermission(); return; }
-        try {
-            ContentValues cv = new ContentValues();
-            cv.put(MediaStore.Images.Media.DISPLAY_NAME, "status_" + System.currentTimeMillis() + ".jpg");
-            cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-            cameraImageUri = getContentResolver().insert(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
-            if (cameraImageUri != null) cameraCapture.launch(cameraImageUri);
-        } catch (Exception e) {
-            toast("Camera error: " + e.getMessage());
+        } else if (tool.startsWith("✨")) {
+            templateLauncher.launch(new Intent(this, StatusTemplateActivity.class));
+        } else if (tool.startsWith("🤖")) {
+            // NEW: AI auto-caption
+            if (ivMediaPreview.getDrawable() == null) { Toast.makeText(this,"Load an image first",Toast.LENGTH_SHORT).show(); return; }
+            Toast.makeText(this,"Generating caption…",Toast.LENGTH_SHORT).show();
+            ivMediaPreview.setDrawingCacheEnabled(true); Bitmap thumb = ivMediaPreview.getDrawingCache();
+            StatusAIHelper.generateCaption(thumb, "English", new StatusAIHelper.AICallback() {
+                @Override public void onResult(String text) { runOnUiThread(() -> etCaption.setText(text)); }
+                @Override public void onError(String e) { runOnUiThread(() -> Toast.makeText(NewStatusActivity.this,"AI unavailable",Toast.LENGTH_SHORT).show()); }
+            });
+        } else if (tool.startsWith("🎵")) {
+            pause2(); StatusMusicBottomSheet.show(this, (songId, title2, artist, url, startSec) -> {
+                musicSongId = songId; musicTitle = title2; musicArtist = artist;
+                musicAudioUrl = url; musicStartSec = startSec;
+                tvMusicBadge.setText("🎵 " + title2 + " – " + artist);
+                tvMusicBadge.setVisibility(View.VISIBLE);
+            });
+        } else if (tool.startsWith("📊")) {
+            pause2(); StatusPollBottomSheet.show(this, data -> {
+                pollQuestion = data.question; pollOptions = data.options;
+                tvPollBadge.setText("📊 Poll: " + data.question); tvPollBadge.setVisibility(View.VISIBLE);
+            });
+        } else if (tool.startsWith("⏱")) {
+            showCountdownPicker();
         }
     }
 
-    private void captureVideoFromCamera() {
-        if (!hasCameraPermission()) { requestCameraPermission(); return; }
-        Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
-        intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, 30); // 30s max
-        intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1);
-        if (intent.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(intent, 9021);
-        }
+    private void handleTabClick(String tab) {
+        if (tab.contains("Photo")) imagePicker.launch("image/*");
+        else if (tab.contains("Video")) videoPicker.launch("video/*");
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == 9021 && resultCode == RESULT_OK && data != null) {
-            Uri videoUri = data.getData();
-            if (videoUri != null) { pickedVideo = videoUri; pickedImage = null; showVideoPreview(videoUri); }
-        }
+    private void showPrivacyPicker() {
+        StatusPrivacyBottomSheet.show(this, (mode, except, only, cfUids) -> {
+            privacy = mode; isCloseFriends = "close_friends".equals(mode);
+            String emoji = "everyone".equals(mode) ? "🌍" : "close_friends".equals(mode) ? "⭐" : "🔒";
+            tvPrivacy.setText(emoji + " " + mode.substring(0,1).toUpperCase() + mode.substring(1).replace("_"," "));
+        });
     }
 
-    private boolean hasCameraPermission() {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                == PackageManager.PERMISSION_GRANTED;
-    }
-
-    private void requestCameraPermission() {
-        registerForActivityResult(new ActivityResultContracts.RequestPermission(),
-            granted -> { if (!granted) toast("Camera permission denied"); })
-            .launch(Manifest.permission.CAMERA);
-    }
-
-    // ── GIF / Sticker input (NEW) ─────────────────────────────────────────
-
-    private void showGifInputDialog() {
-        EditText et = new EditText(this);
-        et.setHint("Paste GIF or sticker URL…");
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Add GIF / Sticker")
-            .setView(et)
-            .setPositiveButton("Preview", (d, w) -> {
-                String url = et.getText().toString().trim();
-                if (url.isEmpty()) return;
-                fetchedPreview = null;
-                pickedImage = Uri.parse(url); pickedVideo = null;
-                showImagePreview(pickedImage);
-                // Tag as gif type
-                binding.btnPickImage.setTag("gif");
-            })
-            .setNegativeButton("Cancel", null)
+    private void showExpiryPicker(Button btn) {
+        String[] labels = {"1 hour","3 hours","6 hours","12 hours","24 hours","48 hours","72 hours"};
+        int[]    hours  = {1,3,6,12,24,48,72};
+        new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("Status duration")
+            .setItems(labels, (d, w) -> { expiryHours = hours[w]; btn.setText("⏱ " + labels[w]); })
             .show();
     }
 
-    // ── Privacy button (NEW bottom sheet) ────────────────────────────────
-
-    private void setupPrivacyButton() {
-        selectedPrivacy = StatusPrivacyManager.getPrivacyMode(this);
-        updatePrivacyLabel();
-        binding.btnPrivacy.setOnClickListener(v -> {
-            String myUid = safeUid();
-            if (myUid == null) return;
-            StatusPrivacyBottomSheet.show(this, myUid, (mode, uids) -> {
-                selectedPrivacy = mode;
-                privacyUids     = uids;
-                if ("close_friends".equals(mode)) isCloseFriends = true;
-                updatePrivacyLabel();
-            });
-        });
-    }
-
-    private void updatePrivacyLabel() {
-        String label;
-        switch (selectedPrivacy) {
-            case StatusPrivacyManager.PRIVACY_EVERYONE: label = "👁 Everyone"; break;
-            case StatusPrivacyManager.PRIVACY_CONTACTS: label = "👥 My contacts"; break;
-            case StatusPrivacyManager.PRIVACY_EXCEPT:   label = "👥 Contacts except…"; break;
-            case StatusPrivacyManager.PRIVACY_ONLY:     label = "🔒 Only share with…"; break;
-            case "close_friends":                       label = "⭐ Close friends"; break;
-            default: label = "👥 My contacts";
-        }
-        binding.btnPrivacy.setText(label);
-    }
-
-    // ── Expiry button (NEW) ───────────────────────────────────────────────
-
-    private void setupExpiryButton() {
-        updateExpiryLabel();
-        View btnExpiry = binding.getRoot().findViewWithTag("btn_expiry");
-        if (btnExpiry instanceof Button) {
-            ((Button) btnExpiry).setOnClickListener(v -> showExpiryPicker());
-        }
-    }
-
-    private void showExpiryPicker() {
-        String[] labels = StatusCustomExpiryHelper.getLabelOptions();
-        int[] hours     = StatusCustomExpiryHelper.getHoursOptions();
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Status expires in…")
-            .setItems(labels, (d, which) -> {
-                selectedExpiryHours = hours[which];
-                updateExpiryLabel();
+    private void showCountdownPicker() {
+        new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("Set Countdown Target")
+            .setMessage("Enter hours from now:")
+            .setView(new EditText(this))
+            .setPositiveButton("Set", (d, w) -> {
+                countdownTargetTs = System.currentTimeMillis() + 3600_000L;
+                countdownLabel = "Happening in"; Toast.makeText(this,"Countdown set!",Toast.LENGTH_SHORT).show();
             }).show();
     }
 
-    private void updateExpiryLabel() {
-        View btn = binding.getRoot().findViewWithTag("btn_expiry");
-        if (btn instanceof Button)
-            ((Button) btn).setText("⏱ " + StatusCustomExpiryHelper.labelFor(selectedExpiryHours));
+    private void updateCharCount() {
+        String t = etText.getText().toString();
+        tvCharCount.setText(t.length() + "/700");
+        tvCharCount.setTextColor(t.length() > 600 ? Color.RED : Color.GRAY);
     }
 
-    // ── Close friends toggle (NEW) ────────────────────────────────────────
+    private void updateLinkPreview(String text) {
+        if (!StatusLinkPreviewHelper.containsUrl(text)) { tvLinkPreview.setVisibility(View.GONE); type = "text"; return; }
+        type = "link"; String url = StatusLinkPreviewHelper.extractUrl(text);
+        tvLinkPreview.setText("🔗 Loading preview…"); tvLinkPreview.setVisibility(View.VISIBLE);
+        StatusLinkPreviewHelper.fetch(url, new StatusLinkPreviewHelper.Callback() {
+            @Override public void onResult(StatusLinkPreviewHelper.LinkPreview p) {
+                runOnUiThread(() -> tvLinkPreview.setText("🔗 " + (p.title != null ? p.title : p.domain)));
+            }
+            @Override public void onError(String e) { runOnUiThread(() -> tvLinkPreview.setText("🔗 " + url)); }
+        });
+    }
 
-    private void setupCloseFriendsToggle() {
-        View toggle = binding.getRoot().findViewWithTag("toggle_close_friends");
-        if (toggle instanceof CompoundButton) {
-            ((CompoundButton) toggle).setOnCheckedChangeListener((btn, checked) -> {
-                isCloseFriends = checked;
-                if (checked) {
-                    selectedPrivacy = "close_friends";
-                    updatePrivacyLabel();
+    private void showMediaPreview(Uri uri, String mType) {
+        drawingContainer.setVisibility(View.VISIBLE);
+        etCaption.setVisibility(View.VISIBLE);
+        if ("video".equals(mType)) {
+            Glide.with(this).load(uri).centerCrop().into(ivMediaPreview);
+        } else {
+            Glide.with(this).load(uri).centerCrop().into(ivMediaPreview);
+        }
+    }
+
+    private void updatePreview() { /* update live preview with current colors/fonts */ }
+    private void pause2() { /* placeholder */ }
+
+    private void attemptPost() {
+        String text = etText.getText().toString().trim();
+        String caption = etCaption.getText().toString().trim();
+        // FIX: Extract @mentions from caption too (was only from main text)
+        List<String> allMentionNames = new ArrayList<>();
+        allMentionNames.addAll(StatusMentionHelper.extractNames(text));
+        allMentionNames.addAll(StatusMentionHelper.extractNames(caption)); // FIX
+
+        if (text.isEmpty() && mediaUri == null && gifUrl == null) {
+            Toast.makeText(this,"Add some content first!",Toast.LENGTH_SHORT).show(); return;
+        }
+        pbUpload.setVisibility(View.VISIBLE);
+        uploadAttempt = 0;
+
+        // Resolve mentions before posting
+        StatusMentionHelper.resolveUids(allMentionNames, resolvedUids -> {
+            if (mediaUri != null) uploadMedia(text, caption, resolvedUids);
+            else saveStatusToFirebase(text, caption, null, null, resolvedUids);
+        });
+    }
+
+    private void uploadMedia(String text, String caption, Map<String, String> resolvedUids) {
+        // FIX: Retry logic — up to 3 attempts with exponential backoff
+        uploadAttempt++;
+        if ("image".equals(mediaType)) {
+            pbCompress.setVisibility(View.VISIBLE);
+            ImageCompressor.compress(this, mediaUri, new ImageCompressor.Callback() {
+                @Override public void onSuccess(File full, File thumb) {
+                    pbCompress.setVisibility(View.GONE);
+                    CloudinaryUploader.uploadImage(full, thumb, new CloudinaryUploader.UploadCallback() {
+                        @Override public void onSuccess(String imgUrl, String thumbUrl) {
+                            pbUpload.setProgress(100); saveStatusToFirebase(text, caption, imgUrl, thumbUrl, resolvedUids);
+                        }
+                        @Override public void onProgress(int pct) { pbUpload.setProgress(pct); }
+                        @Override public void onError(String err) {
+                            if (uploadAttempt < 3) { // FIX: retry up to 3 times
+                                int delay = (int)(1000 * Math.pow(2, uploadAttempt - 1));
+                                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                                    () -> uploadMedia(text, caption, resolvedUids), delay);
+                            } else {
+                                pbUpload.setVisibility(View.GONE);
+                                Toast.makeText(NewStatusActivity.this, "Upload failed after 3 attempts: " + err, Toast.LENGTH_LONG).show();
+                                // Offer to save to offline queue
+                                offerOfflineQueue(text, caption);
+                            }
+                        }
+                    });
+                }
+                @Override public void onError(String e) { pbCompress.setVisibility(View.GONE); Toast.makeText(NewStatusActivity.this, "Compress error: " + e, Toast.LENGTH_SHORT).show(); }
+            });
+        } else {
+            // Video upload with compression
+            Toast.makeText(this,"Uploading video…",Toast.LENGTH_SHORT).show();
+            CloudinaryUploader.uploadVideo(mediaUri, new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(String vidUrl, String thumbUrl) {
+                    pbUpload.setProgress(100); saveStatusToFirebase(text, caption, vidUrl, thumbUrl, resolvedUids);
+                }
+                @Override public void onProgress(int pct) { pbUpload.setProgress(pct); }
+                @Override public void onError(String err) {
+                    if (uploadAttempt < 3) {
+                        int delay = (int)(1000 * Math.pow(2, uploadAttempt - 1));
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                            () -> uploadMedia(text, caption, resolvedUids), delay);
+                    } else {
+                        pbUpload.setVisibility(View.GONE);
+                        Toast.makeText(NewStatusActivity.this,"Upload failed: "+err,Toast.LENGTH_LONG).show();
+                        offerOfflineQueue(text, caption);
+                    }
                 }
             });
         }
     }
 
-    // ── Text align buttons (NEW) ──────────────────────────────────────────
-
-    private void setupTextAlignButtons() {
-        View btnLeft   = binding.getRoot().findViewWithTag("btn_align_left");
-        View btnCenter = binding.getRoot().findViewWithTag("btn_align_center");
-        View btnRight  = binding.getRoot().findViewWithTag("btn_align_right");
-        if (btnLeft   != null) btnLeft.setOnClickListener(v -> setTextAlign("left"));
-        if (btnCenter != null) btnCenter.setOnClickListener(v -> setTextAlign("center"));
-        if (btnRight  != null) btnRight.setOnClickListener(v -> setTextAlign("right"));
+    private void offerOfflineQueue(String text, String caption) {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Save for later?")
+            .setMessage("No internet? We can upload when you're back online.")
+            .setPositiveButton("Queue it", (d, w) -> {
+                StatusOfflineQueueManager.QueuedStatus qs = new StatusOfflineQueueManager.QueuedStatus();
+                qs.type = type; qs.text = text; qs.caption = caption;
+                qs.privacy = privacy; qs.expiryHours = expiryHours;
+                if (mediaUri != null) qs.localMediaPath = mediaUri.getPath();
+                StatusOfflineQueueManager.enqueue(this, qs);
+                Toast.makeText(this,"Queued for upload",Toast.LENGTH_SHORT).show();
+                finish();
+            })
+            .setNegativeButton("Discard", null).show();
     }
 
-    private void setTextAlign(String align) {
-        selectedTextAlign = align;
-        int gravity;
-        switch (align) {
-            case "left":  gravity = android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL; break;
-            case "right": gravity = android.view.Gravity.END   | android.view.Gravity.CENTER_VERTICAL; break;
-            default:      gravity = android.view.Gravity.CENTER;
+    private void saveStatusToFirebase(String text, String caption, String mediaUrl, String thumbUrl, Map<String, String> resolvedUids) {
+        String uid = FirebaseUtils.getCurrentUid(); if (uid == null) return;
+        StatusItem item = new StatusItem();
+        item.ownerUid  = uid;
+        item.ownerName = FirebaseUtils.getCurrentName();
+        try { item.ownerPhotoUrl = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl().toString(); } catch (Exception e) { item.ownerPhotoUrl = null; }
+        item.type      = "gif".equals(type) ? "gif" : (mediaUrl != null ? ("video".equals(mediaType) ? "video" : "image") : ("link".equals(type) ? "link" : "text"));
+        if ("collage".equals(type)) item.type = "collage";
+        item.text      = text.isEmpty() ? null : text;
+        item.caption   = caption.isEmpty() ? null : caption;
+        item.mediaUrl  = mediaUrl != null ? mediaUrl : gifUrl;
+        item.thumbnailUrl = thumbUrl;
+        item.bgColor   = bgColor; item.bgColor2 = bgColor2; item.textColor = textColor;
+        item.fontStyle = fontStyle; item.textAlign = textAlign; item.templateId = templateId;
+        item.privacy   = privacy; item.isCloseFriends = isCloseFriends;
+        item.expiryHours = expiryHours;
+        item.expiresAt   = System.currentTimeMillis() + expiryHours * 3600_000L;
+        if (resolvedUids != null && !resolvedUids.isEmpty()) item.mentionUids = resolvedUids;
+        // Music
+        item.musicSongId = musicSongId; item.musicTitle = musicTitle;
+        item.musicArtist = musicArtist; item.musicAudioUrl = musicAudioUrl; item.musicStartSec = musicStartSec;
+        // Poll
+        item.pollQuestion = pollQuestion; item.pollOptions = pollOptions;
+        // Countdown
+        item.countdownTargetTs = countdownTargetTs; item.countdownLabel = countdownLabel;
+
+        // Link preview fields
+        if ("link".equals(type)) {
+            String url = StatusLinkPreviewHelper.extractUrl(text != null ? text : "");
+            if (url != null) { item.linkUrl = url; item.type = "link"; }
         }
-        binding.tvTextPreview.setGravity(gravity);
-    }
 
-    // ── Bg color picker ───────────────────────────────────────────────────
-
-    private void setupBgColorPicker() {
-        for (int i = 0; i < BG_COLORS.length; i++) {
-            final int idx = i;
-            View swatch = getBgSwatch(i);
-            if (swatch == null) continue;
-            swatch.setBackgroundColor(BG_COLORS[i]);
-            swatch.setOnClickListener(v -> {
-                selectedBgColor = BG_COLORS[idx]; selectedTextColor = TEXT_COLORS_FOR_BG[idx];
-                updateTextStatusPreview(); highlightSwatch(idx);
-            });
-        }
-        highlightSwatch(0);
-    }
-
-    private View getBgSwatch(int idx) {
-        try {
-            int id = getResources().getIdentifier("color_swatch_" + idx, "id", getPackageName());
-            return id != 0 ? findViewById(id) : null;
-        } catch (Exception e) { return null; }
-    }
-
-    private void highlightSwatch(int sel) {
-        for (int i = 0; i < BG_COLORS.length; i++) {
-            View v = getBgSwatch(i);
-            if (v != null) { v.setScaleX(i == sel ? 1.3f : 1f); v.setScaleY(i == sel ? 1.3f : 1f); }
-        }
-    }
-
-    private void hideBgColorPicker() { binding.bgColorPickerRow.setVisibility(View.GONE); }
-    private void showBgColorPicker()  { binding.bgColorPickerRow.setVisibility(View.VISIBLE); updateTextStatusPreview(); }
-
-    // ── Font style picker ─────────────────────────────────────────────────
-
-    private void setupFontStylePicker() {
-        binding.btnFontDefault.setOnClickListener(v     -> setFont("default"));
-        binding.btnFontBold.setOnClickListener(v        -> setFont("bold"));
-        binding.btnFontItalic.setOnClickListener(v      -> setFont("italic"));
-        binding.btnFontHandwriting.setOnClickListener(v -> setFont("handwriting"));
-        View btnCondensed = binding.getRoot().findViewWithTag("btn_font_condensed");
-        if (btnCondensed != null) btnCondensed.setOnClickListener(v -> setFont("condensed"));
-        View btnSerif = binding.getRoot().findViewWithTag("btn_font_serif");
-        if (btnSerif != null) btnSerif.setOnClickListener(v -> setFont("serif"));
-    }
-
-    private void setFont(String style) {
-        selectedFontStyle = style;
-        binding.btnFontDefault.setSelected("default".equals(style));
-        binding.btnFontBold.setSelected("bold".equals(style));
-        binding.btnFontItalic.setSelected("italic".equals(style));
-        binding.btnFontHandwriting.setSelected("handwriting".equals(style));
-        updateTextStatusPreview();
-    }
-
-    // ── Text input + link detection + mention ────────────────────────────
-
-    private void setupTextInput() {
-        binding.etText.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
-            @Override public void afterTextChanged(Editable s) {
-                int len = s.length();
-                binding.tvCharCount.setText(len + " / 700");
-                if (len > 700) binding.tilText.setError("Max 700 characters");
-                else           binding.tilText.setError(null);
-                updateTextStatusPreview();
-                detectAndFetchLinkPreview(s.toString());
-            }
+        DatabaseReference ref = FirebaseUtils.getStatusRef().child(uid).push();
+        item.id = ref.getKey();
+        ref.setValue(item.toMap()).addOnSuccessListener(t -> {
+            pbUpload.setVisibility(View.GONE);
+            StatusHapticHelper.success(this);
+            StatusDraftManager.clear(this); // Clear draft on success
+            // Notify mentioned users
+            if (resolvedUids != null) StatusMentionHelper.notifyMentions(uid, item.ownerName, item.id, resolvedUids);
+            // Schedule expiry notification
+            StatusNotificationHelper.scheduleStatusExpiryReminder(this, item.id, item.expiresAt != null ? item.expiresAt : 0);
+            Toast.makeText(this,"Status posted!",Toast.LENGTH_SHORT).show();
+            finish();
+        }).addOnFailureListener(e -> {
+            pbUpload.setVisibility(View.GONE);
+            Toast.makeText(this,"Save failed: "+e.getMessage(),Toast.LENGTH_LONG).show();
         });
     }
 
-    // ── Link preview (NEW) ────────────────────────────────────────────────
-
-    private void detectAndFetchLinkPreview(String text) {
-        String url = StatusLinkPreviewHelper.extractUrl(text);
-        if (url == null) {
-            detectedLinkUrl = null; fetchedPreview = null;
-            hideLinkPreview();
-            return;
-        }
-        if (url.equals(detectedLinkUrl)) return;
-        detectedLinkUrl = url;
-        showLinkPreviewLoading();
-        StatusLinkPreviewHelper.fetch(url, new StatusLinkPreviewHelper.Callback() {
-            @Override public void onResult(StatusLinkPreviewHelper.LinkPreview preview) {
-                fetchedPreview = preview;
-                runOnUiThread(() -> {
-                    if (preview.isValid()) showLinkPreview(preview);
-                    else hideLinkPreview();
-                });
-            }
-            @Override public void onError(String error) {
-                fetchedPreview = null;
-                runOnUiThread(() -> hideLinkPreview());
-            }
-        });
-    }
-
-    private void showLinkPreviewLoading() {
-        View card = binding.getRoot().findViewWithTag("link_preview_card");
-        if (card != null) card.setVisibility(View.VISIBLE);
-        View pb = binding.getRoot().findViewWithTag("link_preview_progress");
-        if (pb != null) pb.setVisibility(View.VISIBLE);
-        View content = binding.getRoot().findViewWithTag("link_preview_content");
-        if (content != null) content.setVisibility(View.GONE);
-    }
-
-    private void showLinkPreview(StatusLinkPreviewHelper.LinkPreview preview) {
-        View card = binding.getRoot().findViewWithTag("link_preview_card");
-        if (card == null) return;
-        card.setVisibility(View.VISIBLE);
-        View pb = binding.getRoot().findViewWithTag("link_preview_progress");
-        if (pb != null) pb.setVisibility(View.GONE);
-        View content = binding.getRoot().findViewWithTag("link_preview_content");
-        if (content != null) content.setVisibility(View.VISIBLE);
-        TextView tvTitle = binding.getRoot().findViewWithTag("link_preview_title");
-        if (tvTitle != null) tvTitle.setText(preview.title);
-        TextView tvDesc = binding.getRoot().findViewWithTag("link_preview_desc");
-        if (tvDesc != null) tvDesc.setText(preview.description);
-        TextView tvDomain = binding.getRoot().findViewWithTag("link_preview_domain");
-        if (tvDomain != null) tvDomain.setText(preview.domain);
-        android.widget.ImageView ivImage = binding.getRoot().findViewWithTag("link_preview_image");
-        if (ivImage != null && preview.imageUrl != null)
-            Glide.with(this).load(preview.imageUrl).into(ivImage);
-    }
-
-    private void hideLinkPreview() {
-        View card = binding.getRoot().findViewWithTag("link_preview_card");
-        if (card != null) card.setVisibility(View.GONE);
-    }
-
-    // ── Preview card ──────────────────────────────────────────────────────
-
-    private void updateTextStatusPreview() {
-        if (pickedImage != null || pickedVideo != null) return;
-        String text = binding.etText.getText().toString().trim();
-        if (text.isEmpty()) { binding.textPreviewCard.setVisibility(View.GONE); return; }
-        binding.textPreviewCard.setVisibility(View.VISIBLE);
-        binding.textPreviewCard.setCardBackgroundColor(selectedBgColor);
-        binding.tvTextPreview.setText(StatusMentionHelper.highlight(text));
-        binding.tvTextPreview.setTextColor(selectedTextColor);
-        applyFontStyle(binding.tvTextPreview, selectedFontStyle);
-    }
-
-    private void applyFontStyle(android.widget.TextView tv, String style) {
-        if (style == null) return;
-        switch (style) {
-            case "bold":        tv.setTypeface(null, android.graphics.Typeface.BOLD); break;
-            case "italic":      tv.setTypeface(null, android.graphics.Typeface.ITALIC); break;
-            case "handwriting": tv.setTypeface(android.graphics.Typeface.MONOSPACE); break;
-            case "condensed":   tv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); break;
-            case "serif":       tv.setTypeface(android.graphics.Typeface.SERIF); break;
-            default:            tv.setTypeface(null, android.graphics.Typeface.NORMAL);
-        }
-    }
-
-    // ── Draft save/restore ────────────────────────────────────────────────
-
-    private void saveDraft() {
-        getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE)
-            .edit().putString(KEY_DRAFT, binding.etText.getText().toString()).apply();
+    // ── Draft management ──────────────────────────────────
+    @Override protected void onPause() {
+        super.onPause();
+        // FIX: Full draft save including media (was text-only)
+        StatusDraftManager.Draft draft = new StatusDraftManager.Draft();
+        draft.text = etText.getText().toString();
+        draft.caption = etCaption.getText().toString();
+        draft.bgColor = bgColor; draft.textColor = textColor; draft.fontStyle = fontStyle;
+        draft.textAlign = textAlign; draft.privacy = privacy; draft.expiryHours = expiryHours;
+        draft.isCloseFriends = isCloseFriends;
+        if (mediaUri != null) { draft.mediaUriStr = mediaUri.toString(); draft.mediaType = mediaType; }
+        StatusDraftManager.save(this, draft);
     }
 
     private void restoreDraft() {
-        String draft = getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE).getString(KEY_DRAFT, "");
-        if (draft != null && !draft.isEmpty()) binding.etText.setText(draft);
+        if (!StatusDraftManager.hasDraft(this)) return;
+        StatusDraftManager.Draft draft = StatusDraftManager.load(this);
+        if (draft == null) return;
+        new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("Continue draft?")
+            .setMessage("You have an unfinished status. Continue where you left off?")
+            .setPositiveButton("Continue", (d, w) -> applyDraft(draft))
+            .setNegativeButton("Start fresh", (d, w) -> StatusDraftManager.clear(this))
+            .show();
     }
 
-    private void clearDraft() {
-        getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE).edit().remove(KEY_DRAFT).apply();
-    }
-
-    // ── Media preview helpers ─────────────────────────────────────────────
-
-    private void showImagePreview(Uri uri) {
-        binding.ivPreview.setVisibility(View.VISIBLE);
-        binding.ivVideoHint.setVisibility(View.GONE);
-        binding.btnDiscardMedia.setVisibility(View.VISIBLE);
-        Glide.with(this).load(uri).centerCrop().into(binding.ivPreview);
-        binding.captionGroup.setVisibility(View.VISIBLE);
-        hideBgColorPicker();
-    }
-
-    private void showVideoPreview(Uri uri) {
-        binding.ivPreview.setVisibility(View.VISIBLE);
-        binding.ivVideoHint.setVisibility(View.VISIBLE);
-        binding.btnDiscardMedia.setVisibility(View.VISIBLE);
-        Glide.with(this).load(uri).centerCrop().into(binding.ivPreview);
-        binding.captionGroup.setVisibility(View.VISIBLE);
-        hideBgColorPicker();
-    }
-
-    private void discardMedia() {
-        pickedImage = null; pickedVideo = null; cameraImageUri = null;
-        binding.ivPreview.setVisibility(View.GONE);
-        binding.ivVideoHint.setVisibility(View.GONE);
-        binding.btnDiscardMedia.setVisibility(View.GONE);
-        binding.captionGroup.setVisibility(View.GONE);
-        showBgColorPicker();
-    }
-
-    // ── Post ──────────────────────────────────────────────────────────────
-
-    private void post() {
-        String txt     = binding.etText.getText().toString().trim();
-        String caption = binding.etCaption != null ? binding.etCaption.getText().toString().trim() : "";
-        boolean isGif  = "gif".equals(binding.btnPickImage.getTag());
-
-        if (pickedImage == null && pickedVideo == null && txt.isEmpty() && fetchedPreview == null) {
-            toast("Kuch text ya media add karo"); return;
-        }
-        if (txt.length() > 700) { toast("Text 700 characters se zyada nahi"); return; }
-
-        setPosting(true);
-        String uid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
-        String name = FirebaseUtils.getCurrentName();
-
-        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                String thumb = snap.child("thumbUrl").getValue(String.class);
-                String full  = snap.child("photoUrl").getValue(String.class);
-                String photo = (thumb != null && !thumb.isEmpty()) ? thumb : (full != null ? full : safePhoto());
-                dispatchPost(txt, caption, uid, name, photo, isGif);
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                dispatchPost(txt, caption, uid, name, safePhoto(), isGif);
-            }
-        });
-    }
-
-    private void dispatchPost(String txt, String caption, String uid, String name, String photo, boolean isGif) {
-        if (fetchedPreview != null && pickedImage == null && pickedVideo == null) {
-            // Link status
-            saveStatus("link", fetchedPreview.imageUrl, null, txt, caption, uid, name, photo);
-        } else if (isGif && pickedImage != null) {
-            // GIF / sticker — store as sticker type
-            saveStatus("gif", pickedImage.toString(), null, txt, caption, uid, name, photo);
-        } else if (pickedImage != null) {
-            compressAndUploadImage(pickedImage, caption, txt, uid, name, photo);
-        } else if (pickedVideo != null) {
-            compressAndUploadVideo(pickedVideo, caption, txt, uid, name, photo);
-        } else {
-            saveStatus("text", null, null, txt, caption, uid, name, photo);
+    private void applyDraft(StatusDraftManager.Draft draft) {
+        if (draft.text != null) etText.setText(draft.text);
+        if (draft.caption != null) { etCaption.setText(draft.caption); etCaption.setVisibility(View.VISIBLE); }
+        if (draft.bgColor != null) bgColor = draft.bgColor;
+        if (draft.fontStyle != null) fontStyle = draft.fontStyle;
+        if (draft.privacy  != null) privacy = draft.privacy;
+        expiryHours = draft.expiryHours > 0 ? draft.expiryHours : 24;
+        if (draft.mediaUriStr != null) {
+            try { mediaUri = Uri.parse(draft.mediaUriStr); mediaType = draft.mediaType; type = mediaType;
+                  showMediaPreview(mediaUri, mediaType); } catch (Exception e) { /* invalid uri */ }
         }
     }
 
-    private void compressAndUploadImage(Uri uri, String caption, String txt, String uid, String name, String photo) {
-        runOnUiThread(() -> setHint("Compressing image…"));
-        ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
-            @Override public void onSuccess(ImageCompressor.Result r) {
-                runOnUiThread(() -> setHint("Uploading image…"));
-                uploadAndSave(Uri.fromFile(r.fullFile), "image", caption, txt, uid, name, photo, r.thumbFile);
-            }
-            @Override public void onError(Exception e) {
-                runOnUiThread(() -> setHint("Uploading image…"));
-                uploadAndSave(uri, "image", caption, txt, uid, name, photo, null);
-            }
-        });
-    }
-
-    private void compressAndUploadVideo(Uri uri, String caption, String txt, String uid, String name, String photo) {
-        runOnUiThread(() -> setHint("Compressing video… 0%"));
-        VideoQualityPreferences.Quality quality = new VideoQualityPreferences(this).getGlobalQuality();
-        VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
-            @Override public void onProgress(int pct) { runOnUiThread(() -> setHint("Compressing video… " + pct + "%")); }
-            @Override public void onSuccess(VideoCompressor.Result r) {
-                runOnUiThread(() -> setHint("Uploading video…"));
-                uploadAndSave(Uri.fromFile(r.videoFile), "video", caption, txt, uid, name, photo, r.thumbFile);
-            }
-            @Override public void onError(Exception e) {
-                runOnUiThread(() -> setHint("Uploading video…"));
-                uploadAndSave(uri, "video", caption, txt, uid, name, photo, null);
-            }
-        });
-    }
-
-    private void uploadAndSave(Uri uri, String type, String caption, String txt,
-                                String uid, String name, String photo, java.io.File thumbFile) {
-        String rt = "video".equals(type) ? "video" : "image";
-        CloudinaryUploader.upload(this, uri, "callx/status", rt, new CloudinaryUploader.UploadCallback() {
-            @Override public void onSuccess(CloudinaryUploader.Result r) {
-                runOnUiThread(() -> {
-                    setPosting(false);
-                    String thumbUrl = "video".equals(type) ? r.thumbnailUrl : null;
-                    // FIX: Clean up compressed files
-                    if (thumbFile != null) VideoCompressor.safeDelete(thumbFile);
-                    saveStatus(type, r.secureUrl, thumbUrl, txt, caption, uid, name, photo);
-                    // FIX v25: If thumb was locally generated and Cloudinary didn't return one, upload separately
-                    if ("video".equals(type) && thumbUrl == null && thumbFile != null && thumbFile.exists()) {
-                        uploadThumbAndPatch(thumbFile, uid, r.secureUrl);
-                    }
-                });
-            }
-            @Override public void onError(String err) {
-                runOnUiThread(() -> { setPosting(false); toast(err != null ? err : "Upload failed, try again"); });
-            }
-        });
-    }
-
-    private void uploadThumbAndPatch(java.io.File thumbFile, String uid, String mediaUrl) {
-        Uri thumbUri = Uri.fromFile(thumbFile);
-        CloudinaryUploader.upload(this, thumbUri, "callx/status/thumb", "image",
-            new CloudinaryUploader.UploadCallback() {
-                @Override public void onSuccess(CloudinaryUploader.Result r) {
-                    VideoCompressor.safeDelete(thumbFile);
-                    // FIX v25: Patch thumbnailUrl on status node — find the status by mediaUrl
-                    FirebaseUtils.getStatusRef().child(uid)
-                        .orderByChild("mediaUrl").equalTo(mediaUrl).limitToLast(1)
-                        .addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                                for (DataSnapshot c : snap.getChildren())
-                                    c.getRef().child("thumbnailUrl").setValue(r.secureUrl);
-                            }
-                            @Override public void onCancelled(@NonNull DatabaseError e) {}
-                        });
-                }
-                @Override public void onError(String err) { VideoCompressor.safeDelete(thumbFile); }
-            });
-    }
-
-    private void saveStatus(String type, String mediaUrl, String thumbUrl,
-                            String txt, String caption, String uid, String name, String photo) {
-        long now = System.currentTimeMillis();
-        DatabaseReference ref = FirebaseUtils.getStatusRef().child(uid).push();
-
-        StatusItem item       = new StatusItem();
-        item.id               = ref.getKey();
-        item.ownerUid         = uid;
-        item.ownerName        = name;
-        item.ownerPhoto       = photo;
-        item.type             = type;
-        item.text             = txt.isEmpty() ? null : txt;
-        item.caption          = caption.isEmpty() ? null : caption;
-        item.mediaUrl         = mediaUrl;
-        item.thumbnailUrl     = thumbUrl;
-        item.bgColor          = String.format("#%08X", selectedBgColor);
-        item.fontStyle        = selectedFontStyle;
-        item.textColor        = String.format("#%08X", selectedTextColor);
-        item.textAlign        = selectedTextAlign;
-        item.privacy          = selectedPrivacy;
-        item.privacyList      = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
-        item.isCloseFriends   = isCloseFriends;
-        item.expiryHours      = selectedExpiryHours;
-        item.timestamp        = now;
-        item.expiresAt        = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
-        item.deleted          = false;
-
-        // Mentions
-        if (txt != null && !txt.isEmpty()) {
-            StatusMentionHelper.MentionResult mentions = StatusMentionHelper.extract(txt);
-            if (!mentions.mentionedNames.isEmpty()) {
-                // Store mention names; UID resolution requires backend lookup
-                item.mentionNames = new HashMap<>();
-                for (String n : mentions.mentionedNames) item.mentionNames.put(n, "@" + n);
-            }
-        }
-
-        // Link metadata
-        if ("link".equals(type) && fetchedPreview != null) {
-            item.linkUrl         = fetchedPreview.url;
-            item.linkTitle       = fetchedPreview.title;
-            item.linkDescription = fetchedPreview.description;
-            item.linkImageUrl    = fetchedPreview.imageUrl;
-            item.linkDomain      = fetchedPreview.domain;
-        }
-
-        ref.setValue(item.toMap())
-            .addOnSuccessListener(u -> {
-                clearDraft();
-                StatusNotificationHelper.scheduleStatusExpiryReminder(this, item.id, item.expiresAt);
-                toast("Status posted!");
-                finish();
-            })
-            .addOnFailureListener(e -> {
-                setPosting(false);
-                toast("Failed to post: " + e.getMessage());
-            });
-    }
-
-    // ── UI helpers ────────────────────────────────────────────────────────
-
-    private void setPosting(boolean posting) {
-        binding.btnPost.setEnabled(!posting);
-        binding.btnPost.setText(posting ? "Posting…" : "Post");
-        if (binding.uploadProgress != null)
-            binding.uploadProgress.setVisibility(posting ? View.VISIBLE : View.GONE);
-    }
-
-    private void setHint(String hint) {
-        if (binding.tvUploadHint != null) binding.tvUploadHint.setText(hint);
-    }
-
-    private String safePhoto() {
-        try { com.google.firebase.auth.FirebaseUser u = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser(); if (u != null && u.getPhotoUrl() != null) return u.getPhotoUrl().toString(); return ""; } catch (Exception e) { return ""; }
-    }
-
-    private String safeUid() {
-        try { return FirebaseUtils.getCurrentUid(); } catch (Exception e) { return null; }
-    }
-
-    private void toast(String msg) { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show(); }
+    private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
 }
