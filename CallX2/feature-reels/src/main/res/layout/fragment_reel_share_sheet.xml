@@ -92,7 +92,7 @@
         android:background="?attr/selectableItemBackground">
         <ImageView android:layout_width="24dp" android:layout_height="24dp"
             android:src="@drawable/ic_share_reel"
-            android:tint="#00F260" android:tint="?attr/colorOnSurface"/>
+            android:tint="#00F260"/>
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginStart="16dp" android:text="Copy Link"
             android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
@@ -110,7 +110,7 @@
         android:background="?attr/selectableItemBackground">
         <ImageView android:layout_width="24dp" android:layout_height="24dp"
             android:src="@drawable/ic_send"
-            android:tint="#00C6FF" android:tint="?attr/colorOnSurface"/>
+            android:tint="#00C6FF"/>
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginStart="16dp" android:text="Share via..."
             android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
