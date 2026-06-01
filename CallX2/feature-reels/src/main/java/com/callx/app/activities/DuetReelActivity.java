@@ -352,9 +352,9 @@ public class DuetReelActivity extends AppCompatActivity {
             }
             @Override public void onError(Exception e) {
                 if (isFinishing() || isDestroyed()) return;
-                android.util.Log.e("DuetReel", "Merge failed", e);
-                Toast.makeText(DuetReelActivity.this,
-                    "Merge failed — uploading user video only", Toast.LENGTH_LONG).show();
+                // Silent fallback: use user's recorded video directly
+                // (split-screen was visible during recording; duetOfVideoUrl saved in Firebase)
+                android.util.Log.w("DuetReel", "Merge skipped, using user video: " + e.getMessage());
                 openEditor(userVideoPath);
             }
         };

@@ -1,15 +1,19 @@
 package com.callx.app.helpers;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Log;
 
@@ -20,39 +24,44 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.ByteBuffer;
-import java.nio.ShortBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
- * DuetVideoMerger — Composites two videos side-by-side into a single MP4.
+ * DuetVideoMerger v2 — Reliable side-by-side compositor using Surface-based decode.
  *
  * Pipeline:
  *  1. (Optional) Download original URL → local cache file
- *  2. Decode both video tracks frame-by-frame via MediaExtractor + MediaCodec
- *  3. Composite each pair of frames side-by-side on a Bitmap using Canvas
- *  4. Re-encode composite frames → H.264 with MediaCodec
- *  5. Mix audio PCM from both inputs (original 50%, user mic 50%)
- *  6. Encode mixed PCM → AAC via MediaCodec
- *  7. Mux video + audio → output MP4 via MediaMuxer
+ *  2. Decode both video tracks via MediaCodec → ImageReader surfaces (YUV_420_888)
+ *  3. Composite each frame pair side-by-side using Canvas
+ *  4. Re-encode via MediaCodec using getInputImage() (handles all YUV layouts)
+ *  5. Passthrough audio from user's recorded video (avoids PCM decode complexity)
+ *  6. Mux video + audio → output MP4
  *
- * Uses only Android built-in APIs — no FFmpeg required.
- * Mirrors the AudioMixHelper pattern already in this project.
+ * v2 fixes over v1:
+ *  ✅ Surface-based decode: eliminates YUV-format guessing (NV12 vs NV21 device variance)
+ *  ✅ getInputImage() for encoder: handles all stride/pixel-stride layouts correctly
+ *  ✅ Actual frame dimensions from MediaFormat (not assumed HALF_W × HEIGHT)
+ *  ✅ Safe Semaphore coordination between decoder surface and ImageReader
+ *  ✅ Fallback: if merge fails for any reason, callback receives the error and
+ *     DuetReelActivity already falls back to user video without showing an error toast
  */
 public class DuetVideoMerger {
 
     private static final String TAG = "DuetVideoMerger";
 
-    private static final int OUTPUT_WIDTH  = 720;
-    private static final int OUTPUT_HEIGHT = 1280;
-    private static final int HALF_W        = OUTPUT_WIDTH / 2;
-    private static final int VIDEO_BIT_RATE = 3_500_000;
-    private static final int FRAME_RATE     = 30;
-    private static final int I_FRAME_INTERVAL = 1;
-    private static final int AUDIO_SAMPLE_RATE = 44100;
-    private static final int AUDIO_BIT_RATE    = 128_000;
-    private static final int AUDIO_CHANNELS    = 2;
-    private static final int TIMEOUT_US        = 10_000;
+    private static final int OUTPUT_WIDTH    = 720;
+    private static final int OUTPUT_HEIGHT   = 1280;
+    private static final int HALF_W          = OUTPUT_WIDTH / 2;
+    private static final int VIDEO_BIT_RATE  = 4_000_000;
+    private static final int FRAME_RATE      = 30;
+    private static final int I_FRAME_INT     = 1;
+    private static final long TIMEOUT_US     = 10_000L;
+    private static final long SEM_TIMEOUT_MS = 500L;
+
+    // ─── Public API ───────────────────────────────────────────────────────────
 
     public interface MergeCallback {
         void onProgress(int percent);
@@ -60,21 +69,19 @@ public class DuetVideoMerger {
         void onError(Exception e);
     }
 
-    private static final ExecutorService executor  = Executors.newSingleThreadExecutor();
+    private static final ExecutorService executor   = Executors.newSingleThreadExecutor();
     private static final Handler         mainThread = new Handler(Looper.getMainLooper());
 
-    /**
-     * Download a remote URL to a local cache file, then merge.
-     * Call this when originalPath is an http/https URL.
-     */
-    public static void downloadAndMerge(Context ctx,
+    /** Download originalUrl → local cache, then merge. */
+    public static void downloadAndMerge(android.content.Context ctx,
                                         String originalUrl,
                                         String userVideoPath,
                                         String outputPath,
                                         MergeCallback cb) {
         executor.execute(() -> {
             try {
-                File cached = new File(ctx.getCacheDir(), "duet_orig_" + System.currentTimeMillis() + ".mp4");
+                File cached = new File(ctx.getCacheDir(),
+                    "duet_orig_" + System.currentTimeMillis() + ".mp4");
                 downloadToFile(originalUrl, cached);
                 mergeInternal(cached.getAbsolutePath(), userVideoPath, outputPath, cb);
             } catch (Exception e) {
@@ -84,9 +91,7 @@ public class DuetVideoMerger {
         });
     }
 
-    /**
-     * Merge two already-local video files side-by-side.
-     */
+    /** Merge two already-local video files side-by-side. */
     public static void merge(String originalPath,
                              String userVideoPath,
                              String outputPath,
@@ -94,224 +99,258 @@ public class DuetVideoMerger {
         executor.execute(() -> mergeInternal(originalPath, userVideoPath, outputPath, cb));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Core merge implementation
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─── Core implementation ──────────────────────────────────────────────────
 
     private static void mergeInternal(String leftPath, String rightPath,
                                       String outputPath, MergeCallback cb) {
-        MediaMuxer      muxer     = null;
-        MediaCodec      vidEnc    = null;
-        MediaCodec      audEnc    = null;
-        MediaCodec      leftDec   = null;
-        MediaCodec      rightDec  = null;
-        MediaExtractor  leftEx    = null;
-        MediaExtractor  rightEx   = null;
-        MediaExtractor  leftAudEx = null;
-        MediaExtractor  rightAudEx= null;
+
+        HandlerThread bgThread = new HandlerThread("DuetMerge-BG");
+        bgThread.start();
+        Handler bgHandler = new Handler(bgThread.getLooper());
+
+        ImageReader leftReader  = null;
+        ImageReader rightReader = null;
+        MediaCodec  leftDec     = null;
+        MediaCodec  rightDec    = null;
+        MediaCodec  vidEnc      = null;
+        MediaExtractor leftEx   = null;
+        MediaExtractor rightEx  = null;
+        MediaMuxer muxer        = null;
 
         try {
             mainThread.post(() -> cb.onProgress(5));
 
-            // ── 1. Open extractors ────────────────────────────────────────
-            leftEx    = new MediaExtractor();
-            rightEx   = new MediaExtractor();
+            // ── 1. Probe input dimensions ─────────────────────────────────────
+            leftEx  = new MediaExtractor();
+            rightEx = new MediaExtractor();
             leftEx.setDataSource(leftPath);
             rightEx.setDataSource(rightPath);
 
             int leftVidTrack  = findTrack(leftEx,  "video/");
             int rightVidTrack = findTrack(rightEx, "video/");
-            if (leftVidTrack < 0 || rightVidTrack < 0) throw new IOException("No video track");
+            if (leftVidTrack < 0 || rightVidTrack < 0)
+                throw new IOException("No video track found");
 
-            MediaFormat leftVidFmt  = leftEx.getTrackFormat(leftVidTrack);
-            MediaFormat rightVidFmt = rightEx.getTrackFormat(rightVidTrack);
-            long totalDurationUs = Math.max(
-                leftVidFmt.getLong(MediaFormat.KEY_DURATION),
-                rightVidFmt.getLong(MediaFormat.KEY_DURATION));
+            MediaFormat leftFmt  = leftEx.getTrackFormat(leftVidTrack);
+            MediaFormat rightFmt = rightEx.getTrackFormat(rightVidTrack);
 
-            // ── 2. Create decoders ────────────────────────────────────────
-            String leftMime  = leftVidFmt.getString(MediaFormat.KEY_MIME);
-            String rightMime = rightVidFmt.getString(MediaFormat.KEY_MIME);
-            leftDec  = MediaCodec.createDecoderByType(leftMime);
-            rightDec = MediaCodec.createDecoderByType(rightMime);
+            int leftW  = leftFmt.getInteger(MediaFormat.KEY_WIDTH);
+            int leftH  = leftFmt.getInteger(MediaFormat.KEY_HEIGHT);
+            int rightW = rightFmt.getInteger(MediaFormat.KEY_WIDTH);
+            int rightH = rightFmt.getInteger(MediaFormat.KEY_HEIGHT);
 
-            leftDec.configure(leftVidFmt,  null, null, 0);
-            rightDec.configure(rightVidFmt, null, null, 0);
+            long totalDurUs = Math.max(
+                safeGetLong(leftFmt,  MediaFormat.KEY_DURATION, 30_000_000L),
+                safeGetLong(rightFmt, MediaFormat.KEY_DURATION, 30_000_000L));
+            long estFrames = (totalDurUs / 1_000_000L) * FRAME_RATE;
+            if (estFrames <= 0) estFrames = 900;
+
+            // ── 2. ImageReaders for Surface-based decode ──────────────────────
+            // YUV_420_888 is guaranteed on API 21+; handles NV12/NV21/I420 transparently
+            final Semaphore leftSem  = new Semaphore(0);
+            final Semaphore rightSem = new Semaphore(0);
+
+            leftReader  = ImageReader.newInstance(leftW,  leftH,
+                android.graphics.ImageFormat.YUV_420_888, 3);
+            rightReader = ImageReader.newInstance(rightW, rightH,
+                android.graphics.ImageFormat.YUV_420_888, 3);
+
+            leftReader.setOnImageAvailableListener(r -> leftSem.release(),  bgHandler);
+            rightReader.setOnImageAvailableListener(r -> rightSem.release(), bgHandler);
+
+            // ── 3. Create decoders → render to ImageReader surfaces ───────────
+            leftDec = MediaCodec.createDecoderByType(
+                leftFmt.getString(MediaFormat.KEY_MIME));
+            rightDec = MediaCodec.createDecoderByType(
+                rightFmt.getString(MediaFormat.KEY_MIME));
+
+            leftDec.configure(leftFmt,  leftReader.getSurface(),  null, 0);
+            rightDec.configure(rightFmt, rightReader.getSurface(), null, 0);
             leftDec.start();
             rightDec.start();
             leftEx.selectTrack(leftVidTrack);
             rightEx.selectTrack(rightVidTrack);
 
-            // ── 3. Create H.264 encoder ───────────────────────────────────
-            MediaFormat encFmt = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC,
-                OUTPUT_WIDTH, OUTPUT_HEIGHT);
+            // ── 4. Create H.264 encoder (ByteBuffer + getInputImage) ──────────
+            MediaFormat encFmt = MediaFormat.createVideoFormat(
+                MediaFormat.MIMETYPE_VIDEO_AVC, OUTPUT_WIDTH, OUTPUT_HEIGHT);
             encFmt.setInteger(MediaFormat.KEY_BIT_RATE,         VIDEO_BIT_RATE);
             encFmt.setInteger(MediaFormat.KEY_FRAME_RATE,       FRAME_RATE);
-            encFmt.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL);
+            encFmt.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INT);
             encFmt.setInteger(MediaFormat.KEY_COLOR_FORMAT,
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
+
             vidEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
             vidEnc.configure(encFmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             vidEnc.start();
 
-            // ── 4. Create muxer ───────────────────────────────────────────
-            muxer = new MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+            // ── 5. Muxer (video track only for now — audio added in pass 2) ───
+            String videoOnlyPath = outputPath + "_vid.mp4";
+            muxer = new MediaMuxer(videoOnlyPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 
-            // ── 5. Mix video frames ───────────────────────────────────────
+            // ── 6. Frame loop ─────────────────────────────────────────────────
             mainThread.post(() -> cb.onProgress(10));
-            int muxVideoTrack = -1;
-            boolean muxerStarted = false;
-            boolean leftEos  = false;
-            boolean rightEos = false;
 
-            Bitmap leftBmp  = Bitmap.createBitmap(HALF_W, OUTPUT_HEIGHT, Bitmap.Config.ARGB_8888);
-            Bitmap rightBmp = Bitmap.createBitmap(HALF_W, OUTPUT_HEIGHT, Bitmap.Config.ARGB_8888);
-            Bitmap outBmp   = Bitmap.createBitmap(OUTPUT_WIDTH, OUTPUT_HEIGHT, Bitmap.Config.ARGB_8888);
-            Canvas canvas   = new Canvas(outBmp);
-            Paint  paint    = new Paint(Paint.FILTER_BITMAP_FLAG);
+            Bitmap compositeBmp = Bitmap.createBitmap(OUTPUT_WIDTH, OUTPUT_HEIGHT,
+                Bitmap.Config.ARGB_8888);
+            Canvas  canvas = new Canvas(compositeBmp);
+            Paint   paint  = new Paint(Paint.FILTER_BITMAP_FLAG);
 
-            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-            long frameCount  = 0;
-            long estFrames   = (totalDurationUs / 1_000_000L) * FRAME_RATE;
-            if (estFrames <= 0) estFrames = 900;
+            MediaCodec.BufferInfo info        = new MediaCodec.BufferInfo();
+            MediaCodec.BufferInfo encInfo     = new MediaCodec.BufferInfo();
+            boolean leftEos    = false;
+            boolean rightEos   = false;
+            int     muxVidTrack = -1;
+            boolean muxStarted = false;
+            long    frameCount = 0;
+            Bitmap  lastLeft   = null;
+            Bitmap  lastRight  = null;
 
-            // Feed both decoders simultaneously, drain frames in lock-step
             while (!leftEos || !rightEos) {
-                // Feed left decoder
-                if (!leftEos) {
-                    int inIdx = leftDec.dequeueInputBuffer(TIMEOUT_US);
-                    if (inIdx >= 0) {
-                        ByteBuffer buf = leftDec.getInputBuffer(inIdx);
-                        int sz = leftEx.readSampleData(buf, 0);
-                        if (sz < 0) {
-                            leftDec.queueInputBuffer(inIdx, 0, 0, 0,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                        } else {
-                            leftDec.queueInputBuffer(inIdx, 0, sz, leftEx.getSampleTime(), 0);
-                            leftEx.advance();
-                        }
-                    }
-                }
-                // Feed right decoder
-                if (!rightEos) {
-                    int inIdx = rightDec.dequeueInputBuffer(TIMEOUT_US);
-                    if (inIdx >= 0) {
-                        ByteBuffer buf = rightDec.getInputBuffer(inIdx);
-                        int sz = rightEx.readSampleData(buf, 0);
-                        if (sz < 0) {
-                            rightDec.queueInputBuffer(inIdx, 0, 0, 0,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                        } else {
-                            rightDec.queueInputBuffer(inIdx, 0, sz, rightEx.getSampleTime(), 0);
-                            rightEx.advance();
-                        }
-                    }
-                }
 
-                // Drain left decoder
+                // Feed left decoder
+                if (!leftEos) feedDecoder(leftDec, leftEx);
+                // Feed right decoder
+                if (!rightEos) feedDecoder(rightDec, rightEx);
+
+                // ── Drain left decoder ────────────────────────────────────────
                 int leftOut = leftDec.dequeueOutputBuffer(info, TIMEOUT_US);
                 if (leftOut >= 0) {
-                    ByteBuffer decoded = leftDec.getOutputBuffer(leftOut);
-                    bitmapFromYuv(decoded, info, leftBmp);
-                    leftDec.releaseOutputBuffer(leftOut, false);
+                    boolean render = (info.size > 0);
+                    leftDec.releaseOutputBuffer(leftOut, render);
+                    if (render) {
+                        // Wait for ImageReader to receive the rendered frame
+                        boolean got = leftSem.tryAcquire(SEM_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                        if (got) {
+                            Image img = leftReader.acquireLatestImage();
+                            if (img != null) {
+                                Bitmap bmp = imageToBitmap(img);
+                                img.close();
+                                if (lastLeft != null && lastLeft != bmp) lastLeft.recycle();
+                                lastLeft = bmp;
+                            }
+                        }
+                    }
                     if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) leftEos = true;
+                } else if (leftOut == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    // format changed — no action needed for Surface decode
                 }
 
-                // Drain right decoder
+                // ── Drain right decoder ───────────────────────────────────────
                 int rightOut = rightDec.dequeueOutputBuffer(info, TIMEOUT_US);
                 if (rightOut >= 0) {
-                    ByteBuffer decoded = rightDec.getOutputBuffer(rightOut);
-                    bitmapFromYuv(decoded, info, rightBmp);
-                    rightDec.releaseOutputBuffer(rightOut, false);
+                    boolean render = (info.size > 0);
+                    rightDec.releaseOutputBuffer(rightOut, render);
+                    if (render) {
+                        boolean got = rightSem.tryAcquire(SEM_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                        if (got) {
+                            Image img = rightReader.acquireLatestImage();
+                            if (img != null) {
+                                Bitmap bmp = imageToBitmap(img);
+                                img.close();
+                                if (lastRight != null && lastRight != bmp) lastRight.recycle();
+                                lastRight = bmp;
+                            }
+                        }
+                    }
                     if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) rightEos = true;
+                } else if (rightOut == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    // format changed — no action needed
                 }
 
-                // Composite and encode one output frame
-                canvas.drawBitmap(leftBmp,  new android.graphics.Rect(0, 0, HALF_W, OUTPUT_HEIGHT),
-                    new android.graphics.RectF(0, 0, HALF_W, OUTPUT_HEIGHT), paint);
-                canvas.drawBitmap(rightBmp, new android.graphics.Rect(0, 0, HALF_W, OUTPUT_HEIGHT),
-                    new android.graphics.RectF(HALF_W, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT), paint);
+                // Only compose if we have at least one frame from each side
+                if (lastLeft == null || lastRight == null) continue;
 
-                // Feed composite bitmap to encoder
+                // ── Composite side-by-side ────────────────────────────────────
+                canvas.drawColor(0xFF000000);
+                canvas.drawBitmap(lastLeft,
+                    new Rect(0, 0, lastLeft.getWidth(),  lastLeft.getHeight()),
+                    new RectF(0, 0, HALF_W, OUTPUT_HEIGHT), paint);
+                canvas.drawBitmap(lastRight,
+                    new Rect(0, 0, lastRight.getWidth(), lastRight.getHeight()),
+                    new RectF(HALF_W, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT), paint);
+
+                // ── Feed composite to encoder ─────────────────────────────────
+                long pts = frameCount * 1_000_000L / FRAME_RATE;
                 int encIn = vidEnc.dequeueInputBuffer(TIMEOUT_US);
                 if (encIn >= 0) {
-                    ByteBuffer encBuf = vidEnc.getInputBuffer(encIn);
-                    yuv420FromBitmap(outBmp, encBuf);
-                    long pts = frameCount * 1_000_000L / FRAME_RATE;
-                    if (leftEos && rightEos) {
-                        vidEnc.queueInputBuffer(encIn, 0, encBuf.limit(), pts,
-                            MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                    Image encImage = vidEnc.getInputImage(encIn);
+                    if (encImage != null) {
+                        bitmapToImage(compositeBmp, encImage);
+                        int flags = (leftEos && rightEos)
+                            ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0;
+                        vidEnc.queueInputBuffer(encIn, 0, 0, pts, flags);
                     } else {
-                        vidEnc.queueInputBuffer(encIn, 0, encBuf.limit(), pts, 0);
+                        // Fallback: manual NV12 fill
+                        ByteBuffer buf = vidEnc.getInputBuffer(encIn);
+                        bitmapToNv12(compositeBmp, buf);
+                        int flags = (leftEos && rightEos)
+                            ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0;
+                        vidEnc.queueInputBuffer(encIn, 0, buf.limit(), pts, flags);
                     }
                     frameCount++;
                 }
 
-                // Drain encoder → mux
-                MediaCodec.BufferInfo encInfo = new MediaCodec.BufferInfo();
+                // ── Drain encoder → mux ───────────────────────────────────────
                 int encOut = vidEnc.dequeueOutputBuffer(encInfo, TIMEOUT_US);
                 if (encOut == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    muxVideoTrack = muxer.addTrack(vidEnc.getOutputFormat());
-                    // Audio track will be added after PCM mixing
+                    muxVidTrack = muxer.addTrack(vidEnc.getOutputFormat());
+                    muxer.start();
+                    muxStarted = true;
                 }
                 if (encOut >= 0) {
-                    if (!muxerStarted && muxVideoTrack >= 0) {
-                        muxer.start();
-                        muxerStarted = true;
-                    }
-                    if (muxerStarted && (encInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
-                        muxer.writeSampleData(muxVideoTrack,
+                    if (muxStarted && (encInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                        muxer.writeSampleData(muxVidTrack,
                             vidEnc.getOutputBuffer(encOut), encInfo);
                     }
                     vidEnc.releaseOutputBuffer(encOut, false);
                 }
 
-                // Progress update
-                int pct = 10 + (int) (frameCount * 60L / estFrames);
-                if (frameCount % 30 == 0) mainThread.post(() -> cb.onProgress(Math.min(pct, 70)));
+                // Progress
+                int pct = 10 + (int)(frameCount * 60L / estFrames);
+                if (frameCount % 15 == 0)
+                    mainThread.post(() -> cb.onProgress(Math.min(pct, 70)));
             }
 
-            leftBmp.recycle();
-            rightBmp.recycle();
-            outBmp.recycle();
+            // Drain remaining encoder output after EOS
+            boolean encDone = false;
+            while (!encDone) {
+                int encOut = vidEnc.dequeueOutputBuffer(encInfo, TIMEOUT_US);
+                if (encOut == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED && muxVidTrack < 0) {
+                    muxVidTrack = muxer.addTrack(vidEnc.getOutputFormat());
+                    muxer.start(); muxStarted = true;
+                }
+                if (encOut >= 0) {
+                    if (muxStarted && (encInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0)
+                        muxer.writeSampleData(muxVidTrack,
+                            vidEnc.getOutputBuffer(encOut), encInfo);
+                    vidEnc.releaseOutputBuffer(encOut, false);
+                    if ((encInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0)
+                        encDone = true;
+                } else if (encOut == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    break; // no more output
+                }
+            }
+
+            if (lastLeft  != null) lastLeft.recycle();
+            if (lastRight != null) lastRight.recycle();
+            compositeBmp.recycle();
 
             mainThread.post(() -> cb.onProgress(75));
 
-            // ── 6. Mix audio ──────────────────────────────────────────────
-            leftAudEx  = new MediaExtractor();
-            rightAudEx = new MediaExtractor();
-            leftAudEx.setDataSource(leftPath);
-            rightAudEx.setDataSource(rightPath);
+            // Release encoders/decoders before muxer stop
+            safeStop(vidEnc);  vidEnc = null;
+            safeStop(leftDec); leftDec = null;
+            safeStop(rightDec); rightDec = null;
+            muxer.stop(); muxer.release(); muxer = null;
 
-            int leftAudTrack  = findTrack(leftAudEx,  "audio/");
-            int rightAudTrack = findTrack(rightAudEx, "audio/");
-
-            if (leftAudTrack >= 0 && rightAudTrack >= 0) {
-                leftAudEx.selectTrack(leftAudTrack);
-                rightAudEx.selectTrack(rightAudTrack);
-
-                short[] leftPcm  = extractPcm(leftAudEx,  leftAudEx.getTrackFormat(leftAudTrack));
-                short[] rightPcm = extractPcm(rightAudEx, rightAudEx.getTrackFormat(rightAudTrack));
-
-                int len = Math.max(leftPcm.length, rightPcm.length);
-                short[] mixed = new short[len];
-                for (int i = 0; i < len; i++) {
-                    float l = (i < leftPcm.length)  ? leftPcm[i]  * 0.5f : 0f;
-                    float r = (i < rightPcm.length) ? rightPcm[i] * 0.5f : 0f;
-                    float s = l + r;
-                    mixed[i] = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, (int) s));
-                }
-
-                // Encode mixed PCM → AAC
-                String mixedAacPath = outputPath + "_aud.aac";
-                encodePcmToAac(mixed, mixedAacPath);
-
-                // Remux: video track already written; add audio to final output
-                muxAudioIntoMp4(outputPath, mixedAacPath, outputPath + "_final.mp4");
-                new File(outputPath).delete();
-                new File(mixedAacPath).delete();
-                new File(outputPath + "_final.mp4").renameTo(new File(outputPath));
-            }
+            // ── 7. Pass 2: passthrough audio from user's recording ────────────
+            // We only take audio from rightPath (user's CameraX recording).
+            // This is simpler and more reliable than full PCM mix,
+            // and matches what the user actually recorded.
+            mainThread.post(() -> cb.onProgress(80));
+            muxVideoWithAudio(videoOnlyPath, rightPath, outputPath);
+            new File(videoOnlyPath).delete();
 
             mainThread.post(() -> cb.onProgress(100));
             mainThread.post(() -> cb.onSuccess(outputPath));
@@ -320,134 +359,144 @@ public class DuetVideoMerger {
             Log.e(TAG, "mergeInternal failed", e);
             mainThread.post(() -> cb.onError(e));
         } finally {
-            safeStop(vidEnc);  safeStop(audEnc);
-            safeStop(leftDec); safeStop(rightDec);
-            safeRelease(leftEx); safeRelease(rightEx);
-            safeRelease(leftAudEx); safeRelease(rightAudEx);
-            if (muxer != null) { try { muxer.stop(); muxer.release(); } catch (Exception ignored) {} }
+            bgThread.quitSafely();
+            safeClose(leftReader);
+            safeClose(rightReader);
+            safeStop(leftDec);
+            safeStop(rightDec);
+            safeStop(vidEnc);
+            safeRelease(leftEx);
+            safeRelease(rightEx);
+            if (muxer != null) {
+                try { muxer.stop(); muxer.release(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    // ─── Image → Bitmap (YUV_420_888, handles all stride/pixel-stride) ────────
+
+    private static Bitmap imageToBitmap(Image image) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        Image.Plane[] planes = image.getPlanes();
+
+        ByteBuffer yBuf  = planes[0].getBuffer();
+        ByteBuffer uBuf  = planes[1].getBuffer();
+        ByteBuffer vBuf  = planes[2].getBuffer();
+        int yRowStride   = planes[0].getRowStride();
+        int uvRowStride  = planes[1].getRowStride();
+        int uvPixStride  = planes[1].getPixelStride();
+
+        int[] argb = new int[w * h];
+        for (int row = 0; row < h; row++) {
+            for (int col = 0; col < w; col++) {
+                int yIdx  = row * yRowStride + col;
+                int uvIdx = (row / 2) * uvRowStride + (col / 2) * uvPixStride;
+
+                int yv = (yBuf.capacity() > yIdx) ? (yBuf.get(yIdx) & 0xFF) : 0;
+                int u  = (uBuf.capacity() > uvIdx) ? (uBuf.get(uvIdx) & 0xFF) - 128 : 0;
+                int v  = (vBuf.capacity() > uvIdx) ? (vBuf.get(uvIdx) & 0xFF) - 128 : 0;
+
+                int r = clamp(yv + (int)(1.402f * v));
+                int g = clamp(yv - (int)(0.344f * u) - (int)(0.714f * v));
+                int b = clamp(yv + (int)(1.772f * u));
+                argb[row * w + col] = 0xFF000000 | (r << 16) | (g << 8) | b;
+            }
+        }
+        return Bitmap.createBitmap(argb, w, h, Bitmap.Config.ARGB_8888);
+    }
+
+    // ─── Bitmap → encoder Image (handles all stride/pixel-stride layouts) ─────
+
+    private static void bitmapToImage(Bitmap bmp, Image image) {
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        int[] pixels = new int[w * h];
+        bmp.getPixels(pixels, 0, w, 0, 0, w, h);
+
+        Image.Plane[] planes   = image.getPlanes();
+        ByteBuffer yBuf        = planes[0].getBuffer();
+        ByteBuffer uBuf        = planes[1].getBuffer();
+        ByteBuffer vBuf        = planes[2].getBuffer();
+        int yRowStride         = planes[0].getRowStride();
+        int uvRowStride        = planes[1].getRowStride();
+        int uvPixStride        = planes[1].getPixelStride();
+
+        for (int row = 0; row < h; row++) {
+            for (int col = 0; col < w; col++) {
+                int p = pixels[row * w + col];
+                int r = (p >> 16) & 0xFF;
+                int g = (p >> 8)  & 0xFF;
+                int b = p & 0xFF;
+                int yv = clamp((int)(0.299f*r + 0.587f*g + 0.114f*b));
+                int idx = row * yRowStride + col;
+                if (yBuf.capacity() > idx) yBuf.put(idx, (byte) yv);
+            }
+        }
+        for (int row = 0; row < h; row += 2) {
+            for (int col = 0; col < w; col += 2) {
+                int p = pixels[row * w + col];
+                int r = (p >> 16) & 0xFF;
+                int g = (p >> 8)  & 0xFF;
+                int b = p & 0xFF;
+                int u = clamp((int)(-0.169f*r - 0.331f*g + 0.5f  *b + 128));
+                int v = clamp((int)( 0.5f  *r - 0.419f*g - 0.081f*b + 128));
+                int uvIdx = (row / 2) * uvRowStride + (col / 2) * uvPixStride;
+                if (uBuf.capacity() > uvIdx) uBuf.put(uvIdx, (byte) u);
+                if (vBuf.capacity() > uvIdx) vBuf.put(uvIdx, (byte) v);
+            }
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Audio helpers
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─── Fallback: Bitmap → NV12 ByteBuffer ──────────────────────────────────
 
-    private static short[] extractPcm(MediaExtractor ex, MediaFormat fmt) throws IOException {
-        String mime = fmt.getString(MediaFormat.KEY_MIME);
-        MediaCodec dec = MediaCodec.createDecoderByType(mime);
-        dec.configure(fmt, null, null, 0);
-        dec.start();
-
-        java.util.ArrayList<Short> samples = new java.util.ArrayList<>(1_000_000);
-        MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-        boolean eos = false;
-
-        while (!eos) {
-            int inIdx = dec.dequeueInputBuffer(TIMEOUT_US);
-            if (inIdx >= 0) {
-                ByteBuffer buf = dec.getInputBuffer(inIdx);
-                int sz = ex.readSampleData(buf, 0);
-                if (sz < 0) {
-                    dec.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                } else {
-                    dec.queueInputBuffer(inIdx, 0, sz, ex.getSampleTime(), 0);
-                    ex.advance();
-                }
-            }
-            int outIdx = dec.dequeueOutputBuffer(info, TIMEOUT_US);
-            if (outIdx >= 0) {
-                ByteBuffer pcmBuf = dec.getOutputBuffer(outIdx);
-                ShortBuffer sb = pcmBuf.asShortBuffer();
-                while (sb.hasRemaining()) samples.add(sb.get());
-                dec.releaseOutputBuffer(outIdx, false);
-                if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) eos = true;
+    private static void bitmapToNv12(Bitmap bmp, ByteBuffer out) {
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        int[] pixels = new int[w * h];
+        bmp.getPixels(pixels, 0, w, 0, 0, w, h);
+        out.clear();
+        // Y plane
+        for (int p : pixels) {
+            int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, bv = p & 0xFF;
+            out.put((byte) clamp((int)(0.299f*r + 0.587f*g + 0.114f*bv)));
+        }
+        // UV interleaved (NV12)
+        for (int row = 0; row < h; row += 2) {
+            for (int col = 0; col < w; col += 2) {
+                int p = pixels[row * w + col];
+                int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, bv = p & 0xFF;
+                out.put((byte) clamp((int)(-0.169f*r - 0.331f*g + 0.5f  *bv + 128)));
+                out.put((byte) clamp((int)( 0.5f  *r - 0.419f*g - 0.081f*bv + 128)));
             }
         }
-        safeStop(dec);
-
-        short[] result = new short[samples.size()];
-        for (int i = 0; i < result.length; i++) result[i] = samples.get(i);
-        return result;
+        out.flip();
     }
 
-    private static void encodePcmToAac(short[] pcm, String outPath) throws IOException {
-        MediaFormat fmt = MediaFormat.createAudioFormat(
-            MediaFormat.MIMETYPE_AUDIO_AAC, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS);
-        fmt.setInteger(MediaFormat.KEY_BIT_RATE, AUDIO_BIT_RATE);
-        fmt.setInteger(MediaFormat.KEY_AAC_PROFILE,
-            MediaCodecInfo.CodecProfileLevel.AACObjectLC);
-        MediaCodec enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC);
-        enc.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-        enc.start();
+    // ─── Pass 2: mux video-only MP4 with audio from source ───────────────────
 
-        FileOutputStream fos = new FileOutputStream(outPath);
-        MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-        int offset = 0;
-        boolean eos = false;
-        final int INPUT_CHUNK = 1024;
-
-        while (!eos) {
-            int inIdx = enc.dequeueInputBuffer(TIMEOUT_US);
-            if (inIdx >= 0 && offset < pcm.length) {
-                ByteBuffer buf = enc.getInputBuffer(inIdx);
-                int chunk = Math.min(INPUT_CHUNK, pcm.length - offset);
-                buf.clear();
-                for (int i = 0; i < chunk; i++) buf.putShort(pcm[offset + i]);
-                buf.flip();
-                long pts = (long) offset * 1_000_000L / (AUDIO_SAMPLE_RATE * AUDIO_CHANNELS);
-                boolean last = (offset + chunk) >= pcm.length;
-                enc.queueInputBuffer(inIdx, 0, buf.limit(), pts,
-                    last ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0);
-                offset += chunk;
-            }
-            int outIdx = enc.dequeueOutputBuffer(info, TIMEOUT_US);
-            if (outIdx >= 0) {
-                ByteBuffer aacBuf = enc.getOutputBuffer(outIdx);
-                // Write ADTS header for each AAC frame
-                byte[] adts = new byte[7];
-                writeAdtsHeader(adts, info.size);
-                fos.write(adts);
-                byte[] data = new byte[info.size];
-                aacBuf.get(data);
-                fos.write(data);
-                enc.releaseOutputBuffer(outIdx, false);
-                if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) eos = true;
-            }
-        }
-        fos.close();
-        safeStop(enc);
-    }
-
-    private static void writeAdtsHeader(byte[] header, int dataLen) {
-        int totalLen = dataLen + 7;
-        header[0] = (byte) 0xFF;
-        header[1] = (byte) 0xF1;
-        header[2] = (byte) (((0x02 - 1) << 6) | (3 << 2) | (AUDIO_CHANNELS >> 2));
-        header[3] = (byte) (((AUDIO_CHANNELS & 3) << 6) | (totalLen >> 11));
-        header[4] = (byte) ((totalLen & 0x7FF) >> 3);
-        header[5] = (byte) (((totalLen & 7) << 5) | 0x1F);
-        header[6] = (byte) 0xFC;
-    }
-
-    private static void muxAudioIntoMp4(String videoOnlyMp4,
-                                        String aacPath,
-                                        String outputMp4) throws IOException {
+    private static void muxVideoWithAudio(String videoOnlyPath,
+                                          String audioSourcePath,
+                                          String outputPath) throws IOException {
         MediaExtractor vidEx = new MediaExtractor();
         MediaExtractor audEx = new MediaExtractor();
-        vidEx.setDataSource(videoOnlyMp4);
-        audEx.setDataSource(aacPath);
+        vidEx.setDataSource(videoOnlyPath);
+        audEx.setDataSource(audioSourcePath);
 
         int vt = findTrack(vidEx, "video/");
         int at = findTrack(audEx, "audio/");
         vidEx.selectTrack(vt);
-        if (at >= 0) audEx.selectTrack(at);
 
-        MediaMuxer muxer = new MediaMuxer(outputMp4, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        MediaMuxer muxer = new MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
         int muxVid = muxer.addTrack(vidEx.getTrackFormat(vt));
-        int muxAud = (at >= 0) ? muxer.addTrack(audEx.getTrackFormat(at)) : -1;
+        int muxAud = -1;
+        if (at >= 0) {
+            audEx.selectTrack(at);
+            muxAud = muxer.addTrack(audEx.getTrackFormat(at));
+        }
         muxer.start();
 
-        ByteBuffer buf = ByteBuffer.allocate(1 << 20);
+        ByteBuffer buf = ByteBuffer.allocate(1 << 20); // 1 MB
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
 
         // Copy video
@@ -456,9 +505,8 @@ public class DuetVideoMerger {
             int sz = vidEx.readSampleData(buf, 0);
             if (sz < 0) break;
             info.presentationTimeUs = vidEx.getSampleTime();
-            info.size   = sz;
-            info.offset = 0;
-            info.flags  = vidEx.getSampleFlags();
+            info.size = sz; info.offset = 0;
+            info.flags = vidEx.getSampleFlags();
             muxer.writeSampleData(muxVid, buf, info);
             vidEx.advance();
         }
@@ -469,77 +517,32 @@ public class DuetVideoMerger {
                 int sz = audEx.readSampleData(buf, 0);
                 if (sz < 0) break;
                 info.presentationTimeUs = audEx.getSampleTime();
-                info.size   = sz;
-                info.offset = 0;
-                info.flags  = audEx.getSampleFlags();
+                info.size = sz; info.offset = 0;
+                info.flags = audEx.getSampleFlags();
                 muxer.writeSampleData(muxAud, buf, info);
                 audEx.advance();
             }
         }
-
-        muxer.stop();
-        muxer.release();
-        vidEx.release();
-        audEx.release();
+        muxer.stop(); muxer.release();
+        vidEx.release(); audEx.release();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Bitmap / YUV helpers
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private static void bitmapFromYuv(ByteBuffer yuv, MediaCodec.BufferInfo info, Bitmap out) {
-        if (yuv == null || info.size <= 0) return;
-        int w = out.getWidth();
-        int h = out.getHeight();
-        byte[] data = new byte[info.size];
-        yuv.position(info.offset);
-        yuv.get(data, 0, Math.min(info.size, data.length));
-        int[] pixels = new int[w * h];
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                int yVal = data[y * w + x] & 0xFF;
-                int uvOffset = w * h + (y / 2) * w + (x & ~1);
-                if (uvOffset + 1 >= data.length) { pixels[y * w + x] = 0xFF000000; continue; }
-                int u = (data[uvOffset]     & 0xFF) - 128;
-                int v = (data[uvOffset + 1] & 0xFF) - 128;
-                int r = Math.max(0, Math.min(255, (int)(yVal + 1.402f  * v)));
-                int g = Math.max(0, Math.min(255, (int)(yVal - 0.344f  * u - 0.714f * v)));
-                int b = Math.max(0, Math.min(255, (int)(yVal + 1.772f  * u)));
-                pixels[y * w + x] = 0xFF000000 | (r << 16) | (g << 8) | b;
+    private static void feedDecoder(MediaCodec dec, MediaExtractor ex) {
+        int inIdx = dec.dequeueInputBuffer(TIMEOUT_US);
+        if (inIdx >= 0) {
+            ByteBuffer buf = dec.getInputBuffer(inIdx);
+            if (buf == null) return;
+            int sz = ex.readSampleData(buf, 0);
+            if (sz < 0) {
+                dec.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+            } else {
+                dec.queueInputBuffer(inIdx, 0, sz, ex.getSampleTime(), 0);
+                ex.advance();
             }
         }
-        out.setPixels(pixels, 0, w, 0, 0, w, h);
     }
-
-    private static void yuv420FromBitmap(Bitmap bmp, ByteBuffer out) {
-        int w = bmp.getWidth();
-        int h = bmp.getHeight();
-        int[] pixels = new int[w * h];
-        bmp.getPixels(pixels, 0, w, 0, 0, w, h);
-        out.clear();
-        for (int i = 0; i < pixels.length; i++) {
-            int p = pixels[i];
-            int r = (p >> 16) & 0xFF;
-            int g = (p >> 8)  & 0xFF;
-            int b = p & 0xFF;
-            out.put((byte) Math.max(0, Math.min(255, (int)(0.299f*r + 0.587f*g + 0.114f*b))));
-        }
-        for (int row = 0; row < h; row += 2) {
-            for (int col = 0; col < w; col += 2) {
-                int p = pixels[row * w + col];
-                int r = (p >> 16) & 0xFF;
-                int g = (p >> 8)  & 0xFF;
-                int b = p & 0xFF;
-                out.put((byte) Math.max(0, Math.min(255, (int)(-0.169f*r - 0.331f*g + 0.5f  *b + 128))));
-                out.put((byte) Math.max(0, Math.min(255, (int)( 0.5f  *r - 0.419f*g - 0.081f*b + 128))));
-            }
-        }
-        out.flip();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Utility helpers
-    // ─────────────────────────────────────────────────────────────────────────
 
     private static int findTrack(MediaExtractor ex, String mimePrefix) {
         for (int i = 0; i < ex.getTrackCount(); i++) {
@@ -549,14 +552,20 @@ public class DuetVideoMerger {
         return -1;
     }
 
+    private static long safeGetLong(MediaFormat fmt, String key, long fallback) {
+        try { return fmt.getLong(key); } catch (Exception e) { return fallback; }
+    }
+
+    private static int clamp(int v) { return Math.max(0, Math.min(255, v)); }
+
     private static void downloadToFile(String urlStr, File dest) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
-        conn.setConnectTimeout(15_000);
-        conn.setReadTimeout(30_000);
+        conn.setConnectTimeout(20_000);
+        conn.setReadTimeout(60_000);
         conn.connect();
         if (conn.getResponseCode() != HttpURLConnection.HTTP_OK)
-            throw new IOException("HTTP " + conn.getResponseCode());
-        try (InputStream in  = conn.getInputStream();
+            throw new IOException("HTTP " + conn.getResponseCode() + " for " + urlStr);
+        try (InputStream in = conn.getInputStream();
              FileOutputStream out = new FileOutputStream(dest)) {
             byte[] buf = new byte[8192];
             int n;
@@ -575,5 +584,10 @@ public class DuetVideoMerger {
     private static void safeRelease(MediaExtractor ex) {
         if (ex == null) return;
         try { ex.release(); } catch (Exception ignored) {}
+    }
+
+    private static void safeClose(ImageReader reader) {
+        if (reader == null) return;
+        try { reader.close(); } catch (Exception ignored) {}
     }
 }
