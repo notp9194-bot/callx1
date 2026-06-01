@@ -91,10 +91,10 @@ public class IncomingCallActivity extends AppCompatActivity {
 
         if (callId == null || callerUid == null) { finish(); return; }
 
-        tvCallerName = findViewById(R.id.tvIncomingCallerName);
-        tvCallType   = findViewById(R.id.tvIncomingCallType);
-        tvCallStatus = findViewById(R.id.tvIncomingStatus);
-        ivAvatar     = findViewById(R.id.ivIncomingAvatar);
+        tvCallerName = findViewById(R.id.tv_caller_name);
+        tvCallType   = findViewById(R.id.tv_caller_sub);
+        tvCallStatus = findViewById(R.id.tv_caller_sub);
+        ivAvatar     = findViewById(R.id.iv_caller_avatar);
 
         // Caller name
         if (tvCallerName != null) tvCallerName.setText(callerName != null ? callerName : "Unknown");
@@ -106,8 +106,8 @@ public class IncomingCallActivity extends AppCompatActivity {
         loadAvatar();
 
         // Buttons
-        View btnAccept  = findViewById(R.id.btnAcceptCall);
-        View btnDecline = findViewById(R.id.btnDeclineCall);
+        View btnAccept  = findViewById(R.id.btn_accept);
+        View btnDecline = findViewById(R.id.btn_reject);
         if (btnAccept  != null) btnAccept.setOnClickListener(v  -> acceptCall());
         if (btnDecline != null) btnDecline.setOnClickListener(v -> declineCall());
 
@@ -132,8 +132,8 @@ public class IncomingCallActivity extends AppCompatActivity {
             Glide.with(this)
                 .load(url)
                 .apply(RequestOptions.circleCropTransform()
-                    .placeholder(R.drawable.ic_default_avatar)
-                    .error(R.drawable.ic_default_avatar))
+                    .placeholder(R.drawable.ic_person)
+                    .error(R.drawable.ic_person))
                 .into(ivAvatar);
         }
     }

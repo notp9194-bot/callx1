@@ -1219,7 +1219,7 @@ public class GroupCallActivity extends AppCompatActivity {
     public static class ParticipantInfo {
         public String uid, name;
         public VideoTrack videoTrack;
-        public boolean micOn, camOn, handRaised;
+        public boolean micOn, camOn, handRaised, isSpeaking;
 
         public ParticipantInfo(String uid, String name, VideoTrack vt,
                                boolean mic, boolean cam, boolean hand) {
