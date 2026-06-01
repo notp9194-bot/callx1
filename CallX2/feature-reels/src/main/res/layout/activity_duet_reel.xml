@@ -155,6 +155,7 @@
             android:layout_width="72dp"
             android:layout_height="72dp"
             android:src="@drawable/ic_play"
+            android:tint="#A855F7"
             android:background="@drawable/circle_primary"
             android:tint="@color/white"
             android:padding="14dp"

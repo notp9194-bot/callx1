@@ -41,7 +41,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="13sp"
                 android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"
+                android:textColor="#FFE082"
                 android:maxLines="1"
                 android:ellipsize="end"/>
 
@@ -110,6 +110,7 @@
                 android:layout_height="20dp"
                 android:padding="0dp"
                 android:src="@drawable/ic_heart"
+            android:tint="#FF416C"
                 android:background="@null"
                 android:contentDescription="Like comment"/>
 

@@ -42,6 +42,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_share_reel"
+            android:tint="#00F260"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:tint="@color/white"
                 android:contentDescription="Share sound"/>
@@ -51,6 +52,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_bookmark"
+            android:tint="#00C6FF"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:tint="@color/white"
                 android:contentDescription="Save sound"/>
@@ -219,6 +221,7 @@
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:src="@drawable/ic_play"
+            android:tint="#A855F7"
                     android:background="@drawable/circle_primary"
                     android:tint="@color/white"
                     android:padding="12dp"

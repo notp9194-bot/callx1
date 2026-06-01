@@ -17,7 +17,8 @@
     <!-- Play/pause preview -->
     <ImageButton android:id="@+id/btn_audio_preview" android:layout_width="40dp"
         android:layout_height="40dp" android:background="@drawable/bg_circle_action"
-        android:src="@drawable/ic_play" android:tint="#FF3B5C"
+        android:src="@drawable/ic_play"
+            android:tint="#A855F7" android:tint="#FF3B5C"
         android:layout_marginEnd="12dp"/>
 
     <!-- Track info -->
@@ -53,7 +54,8 @@
     <ImageButton android:id="@+id/btn_audio_save" android:layout_width="36dp"
         android:layout_height="36dp"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:src="@drawable/ic_bookmark" android:tint="#FFFFFF"
+        android:src="@drawable/ic_bookmark"
+            android:tint="#00C6FF" android:tint="#FFFFFF"
         android:layout_marginHorizontal="4dp"/>
 
     <Button android:id="@+id/btn_audio_use" android:layout_width="52dp"

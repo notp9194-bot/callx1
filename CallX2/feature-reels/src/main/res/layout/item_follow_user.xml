@@ -37,7 +37,7 @@
             android:text="Username"
             android:textSize="14sp"
             android:fontFamily="sans-serif-medium"
-            android:textColor="?attr/colorOnSurface"
+            android:textColor="#FFE082"
             android:maxLines="1"
             android:ellipsize="end"/>
 
@@ -63,7 +63,7 @@
         android:textSize="12sp"
         android:paddingStart="14dp"
         android:paddingEnd="14dp"
-        android:textColor="#FFFFFF"
+        android:textColor="#00C6FF"
         android:background="@color/brand_primary"
         android:stateListAnimator="@null"
         app:textAllCaps="false"

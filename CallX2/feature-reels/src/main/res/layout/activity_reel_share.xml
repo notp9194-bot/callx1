@@ -49,8 +49,8 @@
                 android:layout_weight="1"
                 android:text="Share Reel"
                 android:textSize="17sp"
-                android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"/>
+            android:fontFamily="sans-serif-bold"
+            android:textColor="#FFE082"/>
 
             <ImageButton
                 android:id="@+id/btn_share_close"
@@ -104,7 +104,8 @@
             android:paddingEnd="16dp"
             android:background="?attr/selectableItemBackground">
             <ImageView android:layout_width="24dp" android:layout_height="24dp"
-                android:src="@drawable/ic_share_reel" android:tint="?attr/colorOnSurface"/>
+                android:src="@drawable/ic_share_reel"
+            android:tint="#00F260" android:tint="?attr/colorOnSurface"/>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginStart="16dp" android:text="Copy Link"
                 android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
@@ -121,7 +122,8 @@
             android:paddingEnd="16dp"
             android:background="?attr/selectableItemBackground">
             <ImageView android:layout_width="24dp" android:layout_height="24dp"
-                android:src="@drawable/ic_send" android:tint="?attr/colorOnSurface"/>
+                android:src="@drawable/ic_send"
+            android:tint="#00C6FF" android:tint="?attr/colorOnSurface"/>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginStart="16dp" android:text="Share via..."
                 android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>

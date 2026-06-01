@@ -128,6 +128,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_heart"
+            android:tint="#FF416C"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Like"/>
 
@@ -145,6 +146,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_comment_reel"
+            android:tint="#00C6FF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Comment"/>
 
@@ -162,6 +164,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_repost"
+            android:tint="#A855F7"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Repost"/>
 
@@ -179,6 +182,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_bookmark"
+            android:tint="#00C6FF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Save"/>
     </LinearLayout>

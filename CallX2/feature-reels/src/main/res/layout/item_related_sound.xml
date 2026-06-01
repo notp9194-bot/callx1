@@ -13,7 +13,8 @@
         android:layout_gravity="center_horizontal"
         android:scaleType="centerCrop"
         android:background="#2A2A2A"
-        android:src="@drawable/ic_music"/>
+        android:src="@drawable/ic_music"
+            android:tint="#00E5FF"/>
 
     <TextView
         android:id="@+id/tv_related_title"

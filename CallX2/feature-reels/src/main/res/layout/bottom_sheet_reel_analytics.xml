@@ -26,8 +26,8 @@
             android:layout_weight="1"
             android:text="Reel Insights"
             android:textSize="17sp"
-            android:fontFamily="sans-serif-medium"
-            android:textColor="?attr/colorOnSurface"/>
+            android:fontFamily="sans-serif-bold"
+            android:textColor="#FFE082"/>
 
         <ImageButton
             android:id="@+id/btn_close_analytics"
@@ -120,7 +120,8 @@
             android:background="@drawable/bg_stat_card">
 
             <ImageView android:layout_width="20dp" android:layout_height="20dp"
-                android:src="@drawable/ic_eye_off" android:tint="@color/brand_primary"
+                android:src="@drawable/ic_eye_off"
+            android:tint="#FFE082" android:tint="@color/brand_primary"
                 android:contentDescription="Views"/>
             <TextView android:id="@+id/tv_stat_views"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -144,7 +145,8 @@
             android:background="@drawable/bg_stat_card">
 
             <ImageView android:layout_width="20dp" android:layout_height="20dp"
-                android:src="@drawable/ic_heart_filled" android:tint="#FF6B6B"
+                android:src="@drawable/ic_heart_filled"
+            android:tint="#FF416C" android:tint="#FF6B6B"
                 android:contentDescription="Likes"/>
             <TextView android:id="@+id/tv_stat_likes"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -172,7 +174,8 @@
             android:orientation="vertical" android:gravity="center_vertical"
             android:paddingStart="12dp" android:background="@drawable/bg_stat_card">
             <ImageView android:layout_width="18dp" android:layout_height="18dp"
-                android:src="@drawable/ic_comment_reel" android:tint="#4A90E2"
+                android:src="@drawable/ic_comment_reel"
+            android:tint="#00C6FF" android:tint="#4A90E2"
                 android:contentDescription="Comments"/>
             <TextView android:id="@+id/tv_stat_comments"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -190,7 +193,8 @@
             android:orientation="vertical" android:gravity="center_vertical"
             android:paddingStart="12dp" android:background="@drawable/bg_stat_card">
             <ImageView android:layout_width="18dp" android:layout_height="18dp"
-                android:src="@drawable/ic_bookmark_filled" android:tint="#F39C12"
+                android:src="@drawable/ic_bookmark_filled"
+            android:tint="#00C6FF" android:tint="#F39C12"
                 android:contentDescription="Saves"/>
             <TextView android:id="@+id/tv_stat_saves"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -208,7 +212,8 @@
             android:orientation="vertical" android:gravity="center_vertical"
             android:paddingStart="12dp" android:background="@drawable/bg_stat_card">
             <ImageView android:layout_width="18dp" android:layout_height="18dp"
-                android:src="@drawable/ic_share_reel" android:tint="#2ECC71"
+                android:src="@drawable/ic_share_reel"
+            android:tint="#00F260" android:tint="#2ECC71"
                 android:contentDescription="Shares"/>
             <TextView android:id="@+id/tv_stat_shares"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"

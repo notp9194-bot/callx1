@@ -80,6 +80,18 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         }
     }
 
+
+    // ─── Item colors ─────────────────────────────────────────────────────────
+    private static final int CLR_PINK   = 0xFFFF416C; // Save, Report
+    private static final int CLR_CYAN   = 0xFF00C6FF; // Bookmark, Copy Link
+    private static final int CLR_YELLOW = 0xFFFFD700; // Speed
+    private static final int CLR_GREEN  = 0xFF00F260; // Download, Share to Story
+    private static final int CLR_PURPLE = 0xFFA855F7; // Duet, Stitch, Video Reply, Collab
+    private static final int CLR_ORANGE = 0xFFFF9500; // Edit, QR Code
+    private static final int CLR_TEAL   = 0xFF00E5FF; // Analytics, Pinned Comments
+    private static final int CLR_RED    = 0xFFFF4444; // Report, Delete
+    private static final int CLR_GOLD   = 0xFFFFE082; // Not Interested
+
     private OnItemClickListener listener;
     private boolean isOwner;
     private boolean isSaved;
@@ -210,19 +222,18 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             : R.drawable.ic_bookmark;
 
         List<MenuItem> list = new ArrayList<>();
-        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,             saveIcon));
-        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,       0, true));
-        list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed));
-        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel,          0, true));
-        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_video_call));
-        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap));
-        list.add(new MenuItem(ACTION_VIDEO_REPLY,          "Video Reply",         R.drawable.ic_reply));
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,       0, true));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,            0, true));
-        list.add(new MenuItem(ACTION_NOT_INTERESTED,       "Not Interested",      R.drawable.ic_eye_off));
-        list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,              0, true));
-        list.add(new MenuItem(ACTION_REPORT,               "Report",              R.drawable.ic_flag,
-            Color.parseColor("#FF4444"), false));
+        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,             saveIcon,                CLR_PINK,   false));
+        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,  CLR_CYAN,   true));
+        list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed,     CLR_YELLOW, false));
+        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel, CLR_GREEN, true));
+        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_video_call,CLR_PURPLE, false));
+        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
+        list.add(new MenuItem(ACTION_VIDEO_REPLY,          "Video Reply",         R.drawable.ic_reply,     CLR_PURPLE, false));
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,CLR_GREEN,  true));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,     CLR_TEAL,   true));
+        list.add(new MenuItem(ACTION_NOT_INTERESTED,       "Not Interested",      R.drawable.ic_eye_off,   CLR_GOLD,   false));
+        list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,      CLR_CYAN,   true));
+        list.add(new MenuItem(ACTION_REPORT,               "Report",              R.drawable.ic_flag,      CLR_RED,    false));
         return list;
     }
 
@@ -234,21 +245,20 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             : R.drawable.ic_bookmark;
 
         List<MenuItem> list = new ArrayList<>();
-        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,             saveIcon));
-        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,  0, true));
-        list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed));
-        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel,     0, true));
-        list.add(new MenuItem(ACTION_EDIT,                 "Edit Reel",           R.drawable.ic_edit));
-        list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",           R.drawable.ic_reel_explore));
-        list.add(new MenuItem(ACTION_PINNED_COMMENTS,      "Pinned Comments",     R.drawable.ic_pin,          0, true));
-        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_video_call));
-        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap));
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,  0, true));
-        list.add(new MenuItem(ACTION_QR_CODE,              "QR Code",             R.drawable.ic_qr_code));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,       0, true));
-        list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link));
-        list.add(new MenuItem(ACTION_DELETE,               "Delete",              R.drawable.ic_delete,
-            Color.parseColor("#FF4444"), false));
+        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,             saveIcon,                CLR_PINK,   false));
+        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,  CLR_CYAN,   true));
+        list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed,     CLR_YELLOW, false));
+        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel, CLR_GREEN, true));
+        list.add(new MenuItem(ACTION_EDIT,                 "Edit Reel",           R.drawable.ic_edit,      CLR_ORANGE, false));
+        list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",           R.drawable.ic_reel_explore, CLR_TEAL, false));
+        list.add(new MenuItem(ACTION_PINNED_COMMENTS,      "Pinned Comments",     R.drawable.ic_pin,       CLR_TEAL,   true));
+        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_video_call,CLR_PURPLE, false));
+        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,CLR_GREEN,  true));
+        list.add(new MenuItem(ACTION_QR_CODE,              "QR Code",             R.drawable.ic_qr_code,   CLR_ORANGE, false));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,     CLR_TEAL,   true));
+        list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,      CLR_CYAN,   false));
+        list.add(new MenuItem(ACTION_DELETE,               "Delete",              R.drawable.ic_delete,    CLR_RED,    false));
         return list;
     }
 

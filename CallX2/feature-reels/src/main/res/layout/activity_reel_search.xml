@@ -38,6 +38,7 @@
                 android:layout_gravity="center_vertical|start"
                 android:layout_marginStart="12dp"
                 android:src="@drawable/ic_search"
+            android:tint="#6BCFEF"
                 android:alpha="0.5"
                 android:contentDescription="Search"/>
 
@@ -153,9 +154,9 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:text="No Results"
-                android:textSize="18sp"
-                android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"/>
+                android:textSize="17sp"
+            android:fontFamily="sans-serif-bold"
+            android:textColor="#FFE082"/>
 
             <TextView
                 android:layout_width="wrap_content"

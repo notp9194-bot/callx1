@@ -166,6 +166,7 @@
         <ImageButton android:id="@+id/btn_camera_effects"
             android:layout_width="44dp" android:layout_height="44dp"
             android:src="@drawable/ic_sparkle"
+            android:tint="#FFD700"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white" android:contentDescription="Effects"
             android:layout_marginBottom="2dp"/>
@@ -176,6 +177,7 @@
         <ImageButton android:id="@+id/btn_camera_filters"
             android:layout_width="44dp" android:layout_height="44dp"
             android:src="@drawable/ic_filter"
+            android:tint="#A855F7"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white" android:contentDescription="Filters"
             android:layout_marginBottom="2dp"/>
@@ -186,6 +188,7 @@
         <ImageButton android:id="@+id/btn_camera_speed"
             android:layout_width="44dp" android:layout_height="44dp"
             android:src="@drawable/ic_speed"
+            android:tint="#FFD700"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white" android:contentDescription="Speed"
             android:layout_marginBottom="2dp"/>
@@ -196,6 +199,7 @@
         <ImageButton android:id="@+id/btn_camera_music"
             android:layout_width="44dp" android:layout_height="44dp"
             android:src="@drawable/ic_music"
+            android:tint="#00E5FF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white" android:contentDescription="Music"
             android:layout_marginBottom="2dp"/>
@@ -216,6 +220,7 @@
         <ImageButton android:id="@+id/btn_camera_drafts"
             android:layout_width="44dp" android:layout_height="44dp"
             android:src="@drawable/ic_bookmark"
+            android:tint="#00C6FF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white" android:contentDescription="Drafts"
             android:layout_marginBottom="2dp"/>

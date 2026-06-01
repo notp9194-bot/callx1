@@ -242,7 +242,8 @@
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_filters" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_filter" android:background="@drawable/bg_speed_chip"
+                        android:src="@drawable/ic_filter"
+            android:tint="#A855F7" android:background="@drawable/bg_speed_chip"
                         android:tint="@color/white" android:contentDescription="Filters"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Filters" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
@@ -251,7 +252,8 @@
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_stickers" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_sparkle" android:background="@drawable/bg_speed_chip"
+                        android:src="@drawable/ic_sparkle"
+            android:tint="#FFD700" android:background="@drawable/bg_speed_chip"
                         android:tint="@color/white" android:contentDescription="Stickers"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Stickers" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
@@ -269,7 +271,8 @@
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_transitions" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_swap" android:background="@drawable/bg_speed_chip"
+                        android:src="@drawable/ic_swap"
+            android:tint="#A855F7" android:background="@drawable/bg_speed_chip"
                         android:tint="@color/white" android:contentDescription="Transitions"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Transitions" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
@@ -287,7 +290,8 @@
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_audio_mixer" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_music" android:background="@drawable/bg_speed_chip"
+                        android:src="@drawable/ic_music"
+            android:tint="#00E5FF" android:background="@drawable/bg_speed_chip"
                         android:tint="@color/white" android:contentDescription="Audio Mixer"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Audio Mix" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>

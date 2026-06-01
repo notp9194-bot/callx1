@@ -53,7 +53,8 @@
                 android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF" android:layout_marginEnd="24dp"/>
             <ImageButton android:id="@+id/btn_gs_record" android:layout_width="68dp"
                 android:layout_height="68dp" android:background="@drawable/bg_circle_white"
-                android:src="@drawable/ic_reel_camera" android:tint="#FF3B5C" android:layout_marginEnd="24dp"/>
+                android:src="@drawable/ic_reel_camera"
+            android:tint="#FF416C" android:tint="#FF3B5C" android:layout_marginEnd="24dp"/>
             <ImageButton android:id="@+id/btn_gs_flip" android:layout_width="48dp"
                 android:layout_height="48dp" android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_flip_camera" android:tint="#FFFFFF" android:layout_marginEnd="24dp"/>
