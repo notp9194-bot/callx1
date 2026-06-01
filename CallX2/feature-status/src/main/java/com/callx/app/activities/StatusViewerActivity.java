@@ -85,7 +85,7 @@ public class StatusViewerActivity extends AppCompatActivity {
     private ProgressBar[]    progressBars;
     private ScaleGestureDetector pinchDetector;
     private GestureDetector  gestureDetector;
-    private CountdownView    countdownView;
+    private StatusCountdownView countdownView;
     private LinearLayout     pollOverlay;
     private LinearLayout     musicOverlay;
     private TextView         tvMusicTitle, tvMusicArtist;
@@ -136,7 +136,7 @@ public class StatusViewerActivity extends AppCompatActivity {
         flTextStatus.setVisibility(View.GONE); rootFrame.addView(flTextStatus);
 
         // Countdown overlay
-        countdownView = new CountdownView(this);
+        countdownView = new StatusCountdownView(this);
         FrameLayout.LayoutParams cdlp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(120));
         cdlp.gravity = Gravity.CENTER; countdownView.setLayoutParams(cdlp);
         countdownView.setVisibility(View.GONE); rootFrame.addView(countdownView);

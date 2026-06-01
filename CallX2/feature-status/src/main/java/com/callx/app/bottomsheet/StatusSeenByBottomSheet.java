@@ -9,7 +9,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.*;
 import com.bumptech.glide.Glide;
-import com.callx.app.R;
+import com.callx.app.status.R;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.*;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
