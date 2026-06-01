@@ -59,6 +59,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_PINNED_COMMENTS     = "pinned_comments";
     public static final String ACTION_QR_CODE             = "qr_code";
     public static final String ACTION_DELETE              = "delete";
+    public static final String ACTION_REMIX_SETTINGS      = "remix_settings";
 
     // ─── Item model ──────────────────────────────────────────────────────────
     private static class MenuItem {
@@ -256,6 +257,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
         list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,CLR_GREEN,  true));
         list.add(new MenuItem(ACTION_QR_CODE,              "QR Code",             R.drawable.ic_qr_code,   CLR_ORANGE, false));
+        list.add(new MenuItem(ACTION_REMIX_SETTINGS,       "Remix Settings",      R.drawable.ic_swap,      CLR_PURPLE, false));
         list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,     CLR_TEAL,   true));
         list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,      CLR_CYAN,   false));
         list.add(new MenuItem(ACTION_DELETE,               "Delete",              R.drawable.ic_delete,    CLR_RED,    false));

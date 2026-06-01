@@ -50,6 +50,21 @@ public class ReelModel {
     public String  repostedFromUid;
     public String  repostedFromName;
 
+    // ── Duet fields ──────────────────────────────────────────────────────────
+    /** true if this reel is a duet of another reel */
+    public boolean isDuet           = false;
+    /** reelId of the original reel that was dueted */
+    public String  duetOfReelId;
+    /** uid of the original reel owner */
+    public String  duetOfUid;
+    /** display name of the original reel owner */
+    public String  duetOfOwnerName;
+    /** original reel video URL (kept for attribution display in feed) */
+    public String  duetOfVideoUrl;
+    /** total times this reel has been dueted by others */
+    public int     duetCount        = 0;
+    // ────────────────────────────────────────────────────────────────────────
+
     public ReelModel() {}
 
     public ReelModel(String reelId, String uid, String ownerName, String ownerPhoto,

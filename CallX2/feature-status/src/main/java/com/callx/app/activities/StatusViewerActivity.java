@@ -530,6 +530,16 @@ public class StatusViewerActivity extends AppCompatActivity {
             binding.btnSendReply.setVisibility(View.GONE);
             return;
         }
+        // FIX v25: Tapping the reply field now opens StatusReplyBottomSheet
+        // for a focused reply UI with status thumbnail preview.
+        binding.etReply.setOnClickListener(v -> {
+            StatusItem current = idx < items.size() ? items.get(idx) : null;
+            if (current == null || myUid == null) return;
+            pauseProgress();
+            StatusReplyBottomSheet.show(this, current, ownerName, myUid, ownerUid,
+                    msg -> resumeProgress());
+        });
+        // Keep focus-based pause for keyboard that opens without tap (e.g. voice input)
         binding.etReply.setOnFocusChangeListener((v, has) -> {
             if (has) pauseProgress(); else resumeProgress();
         });
@@ -569,8 +579,7 @@ public class StatusViewerActivity extends AppCompatActivity {
                 StatusItem current = idx < items.size() ? items.get(idx) : null;
                 if (current == null || myUid == null) return;
                 pauseProgress();
-                StatusForwardBottomSheet.show(this, current, myUid);
-                // Resume on dismiss handled inside sheet
+                StatusForwardBottomSheet.show(this, current, myUid, this::resumeProgress);
             });
         }
     }
@@ -591,20 +600,26 @@ public class StatusViewerActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
             .setItems(opts, (d, w) -> {
                 if (w == 0 && current != null && current.id != null) {
-                    StatusSeenTracker.deleteStatus(ownerUid, current.id);
-                    items.remove(idx);
-                    Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
-                    if (items.isEmpty()) { finish(); return; }
-                    idx = Math.min(idx, items.size() - 1);
-                    buildSegmentBars(); stopProgress(); showCurrent();
+                    // FIX v25: Use proper delete confirmation bottom sheet
+                    String previewUrl = current.thumbnailUrl != null ? current.thumbnailUrl : current.mediaUrl;
+                    StatusDeleteConfirmBottomSheet.show(this, current.type, previewUrl, () -> {
+                        StatusSeenTracker.deleteStatus(ownerUid, current.id);
+                        items.remove(idx);
+                        Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
+                        if (items.isEmpty()) { finish(); return; }
+                        idx = Math.min(idx, items.size() - 1);
+                        buildSegmentBars(); stopProgress(); showCurrent();
+                    });
                 } else if (w == 1 && current != null) {
                     StatusHighlightManager.archiveStatus(ownerUid, current);
                     Toast.makeText(this, "Archived ✓", Toast.LENGTH_SHORT).show();
                     resumeProgress();
                 } else if (w == 2 && current != null) {
-                    showAddToHighlightDialog(current);
+                    // FIX v25: Use proper highlight album picker bottom sheet
+                    showAddToHighlightBottomSheet(current);
                 } else if (w == 3 && current != null) {
-                    showAnalyticsDialog(current);
+                    // FIX v25: Use proper analytics bottom sheet
+                    showAnalyticsBottomSheet(current);
                 } else {
                     resumeProgress();
                 }
@@ -640,45 +655,19 @@ public class StatusViewerActivity extends AppCompatActivity {
             .show();
     }
 
-    private void showAddToHighlightDialog(StatusItem item) {
-        EditText et = new EditText(this);
-        et.setHint("Album name (e.g. Vacation 2024)");
-        new AlertDialog.Builder(this)
-            .setTitle("Add to Highlights")
-            .setView(et)
-            .setPositiveButton("Add", (d, w) -> {
-                String album = et.getText().toString().trim();
-                if (album.isEmpty()) album = "Highlights";
-                StatusHighlightManager.addToHighlight(ownerUid, item, album.toLowerCase().replace(" ", "_"), album);
-                Toast.makeText(this, "Added to " + album + " ✓", Toast.LENGTH_SHORT).show();
-                resumeProgress();
-            })
-            .setNegativeButton("Cancel", (d, w) -> resumeProgress())
-            .setOnCancelListener(d -> resumeProgress())
-            .show();
+    /** FIX v25: Replaced AlertDialog — now uses StatusAddToHighlightBottomSheet with album list */
+    private void showAddToHighlightBottomSheet(StatusItem item) {
+        pauseProgress();
+        StatusAddToHighlightBottomSheet.show(this, ownerUid, item, albumName -> {
+            Toast.makeText(this, "Added to " + albumName + " ✓", Toast.LENGTH_SHORT).show();
+            resumeProgress();
+        });
     }
 
-    /** NEW v25: Analytics bottom sheet for owner */
-    private void showAnalyticsDialog(StatusItem item) {
+    /** FIX v25: Replaced AlertDialog — now uses StatusAnalyticsBottomSheet with stat cards */
+    private void showAnalyticsBottomSheet(StatusItem item) {
         pauseProgress();
-        // Compute analytics
-        StatusAnalyticsHelper.Analytics a = StatusAnalyticsHelper.compute(item, 0);
-        String msg = "👁 " + a.totalViews + " views\n"
-                + "💬 " + a.totalReactions + " reactions\n"
-                + "⏱ Avg view: " + String.format("%.1f", a.avgViewDurationSec) + "s\n"
-                + "⏳ " + item.getExpiryLabel();
-        if (!a.reactionBreakdown.isEmpty()) {
-            StringBuilder rb = new StringBuilder("\nReactions: ");
-            for (Map.Entry<String, Integer> e : a.reactionBreakdown.entrySet())
-                rb.append(e.getKey()).append(" ×").append(e.getValue()).append("  ");
-            msg += rb;
-        }
-        new AlertDialog.Builder(this)
-            .setTitle("Status Analytics")
-            .setMessage(msg)
-            .setPositiveButton("Close", (d, w) -> resumeProgress())
-            .setOnCancelListener(d -> resumeProgress())
-            .show();
+        StatusAnalyticsBottomSheet.show(this, item, this::resumeProgress);
     }
 
     /** FIX v25: Mute button for video */
@@ -698,11 +687,10 @@ public class StatusViewerActivity extends AppCompatActivity {
             binding.tvSeenBy.setVisibility(View.VISIBLE);
             String reactionSummary = buildReactionSummary(s);
             binding.tvSeenBy.setText("👁 " + count + (reactionSummary.isEmpty() ? "" : "  " + reactionSummary));
-            // FIX v25: Proper seen-by bottom sheet with avatars
-            binding.tvSeenBy.setOnClickListener(v -> {
+            // FIX v26: pass resumeProgress directly — sheet calls it via OnDismissListener
+                binding.tvSeenBy.setOnClickListener(v -> {
                 pauseProgress();
-                StatusSeenByBottomSheet.show(this, s);
-                // resume is handled inside sheet dismiss
+                StatusSeenByBottomSheet.show(this, s, this::resumeProgress);
             });
         } else {
             binding.tvSeenBy.setVisibility(View.GONE);

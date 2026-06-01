@@ -45,8 +45,14 @@ import java.io.File;
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public class ReelEditorActivity extends AppCompatActivity {
 
-    public static final String EXTRA_VIDEO_URI      = "editor_video_uri";
-    public static final String EXTRA_IS_FILE_PATH   = "is_file_path";
+    public static final String EXTRA_VIDEO_URI          = "editor_video_uri";
+    public static final String EXTRA_IS_FILE_PATH       = "is_file_path";
+    // ── Duet metadata — passed through from DuetReelActivity → ReelUploadActivity ──
+    public static final String EXTRA_IS_DUET            = "editor_is_duet";
+    public static final String EXTRA_DUET_OF_REEL_ID    = "editor_duet_of_reel_id";
+    public static final String EXTRA_DUET_OF_UID        = "editor_duet_of_uid";
+    public static final String EXTRA_DUET_OF_NAME       = "editor_duet_of_name";
+    public static final String EXTRA_DUET_OF_VIDEO_URL  = "editor_duet_of_video_url";
 
     private PlayerView    playerView;
     private ImageButton   btnPlayPause, btnBack;
@@ -77,6 +83,13 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String mixVoiceoverPath = "";
     private float  mixVoiceoverVol  = 1.0f;
 
+    // ── Duet metadata (pass-through from DuetReelActivity → ReelUploadActivity) ──
+    private boolean isDuet           = false;
+    private String  duetOfReelId     = "";
+    private String  duetOfUid        = "";
+    private String  duetOfOwnerName  = "";
+    private String  duetOfVideoUrl   = "";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -92,6 +105,17 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (si != null && !si.isEmpty()) preSelectedSoundId    = si;
         if (st != null && !st.isEmpty()) preSelectedSoundTitle = st;
         if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
+
+        // Read duet metadata (set by DuetReelActivity)
+        isDuet          = getIntent().getBooleanExtra(EXTRA_IS_DUET, false);
+        String dRid     = getIntent().getStringExtra(EXTRA_DUET_OF_REEL_ID);
+        String dUid     = getIntent().getStringExtra(EXTRA_DUET_OF_UID);
+        String dName    = getIntent().getStringExtra(EXTRA_DUET_OF_NAME);
+        String dVidUrl  = getIntent().getStringExtra(EXTRA_DUET_OF_VIDEO_URL);
+        if (dRid    != null) duetOfReelId    = dRid;
+        if (dUid    != null) duetOfUid       = dUid;
+        if (dName   != null) duetOfOwnerName = dName;
+        if (dVidUrl != null) duetOfVideoUrl  = dVidUrl;
 
         if (videoUriStr == null || videoUriStr.isEmpty()) {
             Toast.makeText(this, "No video to edit", Toast.LENGTH_SHORT).show();
@@ -288,6 +312,15 @@ public class ReelEditorActivity extends AppCompatActivity {
         intent.putExtra("mix_music_vol",       mixMusicVol);
         intent.putExtra("mix_voiceover_path",  mixVoiceoverPath);
         intent.putExtra("mix_voiceover_vol",   mixVoiceoverVol);
+
+        // ── Forward duet metadata so ReelUploadActivity can save it to Firebase ──
+        if (isDuet) {
+            intent.putExtra(ReelUploadActivity.EXTRA_IS_DUET,           true);
+            intent.putExtra(ReelUploadActivity.EXTRA_DUET_OF_REEL_ID,   duetOfReelId);
+            intent.putExtra(ReelUploadActivity.EXTRA_DUET_OF_UID,       duetOfUid);
+            intent.putExtra(ReelUploadActivity.EXTRA_DUET_OF_NAME,      duetOfOwnerName);
+            intent.putExtra(ReelUploadActivity.EXTRA_DUET_OF_VIDEO_URL, duetOfVideoUrl);
+        }
 
         startActivity(intent);
     }

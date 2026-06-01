@@ -113,8 +113,9 @@
             android:contentDescription="Flip camera"/>
     </LinearLayout>
 
-    <!-- Bottom record controls -->
+    <!-- Bottom record controls (hidden during merge) -->
     <LinearLayout
+        android:id="@+id/layout_record_controls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -135,7 +136,7 @@
             android:fontFamily="sans-serif-medium"
             android:layout_marginBottom="8dp"/>
 
-        <!-- Progress bar -->
+        <!-- Recording progress bar -->
         <ProgressBar
             android:id="@+id/progress_duet"
             style="@style/Widget.AppCompat.ProgressBar.Horizontal"
@@ -159,6 +160,48 @@
             android:background="@drawable/circle_primary"
             android:padding="14dp"
             android:contentDescription="Record duet"/>
+    </LinearLayout>
+
+    <!-- Merge progress overlay (shown after recording, hidden during recording) -->
+    <LinearLayout
+        android:id="@+id/layout_merging"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#CC000000"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tv_merge_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Compositing duet…"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="20dp"/>
+
+        <ProgressBar
+            android:id="@+id/progress_merge"
+            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+            android:layout_width="260dp"
+            android:layout_height="6dp"
+            android:max="100"
+            android:progress="0"
+            android:progressTint="@color/brand_primary"
+            android:progressBackgroundTint="#44FFFFFF"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Please wait — combining both videos side by side"
+            android:textColor="#99FFFFFF"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:layout_marginTop="12dp"
+            android:paddingStart="32dp"
+            android:paddingEnd="32dp"/>
     </LinearLayout>
 
 </FrameLayout>
