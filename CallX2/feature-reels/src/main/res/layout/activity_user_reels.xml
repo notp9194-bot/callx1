@@ -93,7 +93,7 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="User" android:textSize="17sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="?attr/colorOnSurface"
+                    android:textColor="#FFE082"
                     android:maxLines="1" android:ellipsize="end"/>
 
                 <ImageView android:id="@+id/iv_verified"
@@ -195,11 +195,11 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="0" android:textSize="19sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#00C6FF"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="FOLLOWERS" android:textSize="10sp"
                     android:letterSpacing="0.04"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
+                    android:textColor="#6BCFEF"/>
             </LinearLayout>
 
             <LinearLayout android:id="@+id/layout_following_click"
@@ -211,11 +211,11 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="0" android:textSize="19sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#00F260"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="FOLLOWING" android:textSize="10sp"
                     android:letterSpacing="0.04"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
+                    android:textColor="#6BE8A8"/>
             </LinearLayout>
 
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
@@ -224,11 +224,11 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="0" android:textSize="19sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#A855F7"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="REELS" android:textSize="10sp"
                     android:letterSpacing="0.04"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
+                    android:textColor="#C084FC"/>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
@@ -482,7 +482,7 @@
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Message" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#00C6FF" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
         <!-- Audio Call button -->
@@ -496,7 +496,7 @@
                 android:contentDescription="Audio Call" android:padding="13dp"/>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Call" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#00F260" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
         <!-- Video Call button -->
@@ -510,7 +510,7 @@
                 android:contentDescription="Video Call" android:padding="13dp"/>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Video" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#A855F7" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
         <!-- X button with avatar peek animation -->
@@ -535,7 +535,7 @@
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="X" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#CCCCCC" android:layout_marginTop="5dp"/>
         </LinearLayout>
 
         <!-- YouTube button with avatar peek animation -->
@@ -560,7 +560,7 @@
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="YouTube" android:textSize="11sp"
-                android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginTop="5dp"/>
+                android:textColor="#FF0000" android:layout_marginTop="5dp"/>
         </LinearLayout>
     </LinearLayout>
 
@@ -628,15 +628,15 @@
                 android:visibility="gone">
 
                 <ImageView android:layout_width="64dp" android:layout_height="64dp"
-                    android:src="@drawable/ic_lock" android:alpha="0.6"
-                    android:tint="?attr/colorOnSurface"
+                    android:src="@drawable/ic_lock" android:alpha="0.8"
+                    android:tint="#A855F7"
                     android:contentDescription="Private account"/>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:text="This account is private"
                     android:textSize="17sp" android:fontFamily="sans-serif-medium"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#CE93D8"/>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -650,6 +650,7 @@
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:layout_marginTop="48dp"
+                android:indeterminateTint="#A855F7"
                 android:visibility="gone"/>
 
             <!-- Empty state -->
@@ -660,14 +661,15 @@
 
                 <ImageView android:id="@+id/iv_empty_icon"
                     android:layout_width="64dp" android:layout_height="64dp"
-                    android:src="@drawable/ic_reels" android:alpha="0.3"
+                    android:src="@drawable/ic_reels" android:alpha="0.6"
+                    android:tint="#FF416C"
                     android:contentDescription="Empty"/>
 
                 <TextView android:id="@+id/tv_empty_title"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginTop="16dp" android:text="No Reels Yet"
                     android:textSize="18sp" android:fontFamily="sans-serif-medium"
-                    android:textColor="?attr/colorOnSurface"/>
+                    android:textColor="#FF416C"/>
 
                 <TextView android:id="@+id/tv_empty_subtitle"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
