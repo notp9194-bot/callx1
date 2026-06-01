@@ -579,8 +579,7 @@ public class StatusViewerActivity extends AppCompatActivity {
                 StatusItem current = idx < items.size() ? items.get(idx) : null;
                 if (current == null || myUid == null) return;
                 pauseProgress();
-                StatusForwardBottomSheet.show(this, current, myUid);
-                // Resume on dismiss handled inside sheet
+                StatusForwardBottomSheet.show(this, current, myUid, this::resumeProgress);
             });
         }
     }
@@ -688,15 +687,10 @@ public class StatusViewerActivity extends AppCompatActivity {
             binding.tvSeenBy.setVisibility(View.VISIBLE);
             String reactionSummary = buildReactionSummary(s);
             binding.tvSeenBy.setText("👁 " + count + (reactionSummary.isEmpty() ? "" : "  " + reactionSummary));
-            // FIX v25: resumeProgress() called on sheet dismiss via OnDismissListener
-            binding.tvSeenBy.setOnClickListener(v -> {
+            // FIX v26: pass resumeProgress directly — sheet calls it via OnDismissListener
+                binding.tvSeenBy.setOnClickListener(v -> {
                 pauseProgress();
-                BottomSheetDialog seenSheet = new BottomSheetDialog(this);
-                // Show seen-by content, resume on dismiss
-                StatusSeenByBottomSheet.show(this, s);
-                // Note: StatusSeenByBottomSheet creates its own dialog internally.
-                // We resume after a short delay to cover the dismiss animation.
-                new Handler(Looper.getMainLooper()).postDelayed(this::resumeProgress, 300);
+                StatusSeenByBottomSheet.show(this, s, this::resumeProgress);
             });
         } else {
             binding.tvSeenBy.setVisibility(View.GONE);
