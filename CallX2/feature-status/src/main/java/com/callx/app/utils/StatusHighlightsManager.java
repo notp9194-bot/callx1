@@ -261,7 +261,7 @@ public final class StatusHighlightsManager {
     // ── Check if status is in any album ───────────────────────────────────
 
     public static void isInAnyAlbum(String ownerUid, String statusId,
-                                     com.google.firebase.database.Query.SingleValueListener cb) {
+                                     ValueEventListener cb) {
         // Simplified: check if statusId node exists in any album via parent-level query.
         // For now callers just call addStatus — idempotent.
     }
