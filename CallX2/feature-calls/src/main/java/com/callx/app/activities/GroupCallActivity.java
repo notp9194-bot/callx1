@@ -113,6 +113,7 @@ public class GroupCallActivity extends AppCompatActivity {
     private RecyclerView rvParticipants;
     private SurfaceViewRenderer localVideo;
     private TextView tvGroupName, tvCallStatus, tvTimer, tvParticipantCount;
+    private TextView tvActiveSpeakerLabel;  // shows current speaking participant name
     private ImageButton btnEndCall, btnToggleMic, btnToggleCamera,
                         btnSwitchCamera, btnToggleSpeaker, btnSettings,
                         btnRaiseHand;
@@ -189,6 +190,14 @@ public class GroupCallActivity extends AppCompatActivity {
     private boolean settingEchoCancellation = true;
     private String  settingVideoQuality     = "hd"; // "hd" | "sd"
     private boolean settingAutoSpeaker      = true;
+
+    // Active speaker detection
+    private String activeSpeakerUid = null;
+    private final Map<String, Double> audioLevels  = new HashMap<>();
+    private final Map<String, Long>   silenceStart = new HashMap<>();
+    private final Handler speakerHandler = new Handler(Looper.getMainLooper());
+    private Runnable speakerRunnable;
+
 
     // ── Call end receiver ─────────────────────────────────────────────────
     private BroadcastReceiver callEndReceiver;
@@ -988,6 +997,7 @@ public class GroupCallActivity extends AppCompatActivity {
         finishing = true;
 
         if (ticker != null) tick.removeCallbacks(ticker);
+        stopActiveSpeakerDetection();
 
         // BUG-5 FIX: Agar caller koi nahi aaya toh group members ko missed notification bhejo
         // callStartedAt == 0 means call kabhi connected nahi hua (koi nahi aaya)
@@ -1115,6 +1125,8 @@ public class GroupCallActivity extends AppCompatActivity {
 
     private void startCallTimer() {
         callStartedAt = System.currentTimeMillis();
+        startActiveSpeakerDetection();
+        pollAudioLevels();
         ticker = new Runnable() {
             @Override public void run() {
                 long el = (System.currentTimeMillis() - callStartedAt) / 1000;
@@ -1215,4 +1227,109 @@ public class GroupCallActivity extends AppCompatActivity {
             this.micOn = mic; this.camOn = cam; this.handRaised = hand;
         }
     }
+
+    // ======== Active speaker detection ========================================
+
+    private void updateAudioLevel(String uid, double level) {
+        audioLevels.put(uid, level);
+        double threshold = com.callx.app.utils.Constants.ACTIVE_SPEAKER_THRESHOLD;
+        if (level < threshold) {
+            if (!silenceStart.containsKey(uid))
+                silenceStart.put(uid, System.currentTimeMillis());
+        } else {
+            silenceStart.remove(uid);
+        }
+    }
+
+    private void startActiveSpeakerDetection() {
+        if (speakerRunnable != null) return;
+        speakerRunnable = new Runnable() {
+            @Override public void run() {
+                refreshActiveSpeaker();
+                speakerHandler.postDelayed(this, 500);
+            }
+        };
+        speakerHandler.postDelayed(speakerRunnable, 500);
+    }
+
+    private void stopActiveSpeakerDetection() {
+        if (speakerRunnable != null) {
+            speakerHandler.removeCallbacks(speakerRunnable);
+            speakerRunnable = null;
+        }
+    }
+
+    private void refreshActiveSpeaker() {
+        long now = System.currentTimeMillis();
+        long silenceMs = com.callx.app.utils.Constants.ACTIVE_SPEAKER_SILENCE_MS;
+        double threshold = com.callx.app.utils.Constants.ACTIVE_SPEAKER_THRESHOLD;
+
+        String loudestUid   = null;
+        double loudestLevel = threshold;
+        for (Map.Entry<String, Double> e : audioLevels.entrySet()) {
+            Long silence = silenceStart.get(e.getKey());
+            boolean silent = silence != null && (now - silence) > silenceMs;
+            if (!silent && e.getValue() > loudestLevel) {
+                loudestLevel = e.getValue();
+                loudestUid   = e.getKey();
+            }
+        }
+
+        if (activeSpeakerUid != null) {
+            Long s = silenceStart.get(activeSpeakerUid);
+            if (s != null && (now - s) > silenceMs) activeSpeakerUid = null;
+        }
+
+        if (loudestUid != null && !loudestUid.equals(activeSpeakerUid)) {
+            activeSpeakerUid = loudestUid;
+            highlightActiveSpeaker(loudestUid);
+        } else if (loudestUid == null && activeSpeakerUid == null) {
+            highlightActiveSpeaker(null);
+        }
+    }
+
+    private void highlightActiveSpeaker(String uid) {
+        for (ParticipantInfo p : participants)
+            p.isSpeaking = p.uid != null && p.uid.equals(uid);
+        if (adapter != null) adapter.notifyDataSetChanged();
+
+        if (tvActiveSpeakerLabel != null) {
+            if (uid != null) {
+                String name = null;
+                for (ParticipantInfo p : participants)
+                    if (uid.equals(p.uid)) { name = p.name; break; }
+                tvActiveSpeakerLabel.setVisibility(android.view.View.VISIBLE);
+                tvActiveSpeakerLabel.setText((name != null ? name : uid) + " is speaking");
+            } else {
+                tvActiveSpeakerLabel.setVisibility(android.view.View.GONE);
+            }
+        }
+    }
+
+    private void pollAudioLevels() {
+        for (Map.Entry<String, org.webrtc.PeerConnection> entry : peerConnections.entrySet()) {
+            final String uid = entry.getKey();
+            org.webrtc.PeerConnection pc = entry.getValue();
+            if (pc == null) continue;
+            try {
+                pc.getStats(report -> {
+                    if (report == null) return;
+                    for (Map.Entry<String, org.webrtc.RTCStats> se : report.getStatsMap().entrySet()) {
+                        org.webrtc.RTCStats s = se.getValue();
+                        if ("inbound-rtp".equals(s.getType())) {
+                            Object kind  = s.getMembers().get("kind");
+                            Object level = s.getMembers().get("audioLevel");
+                            if ("audio".equals(kind) && level instanceof Number) {
+                                double l = ((Number) level).doubleValue();
+                                runOnUiThread(() -> updateAudioLevel(uid, l));
+                            }
+                        }
+                    }
+                });
+            } catch (Exception ignored) {}
+        }
+        speakerHandler.postDelayed(this::pollAudioLevels, 2000);
+    }
+
+
 }
