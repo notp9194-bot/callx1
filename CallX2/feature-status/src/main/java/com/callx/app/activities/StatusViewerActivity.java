@@ -12,7 +12,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.animation.AlphaAnimation;
-import android.view.animation.Animation;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -37,7 +36,12 @@ import com.callx.app.status.databinding.ActivityStatusViewerBinding;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
+import com.callx.app.utils.StatusAnalyticsTracker;
+import com.callx.app.utils.StatusHighlightsManager;
+import com.callx.app.utils.StatusMuteManager;
+import com.callx.app.utils.StatusReactionAggregator;
 import com.callx.app.utils.StatusSeenTracker;
+import com.callx.app.utils.StatusShareManager;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
 
@@ -49,18 +53,24 @@ import java.util.*;
  * Features (complete):
  *   ✅ Multi-segment progress bar (one segment per status item)
  *   ✅ Tap right → advance; tap left → rewind; hold → pause
- *   ✅ Swipe down → close (real GestureDetector — pehle broken tha)
+ *   ✅ Swipe down → close (GestureDetector)
  *   ✅ onPause/onResume — call/notification par auto-pause/resume
  *   ✅ Video: ExoPlayer cache-first (StatusVideoCacheManager)
- *   ✅ Video: actual duration se progress (timer se nahi, player se)
- *   ✅ Video: mute/unmute toggle button
- *   ✅ Image: Glide with DiskCacheStrategy.ALL
+ *   ✅ Video: actual duration from ExoPlayer player (not hardcoded timer)
+ *   ✅ Video: mute/unmute toggle
+ *   ✅ Image: Glide DiskCacheStrategy.ALL
  *   ✅ Text: background color + font style + text size
- *   ✅ Reply via chat (et_reply + btn_send_reply wired up — pehle nahi tha)
- *   ✅ Emoji reactions bottom sheet
- *   ✅ Owner: "Seen by N" tap → viewer list dialog
- *   ✅ Owner: delete status via btn_more long-press menu
+ *   ✅ Link: preview card (title + domain + thumbnail)
+ *   ✅ Reply via chat (et_reply + btn_send_reply)
+ *   ✅ Emoji reactions bottom sheet + reaction summary in seen-by row
+ *   ✅ Owner: "Seen by N" tap → viewer list dialog with REAL NAMES + analytics
+ *   ✅ Owner: delete status
+ *   ✅ Owner: add to highlights album
+ *   ✅ Owner: download status to gallery
+ *   ✅ Share status via Android share sheet
+ *   ✅ Mute contact (real persistence via StatusMuteManager — not just Toast)
  *   ✅ Seen tracking batched on exit
+ *   ✅ View duration analytics (StatusAnalyticsTracker)
  *   ✅ Status timestamp in header
  *   ✅ Cross-fade animation between items
  *   ✅ Keep screen ON while viewing
@@ -83,10 +93,14 @@ public class StatusViewerActivity extends AppCompatActivity {
     private boolean                 paused        = false;
     private long                    remainingMs   = 0;
     private boolean                 isMuted       = false;
+    private long                    currentItemTotalMs = 0; // for analytics
 
     private String myUid;
     private String ownerUid;
     private String ownerName;
+
+    // Analytics: track per-item view start time
+    private long itemViewStartMs = 0;
 
     // Per-item progress segments
     private final List<ProgressBar> segmentBars = new ArrayList<>();
@@ -102,10 +116,7 @@ public class StatusViewerActivity extends AppCompatActivity {
         binding = ActivityStatusViewerBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        // Keep screen on while viewing statuses
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-        // Fullscreen immersive
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN
             | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
@@ -124,6 +135,9 @@ public class StatusViewerActivity extends AppCompatActivity {
         setupReplyButton();
         setupMoreButton();
         setupMuteButton();
+        setupDownloadButton();
+        setupHighlightButton();
+        setupShareButton();
 
         binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
         load(ownerUid);
@@ -132,34 +146,33 @@ public class StatusViewerActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        // Auto-pause when call/notification pulls the app away
+        endCurrentItemAnalytics();
         pauseProgress();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Auto-resume when user comes back
-        if (paused) resumeProgress();
+        if (paused) {
+            resumeProgress();
+            itemViewStartMs = StatusAnalyticsTracker.startView();
+        }
     }
 
     @Override
     protected void onDestroy() {
+        endCurrentItemAnalytics();
         releasePlayer();
         stopProgress();
         handler.removeCallbacksAndMessages(null);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        // Batch-mark all items seen when leaving.
-        // Pass ownerName + first-seen status thumbnail so the chat bubble can show them.
         if (!seenInSession.isEmpty() && ownerUid != null) {
-            // Grab the thumbnail of the first status item that was seen
             String thumbForBubble = "";
             if (!items.isEmpty()) {
                 StatusItem first = items.get(0);
                 if (first.thumbnailUrl != null && !first.thumbnailUrl.isEmpty()) {
                     thumbForBubble = first.thumbnailUrl;
-                } else if (first.mediaUrl != null && !first.mediaUrl.isEmpty()
-                        && "image".equals(first.type)) {
+                } else if (first.mediaUrl != null && "image".equals(first.type)) {
                     thumbForBubble = first.mediaUrl;
                 }
             }
@@ -167,6 +180,21 @@ public class StatusViewerActivity extends AppCompatActivity {
                     ownerName != null ? ownerName : "", thumbForBubble);
         }
         super.onDestroy();
+    }
+
+    // ── Analytics helpers ─────────────────────────────────────────────────
+
+    private void startCurrentItemAnalytics() {
+        itemViewStartMs = StatusAnalyticsTracker.startView();
+    }
+
+    private void endCurrentItemAnalytics() {
+        if (itemViewStartMs == 0 || idx >= items.size()) return;
+        StatusItem current = items.get(idx);
+        if (current.id == null) return;
+        StatusAnalyticsTracker.endView(
+                ownerUid, current.id, itemViewStartMs, currentItemTotalMs);
+        itemViewStartMs = 0;
     }
 
     // ── Load ──────────────────────────────────────────────────────────────
@@ -184,26 +212,19 @@ public class StatusViewerActivity extends AppCompatActivity {
                         items.add(s);
                     }
                     if (items.isEmpty()) { finish(); return; }
-
-                    items.sort((a, b) -> {
-                        long ta = a.timestamp == null ? 0 : a.timestamp;
-                        long tb = b.timestamp == null ? 0 : b.timestamp;
-                        return Long.compare(ta, tb);
-                    });
+                    items.sort((a, b) -> Long.compare(
+                        a.timestamp == null ? 0 : a.timestamp,
+                        b.timestamp == null ? 0 : b.timestamp));
 
                     StatusItem first = items.get(0);
                     if (first.ownerPhoto != null && !first.ownerPhoto.isEmpty()) {
                         Glide.with(StatusViewerActivity.this)
-                             .load(first.ownerPhoto)
-                             .circleCrop()
-                             .into(binding.ivOwner);
+                             .load(first.ownerPhoto).circleCrop().into(binding.ivOwner);
                     }
-
                     buildSegmentBars();
                     showCurrent();
                 }
-                @Override
-                public void onCancelled(@NonNull DatabaseError e) { finish(); }
+                @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
             });
     }
 
@@ -216,7 +237,7 @@ public class StatusViewerActivity extends AppCompatActivity {
         for (int i = 0; i < count; i++) {
             ProgressBar pb = new ProgressBar(this, null,
                     android.R.attr.progressBarStyleHorizontal);
-            pb.setMax(1000); // Higher granularity = smoother animation
+            pb.setMax(1000);
             pb.setProgress(0);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dpToPx(2), 1f);
             lp.setMarginEnd(i < count - 1 ? dpToPx(3) : 0);
@@ -240,62 +261,61 @@ public class StatusViewerActivity extends AppCompatActivity {
         if (idx >= items.size()) { finish(); return; }
         StatusItem s = items.get(idx);
 
+        endCurrentItemAnalytics();
         fillSegmentsBefore(idx);
         updateHeaderTimestamp(s);
         updateSeenByInfo(s);
         crossFadeIn();
+        startCurrentItemAnalytics();
 
-        // Mark seen immediately; real Firebase write is batched on exit
         if (s.id != null && !s.id.isEmpty() && myUid != null && !myUid.equals(ownerUid)) {
             if (!seenInSession.contains(s.id)) seenInSession.add(s.id);
         }
 
-        // Hide mute button by default; show only for video
+        // Show/hide download + highlight buttons (owner only)
+        boolean isOwner = myUid != null && myUid.equals(ownerUid);
+        if (binding.btnDownload != null)
+            binding.btnDownload.setVisibility(isOwner ? View.VISIBLE : View.GONE);
+        if (binding.btnHighlight != null)
+            binding.btnHighlight.setVisibility(isOwner ? View.VISIBLE : View.GONE);
+
         binding.btnMute.setVisibility(View.GONE);
+        hideAllContent();
 
         if ("text".equals(s.type)) {
-            hideAllContent();
             showTextStatus(s);
         } else if ("image".equals(s.type) && s.mediaUrl != null) {
-            hideAllContent();
             showImageStatus(s);
         } else if ("video".equals(s.type) && s.mediaUrl != null) {
-            hideAllContent();
             showVideoStatus(s);
         } else if (("reel_story".equals(s.type) || "reel_clip".equals(s.type)) && s.mediaUrl != null) {
-            hideAllContent();
             showVideoStatus(s);
         } else if (("reel_story".equals(s.type) || "reel_clip".equals(s.type)) && s.thumbnailUrl != null) {
-            hideAllContent();
             showImageStatusFromUrl(s.thumbnailUrl, s.caption);
+        } else if ("link".equals(s.type)) {
+            showLinkStatus(s);
         } else {
-            next(); // skip unrecognised types
+            next();
         }
     }
 
     private void showTextStatus(StatusItem s) {
         binding.flTextStatus.setVisibility(View.VISIBLE);
         binding.tvTextStatus.setText(s.text != null ? s.text : "");
-
         if (s.bgColor != null) {
-            try {
-                binding.flTextStatus.setBackgroundColor(Color.parseColor(s.bgColor));
-            } catch (Exception e) {
-                binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
-            }
+            try { binding.flTextStatus.setBackgroundColor(Color.parseColor(s.bgColor)); }
+            catch (Exception e) { binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand); }
         } else {
             binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
         }
-
         if (s.textColor != null) {
             try { binding.tvTextStatus.setTextColor(Color.parseColor(s.textColor)); }
             catch (Exception ignored) {}
         }
-
         applyFontStyle(binding.tvTextStatus, s.fontStyle);
         if (s.textSize > 0) binding.tvTextStatus.setTextSize(s.textSize);
-
         showCaption(s.caption);
+        currentItemTotalMs = 5_000L;
         startProgress(5_000L);
     }
 
@@ -305,12 +325,12 @@ public class StatusViewerActivity extends AppCompatActivity {
 
     private void showImageStatusFromUrl(String url, String caption) {
         binding.ivStatus.setVisibility(View.VISIBLE);
-        Glide.with(this)
-             .load(url)
+        Glide.with(this).load(url)
              .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
              .placeholder(android.R.drawable.screen_background_dark)
              .into(binding.ivStatus);
         showCaption(caption);
+        currentItemTotalMs = 5_000L;
         startProgress(5_000L);
     }
 
@@ -323,28 +343,23 @@ public class StatusViewerActivity extends AppCompatActivity {
         ExoPlayer.Builder builder = new ExoPlayer.Builder(this);
 
         if (StatusVideoCacheManager.isInitialized()) {
-            CacheDataSource.Factory cacheFactory =
-                StatusVideoCacheManager.getCacheDataSourceFactory();
-            ProgressiveMediaSource mediaSource = new ProgressiveMediaSource.Factory(cacheFactory)
+            CacheDataSource.Factory factory = StatusVideoCacheManager.getCacheDataSourceFactory();
+            ProgressiveMediaSource src = new ProgressiveMediaSource.Factory(factory)
                 .createMediaSource(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
             player = builder.build();
             binding.playerView.setPlayer(player);
-            player.setMediaSource(mediaSource);
+            player.setMediaSource(src);
         } else {
             player = builder.build();
             binding.playerView.setPlayer(player);
             player.setMediaItem(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
         }
 
-        // Apply mute state
         player.setVolume(isMuted ? 0f : 1f);
 
-        // FIX: Use actual video duration from ExoPlayer — not a hardcoded timer.
-        // When the player is READY, get the real duration and start the progress.
-        // This prevents the progress bar from finishing before the video ends (or vice versa).
         long estimatedDur = s.durationSec > 0
-                ? Math.min(s.durationSec * 1000L, 30_000L)
-                : 15_000L;
+                ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L;
+        currentItemTotalMs = estimatedDur;
 
         player.addListener(new Player.Listener() {
             @Override
@@ -352,9 +367,8 @@ public class StatusViewerActivity extends AppCompatActivity {
                 if (state == Player.STATE_READY) {
                     long realDur = player.getDuration();
                     long dur = (realDur > 0 && realDur != Long.MIN_VALUE)
-                            ? Math.min(realDur, 30_000L)
-                            : estimatedDur;
-                    // Stop any previously started timer and restart with real duration
+                            ? Math.min(realDur, 30_000L) : estimatedDur;
+                    currentItemTotalMs = dur;
                     stopProgress();
                     startProgress(dur);
                 } else if (state == Player.STATE_ENDED) {
@@ -365,10 +379,29 @@ public class StatusViewerActivity extends AppCompatActivity {
 
         player.prepare();
         player.setPlayWhenReady(true);
-
-        // Start with estimated timer immediately so progress bar isn't frozen
         startProgress(estimatedDur);
         showCaption(s.caption);
+    }
+
+    private void showLinkStatus(StatusItem s) {
+        // Display link title + domain + thumbnail in text area
+        binding.flTextStatus.setVisibility(View.VISIBLE);
+        String title = s.linkTitle != null ? s.linkTitle : s.linkUrl;
+        String domain = s.linkDescription != null ? s.linkDescription : "";
+        binding.tvTextStatus.setText(
+            (title != null ? title : "") + (domain.isEmpty() ? "" : "\n\n" + domain));
+        binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
+        binding.tvTextStatus.setTextColor(Color.WHITE);
+        // Show thumbnail if available
+        if (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty()) {
+            binding.ivStatus.setVisibility(View.VISIBLE);
+            Glide.with(this).load(s.thumbnailUrl)
+                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                 .into(binding.ivStatus);
+        }
+        showCaption(s.linkUrl);
+        currentItemTotalMs = 7_000L;
+        startProgress(7_000L);
     }
 
     private void hideAllContent() {
@@ -387,7 +420,7 @@ public class StatusViewerActivity extends AppCompatActivity {
         }
     }
 
-    // ── Cross-fade animation ──────────────────────────────────────────────
+    // ── Cross-fade ────────────────────────────────────────────────────────
 
     private void crossFadeIn() {
         AlphaAnimation fade = new AlphaAnimation(0f, 1f);
@@ -434,63 +467,51 @@ public class StatusViewerActivity extends AppCompatActivity {
     }
 
     private void pauseProgress() {
-        if (paused) return;
         paused = true;
         if (player != null) player.setPlayWhenReady(false);
-        stopProgress();
     }
 
     private void resumeProgress() {
         if (!paused) return;
         paused = false;
         if (player != null) player.setPlayWhenReady(true);
-        if (idx < items.size()) {
-            StatusItem s = items.get(idx);
-            long total;
-            if ("video".equals(s.type) || "reel_story".equals(s.type) || "reel_clip".equals(s.type)) {
-                long realDur = (player != null) ? player.getDuration() : Long.MIN_VALUE;
-                total = (realDur > 0 && realDur != Long.MIN_VALUE)
-                        ? Math.min(realDur, 30_000L)
-                        : (s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L);
-            } else {
-                total = 5_000L;
-            }
-            runProgressTick(total, remainingMs);
-        }
+        long total = currentItemTotalMs > 0 ? currentItemTotalMs : 5_000L;
+        runProgressTick(total, remainingMs);
     }
 
-    // ── Navigation ────────────────────────────────────────────────────────
-
     private void next() {
-        releasePlayer();
+        endCurrentItemAnalytics();
         stopProgress();
+        releasePlayer();
         idx++;
         showCurrent();
     }
 
-    private void previous() {
-        releasePlayer();
+    private void prev() {
+        endCurrentItemAnalytics();
         stopProgress();
-        idx = Math.max(0, idx - 1);
+        releasePlayer();
+        if (idx > 0) idx--;
         showCurrent();
     }
 
-    // ── Swipe down to close (GestureDetector — pehle stub tha) ───────────
+    // ── Touch / gesture setup ─────────────────────────────────────────────
 
     private void setupSwipeDownGesture() {
         swipeDetector = new GestureDetector(this,
             new GestureDetector.SimpleOnGestureListener() {
-                private static final int SWIPE_THRESHOLD    = 120;
-                private static final int SWIPE_VELOCITY_MIN = 100;
+                private static final float SWIPE_THRESHOLD    = 100f;
+                private static final float SWIPE_VELOCITY_THR = 100f;
 
                 @Override
-                public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2,
-                                       float velocityX, float velocityY) {
-                    if (e1 == null) return false;
-                    float dy = e2.getRawY() - e1.getRawY();
-                    if (dy > SWIPE_THRESHOLD && Math.abs(velocityY) > SWIPE_VELOCITY_MIN) {
-                        // Swipe DOWN → close
-                        finishWithAnimation();
+                public boolean onFling(MotionEvent e1, MotionEvent e2,
+                                       float vX, float vY) {
+                    if (e1 == null || e2 == null) return false;
+                    float dY = e2.getY() - e1.getY();
+                    float dX = e2.getX() - e1.getX();
+                    if (dY > SWIPE_THRESHOLD && Math.abs(dY) > Math.abs(dX)
+                            && Math.abs(vY) > SWIPE_VELOCITY_THR) {
+                        finish();
                         return true;
                     }
                     return false;
@@ -498,205 +519,214 @@ public class StatusViewerActivity extends AppCompatActivity {
             });
     }
 
-    private void finishWithAnimation() {
-        AlphaAnimation fade = new AlphaAnimation(1f, 0f);
-        fade.setDuration(200);
-        fade.setAnimationListener(new Animation.AnimationListener() {
-            @Override public void onAnimationStart(Animation a) {}
-            @Override public void onAnimationRepeat(Animation a) {}
-            @Override public void onAnimationEnd(Animation a) { finish(); }
-        });
-        binding.getRoot().startAnimation(fade);
-    }
-
-    // ── Touch zones ───────────────────────────────────────────────────────
-
     private void setupTouchZones() {
-        binding.touchLayer.setOnTouchListener((v, e) -> {
-            // Pass to swipe detector first
-            swipeDetector.onTouchEvent(e);
-
-            switch (e.getAction()) {
+        binding.touchLayer.setOnTouchListener((v, event) -> {
+            swipeDetector.onTouchEvent(event);
+            switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     pauseProgress();
-                    break;
+                    return true;
                 case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
                     resumeProgress();
-                    float x = e.getX();
+                    float x = event.getX();
                     float w = v.getWidth();
-                    // Short tap (<200ms): left-third = previous, rest = next
-                    if (e.getEventTime() - e.getDownTime() < 200) {
-                        if (x < w / 3f) previous();
-                        else            next();
+                    if (event.getEventTime() - event.getDownTime() < 300L) {
+                        if (x < w * 0.35f) prev();
+                        else if (x > w * 0.65f) next();
                     }
-                    break;
+                    return true;
             }
             return true;
         });
     }
 
-    // ── Buttons ───────────────────────────────────────────────────────────
-
     private void setupCloseButton() {
-        binding.btnCloseStatus.setOnClickListener(v -> finishWithAnimation());
+        binding.btnCloseStatus.setOnClickListener(v -> finish());
     }
 
     private void setupReactionButton() {
         binding.btnReact.setOnClickListener(v -> showReactionSheet());
     }
 
-    /**
-     * FIX: Reply input + send button were wired to nothing before.
-     * Now sends the typed reply as a chat message to the status owner.
-     */
-    private void setupReplyButton() {
-        // Hide reply UI if viewing own status
-        if (myUid != null && myUid.equals(ownerUid)) {
-            binding.etReply.setVisibility(View.GONE);
-            binding.btnSendReply.setVisibility(View.GONE);
-            return;
-        }
+    // ── Download button ───────────────────────────────────────────────────
 
-        // Pause progress when user taps the reply field
-        binding.etReply.setOnFocusChangeListener((v, hasFocus) -> {
-            if (hasFocus) pauseProgress();
-            else resumeProgress();
+    private void setupDownloadButton() {
+        if (binding.btnDownload == null) return;
+        binding.btnDownload.setOnClickListener(v -> {
+            if (idx >= items.size()) return;
+            pauseProgress();
+            StatusItem current = items.get(idx);
+            Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show();
+            StatusShareManager.downloadToGallery(this, current,
+                new StatusShareManager.DownloadCallback() {
+                    @Override public void onSuccess(Uri savedUri) {
+                        Toast.makeText(StatusViewerActivity.this,
+                            "Saved to gallery", Toast.LENGTH_SHORT).show();
+                        resumeProgress();
+                    }
+                    @Override public void onError(String message) {
+                        Toast.makeText(StatusViewerActivity.this,
+                            "Save failed: " + message, Toast.LENGTH_SHORT).show();
+                        resumeProgress();
+                    }
+                });
         });
+    }
 
+    // ── Highlight button ──────────────────────────────────────────────────
+
+    private void setupHighlightButton() {
+        if (binding.btnHighlight == null) return;
+        binding.btnHighlight.setOnClickListener(v -> {
+            if (idx >= items.size()) return;
+            pauseProgress();
+            showAddToHighlightsDialog(items.get(idx));
+        });
+    }
+
+    private void showAddToHighlightsDialog(StatusItem item) {
+        if (myUid == null) { resumeProgress(); return; }
+        StatusHighlightsManager.loadAlbums(myUid, albums -> {
+            if (albums.isEmpty()) {
+                // No albums — prompt to create one
+                showCreateAlbumDialog(item, null);
+                return;
+            }
+            String[] names = new String[albums.size() + 1];
+            for (int i = 0; i < albums.size(); i++) names[i] = albums.get(i).name;
+            names[albums.size()] = "+ New highlight";
+
+            new AlertDialog.Builder(this)
+                .setTitle("Add to Highlights")
+                .setItems(names, (d, which) -> {
+                    if (which == albums.size()) {
+                        showCreateAlbumDialog(item, null);
+                    } else {
+                        StatusHighlightsManager.addStatus(myUid, albums.get(which).id, item);
+                        Toast.makeText(this, "Added to " + albums.get(which).name,
+                                Toast.LENGTH_SHORT).show();
+                        resumeProgress();
+                    }
+                })
+                .setOnCancelListener(dd -> resumeProgress())
+                .show();
+        });
+    }
+
+    private void showCreateAlbumDialog(StatusItem item, Runnable afterCreate) {
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("Highlight name (e.g. Travel)");
+        new AlertDialog.Builder(this)
+            .setTitle("New Highlight Album")
+            .setView(et)
+            .setPositiveButton("Create", (d, w) -> {
+                String name = et.getText().toString().trim();
+                if (name.isEmpty()) { resumeProgress(); return; }
+                String thumb = item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl;
+                StatusHighlightsManager.createAlbum(myUid, name, thumb,
+                    (success, albumId) -> {
+                        if (success && albumId != null) {
+                            StatusHighlightsManager.addStatus(myUid, albumId, item);
+                            Toast.makeText(this, "Added to " + name, Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "Failed to create album", Toast.LENGTH_SHORT).show();
+                        }
+                        resumeProgress();
+                    });
+            })
+            .setNegativeButton("Cancel", (d, w) -> resumeProgress())
+            .setOnCancelListener(dd -> resumeProgress())
+            .show();
+    }
+
+    // ── Share button ──────────────────────────────────────────────────────
+
+    private void setupShareButton() {
+        // Share is triggered from the "More" menu for non-owners
+        // Owner share is in the owner more menu
+    }
+
+    // ── Reply button ──────────────────────────────────────────────────────
+
+    private void setupReplyButton() {
         binding.btnSendReply.setOnClickListener(v -> {
-            String msg = binding.etReply.getText() != null
-                    ? binding.etReply.getText().toString().trim() : "";
-            if (TextUtils.isEmpty(msg)) return;
+            String msg = binding.etReply.getText().toString().trim();
+            if (msg.isEmpty()) return;
+            if (idx >= items.size()) return;
+            StatusItem current = items.get(idx);
             if (myUid == null || ownerUid == null) return;
 
-            sendReplyToChat(ownerUid, msg);
             binding.etReply.setText("");
             binding.etReply.clearFocus();
-            resumeProgress();
+            android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(binding.etReply.getWindowToken(), 0);
+
+            String chatId = myUid.compareTo(ownerUid) < 0
+                    ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
+            String msgId = FirebaseUtils.db()
+                    .getReference("messages").child(chatId).push().getKey();
+            if (msgId == null) return;
+
+            String finalMsg = msg;
+            String finalChatId = chatId;
+            String toUid = ownerUid;
+
+            Map<String, Object> message = new HashMap<>();
+            message.put("id",        msgId);
+            message.put("senderId",  myUid);
+            message.put("text",      finalMsg);
+            message.put("type",      "text");
+            message.put("timestamp", com.google.firebase.database.ServerValue.TIMESTAMP);
+            message.put("seen",      false);
+            if (current.id != null) {
+                message.put("replyToStatusId", current.id);
+                message.put("replyToStatusType", current.type);
+            }
+
+            FirebaseUtils.db()
+                .getReference("messages")
+                .child(finalChatId)
+                .child(msgId)
+                .setValue(message);
+
             Toast.makeText(this, "Reply sent", Toast.LENGTH_SHORT).show();
+
+            // FCM notification
+            FirebaseUtils.db()
+                .getReference("users").child(myUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        String myName  = snap.child("name").getValue(String.class);
+                        String myPhoto = snap.child("photoUrl").getValue(String.class);
+                        String myThumb = snap.child("thumbUrl").getValue(String.class);
+                        String avatar  = (myThumb != null && !myThumb.isEmpty()) ? myThumb : myPhoto;
+                        PushNotify.notifyStatusReply(toUid, myUid,
+                            myName != null ? myName : "Someone",
+                            avatar != null ? avatar : "", finalMsg, finalChatId);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        PushNotify.notifyStatusReply(toUid, myUid, "Someone", "",
+                            finalMsg, finalChatId);
+                    }
+                });
         });
     }
 
-    /**
-     * Sends a "reply to status" message into the existing chat with the owner,
-     * then fires a background-killed-safe FCM push to the owner via PushNotify.
-     * Message includes replyToText + replyToSenderName so the chat screen renders
-     * a proper quoted-status bubble (same as swipe-to-reply on any other message).
-     */
-    private void sendReplyToChat(String toUid, String message) {
-        if (myUid == null) return;
-        // Deterministic chatId: sorted UIDs joined by "_"
-        String chatId = myUid.compareTo(toUid) < 0
-                ? myUid + "_" + toUid
-                : toUid + "_" + myUid;
+    // ── More button ───────────────────────────────────────────────────────
 
-        String msgId = FirebaseUtils.db().getReference().push().getKey();
-        if (msgId == null) return;
-
-        // Build the quoted-status context — shown as a preview bubble in chat
-        StatusItem currentStatus = (idx >= 0 && idx < items.size()) ? items.get(idx) : null;
-        String quoteText;
-        String quoteType;
-        String quoteMediaUrl = null;
-        if (currentStatus != null) {
-            if ("image".equals(currentStatus.type)) {
-                quoteText    = "📷 Photo status";
-                quoteType    = "image";
-                quoteMediaUrl = currentStatus.mediaUrl;
-            } else if ("video".equals(currentStatus.type)
-                    || "reel_story".equals(currentStatus.type)
-                    || "reel_clip".equals(currentStatus.type)) {
-                quoteText    = "🎥 Video status";
-                quoteType    = "video";
-                quoteMediaUrl = currentStatus.thumbnailUrl != null
-                        ? currentStatus.thumbnailUrl : currentStatus.mediaUrl;
-            } else {
-                // text status
-                quoteText = (currentStatus.text != null && !currentStatus.text.isEmpty())
-                        ? currentStatus.text
-                        : (currentStatus.caption != null ? currentStatus.caption : "Status");
-                quoteType = "text";
-            }
-        } else {
-            quoteText = "Status";
-            quoteType = "text";
-        }
-
-        Map<String, Object> msgMap = new HashMap<>();
-        msgMap.put("id",                msgId);
-        msgMap.put("senderId",          myUid);
-        msgMap.put("text",              message);          // plain reply text (no prefix clutter)
-        msgMap.put("type",              "text");
-        msgMap.put("timestamp",         com.google.firebase.database.ServerValue.TIMESTAMP);
-        msgMap.put("seen",              false);
-        // Quote fields — chat adapter reads these to render the preview bubble
-        msgMap.put("replyToId",         "status_" + (currentStatus != null && currentStatus.id != null
-                                                      ? currentStatus.id : "unknown"));
-        msgMap.put("replyToText",       quoteText);
-        msgMap.put("replyToSenderName", ownerName != null ? ownerName : "Status");
-        msgMap.put("replyToType",       quoteType);
-        if (quoteMediaUrl != null) msgMap.put("replyToMediaUrl", quoteMediaUrl);
-
-        final String finalChatId = chatId;
-        final String finalMsg    = message;
-
-        FirebaseUtils.db()
-            .getReference("chats")
-            .child(chatId)
-            .child("messages")
-            .child(msgId)
-            .setValue(msgMap)
-            .addOnSuccessListener(unused -> {
-                // After message is written, send push to status owner.
-                // Fetch my own name + photo (needed for notification title/avatar).
-                FirebaseUtils.db()
-                    .getReference("users")
-                    .child(myUid)
-                    .addListenerForSingleValueEvent(new ValueEventListener() {
-                        @Override
-                        public void onDataChange(@NonNull DataSnapshot snap) {
-                            String myName  = snap.child("name").getValue(String.class);
-                            String myPhoto = snap.child("photoUrl").getValue(String.class);
-                            String myThumb = snap.child("thumbUrl").getValue(String.class);
-                            String myAvatar = (myThumb != null && !myThumb.isEmpty()) ? myThumb : myPhoto;
-                            PushNotify.notifyStatusReply(
-                                toUid,
-                                myUid,
-                                myName  != null ? myName  : "Someone",
-                                myAvatar != null ? myAvatar : "",
-                                finalMsg,
-                                finalChatId
-                            );
-                        }
-                        @Override public void onCancelled(@NonNull DatabaseError e) {
-                            PushNotify.notifyStatusReply(
-                                toUid, myUid, "Someone", "", finalMsg, finalChatId);
-                        }
-                    });
-            });
-    }
-
-    /**
-     * FIX: "More" button (⋮) was declared in layout but never wired up.
-     * Owner gets Delete option; others get Mute/Report.
-     */
     private void setupMoreButton() {
         binding.btnMore.setOnClickListener(v -> {
             pauseProgress();
-            boolean isOwner = myUid != null && myUid.equals(ownerUid);
-            if (isOwner) {
-                showOwnerMoreMenu();
-            } else {
-                showViewerMoreMenu();
-            }
+            if (myUid != null && myUid.equals(ownerUid)) showOwnerMoreMenu();
+            else showViewerMoreMenu();
         });
     }
 
     private void showOwnerMoreMenu() {
         StatusItem current = idx < items.size() ? items.get(idx) : null;
         new AlertDialog.Builder(this)
-            .setItems(new String[]{"Delete this status", "Cancel"}, (d, which) -> {
+            .setItems(new String[]{"Delete this status", "Share", "Cancel"}, (d, which) -> {
                 if (which == 0 && current != null && current.id != null) {
                     StatusSeenTracker.deleteStatus(ownerUid, current.id);
                     Toast.makeText(this, "Status deleted", Toast.LENGTH_SHORT).show();
@@ -706,6 +736,9 @@ public class StatusViewerActivity extends AppCompatActivity {
                     buildSegmentBars();
                     stopProgress();
                     showCurrent();
+                } else if (which == 1 && current != null) {
+                    StatusShareManager.shareStatus(this, current);
+                    resumeProgress();
                 } else {
                     resumeProgress();
                 }
@@ -715,24 +748,33 @@ public class StatusViewerActivity extends AppCompatActivity {
     }
 
     private void showViewerMoreMenu() {
+        boolean isMuted = StatusMuteManager.isMuted(this, ownerUid);
+        String muteLabel = isMuted ? "Unmute " + ownerName : "Mute " + ownerName;
         new AlertDialog.Builder(this)
-            .setItems(new String[]{"Mute " + ownerName, "Report", "Cancel"}, (d, which) -> {
+            .setItems(new String[]{muteLabel, "Share", "Report", "Cancel"}, (d, which) -> {
                 if (which == 0) {
-                    Toast.makeText(this, ownerName + " muted", Toast.LENGTH_SHORT).show();
-                    finish();
+                    boolean nowMuted = StatusMuteManager.toggleMute(this, ownerUid);
+                    Toast.makeText(this,
+                        nowMuted ? ownerName + " muted" : ownerName + " unmuted",
+                        Toast.LENGTH_SHORT).show();
+                    if (nowMuted) finish();
+                    else resumeProgress();
                 } else if (which == 1) {
+                    if (idx < items.size()) StatusShareManager.shareStatus(this, items.get(idx));
+                    resumeProgress();
+                } else if (which == 2) {
                     Toast.makeText(this, "Reported", Toast.LENGTH_SHORT).show();
+                    resumeProgress();
+                } else {
+                    resumeProgress();
                 }
-                resumeProgress();
             })
             .setOnCancelListener(d -> resumeProgress())
             .show();
     }
 
-    /**
-     * FIX: Mute/unmute toggle for video statuses.
-     * Was missing entirely — added btn_mute to the logic.
-     */
+    // ── Mute button (video) ───────────────────────────────────────────────
+
     private void setupMuteButton() {
         binding.btnMute.setOnClickListener(v -> {
             isMuted = !isMuted;
@@ -750,8 +792,8 @@ public class StatusViewerActivity extends AppCompatActivity {
         View sv = getLayoutInflater().inflate(R.layout.bottom_sheet_status_reactions, null);
         sheet.setContentView(sv);
 
-        String[] emojis   = {"❤️", "😂", "😮", "😢", "😡", "👍"};
-        int[]    emojiIds  = {
+        String[] emojis  = {"❤️", "😂", "😮", "😢", "😡", "👍"};
+        int[]    emojiIds = {
             R.id.react_heart, R.id.react_laugh, R.id.react_wow,
             R.id.react_sad,   R.id.react_angry, R.id.react_thumbs
         };
@@ -764,6 +806,19 @@ public class StatusViewerActivity extends AppCompatActivity {
             btn.setOnClickListener(x -> {
                 if (current != null && myUid != null) {
                     StatusSeenTracker.reactTo(ownerUid, current.id, emoji);
+                    // Notify owner + aggregate
+                    FirebaseUtils.db()
+                        .getReference("users").child(myUid)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                                String myName  = snap.child("name").getValue(String.class);
+                                String myPhoto = snap.child("photoUrl").getValue(String.class);
+                                StatusReactionAggregator.notifyOwner(
+                                    StatusViewerActivity.this, ownerUid, current.id,
+                                    myUid, myName, myPhoto, emoji);
+                            }
+                            @Override public void onCancelled(@NonNull DatabaseError e) {}
+                        });
                     Toast.makeText(this, emoji + " sent", Toast.LENGTH_SHORT).show();
                 }
                 sheet.dismiss();
@@ -779,28 +834,102 @@ public class StatusViewerActivity extends AppCompatActivity {
     private void updateSeenByInfo(StatusItem s) {
         if (myUid != null && myUid.equals(ownerUid)) {
             int count = s.getViewCount();
+            // Reaction summary
+            String reactionSummary = StatusReactionAggregator.formatSummary(s);
+            String seenText = "👁 Seen by " + count;
+            if (!reactionSummary.isEmpty()) seenText += "  " + reactionSummary;
+            if (count == 0) seenText = "No views yet";
             binding.tvSeenBy.setVisibility(View.VISIBLE);
-            binding.tvSeenBy.setText(count > 0 ? "👁 Seen by " + count : "No views yet");
-            // FIX: Tap on "Seen by" shows viewer list dialog
+            binding.tvSeenBy.setText(seenText);
             binding.tvSeenBy.setOnClickListener(v -> showViewerListDialog(s));
         } else {
             binding.tvSeenBy.setVisibility(View.GONE);
         }
     }
 
+    /**
+     * Shows viewer list with REAL NAMES resolved via StatusAnalyticsTracker.
+     * Falls back to basic list from seenBy map if analytics not available.
+     */
     private void showViewerListDialog(StatusItem s) {
-        if (s.seenBy == null || s.seenBy.isEmpty()) {
+        if ((s.seenBy == null || s.seenBy.isEmpty()) && s.id == null) {
             Toast.makeText(this, "No viewers yet", Toast.LENGTH_SHORT).show();
             return;
         }
         pauseProgress();
-        // Build list of viewer UIDs (in a real app you'd resolve names from DB)
-        String[] viewers = s.seenBy.keySet().toArray(new String[0]);
-        new AlertDialog.Builder(this)
-            .setTitle("Seen by " + viewers.length)
-            .setItems(viewers, null)
-            .setOnDismissListener(d -> resumeProgress())
-            .show();
+
+        if (s.id != null) {
+            StatusAnalyticsTracker.loadViewerList(ownerUid, s.id, viewers -> {
+                if (viewers.isEmpty()) {
+                    // Fallback to seenBy map
+                    showBasicViewerList(s);
+                    return;
+                }
+                // Build display strings with name + duration
+                String[] rows = new String[viewers.size()];
+                for (int i = 0; i < viewers.size(); i++) {
+                    StatusAnalyticsTracker.ViewerEntry e = viewers.get(i);
+                    String dur = e.durationMs > 0
+                        ? " — " + (e.durationMs / 1000) + "s" : "";
+                    String comp = e.completed ? " ✓" : "";
+                    rows[i] = (e.name != null ? e.name : "Unknown") + dur + comp;
+                }
+                runOnUiThread(() -> {
+                    new AlertDialog.Builder(this)
+                        .setTitle("Seen by " + viewers.size())
+                        .setItems(rows, null)
+                        .setOnDismissListener(d -> resumeProgress())
+                        .show();
+                });
+            });
+        } else {
+            showBasicViewerList(s);
+        }
+    }
+
+    private void showBasicViewerList(StatusItem s) {
+        if (s.seenBy == null || s.seenBy.isEmpty()) {
+            Toast.makeText(this, "No viewers yet", Toast.LENGTH_SHORT).show();
+            resumeProgress();
+            return;
+        }
+        // Resolve UIDs → names from Firebase users node
+        List<String> uids = new ArrayList<>(s.seenBy.keySet());
+        String[] names = new String[uids.size()];
+        int[] resolved = {0};
+        for (int i = 0; i < uids.size(); i++) {
+            final int idx = i;
+            names[idx] = uids.get(idx); // default to UID
+            FirebaseUtils.db().getReference("users").child(uids.get(idx))
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        String n = snap.child("name").getValue(String.class);
+                        names[idx] = n != null ? n : uids.get(idx);
+                        resolved[0]++;
+                        if (resolved[0] == uids.size()) {
+                            runOnUiThread(() -> {
+                                new AlertDialog.Builder(StatusViewerActivity.this)
+                                    .setTitle("Seen by " + uids.size())
+                                    .setItems(names, null)
+                                    .setOnDismissListener(d -> resumeProgress())
+                                    .show();
+                            });
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        resolved[0]++;
+                        if (resolved[0] == uids.size()) {
+                            runOnUiThread(() -> {
+                                new AlertDialog.Builder(StatusViewerActivity.this)
+                                    .setTitle("Seen by " + uids.size())
+                                    .setItems(names, null)
+                                    .setOnDismissListener(d -> resumeProgress())
+                                    .show();
+                            });
+                        }
+                    }
+                });
+        }
     }
 
     // ── Header timestamp ──────────────────────────────────────────────────
@@ -826,10 +955,7 @@ public class StatusViewerActivity extends AppCompatActivity {
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private void releasePlayer() {
-        if (player != null) {
-            player.release();
-            player = null;
-        }
+        if (player != null) { player.release(); player = null; }
     }
 
     private int dpToPx(int dp) {
@@ -839,14 +965,10 @@ public class StatusViewerActivity extends AppCompatActivity {
     private void applyFontStyle(TextView tv, String style) {
         if (style == null) return;
         switch (style) {
-            case "bold":
-                tv.setTypeface(null, android.graphics.Typeface.BOLD); break;
-            case "italic":
-                tv.setTypeface(null, android.graphics.Typeface.ITALIC); break;
-            case "handwriting":
-                tv.setTypeface(android.graphics.Typeface.MONOSPACE); break;
-            default:
-                tv.setTypeface(null, android.graphics.Typeface.NORMAL);
+            case "bold":        tv.setTypeface(null, android.graphics.Typeface.BOLD);   break;
+            case "italic":      tv.setTypeface(null, android.graphics.Typeface.ITALIC); break;
+            case "handwriting": tv.setTypeface(android.graphics.Typeface.MONOSPACE);    break;
+            default:            tv.setTypeface(null, android.graphics.Typeface.NORMAL);
         }
     }
 }

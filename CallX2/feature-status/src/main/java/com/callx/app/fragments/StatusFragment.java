@@ -3,7 +3,6 @@ package com.callx.app.fragments;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.*;
-import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -17,6 +16,8 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.StatusEntity;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.StatusHighlightsManager;
+import com.callx.app.utils.StatusMuteManager;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.firebase.database.*;
 import java.util.*;
@@ -27,45 +28,40 @@ import java.util.concurrent.Executors;
 /**
  * StatusFragment — Production-grade status screen.
  *
- * Sections:
- *   [0]  My Status row (always at top; shows "Add" or current status ring)
+ * Sections (top to bottom):
+ *   [0]  My Status row (always at top)
+ *   [H]  Highlights row (horizontal scroll of own highlight albums — if any exist)
  *   [1…] Recent updates — contacts with NEW (unseen) statuses, sorted latest-first
+ *        Muted contacts are FILTERED OUT from both sections
  *   [N…] Viewed updates — contacts whose statuses have all been seen
  *
- * Features:
- *   • Real-time Firebase listener with proper cleanup on stop
- *   • Seen / unseen ring differentiation
- *   • Status count badge per contact
- *   • My own status preview at top
- *   • Empty-state view when no contacts have active statuses
- *   • Section headers ("Recent updates" / "Viewed updates")
+ * New in this version:
+ *   ✅ StatusMuteManager integration — muted contacts hidden from both sections
+ *   ✅ Highlights row — shows owner's highlight albums above "Recent updates"
+ *   ✅ Firebase mute sync on onStart (cross-device consistency)
+ *   ✅ Room offline-first fallback (unchanged)
+ *   ✅ StatusCacheManager observer (unchanged)
+ *   ✅ StatusMediaPreloader (unchanged)
  */
 public class StatusFragment extends Fragment {
 
-    // ── Adapter section model ─────────────────────────────────────────────
-
-    public static final int TYPE_MY_STATUS        = 0;
-    public static final int TYPE_SECTION_HEADER   = 1;
-    public static final int TYPE_CONTACT_STATUS   = 2;
+    public static final int TYPE_MY_STATUS      = 0;
+    public static final int TYPE_SECTION_HEADER = 1;
+    public static final int TYPE_CONTACT_STATUS = 2;
 
     // ── State ─────────────────────────────────────────────────────────────
 
     private StatusListAdapter adapter;
 
-    /** All valid (non-expired, non-deleted) statuses grouped by ownerUid */
-    private final Map<String, List<StatusItem>> statusMap = new LinkedHashMap<>();
-
-    /** Seen map: ownerUid → set of statusIds the current user has seen */
-    private final Map<String, Set<String>> seenMap = new HashMap<>();
-
-    /** My own latest status list */
-    private final List<StatusItem> myStatuses = new ArrayList<>();
+    private final Map<String, List<StatusItem>> statusMap  = new LinkedHashMap<>();
+    private final Map<String, Set<String>>      seenMap    = new HashMap<>();
+    private final List<StatusItem>              myStatuses = new ArrayList<>();
+    private final List<StatusHighlightsManager.Album> highlights = new ArrayList<>();
 
     private ValueEventListener statusListener;
     private ValueEventListener seenListener;
     private String myUid;
 
-    // ── Media preloader (Reels jaisa pattern — Status ke liye) ────────────
     private StatusMediaPreloader mediaPreloader;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
@@ -77,19 +73,17 @@ public class StatusFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_status, parent, false);
 
-        try {
-            myUid = FirebaseUtils.getCurrentUid();
-        } catch (Exception e) {
-            return v;
-        }
+        try { myUid = FirebaseUtils.getCurrentUid(); }
+        catch (Exception e) { return v; }
 
         RecyclerView rv = v.findViewById(R.id.rv_status);
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
-        rv.setItemAnimator(null); // smoother real-time updates
+        rv.setItemAnimator(null);
 
         adapter = new StatusListAdapter(
                 myUid,
                 myStatuses,
+                highlights,
                 /* onMyStatusClick */  () -> {
                     if (myStatuses.isEmpty()) {
                         startActivity(new Intent(requireContext(), NewStatusActivity.class));
@@ -107,6 +101,17 @@ public class StatusFragment extends Fragment {
                     i.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  ownerUid);
                     i.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, ownerName);
                     startActivity(i);
+                },
+                /* onHighlightClick */ (album) -> {
+                    // Open StatusViewerActivity with highlights items
+                    // For now we pass ownerUid + a special flag;
+                    // StatusViewerActivity can be extended to handle highlights if needed.
+                    // Basic: open with myUid + album name
+                    Intent i = new Intent(requireContext(), StatusViewerActivity.class);
+                    i.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  myUid);
+                    i.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, album.name);
+                    i.putExtra("highlightAlbumId", album.id);
+                    startActivity(i);
                 }
         );
         rv.setAdapter(adapter);
@@ -115,7 +120,6 @@ public class StatusFragment extends Fragment {
         fab.setOnClickListener(x ->
                 startActivity(new Intent(requireContext(), NewStatusActivity.class)));
 
-        // Collapse FAB label when scrolling
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView r, int dx, int dy) {
@@ -130,16 +134,17 @@ public class StatusFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
-        // Init media preloader — StatusMediaPreloader handles video + image caching
         if (mediaPreloader == null && getContext() != null) {
             mediaPreloader = new StatusMediaPreloader(requireContext());
         }
-        // v18: StatusCacheManager se fresh karo — zero duplicate Firebase reads
-        // Agar data pehle se cache mein hai to instantly show karo
+        // Sync muted list from Firebase (cross-device consistency)
+        if (getContext() != null) StatusMuteManager.syncFromFirebase(requireContext());
+
         seedFromStatusCache();
-        loadFromRoom();   // v17: offline-first (Room fallback)
-        loadStatuses();   // Live Firebase listener (delta updates)
-        // App-wide status cache update hone par bhi refresh
+        loadFromRoom();
+        loadStatuses();
+        loadHighlights();
+
         StatusCacheManager.getInstance(requireContext()).addObserver(statusCacheObserver);
     }
 
@@ -148,95 +153,69 @@ public class StatusFragment extends Fragment {
         removeListeners();
         if (getContext() != null)
             StatusCacheManager.getInstance(getContext()).removeObserver(statusCacheObserver);
-        // Preloader shutdown — running downloads cancel
-        if (mediaPreloader != null) {
-            mediaPreloader.shutdown();
-            mediaPreloader = null;
-        }
+        if (mediaPreloader != null) { mediaPreloader.shutdown(); mediaPreloader = null; }
         super.onStop();
     }
 
-    // ── StatusCacheManager observer — app-wide refresh ke liye ──────────────
-    private final StatusCacheManager.StatusDataObserver statusCacheObserver = () -> {
-        if (getActivity() != null) {
-            getActivity().runOnUiThread(this::seedFromStatusCache);
-        }
-    };
+    // ── Highlights ────────────────────────────────────────────────────────
 
     /**
-     * StatusCacheManager ke cache se data seedkaro — agar Firebase ne abhi
-     * fresh data nahi diya tab bhi instantly show ho jaata hai.
-     * Duplicate data avoid karta hai — sirf tab update karta hai jab cache non-empty hai.
+     * Load the current user's highlight albums and refresh adapter.
      */
+    private void loadHighlights() {
+        if (myUid == null || getContext() == null) return;
+        StatusHighlightsManager.loadAlbums(myUid, albums -> {
+            highlights.clear();
+            highlights.addAll(albums);
+            if (getActivity() != null) {
+                getActivity().runOnUiThread(() -> adapter.notifyHighlightsChanged());
+            }
+        });
+    }
+
+    // ── StatusCacheManager observer ───────────────────────────────────────
+
+    private final StatusCacheManager.StatusDataObserver statusCacheObserver = () -> {
+        if (getActivity() != null)
+            getActivity().runOnUiThread(this::seedFromStatusCache);
+    };
+
     private void seedFromStatusCache() {
         if (myUid == null || getContext() == null) return;
         StatusCacheManager scm = StatusCacheManager.getInstance(getContext());
         java.util.Map<String, java.util.List<StatusItem>> cached = scm.getAllStatuses();
         if (cached.isEmpty()) return;
-
-        // Cache se statusMap refresh karo (without clearing Firebase-loaded data)
         for (java.util.Map.Entry<String, java.util.List<StatusItem>> e : cached.entrySet()) {
             String uid = e.getKey();
             java.util.List<StatusItem> items = e.getValue();
             if (myUid.equals(uid)) {
-                // My own statuses
-                if (myStatuses.isEmpty()) {
-                    myStatuses.addAll(items);
-                }
+                if (myStatuses.isEmpty()) myStatuses.addAll(items);
             } else {
-                // Contact statuses — sirf tab add karo agar already nahi hai
-                if (!statusMap.containsKey(uid)) {
-                    statusMap.put(uid, items);
-                }
+                if (!statusMap.containsKey(uid)) statusMap.put(uid, items);
             }
         }
         rebuildAdapter();
     }
 
-    // ── v17: Room se offline-first load ───────────────────────────────────
+    // ── Room offline-first ────────────────────────────────────────────────
+
     private void loadFromRoom() {
         if (getContext() == null || myUid == null) return;
         AppDatabase db = AppDatabase.getInstance(getContext());
-
         Executors.newSingleThreadExecutor().execute(() -> {
             long now = System.currentTimeMillis();
             List<StatusEntity> cached = db.statusDao().getActiveStatuses(now);
-            // Expired statuses cleanup bhi karo background mein
             db.statusDao().pruneExpired(now);
-
             if (cached == null || cached.isEmpty()) return;
-
-            // Cached statuses ko model mein convert karo
             Map<String, List<StatusItem>> roomMap = new LinkedHashMap<>();
             List<StatusItem> roomMine = new ArrayList<>();
-
             for (StatusEntity e : cached) {
-                StatusItem item = new StatusItem();
-                item.id           = e.id;
-                item.ownerUid     = e.ownerUid;
-                item.ownerName    = e.ownerName;
-                item.ownerPhoto   = e.ownerPhoto;
-                item.type         = e.type;
-                item.text         = e.text;
-                item.mediaUrl     = e.mediaUrl;
-                item.thumbnailUrl = e.thumbnailUrl;
-                item.bgColor      = e.bgColor;
-                item.fontStyle    = e.fontStyle;
-                item.textColor    = e.textColor;
-                item.timestamp    = e.timestamp;
-                item.expiresAt    = e.expiresAt;
-                item.deleted      = e.deleted != null && e.deleted;
-
-                if (myUid.equals(e.ownerUid)) {
-                    roomMine.add(item);
-                } else {
-                    roomMap.computeIfAbsent(e.ownerUid, k -> new ArrayList<>()).add(item);
-                }
+                StatusItem item = entityToItem(e);
+                if (myUid.equals(e.ownerUid)) roomMine.add(item);
+                else roomMap.computeIfAbsent(e.ownerUid, k -> new ArrayList<>()).add(item);
             }
-
             if (getActivity() != null) {
                 getActivity().runOnUiThread(() -> {
-                    // Sirf tab dikhao agar Firebase ne abhi kuch nahi diya
                     if (statusMap.isEmpty() && myStatuses.isEmpty()) {
                         statusMap.putAll(roomMap);
                         myStatuses.addAll(roomMine);
@@ -247,12 +226,10 @@ public class StatusFragment extends Fragment {
         });
     }
 
-    // ── Data loading ──────────────────────────────────────────────────────
+    // ── Firebase data loading ─────────────────────────────────────────────
 
     private void loadStatuses() {
         if (myUid == null) return;
-
-        // 1. Load contacts first, then watch statuses of those contacts + self
         FirebaseUtils.getContactsRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
@@ -267,16 +244,11 @@ public class StatusFragment extends Fragment {
                 }
                 @Override
                 public void onCancelled(@NonNull DatabaseError e) {
-                    // Fall back: watch all statuses
                     attachStatusListener(Collections.singleton(myUid));
                 }
             });
     }
 
-    /**
-     * Attach a single ValueEventListener on the root "status" node.
-     * This is more efficient than N per-contact listeners when contacts > ~20.
-     */
     private void attachStatusListener(Set<String> watchedUids) {
         statusListener = new ValueEventListener() {
             @Override
@@ -284,12 +256,9 @@ public class StatusFragment extends Fragment {
                 long now = System.currentTimeMillis();
                 statusMap.clear();
                 myStatuses.clear();
-
                 for (DataSnapshot userSnap : snap.getChildren()) {
                     String uid = userSnap.getKey();
-                    if (uid == null) continue;
-                    if (!watchedUids.contains(uid)) continue;
-
+                    if (uid == null || !watchedUids.contains(uid)) continue;
                     List<StatusItem> items = new ArrayList<>();
                     for (DataSnapshot stSnap : userSnap.getChildren()) {
                         StatusItem item = stSnap.getValue(StatusItem.class);
@@ -297,32 +266,20 @@ public class StatusFragment extends Fragment {
                         if (item.expiresAt != null && item.expiresAt < now) continue;
                         items.add(item);
                     }
-                    // Sort chronologically within each user
-                    items.sort((a, b) -> {
-                        long ta = a.timestamp == null ? 0 : a.timestamp;
-                        long tb = b.timestamp == null ? 0 : b.timestamp;
-                        return Long.compare(ta, tb);
-                    });
-
-                    if (uid.equals(myUid)) {
-                        myStatuses.addAll(items);
-                    } else if (!items.isEmpty()) {
-                        statusMap.put(uid, items);
-                    }
+                    items.sort((a, b) -> Long.compare(
+                        a.timestamp == null ? 0 : a.timestamp,
+                        b.timestamp == null ? 0 : b.timestamp));
+                    if (uid.equals(myUid)) myStatuses.addAll(items);
+                    else if (!items.isEmpty()) statusMap.put(uid, items);
                 }
                 rebuildAdapter();
 
-                // v17: Room mein save karo sab active statuses
+                // Persist to Room
                 if (getContext() != null) {
                     List<StatusEntity> toSave = new ArrayList<>();
-                    for (StatusItem si : myStatuses) {
-                        toSave.add(statusItemToEntity(si));
-                    }
-                    for (List<StatusItem> items : statusMap.values()) {
-                        for (StatusItem si : items) {
-                            toSave.add(statusItemToEntity(si));
-                        }
-                    }
+                    for (StatusItem si : myStatuses) toSave.add(itemToEntity(si));
+                    for (List<StatusItem> items : statusMap.values())
+                        for (StatusItem si : items) toSave.add(itemToEntity(si));
                     if (!toSave.isEmpty()) {
                         AppDatabase db = AppDatabase.getInstance(getContext());
                         Executors.newSingleThreadExecutor().execute(() ->
@@ -330,17 +287,11 @@ public class StatusFragment extends Fragment {
                     }
                 }
             }
-
-            @Override
-            public void onCancelled(@NonNull DatabaseError e) {}
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.getStatusRef().addValueEventListener(statusListener);
     }
 
-    /**
-     * Watch which statuses the current user has already seen.
-     * Format: statusSeen/{myUid}/{ownerUid}/{statusId} = timestamp
-     */
     private void attachSeenListener() {
         seenListener = new ValueEventListener() {
             @Override
@@ -357,12 +308,10 @@ public class StatusFragment extends Fragment {
                 }
                 rebuildAdapter();
             }
-            @Override
-            public void onCancelled(@NonNull DatabaseError e) {}
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.db()
-            .getReference("statusSeen")
-            .child(myUid)
+            .getReference("statusSeen").child(myUid)
             .addValueEventListener(seenListener);
     }
 
@@ -373,8 +322,7 @@ public class StatusFragment extends Fragment {
         }
         if (seenListener != null && myUid != null) {
             FirebaseUtils.db()
-                .getReference("statusSeen")
-                .child(myUid)
+                .getReference("statusSeen").child(myUid)
                 .removeEventListener(seenListener);
             seenListener = null;
         }
@@ -382,13 +330,56 @@ public class StatusFragment extends Fragment {
 
     // ── Adapter rebuild ───────────────────────────────────────────────────
 
-    /**
-     * Partition contacts into "unseen" (has at least 1 unseen item) and
-     * "seen" (all items seen), sort each partition by latest timestamp desc,
-     * and rebuild the adapter list.
-     */
-    // v17: StatusItem → StatusEntity converter
-    private StatusEntity statusItemToEntity(StatusItem si) {
+    private void rebuildAdapter() {
+        if (getContext() == null) return;
+        List<StatusListAdapter.Entry> unseen = new ArrayList<>();
+        List<StatusListAdapter.Entry> seen   = new ArrayList<>();
+
+        for (Map.Entry<String, List<StatusItem>> e : statusMap.entrySet()) {
+            String uid = e.getKey();
+
+            // ── Mute filter — skip muted contacts ──
+            if (StatusMuteManager.isMuted(requireContext(), uid)) continue;
+
+            List<StatusItem> items = e.getValue();
+            if (items.isEmpty()) continue;
+            Set<String> seenIds = seenMap.getOrDefault(uid, Collections.emptySet());
+            int unseenCount = 0;
+            for (StatusItem item : items) {
+                if (!seenIds.contains(item.id)) unseenCount++;
+            }
+            StatusItem latest = items.get(items.size() - 1);
+            StatusListAdapter.Entry entry = new StatusListAdapter.Entry(
+                    uid, latest.ownerName, latest.ownerPhoto,
+                    latest.timestamp, items.size(), unseenCount, latest);
+            if (unseenCount > 0) unseen.add(entry);
+            else                 seen.add(entry);
+        }
+
+        Comparator<StatusListAdapter.Entry> byTime =
+                (a, b) -> Long.compare(
+                        b.latestTimestamp == null ? 0 : b.latestTimestamp,
+                        a.latestTimestamp == null ? 0 : a.latestTimestamp);
+        unseen.sort(byTime);
+        seen.sort(byTime);
+        adapter.update(unseen, seen);
+
+        // Media preload
+        if (mediaPreloader != null && !statusMap.isEmpty()) {
+            for (StatusListAdapter.Entry entry : unseen) {
+                List<StatusItem> items = statusMap.get(entry.ownerUid);
+                if (items != null) mediaPreloader.preloadContactStatuses(items);
+            }
+            for (StatusListAdapter.Entry entry : seen) {
+                List<StatusItem> items = statusMap.get(entry.ownerUid);
+                if (items != null) mediaPreloader.preloadContactStatuses(items);
+            }
+        }
+    }
+
+    // ── Converters ────────────────────────────────────────────────────────
+
+    private StatusEntity itemToEntity(StatusItem si) {
         StatusEntity e   = new StatusEntity();
         e.id             = si.id != null ? si.id : "";
         e.ownerUid       = si.ownerUid;
@@ -407,60 +398,22 @@ public class StatusFragment extends Fragment {
         return e;
     }
 
-    private void rebuildAdapter() {
-        List<StatusListAdapter.Entry> unseen = new ArrayList<>();
-        List<StatusListAdapter.Entry> seen   = new ArrayList<>();
-
-        for (Map.Entry<String, List<StatusItem>> e : statusMap.entrySet()) {
-            String uid     = e.getKey();
-            List<StatusItem> items = e.getValue();
-            if (items.isEmpty()) continue;
-
-            Set<String> seenIds = seenMap.getOrDefault(uid, Collections.emptySet());
-            int unseenCount = 0;
-            for (StatusItem item : items) {
-                if (!seenIds.contains(item.id)) unseenCount++;
-            }
-
-            StatusItem latest = items.get(items.size() - 1);
-            StatusListAdapter.Entry entry = new StatusListAdapter.Entry(
-                    uid,
-                    latest.ownerName,
-                    latest.ownerPhoto,
-                    latest.timestamp,
-                    items.size(),
-                    unseenCount,
-                    latest
-            );
-
-            if (unseenCount > 0) unseen.add(entry);
-            else                 seen.add(entry);
-        }
-
-        // Sort each section: most-recent first
-        Comparator<StatusListAdapter.Entry> byTime =
-                (a, b) -> Long.compare(
-                        b.latestTimestamp == null ? 0 : b.latestTimestamp,
-                        a.latestTimestamp == null ? 0 : a.latestTimestamp);
-        unseen.sort(byTime);
-        seen.sort(byTime);
-
-        adapter.update(unseen, seen);
-
-        // ── Status Media Preload (Reels jaisa) ───────────────────────────
-        // Jab bhi status list refresh ho, unseen contacts ke media preload karo.
-        // Priority: unseen statuses pehle (user inhe dekhne wala hai)
-        if (mediaPreloader != null && !statusMap.isEmpty()) {
-            // Unseen contacts ke statuses pehle preload karo
-            for (StatusListAdapter.Entry entry : unseen) {
-                List<StatusItem> items = statusMap.get(entry.ownerUid);
-                if (items != null) mediaPreloader.preloadContactStatuses(items);
-            }
-            // Phir seen contacts ke statuses (lower priority — background mein chalte rahenge)
-            for (StatusListAdapter.Entry entry : seen) {
-                List<StatusItem> items = statusMap.get(entry.ownerUid);
-                if (items != null) mediaPreloader.preloadContactStatuses(items);
-            }
-        }
+    private StatusItem entityToItem(StatusEntity e) {
+        StatusItem item   = new StatusItem();
+        item.id           = e.id;
+        item.ownerUid     = e.ownerUid;
+        item.ownerName    = e.ownerName;
+        item.ownerPhoto   = e.ownerPhoto;
+        item.type         = e.type;
+        item.text         = e.text;
+        item.mediaUrl     = e.mediaUrl;
+        item.thumbnailUrl = e.thumbnailUrl;
+        item.bgColor      = e.bgColor;
+        item.fontStyle    = e.fontStyle;
+        item.textColor    = e.textColor;
+        item.timestamp    = e.timestamp;
+        item.expiresAt    = e.expiresAt;
+        item.deleted      = e.deleted != null && e.deleted;
+        return item;
     }
 }

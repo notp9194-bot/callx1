@@ -21,6 +21,7 @@ import androidx.annotation.NonNull;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import java.util.*;
+import com.callx.app.utils.StatusLinkPreviewFetcher;
 
 /**
  * NewStatusActivity — Production-grade status creation.
@@ -67,6 +68,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private int   selectedTextColor = TEXT_COLORS_FOR_BG[0];
     private String selectedFontStyle = "default";
     private String selectedPrivacy    = StatusPrivacyManager.PRIVACY_CONTACTS;
+    private StatusLinkPreviewFetcher.LinkPreview detectedLinkPreview = null;
 
     private ActivityResultLauncher<String> imagePicker;
     private ActivityResultLauncher<String> videoPicker;
@@ -302,6 +304,14 @@ public class NewStatusActivity extends AppCompatActivity {
                 } else {
                     binding.tilText.setError(null);
                 }
+                // Link detection: fetch OG preview when a URL is typed
+                String detectedUrl = StatusLinkPreviewFetcher.detectUrl(s.toString());
+                if (detectedUrl != null) {
+                    fetchLinkPreview(detectedUrl);
+                } else {
+                    detectedLinkPreview = null;
+                    hideLinkPreviewCard();
+                }
             }
         });
     }
@@ -400,6 +410,9 @@ public class NewStatusActivity extends AppCompatActivity {
             compressAndUploadImage(imageUri, caption, txt, uid, name, photo);
         } else if (videoUri != null) {
             compressAndUploadVideo(videoUri, caption, txt, uid, name, photo);
+        } else if (detectedLinkPreview != null) {
+            // Link status
+            saveLinkStatus(detectedLinkPreview, uid, name, photo);
         } else {
             // Text-only status — no media needed
             saveStatus("text", null, null, txt, caption, uid, name, photo);
@@ -589,4 +602,87 @@ public class NewStatusActivity extends AppCompatActivity {
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
+    // ── Link preview fetch + display ──────────────────────────────────────
+
+    private void fetchLinkPreview(String url) {
+        if (detectedLinkPreview != null && url.equals(detectedLinkPreview.url)) return;
+        StatusLinkPreviewFetcher.fetch(url, new StatusLinkPreviewFetcher.Callback() {
+            @Override
+            public void onResult(StatusLinkPreviewFetcher.LinkPreview preview) {
+                detectedLinkPreview = preview;
+                showLinkPreviewCard(preview);
+            }
+            @Override
+            public void onError(String message) {
+                detectedLinkPreview = null;
+                hideLinkPreviewCard();
+            }
+        });
+    }
+
+    private void showLinkPreviewCard(StatusLinkPreviewFetcher.LinkPreview preview) {
+        try {
+            View card = binding.linkPreviewCard;
+            if (card == null) return;
+            card.setVisibility(View.VISIBLE);
+            android.widget.TextView tvTitle  = binding.tvLinkTitle;
+            android.widget.TextView tvDomain = binding.tvLinkDomain;
+            android.widget.ImageView ivThumb = binding.ivLinkThumb;
+            if (tvTitle  != null) tvTitle.setText(preview.title   != null ? preview.title   : "");
+            if (tvDomain != null) tvDomain.setText(preview.domain != null ? preview.domain  : "");
+            if (ivThumb  != null && preview.imageUrl != null && !preview.imageUrl.isEmpty()) {
+                ivThumb.setVisibility(View.VISIBLE);
+                Glide.with(this).load(preview.imageUrl).centerCrop().into(ivThumb);
+            } else if (ivThumb != null) {
+                ivThumb.setVisibility(View.GONE);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void hideLinkPreviewCard() {
+        try {
+            View card = binding.linkPreviewCard;
+            if (card != null) card.setVisibility(View.GONE);
+        } catch (Exception ignored) {}
+    }
+
+    private void saveLinkStatus(StatusLinkPreviewFetcher.LinkPreview preview,
+                                String uid, String name, String photo) {
+        long now = System.currentTimeMillis();
+        DatabaseReference ref = FirebaseUtils.getStatusRef().child(uid).push();
+        StatusItem item = new StatusItem();
+        item.id           = ref.getKey();
+        item.ownerUid     = uid;
+        item.ownerName    = name;
+        item.ownerPhoto   = photo;
+        item.type         = "link";
+        item.text         = binding.etText.getText().toString().trim();
+        item.caption      = null;
+        item.mediaUrl     = null;
+        item.thumbnailUrl = preview.imageUrl;
+        item.timestamp    = now;
+        item.expiresAt    = now + Constants.STATUS_TTL_MS;
+        item.privacy      = selectedPrivacy;
+        item.bgColor      = String.format("#%08X", selectedBgColor);
+        item.textColor    = String.format("#%08X", selectedTextColor);
+        item.fontStyle    = selectedFontStyle;
+        item.linkUrl      = preview.url;
+        item.linkTitle    = preview.title;
+        item.linkDescription = preview.description;
+        item.linkFaviconUrl  = preview.faviconUrl;
+        item.textSize     = 24;
+        item.deleted      = false;
+        ref.setValue(item.toMap()).addOnSuccessListener(x -> {
+            PushNotify.notifyStatus(uid, name);
+            clearDraft();
+            detectedLinkPreview = null;
+            toast("Status post ho gaya!");
+            finish();
+        }).addOnFailureListener(e -> {
+            setPosting(false);
+            toast("Save fail hua: " + e.getMessage());
+        });
+    }
+
+
 }

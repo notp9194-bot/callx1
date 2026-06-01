@@ -337,15 +337,10 @@ public class CallActivity extends AppCompatActivity {
     private void initWebRTC(List<PeerConnection.IceServer> iceServers) {
         eglBase = EglBase.create();
         if (isVideo) {
-            // FIX: null-guard before calling init() to prevent NPE crash on video call
-            if (binding.remoteVideo != null) {
-                binding.remoteVideo.init(eglBase.getEglBaseContext(), null);
-                binding.remoteVideo.setMirror(false);
-            }
-            if (binding.localVideo != null) {
-                binding.localVideo.init(eglBase.getEglBaseContext(), null);
-                binding.localVideo.setMirror(true);
-            }
+            binding.remoteVideo.init(eglBase.getEglBaseContext(), null);
+            binding.remoteVideo.setMirror(false);
+            binding.localVideo.init(eglBase.getEglBaseContext(), null);
+            binding.localVideo.setMirror(true);
         }
 
         PeerConnectionFactory.initialize(
@@ -377,7 +372,7 @@ public class CallActivity extends AppCompatActivity {
                     if (isVideo && !stream.videoTracks.isEmpty()) {
                         VideoTrack rv = stream.videoTracks.get(0);
                         rv.setEnabled(true);
-                        if (binding.remoteVideo != null) rv.addSink(binding.remoteVideo);
+                        rv.addSink(binding.remoteVideo);
                     }
                 });
             }
@@ -387,7 +382,7 @@ public class CallActivity extends AppCompatActivity {
             @Override public void onAddTrack(RtpReceiver r, MediaStream[] streams) {
                 if (isVideo && r.track() instanceof VideoTrack) {
                     VideoTrack t = (VideoTrack) r.track();
-                    runOnUiThread(() -> { t.setEnabled(true); if (binding.remoteVideo != null) t.addSink(binding.remoteVideo); });
+                    runOnUiThread(() -> { t.setEnabled(true); t.addSink(binding.remoteVideo); });
                 }
             }
         });
@@ -413,7 +408,7 @@ public class CallActivity extends AppCompatActivity {
             }
             localVideoTrack = factory.createVideoTrack("video0", videoSource);
             localVideoTrack.setEnabled(true);
-            if (binding.localVideo != null) localVideoTrack.addSink(binding.localVideo);
+            localVideoTrack.addSink(binding.localVideo);
         }
 
         // Add tracks
