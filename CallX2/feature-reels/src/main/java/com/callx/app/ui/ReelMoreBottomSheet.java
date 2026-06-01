@@ -206,20 +206,20 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private List<MenuItem> buildViewerItems() {
         String saveLabel = isSaved ? "Unsave" : "Save";
         int    saveIcon  = isSaved
-            ? android.R.drawable.ic_menu_close_clear_cancel
+            ? R.drawable.ic_close
             : R.drawable.ic_bookmark;
 
         List<MenuItem> list = new ArrayList<>();
         list.add(new MenuItem(ACTION_SAVE,                 saveLabel,             saveIcon));
-        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_collections,       0, true));
+        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,       0, true));
         list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed));
-        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download,          0, true));
-        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_duet));
-        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_stitch));
-        list.add(new MenuItem(ACTION_VIDEO_REPLY,          "Video Reply",         R.drawable.ic_video_reply));
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_story,       0, true));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_collab,            0, true));
-        list.add(new MenuItem(ACTION_NOT_INTERESTED,       "Not Interested",      R.drawable.ic_not_interested));
+        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel,          0, true));
+        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_video_call));
+        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap));
+        list.add(new MenuItem(ACTION_VIDEO_REPLY,          "Video Reply",         R.drawable.ic_reply));
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,       0, true));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,            0, true));
+        list.add(new MenuItem(ACTION_NOT_INTERESTED,       "Not Interested",      R.drawable.ic_eye_off));
         list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,              0, true));
         list.add(new MenuItem(ACTION_REPORT,               "Report",              R.drawable.ic_flag,
             Color.parseColor("#FF4444"), false));
@@ -230,22 +230,22 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private List<MenuItem> buildOwnerItems() {
         String saveLabel = isSaved ? "Unsave" : "Save";
         int    saveIcon  = isSaved
-            ? android.R.drawable.ic_menu_close_clear_cancel
+            ? R.drawable.ic_close
             : R.drawable.ic_bookmark;
 
         List<MenuItem> list = new ArrayList<>();
         list.add(new MenuItem(ACTION_SAVE,                 saveLabel,             saveIcon));
-        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_collections,  0, true));
+        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,  0, true));
         list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed));
-        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download,     0, true));
+        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel,     0, true));
         list.add(new MenuItem(ACTION_EDIT,                 "Edit Reel",           R.drawable.ic_edit));
-        list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",           R.drawable.ic_analytics));
+        list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",           R.drawable.ic_reel_explore));
         list.add(new MenuItem(ACTION_PINNED_COMMENTS,      "Pinned Comments",     R.drawable.ic_pin,          0, true));
-        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_duet));
-        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_stitch));
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_story,  0, true));
+        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_video_call));
+        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap));
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,  0, true));
         list.add(new MenuItem(ACTION_QR_CODE,              "QR Code",             R.drawable.ic_qr_code));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_collab,       0, true));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,       0, true));
         list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link));
         list.add(new MenuItem(ACTION_DELETE,               "Delete",              R.drawable.ic_delete,
             Color.parseColor("#FF4444"), false));
