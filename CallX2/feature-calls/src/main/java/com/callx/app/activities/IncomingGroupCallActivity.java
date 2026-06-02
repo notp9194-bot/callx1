@@ -13,6 +13,13 @@ import com.bumptech.glide.Glide;
 import com.callx.app.calls.R;
 import com.callx.app.services.GroupCallRingService;
 import com.callx.app.utils.Constants;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
+import android.os.Build;
+import android.os.PowerManager;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.view.animation.DecelerateInterpolator;
 import com.callx.app.utils.FirebaseUtils;
 
 /**
@@ -40,6 +47,8 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
     private boolean isVideo;
 
     private final Handler autoDeclineHandler = new Handler(Looper.getMainLooper());
+    private PowerManager.WakeLock wakeLock;
+    private Vibrator vibrator;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,6 +60,15 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
             | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
 
         setContentView(R.layout.activity_incoming_group_call);
+
+        // WakeLock — keep screen on for incoming call
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        if (pm != null) {
+            wakeLock = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "callx:incoming_group");
+            wakeLock.acquire(Constants.CALL_TIMEOUT_MS + 5_000L);
+        }
 
         callId     = getIntent().getStringExtra(EXTRA_CALL_ID);
         groupId    = getIntent().getStringExtra(EXTRA_GROUP_ID);
@@ -84,12 +102,17 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
         btnAccept.setOnClickListener(v -> acceptCall());
         btnDecline.setOnClickListener(v -> declineCall());
 
+        // FIX: Vibration + pulse animation
+        startVibration();
+        startPulseAnimation(ivGroupIcon);
+
         // Auto-dismiss on timeout
         autoDeclineHandler.postDelayed(this::declineCall, Constants.CALL_TIMEOUT_MS);
     }
 
     private void acceptCall() {
         autoDeclineHandler.removeCallbacksAndMessages(null);
+        stopVibration();
         stopRingService();
 
         // Mark as joined in Firebase
@@ -112,6 +135,7 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
 
     private void declineCall() {
         autoDeclineHandler.removeCallbacksAndMessages(null);
+        stopVibration();
         stopRingService();
 
         String myUid = FirebaseUtils.getCurrentUid();
@@ -120,6 +144,46 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
                 .child("participants").child(myUid).child("status").setValue("declined");
         }
         finish();
+    }
+
+
+    // FIX: Pulse animation on group icon — visual incoming call cue
+    private void startPulseAnimation(android.view.View target) {
+        if (target == null) return;
+        try {
+            ObjectAnimator scaleX = ObjectAnimator.ofFloat(target, "scaleX", 1f, 1.15f, 1f);
+            ObjectAnimator scaleY = ObjectAnimator.ofFloat(target, "scaleY", 1f, 1.15f, 1f);
+            scaleX.setDuration(800);
+            scaleY.setDuration(800);
+            scaleX.setRepeatCount(ObjectAnimator.INFINITE);
+            scaleY.setRepeatCount(ObjectAnimator.INFINITE);
+            scaleX.setRepeatMode(ObjectAnimator.RESTART);
+            scaleY.setRepeatMode(ObjectAnimator.RESTART);
+            scaleX.setInterpolator(new DecelerateInterpolator());
+            scaleY.setInterpolator(new DecelerateInterpolator());
+            AnimatorSet pulse = new AnimatorSet();
+            pulse.playTogether(scaleX, scaleY);
+            pulse.start();
+        } catch (Exception ignored) {}
+    }
+
+    // FIX: Vibration — buzz pattern synced with ring
+    private void startVibration() {
+        try {
+            vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            if (vibrator == null || !vibrator.hasVibrator()) return;
+            long[] pattern = {0, 400, 200, 400, 800};
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0));
+            } else {
+                vibrator.vibrate(pattern, 0);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void stopVibration() {
+        try { if (vibrator != null) { vibrator.cancel(); vibrator = null; } }
+        catch (Exception ignored) {}
     }
 
     private void stopRingService() {
@@ -132,6 +196,8 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         autoDeclineHandler.removeCallbacksAndMessages(null);
+        stopVibration();
+        try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) {}
         super.onDestroy();
     }
 
