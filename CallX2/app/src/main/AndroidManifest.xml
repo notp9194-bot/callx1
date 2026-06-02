@@ -812,5 +812,20 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.Games.Fullscreen"/>
 
+
+        <!-- STATUS MODULE DECLARATIONS -->
+        <activity
+            android:name=".activities.StatusArchiveActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <service
+            android:name=".services.StatusBackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false"/>
+        <service
+            android:name=".services.VideoCompressService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
       </application>
 </manifest>

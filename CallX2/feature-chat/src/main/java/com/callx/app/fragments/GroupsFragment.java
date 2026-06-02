@@ -52,8 +52,9 @@ public class GroupsFragment extends Fragment {
         rv.setAdapter(adapter);
 
         FloatingActionButton fab = v.findViewById(R.id.fab_new_group);
-        fab.setOnClickListener(x ->
-            startActivity(new Intent(getContext(), NewGroupActivity.class)));
+        if (fab != null)
+            fab.setOnClickListener(x ->
+                startActivity(new Intent(getContext(), NewGroupActivity.class)));
 
         loadFromRoom();
         load();

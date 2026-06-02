@@ -52,9 +52,7 @@
         android:layout_gravity="bottom|end"
         android:layout_margin="16dp"
         android:text="Add Status"
-        app:icon="@android:drawable/ic_input_add"
-        app:layout_anchor="@id/fab_new_status"
-        app:layout_anchorGravity="bottom|end"/>
+        app:icon="@android:drawable/ic_input_add"/>
 
     <!-- Archive shortcut button: FIX v25 — was visibility="gone", now visible -->
     <ImageButton
