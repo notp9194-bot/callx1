@@ -320,12 +320,11 @@ public class ReelsFragment extends Fragment {
         }
     }
 
-    /** Shows unread notification count badge on the Activity tab icon */
+    /** Shows unread count badge on the Activity (notifications) tab */
     private void loadNotificationBadge() {
         if (reelBottomNav == null || !isAdded() || getContext() == null) return;
         String myUid = safeMyUid();
         if (myUid == null) return;
-
         com.google.firebase.database.FirebaseDatabase.getInstance()
             .getReference("reel_notifications").child(myUid)
             .addValueEventListener(new ValueEventListener() {

@@ -143,6 +143,16 @@
                             android:layout_weight="1"/>
 
                         <ImageButton
+                            android:id="@+id/btn_home_search"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:src="@drawable/ic_search"
+                            android:tint="#FFFFFF"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:layout_marginEnd="4dp"
+                            android:contentDescription="Search"/>
+
+                        <ImageButton
                             android:id="@+id/btn_home_upload"
                             android:layout_width="36dp"
                             android:layout_height="36dp"

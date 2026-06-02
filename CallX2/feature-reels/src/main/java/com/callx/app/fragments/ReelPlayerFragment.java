@@ -854,15 +854,16 @@ public class ReelPlayerFragment extends Fragment
 
     private void startProgressTracking() {
         stopProgressTracking();
+        lastSavedProgressPct = -1;
         progressRunnable = new Runnable() {
             @Override public void run() {
                 if (!isAdded() || player == null) return;
                 if (player.getDuration() > 0) {
                     int p = (int)(player.getCurrentPosition() * 1000 / player.getDuration());
                     progressVideo.setProgress(p);
-                    // Save watch progress to Firebase at every 10% milestone
+                    // Save to Firebase at every 10% watched milestone
                     int pct = (int)(player.getCurrentPosition() * 100 / player.getDuration());
-                    int milestone = (pct / 10) * 10; // round to nearest 10
+                    int milestone = (pct / 10) * 10;
                     if (milestone != lastSavedProgressPct && milestone > 0) {
                         lastSavedProgressPct = milestone;
                         String uid = safeMyUid();
@@ -1658,7 +1659,6 @@ public class ReelPlayerFragment extends Fragment
                     });
                 FirebaseUtils.getReelWatchHistoryRef(myUid).child(reel.reelId)
                     .setValue(System.currentTimeMillis());
-                // Reset progress to 0 on first view (will be updated as user watches)
                 FirebaseUtils.getReelWatchProgressRef(myUid).child(reel.reelId)
                     .setValue(0);
 
