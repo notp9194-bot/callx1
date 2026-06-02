@@ -616,7 +616,7 @@ public class CallActivity extends AppCompatActivity {
                 scheduleIceRestart();
             }
         } else if (s == PeerConnection.IceConnectionState.FAILED) {
-            if (callConnected && iceRestartCount < Constants.MAX_ICE_RESTART_ATTEMPTS) {
+            if (callConnected && iceRestartCount < Constants.ICE_MAX_RESTARTS) {
                 performIceRestart();
             } else if (callConnected) {
                 runOnUiThread(this::endCall);
