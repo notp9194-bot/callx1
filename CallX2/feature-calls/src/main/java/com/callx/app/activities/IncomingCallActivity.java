@@ -1,7 +1,14 @@
   package com.callx.app.activities;
   import android.app.NotificationManager;
   import android.content.Context;
+  import android.animation.ObjectAnimator;
+  import android.animation.AnimatorSet;
   import android.content.Intent;
+  import android.os.Vibrator;
+  import android.os.VibrationEffect;
+  import android.view.animation.DecelerateInterpolator;
+  import android.view.WindowManager;
+  import com.bumptech.glide.Glide;
   import android.media.AudioAttributes;
   import android.media.MediaPlayer;
   import android.media.RingtoneManager;
@@ -38,6 +45,12 @@
           super.onCreate(savedInstanceState);
           binding = ActivityIncomingCallBinding.inflate(getLayoutInflater());
           setContentView(binding.getRoot());
+          // FIX: Window flags so screen turns on and shows on lock screen
+          getWindow().addFlags(
+              WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+              | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+              | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+              | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
           // Read extras — support both new Constants keys and legacy string keys
           callId   = getIntent().getStringExtra(Constants.EXTRA_CALL_ID);
           fromUid  = getIntent().getStringExtra(Constants.EXTRA_PARTNER_UID);
@@ -54,9 +67,26 @@
           fromThumb = getIntent().getStringExtra("partnerThumb");
           if (fromThumb == null) fromThumb = "";
           binding.tvCallerName.setText(fromName == null ? "Unknown" : fromName);
-          binding.tvCallerSub.setText(isVideo ? "Incoming video CallX..." : "Incoming CallX...");
+          binding.tvCallerSub.setText(isVideo ? "Incoming video call" : "Incoming voice call");
+          // FIX: Set video/audio icon in the call type badge
+          if (binding.ivCallTypeIcon != null) {
+              binding.ivCallTypeIcon.setImageResource(isVideo
+                  ? com.callx.app.calls.R.drawable.ic_video
+                  : com.callx.app.calls.R.drawable.ic_phone);
+          }
+          // FIX: Load caller avatar with Glide (was never called before!)
+          String avatarUrl = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : fromPhoto;
+          if (avatarUrl != null && !avatarUrl.isEmpty()) {
+              Glide.with(this)
+                  .load(avatarUrl)
+                  .placeholder(com.callx.app.calls.R.drawable.ic_person)
+                  .circleCrop()
+                  .into(binding.ivCallerAvatar);
+          }
           acquireWakeLock();
+          startVibration();
           startLoopingRingtone();
+          startPulseAnimation();
           watchCallStatus();
           // Auto-reject after 60 s if user ignores the call
           autoRejectHandler.postDelayed(() -> { if (!acted) reject(); }, AUTO_REJECT_MS);
@@ -116,6 +146,7 @@
           if (acted) return;
           acted = true;
           autoRejectHandler.removeCallbacksAndMessages(null);
+          stopVibration();
           stopRingtone();
           stopIncomingRingService();
           cancelRingNotification();
@@ -138,6 +169,7 @@
           if (acted) return;
           acted = true;
           autoRejectHandler.removeCallbacksAndMessages(null);
+          stopVibration();
           stopRingtone();
           stopIncomingRingService();
           cancelRingNotification();
@@ -210,6 +242,43 @@
               }
           });
       }
+      // FIX: Pulse animation on avatar — visual cue that call is incoming
+      private void startPulseAnimation() {
+          try {
+              ObjectAnimator scaleX = ObjectAnimator.ofFloat(binding.ivCallerAvatar, "scaleX", 1f, 1.15f, 1f);
+              ObjectAnimator scaleY = ObjectAnimator.ofFloat(binding.ivCallerAvatar, "scaleY", 1f, 1.15f, 1f);
+              AnimatorSet pulse = new AnimatorSet();
+              pulse.playTogether(scaleX, scaleY);
+              pulse.setDuration(800);
+              pulse.setInterpolator(new DecelerateInterpolator());
+              pulse.setRepeatCount(ObjectAnimator.INFINITE); // pulse repeats
+              scaleX.setRepeatCount(ObjectAnimator.INFINITE);
+              scaleY.setRepeatCount(ObjectAnimator.INFINITE);
+              scaleX.setRepeatMode(ObjectAnimator.REVERSE);
+              scaleY.setRepeatMode(ObjectAnimator.REVERSE);
+              pulse.start();
+          } catch (Exception ignored) {}
+      }
+
+      // FIX: Vibration pattern — rings with phone (buzz on, pause, buzz on...)
+      private void startVibration() {
+          try {
+              vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+              if (vibrator == null || !vibrator.hasVibrator()) return;
+              long[] pattern = {0, 400, 200, 400, 800}; // off, on, off, on, pause
+              if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                  vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0)); // 0 = repeat from start
+              } else {
+                  vibrator.vibrate(pattern, 0);
+              }
+          } catch (Exception ignored) {}
+      }
+
+      private void stopVibration() {
+          try { if (vibrator != null) { vibrator.cancel(); vibrator = null; } }
+          catch (Exception ignored) {}
+      }
+
       private void stopIncomingRingService() {
           try { stopService(new Intent(this, IncomingRingService.class)); }
           catch (Exception ignored) {}
@@ -224,6 +293,7 @@
       @Override
       protected void onDestroy() {
           autoRejectHandler.removeCallbacksAndMessages(null);
+          stopVibration();
           stopRingtone();
           if (wakeLock != null && wakeLock.isHeld()) {
               try { wakeLock.release(); } catch (Exception ignored) {}

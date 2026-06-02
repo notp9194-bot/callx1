@@ -6,14 +6,28 @@
     android:background="@drawable/gradient_brand"
     android:gravity="center"
     android:padding="32dp">
-    <TextView
-        android:id="@+id/tv_caller_sub"
+    <!-- Call type icon row: video icon for video calls, mic for audio -->
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#E0E7FF"
-        android:textSize="16sp"
-        android:layout_marginTop="64dp"
-        android:text="Incoming CallX..."/>
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="64dp">
+        <ImageView
+            android:id="@+id/iv_call_type_icon"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_phone"
+            android:tint="#E0E7FF"
+            android:layout_marginEnd="6dp"/>
+        <TextView
+            android:id="@+id/tv_caller_sub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#E0E7FF"
+            android:textSize="16sp"
+            android:text="Incoming voice call"/>
+    </LinearLayout>
     <de.hdodenhof.circleimageview.CircleImageView
         android:id="@+id/iv_caller_avatar"
         android:layout_width="140dp"
