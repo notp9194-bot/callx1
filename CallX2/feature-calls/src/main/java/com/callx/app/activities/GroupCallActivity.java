@@ -11,7 +11,9 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothProfile;
 import android.media.AudioManager;
+import android.app.PictureInPictureParams;
 import android.os.Build;
+import android.util.Rational;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -125,6 +127,7 @@ public class GroupCallActivity extends AppCompatActivity {
     private boolean usingFrontCamera = true;
     private boolean finishing = false;
     private boolean handRaised = false;
+    private boolean capturerRunning = false;
     private long callStartedAt = 0;
 
     // ── Timer ─────────────────────────────────────────────────────────────
@@ -455,6 +458,7 @@ public class GroupCallActivity extends AppCompatActivity {
         int w = hd ? Constants.VIDEO_WIDTH_HD  : Constants.VIDEO_WIDTH_VGA;
         int h = hd ? Constants.VIDEO_HEIGHT_HD : Constants.VIDEO_HEIGHT_VGA;
         videoCapturer.startCapture(w, h, Constants.VIDEO_FPS);
+        capturerRunning = true;
     }
 
     private CameraVideoCapturer createCapturer(boolean front) {
@@ -478,6 +482,8 @@ public class GroupCallActivity extends AppCompatActivity {
     private void joinCall() {
         if (callId == null) callId = FirebaseUtils.db().getReference("groupCalls").push().getKey();
         callRef = FirebaseUtils.db().getReference("groupCalls").child(callId);
+        // FIX-KILLED: Device network cut → Firebase auto-marks call as ended
+        callRef.child("status").onDisconnect().setValue("ended");
 
         Map<String, Object> myInfo = new HashMap<>();
         myInfo.put("uid",      myUid);
@@ -893,7 +899,10 @@ public class GroupCallActivity extends AppCompatActivity {
     private void toggleMic() {
         micOn = !micOn;
         if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
+        // FIX: Icon + background change on mute (not just alpha)
         btnToggleMic.setAlpha(micOn ? 1f : 0.4f);
+        btnToggleMic.setImageResource(micOn ? R.drawable.ic_mic : R.drawable.ic_mic_off);
+        btnToggleMic.setBackgroundResource(micOn ? R.drawable.circle_primary : R.drawable.circle_reject_light);
         btnToggleMic.setContentDescription(micOn ? "Mute mic" : "Unmute mic");
         if (callRef != null)
             callRef.child("participants").child(myUid).child("micOn").setValue(micOn);
@@ -902,7 +911,18 @@ public class GroupCallActivity extends AppCompatActivity {
     private void toggleCamera() {
         camOn = !camOn;
         if (localVideoTrack != null) localVideoTrack.setEnabled(camOn);
+        // FIX: Stop/start physical capture (saves battery + hides Android 12 green dot)
+        if (isVideo && videoCapturer != null) {
+            if (!camOn && capturerRunning) {
+                try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
+            } else if (camOn && !capturerRunning) {
+                startCapture();
+            }
+        }
+        // FIX: Icon + background change
         btnToggleCamera.setAlpha(camOn ? 1f : 0.4f);
+        btnToggleCamera.setImageResource(camOn ? R.drawable.ic_camera : R.drawable.ic_video_off);
+        btnToggleCamera.setBackgroundResource(camOn ? R.drawable.circle_primary : R.drawable.circle_reject_light);
         btnToggleCamera.setContentDescription(camOn ? "Turn off camera" : "Turn on camera");
         if (callRef != null)
             callRef.child("participants").child(myUid).child("camOn").setValue(camOn);
@@ -1004,6 +1024,8 @@ public class GroupCallActivity extends AppCompatActivity {
         // Mark myself as left
         if (callRef != null) {
             callRef.child("participants").child(myUid).child("status").setValue("left");
+            // FIX: Cancel auto-onDisconnect so it doesn't fire again after explicit end
+            callRef.child("status").onDisconnect().cancel();
             // If only person left or caller ends, end the call
             if (isCaller || participants.isEmpty()) {
                 callRef.child("status").setValue("ended");
@@ -1133,6 +1155,7 @@ public class GroupCallActivity extends AppCompatActivity {
             callId != null ? callId : "");
         fg.putExtra(GroupCallForegroundService.EXTRA_IS_VIDEO, isVideo);
         fg.putExtra(GroupCallForegroundService.EXTRA_PARTICIPANT_COUNT,
+        fg.putExtra(GroupCallForegroundService.EXTRA_MY_UID, myUid != null ? myUid : "");
             participants.size() + 1);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             startForegroundService(fg);
@@ -1145,7 +1168,7 @@ public class GroupCallActivity extends AppCompatActivity {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm == null) return;
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "callx:group_call");
+            wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "callx:group_call");
             wakeLock.acquire(4 * 60 * 60 * 1000L);
         } catch (Exception ignored) {}
     }
@@ -1182,6 +1205,48 @@ public class GroupCallActivity extends AppCompatActivity {
             @Override public void onCreateFailure(String e) {}
             @Override public void onSetFailure(String e) {}
         };
+    }
+
+    // FIX-BG: Pause camera when app goes to background (battery + green dot)
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (isVideo && videoCapturer != null && capturerRunning && !isInPictureInPictureMode()) {
+            try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
+        }
+    }
+
+    // FIX-BG: Resume camera when returning to foreground
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (isVideo && videoCapturer != null && !capturerRunning && camOn) {
+            startCapture();
+        }
+    }
+
+    // FIX-PIP: Enter PiP when Home pressed during video group call
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (isVideo && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                enterPictureInPictureMode(new PictureInPictureParams.Builder()
+                    .setAspectRatio(new Rational(9, 16)).build());
+            } catch (Exception ignored) {}
+        }
+    }
+
+    // FIX-PIP: Hide controls in PiP mode
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPipMode) {
+        super.onPictureInPictureModeChanged(isInPipMode);
+        int vis = isInPipMode ? View.GONE : View.VISIBLE;
+        if (controlBar   != null) controlBar.setVisibility(vis);
+        if (tvGroupName  != null) tvGroupName.setVisibility(vis);
+        if (tvCallStatus != null) tvCallStatus.setVisibility(vis);
+        if (!isInPipMode && isVideo && videoCapturer != null && !capturerRunning && camOn)
+            startCapture();
     }
 
     @Override

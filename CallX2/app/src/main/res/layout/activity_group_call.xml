@@ -23,6 +23,35 @@
         android:background="@drawable/card_rounded"
         android:visibility="visible"/>
 
+    <!-- FIX: Network quality indicator (top-left corner) -->
+    <LinearLayout
+        android:id="@+id/layoutGroupQuality"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="16dp"
+        android:layout_marginTop="120dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#55000000"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="4dp"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/ivGroupQualityIcon"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:src="@drawable/ic_signal_good"
+            android:layout_marginEnd="3dp"/>
+        <TextView
+            android:id="@+id/tvGroupQualityLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Good"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"/>
+    </LinearLayout>
+
     <!-- Top gradient + info bar -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -96,27 +125,55 @@
             android:gravity="center"
             android:layout_marginBottom="16dp">
 
-            <ImageButton
-                android:id="@+id/btnGroupToggleMic"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_margin="6dp"
-                android:src="@drawable/ic_mic"
-                android:background="@drawable/circle_primary"
-                android:contentDescription="Mute mic"
-                android:scaleType="centerInside"
-                android:padding="14dp"/>
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:layout_margin="6dp">
+                <ImageButton
+                    android:id="@+id/btnGroupToggleMic"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/ic_mic"
+                    android:background="@drawable/circle_primary"
+                    android:contentDescription="Mute mic"
+                    android:scaleType="centerInside"
+                    android:padding="14dp"/>
+                <TextView
+                    android:id="@+id/tvGroupMicLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Mute"
+                    android:textColor="#AAFFFFFF"
+                    android:textSize="9sp"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
 
-            <ImageButton
-                android:id="@+id/btnGroupToggleCamera"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_margin="6dp"
-                android:src="@drawable/ic_camera"
-                android:background="@drawable/circle_primary"
-                android:contentDescription="Toggle camera"
-                android:scaleType="centerInside"
-                android:padding="14dp"/>
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:layout_margin="6dp">
+                <ImageButton
+                    android:id="@+id/btnGroupToggleCamera"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/ic_camera"
+                    android:background="@drawable/circle_primary"
+                    android:contentDescription="Toggle camera"
+                    android:scaleType="centerInside"
+                    android:padding="14dp"/>
+                <TextView
+                    android:id="@+id/tvGroupCameraLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Camera"
+                    android:textColor="#AAFFFFFF"
+                    android:textSize="9sp"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
 
             <ImageButton
                 android:id="@+id/btnGroupToggleSpeaker"
