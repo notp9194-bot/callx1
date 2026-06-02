@@ -1282,9 +1282,10 @@ public class ReelPlayerFragment extends Fragment
         boolean allowDuet   = reel.allowDuet;   // respect creator's privacy setting
         boolean allowStitch = true;              // can add allowStitch to ReelModel later
 
+        int duetCnt = (reel != null) ? reel.duetCount : 0;
         com.callx.app.ui.ReelMoreBottomSheet sheet =
             com.callx.app.ui.ReelMoreBottomSheet.newInstance(isOwner, isSaved, speedLabel,
-                                                              allowDuet, allowStitch);
+                                                              allowDuet, allowStitch, duetCnt);
         sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelMoreBottomSheet.TAG);
     }
 
@@ -1325,6 +1326,10 @@ public class ReelPlayerFragment extends Fragment
                 openReelQRCode(); break;
             case com.callx.app.ui.ReelMoreBottomSheet.ACTION_DELETE:
                 confirmDeleteReel(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_VIEW_DUETS:
+                openDuetList(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_REMIX_SETTINGS:
+                openRemixSettings(); break;
         }
     }
 
@@ -1483,6 +1488,25 @@ public class ReelPlayerFragment extends Fragment
         i.putExtra("reel_id",    reel.reelId);
         i.putExtra("owner_uid",  reel.uid);
         i.putExtra("owner_name", reel.ownerName);
+        startActivity(i);
+    }
+
+    /** Open the list of all duets made from this reel */
+    private void openDuetList() {
+        if (!isAdded() || getActivity() == null || reel == null) return;
+        android.content.Intent i = new android.content.Intent(getActivity(),
+            com.callx.app.duet.DuetListActivity.class);
+        i.putExtra(com.callx.app.duet.DuetListActivity.EXTRA_REEL_ID, reel.reelId);
+        i.putExtra(com.callx.app.duet.DuetListActivity.EXTRA_REEL_OWNER, reel.ownerName != null ? reel.ownerName : "");
+        startActivity(i);
+    }
+
+    /** Open Remix Settings for the reel owner to control duet/stitch permissions */
+    private void openRemixSettings() {
+        if (!isAdded() || getActivity() == null || reel == null) return;
+        android.content.Intent i = new android.content.Intent(getActivity(),
+            com.callx.app.activities.ReelRemixSettingsActivity.class);
+        i.putExtra("reel_id", reel.reelId);
         startActivity(i);
     }
 

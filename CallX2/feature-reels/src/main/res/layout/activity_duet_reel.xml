@@ -5,25 +5,26 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Split view: original reel top, camera preview bottom -->
+    <!-- ── SPLIT VIEW CONTAINER (TOP_BOTTOM and LEFT_RIGHT) ── -->
     <LinearLayout
+        android:id="@+id/layout_split_vertical"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:visibility="visible">
 
-        <!-- Original reel (top half) -->
         <FrameLayout
+            android:id="@+id/frame_original_top"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
-
             <androidx.media3.ui.PlayerView
                 android:id="@+id/player_view_original"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 app:use_controller="false"
-                app:resize_mode="zoom"/>
-
+                app:resize_mode="zoom"
+                app:surface_type="texture_view"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -32,30 +33,25 @@
                 android:text="Original"
                 android:textColor="#CCFFFFFF"
                 android:textSize="11sp"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="2dp"
                 android:background="#66000000"/>
         </FrameLayout>
 
-        <!-- Divider line -->
         <View
             android:layout_width="match_parent"
             android:layout_height="2dp"
-            android:background="@color/brand_primary"/>
+            android:background="#A855F7"/>
 
-        <!-- Camera preview (bottom half) -->
         <FrameLayout
+            android:id="@+id/frame_camera_bottom"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
-
             <androidx.camera.view.PreviewView
                 android:id="@+id/preview_view_camera"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"/>
-
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -64,32 +60,121 @@
                 android:text="You"
                 android:textColor="#CCFFFFFF"
                 android:textSize="11sp"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="2dp"
                 android:background="#66000000"/>
         </FrameLayout>
     </LinearLayout>
 
-    <!-- Top controls -->
+    <!-- ── HORIZONTAL SPLIT (LEFT_RIGHT) ── reused by toggling orientation -->
+
+    <!-- ── PiP CONTAINER (original fullscreen, camera small overlay) ── -->
+    <FrameLayout
+        android:id="@+id/layout_pip"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/player_view_pip_bg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:use_controller="false"
+            app:resize_mode="zoom"
+            app:surface_type="texture_view"/>
+
+        <!-- Camera PiP overlay — bottom-right corner, draggable -->
+        <FrameLayout
+            android:id="@+id/frame_pip_camera"
+            android:layout_width="120dp"
+            android:layout_height="160dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="16dp"
+            android:background="#000000"
+            android:elevation="8dp">
+
+            <androidx.camera.view.PreviewView
+                android:id="@+id/preview_pip_camera"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|start"
+                android:layout_margin="4dp"
+                android:text="You"
+                android:textColor="#CCFFFFFF"
+                android:textSize="9sp"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="1dp"
+                android:background="#66000000"/>
+        </FrameLayout>
+    </FrameLayout>
+
+    <!-- ── REACT CONTAINER (camera fullscreen, original small PiP) ── -->
+    <FrameLayout
+        android:id="@+id/layout_react"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/preview_react_camera"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+
+        <FrameLayout
+            android:id="@+id/frame_react_original"
+            android:layout_width="120dp"
+            android:layout_height="160dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="16dp"
+            android:elevation="8dp"
+            android:background="#000000">
+
+            <androidx.media3.ui.PlayerView
+                android:id="@+id/player_view_react_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:use_controller="false"
+                app:resize_mode="zoom"
+                app:surface_type="texture_view"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|start"
+                android:layout_margin="4dp"
+                android:text="Original"
+                android:textColor="#CCFFFFFF"
+                android:textSize="9sp"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="1dp"
+                android:background="#66000000"/>
+        </FrameLayout>
+    </FrameLayout>
+
+    <!-- ── TOP CONTROLS ── -->
     <LinearLayout
+        android:id="@+id/layout_top_controls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:orientation="horizontal"
-        android:paddingTop="36dp"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:gravity="center_vertical">
+        android:gravity="center_vertical"
+        android:paddingTop="44dp"
+        android:paddingHorizontal="12dp"
+        android:paddingBottom="8dp"
+        android:background="#55000000">
 
         <ImageButton
             android:id="@+id/btn_duet_close"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:src="@drawable/ic_close"
-            android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Close"/>
 
         <TextView
@@ -99,66 +184,176 @@
             android:layout_weight="1"
             android:text="Duet"
             android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"/>
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"/>
 
         <ImageButton
             android:id="@+id/btn_duet_flip"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_camera"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_swap"
             android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Flip camera"/>
     </LinearLayout>
 
-    <!-- Bottom record controls -->
+    <!-- ── LAYOUT MODE TABS ── -->
+    <HorizontalScrollView
+        android:id="@+id/scroll_layout_modes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginTop="100dp"
+        android:scrollbars="none"
+        android:paddingHorizontal="12dp">
+
+        <LinearLayout
+            android:id="@+id/layout_mode_tabs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <!-- Layout mode chips added dynamically in Java -->
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- ── COUNTDOWN OVERLAY ── -->
+    <TextView
+        android:id="@+id/tv_duet_countdown"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:textSize="80sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:alpha="0.9"
+        android:visibility="gone"/>
+
+    <!-- ── AUDIO MIX PANEL ── (shown above controls) -->
     <LinearLayout
+        android:id="@+id/layout_audio_mix"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="120dp"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingVertical="12dp"
+        android:background="#88000000"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Original Audio Volume"
+            android:textColor="#CCFFFFFF"
+            android:textSize="12sp"
+            android:layout_marginBottom="6dp"/>
+
+        <SeekBar
+            android:id="@+id/seek_original_vol"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="50"
+            android:progressTint="#A855F7"
+            android:thumbTint="#A855F7"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Your Mic Volume"
+            android:textColor="#CCFFFFFF"
+            android:textSize="12sp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="6dp"/>
+
+        <SeekBar
+            android:id="@+id/seek_mic_vol"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="100"
+            android:progressTint="#00C6FF"
+            android:thumbTint="#00C6FF"/>
+    </LinearLayout>
+
+    <!-- ── BOTTOM CONTROLS ── -->
+    <LinearLayout
+        android:id="@+id/layout_bottom_controls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:gravity="center_horizontal"
         android:paddingBottom="32dp"
-        android:paddingTop="12dp"
-        android:background="#44000000">
+        android:paddingHorizontal="20dp"
+        android:background="#55000000">
+
+        <!-- Progress bar -->
+        <ProgressBar
+            android:id="@+id/progress_duet"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="60"
+            android:progress="0"
+            android:progressTint="#A855F7"
+            android:progressBackgroundTint="#55FFFFFF"
+            android:layout_marginBottom="12dp"/>
 
         <!-- Timer -->
         <TextView
             android:id="@+id/tv_duet_timer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="0:00"
+            android:layout_gravity="center_horizontal"
+            android:text="1:00"
             android:textColor="#FFFFFF"
-            android:textSize="20sp"
-            android:fontFamily="sans-serif-medium"
-            android:layout_marginBottom="8dp"/>
-
-        <!-- Progress bar -->
-        <ProgressBar
-            android:id="@+id/progress_duet"
-            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-            android:layout_width="match_parent"
-            android:layout_height="4dp"
-            android:max="60"
-            android:progress="0"
-            android:progressTint="@color/brand_primary"
-            android:progressBackgroundTint="#44FFFFFF"
-            android:layout_marginStart="24dp"
-            android:layout_marginEnd="24dp"
+            android:textSize="13sp"
             android:layout_marginBottom="16dp"/>
 
-        <!-- Record button -->
-        <ImageButton
-            android:id="@+id/btn_duet_record"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:src="@drawable/ic_play"
-            android:tint="#A855F7"
-            android:background="@drawable/circle_primary"
-            android:padding="14dp"
-            android:contentDescription="Record duet"/>
-    </LinearLayout>
+        <!-- Action row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
 
+            <!-- Audio mix toggle -->
+            <ImageButton
+                android:id="@+id/btn_duet_audio"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_mic"
+                android:tint="#AAFFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Audio mix"
+                android:layout_marginEnd="24dp"/>
+
+            <!-- Record button -->
+            <ImageButton
+                android:id="@+id/btn_duet_record"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:src="@drawable/ic_play"
+                android:tint="#FFFFFF"
+                android:background="@drawable/bg_btn_primary_circle"
+                android:contentDescription="Record"
+                android:scaleType="center"/>
+
+            <!-- Swap sides (PiP corner) -->
+            <ImageButton
+                android:id="@+id/btn_duet_swap"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_swap"
+                android:tint="#AAFFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Swap sides"
+                android:layout_marginStart="24dp"/>
+        </LinearLayout>
+    </LinearLayout>
 </FrameLayout>
