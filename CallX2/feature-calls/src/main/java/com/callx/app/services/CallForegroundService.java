@@ -87,7 +87,7 @@ public class CallForegroundService extends android.app.Service {
                 } catch (Exception ignored) {}
             });
         }
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     // FIX-KILLED: App swiped away / killed by OS → Firebase mein "ended" likho

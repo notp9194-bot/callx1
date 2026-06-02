@@ -141,8 +141,10 @@
                       android:pathPrefix="/join"/>
             </intent-filter>
         </activity>
-        <activity android:name=".activities.CallActivity" android:exported="false"
-            android:screenOrientation="portrait"
+        <activity android:name=".activities.CallActivity"
+            android:exported="false"
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
             android:showWhenLocked="true"
             android:turnScreenOn="true"/>
         <activity android:name=".activities.IncomingCallActivity"
@@ -157,7 +159,8 @@
         <activity android:name=".activities.GroupCallActivity"
             android:exported="false"
             android:launchMode="singleTask"
-            android:screenOrientation="portrait"
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
             android:showWhenLocked="true"
             android:turnScreenOn="true"/>
         <activity android:name=".activities.IncomingGroupCallActivity"
