@@ -70,22 +70,4 @@ public class ReelFirebaseUtils {
         if (raw == null) return "";
         return raw.toLowerCase().replaceAll("[^a-z0-9_]", "").replaceAll("@", "");
     }
-
-    // ── Duet System ──────────────────────────────────────────────────────────
-    /** All duets made of a specific reel: reel_duets/{originalReelId}/{duetReelId} */
-    public static DatabaseReference reelDuetsRef(String originalReelId) {
-        return root().child("reel_duets").child(originalReelId);
-    }
-    /** All duets a user has posted: user_duets/{uid}/{duetReelId} */
-    public static DatabaseReference userDuetsRef(String uid) {
-        return root().child("user_duets").child(uid);
-    }
-    /** Remix / duet / stitch permission settings per reel */
-    public static DatabaseReference remixSettingsRef(String reelId) {
-        return root().child("remix_settings").child(reelId);
-    }
-    /** FCM notification queue for duet notifications */
-    public static DatabaseReference duetFcmQueueRef(String ownerUid) {
-        return root().child("fcm_queue").child(ownerUid);
-    }
 }

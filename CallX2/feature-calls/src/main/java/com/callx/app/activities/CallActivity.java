@@ -1,6 +1,7 @@
 package com.callx.app.activities;
 
 import android.Manifest;
+import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -15,6 +16,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.util.Rational;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Toast;
@@ -62,7 +64,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-// FIX-8: Room imports for immediate local call log write
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
 
@@ -74,11 +75,14 @@ public class CallActivity extends AppCompatActivity {
     // Call params
     private String partnerUid, partnerName, partnerPhoto, partnerThumb, callId;
     private boolean isCaller, isVideo;
+    // FIX: micOn/camOn track icon + label + alpha
     private boolean micOn = true, camOn = true, speakerOn = false;
     private boolean usingFrontCamera = true;
     private long startedAt = 0;
     private boolean callConnected = false;
     private boolean finishing = false;
+    // FIX: track remote camera state for overlay
+    private boolean remoteCamOn = true;
 
     // Timer
     private final Handler tick = new Handler(Looper.getMainLooper());
@@ -88,8 +92,9 @@ public class CallActivity extends AppCompatActivity {
     private int iceRestartCount = 0;
     private final Handler iceRestartHandler = new Handler(Looper.getMainLooper());
     private Runnable iceRestartRunnable;
+    private ValueEventListener iceRestartRequestListener;
 
-    // Wake lock (keep screen on)
+    // FIX-WAKE: SCREEN_BRIGHT_WAKE_LOCK keeps screen on during active call
     private PowerManager.WakeLock wakeLock;
 
     // Audio
@@ -107,6 +112,9 @@ public class CallActivity extends AppCompatActivity {
     private SurfaceTextureHelper surfaceHelper;
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
 
+    // FIX-BG: track capturer state for background pause/resume
+    private boolean capturerRunning = false;
+
     // Firebase signaling
     private DatabaseReference callRef;
     private ValueEventListener statusListener;
@@ -121,7 +129,6 @@ public class CallActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Keep screen on for the entire call
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
@@ -152,11 +159,17 @@ public class CallActivity extends AppCompatActivity {
             binding.remoteVideo.setVisibility(View.GONE);
             binding.btnToggleCamera.setVisibility(View.GONE);
             binding.btnSwitchCamera.setVisibility(View.GONE);
+            if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.GONE);
         }
 
         String callAvatarUrl = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
         if (callAvatarUrl != null && !callAvatarUrl.isEmpty()) {
             Glide.with(this).load(callAvatarUrl).circleCrop().into(binding.ivCallAvatar);
+            // FIX: also load into remote cam off overlay avatar
+            if (binding.ivRemoteCamOffAvatar != null) {
+                Glide.with(this).load(callAvatarUrl).circleCrop()
+                    .into(binding.ivRemoteCamOffAvatar);
+            }
         }
 
         binding.btnEndCall.setOnClickListener(v -> endCall());
@@ -165,16 +178,23 @@ public class CallActivity extends AppCompatActivity {
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
 
+        // FIX: initial button visual state
+        updateMicUI();
+        updateCameraUI();
+
         checkPermsAndInit();
     }
 
+    // ── FIX-WAKE: Use SCREEN_BRIGHT_WAKE_LOCK so screen stays ON during video call ──
     private void acquireWakeLock() {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm == null) return;
+            // FIX: SCREEN_BRIGHT_WAKE_LOCK keeps display on (was PARTIAL_WAKE_LOCK — only CPU)
             wakeLock = pm.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK, "callx:call_active");
-            wakeLock.acquire(3 * 60 * 60 * 1000L); // max 3 hours
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "callx:call_active");
+            wakeLock.acquire(3 * 60 * 60 * 1000L);
         } catch (Exception ignored) {}
     }
 
@@ -183,18 +203,14 @@ public class CallActivity extends AppCompatActivity {
             ? new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA}
             : new String[]{Manifest.permission.RECORD_AUDIO};
         boolean ok = true;
-        for (String p : perms) {
-            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
-                ok = false; break;
-            }
-        }
+        for (String p : perms)
+            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) { ok = false; break; }
         if (!ok) ActivityCompat.requestPermissions(this, perms, 401);
         else      fetchTurnThenInitWebRTC();
     }
 
     @Override
-    public void onRequestPermissionsResult(int req, @NonNull String[] perms,
-                                           @NonNull int[] results) {
+    public void onRequestPermissionsResult(int req, @NonNull String[] perms, @NonNull int[] results) {
         super.onRequestPermissionsResult(req, perms, results);
         if (req == 401) {
             boolean ok = true;
@@ -216,30 +232,23 @@ public class CallActivity extends AppCompatActivity {
                 conn.setReadTimeout(5000);
                 conn.setRequestMethod("GET");
                 if (conn.getResponseCode() == 200) {
-                    BufferedReader br = new BufferedReader(
-                        new InputStreamReader(conn.getInputStream()));
+                    BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder sb = new StringBuilder();
                     String line;
                     while ((line = br.readLine()) != null) sb.append(line);
                     JSONObject j = new JSONObject(sb.toString());
-                    String turnUrl  = j.optString("url",  "");
-                    String user     = j.optString("username", "");
-                    String cred     = j.optString("credential", "");
+                    String turnUrl = j.optString("url", "");
+                    String user    = j.optString("username", "");
+                    String cred    = j.optString("credential", "");
                     if (!turnUrl.isEmpty() && !user.isEmpty() && !cred.isEmpty()) {
                         iceServers.clear();
-                        iceServers.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1)
-                            .createIceServer());
-                        iceServers.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2)
-                            .createIceServer());
+                        iceServers.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
+                        iceServers.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2).createIceServer());
                         iceServers.add(PeerConnection.IceServer.builder(turnUrl)
-                            .setUsername(user)
-                            .setPassword(cred)
-                            .createIceServer());
+                            .setUsername(user).setPassword(cred).createIceServer());
                     }
                 }
-            } catch (Exception e) {
-                // Fallback to STUN-only — call may still work on good networks
-            }
+            } catch (Exception ignored) {}
             final List<PeerConnection.IceServer> finalIce = iceServers;
             runOnUiThread(() -> initWebRTC(finalIce));
         });
@@ -264,25 +273,20 @@ public class CallActivity extends AppCompatActivity {
         }
 
         PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(this)
-                .createInitializationOptions());
+            PeerConnectionFactory.InitializationOptions.builder(this).createInitializationOptions());
 
         factory = PeerConnectionFactory.builder()
             .setOptions(new PeerConnectionFactory.Options())
-            .setVideoEncoderFactory(
-                new DefaultVideoEncoderFactory(eglBase.getEglBaseContext(), true, true))
-            .setVideoDecoderFactory(
-                new DefaultVideoDecoderFactory(eglBase.getEglBaseContext()))
+            .setVideoEncoderFactory(new DefaultVideoEncoderFactory(eglBase.getEglBaseContext(), true, true))
+            .setVideoDecoderFactory(new DefaultVideoDecoderFactory(eglBase.getEglBaseContext()))
             .createPeerConnectionFactory();
 
-        PeerConnection.RTCConfiguration rtcConfig =
-            new PeerConnection.RTCConfiguration(iceServers);
-        rtcConfig.sdpSemantics          = PeerConnection.SdpSemantics.UNIFIED_PLAN;
-        rtcConfig.iceTransportsType     = PeerConnection.IceTransportsType.ALL;
-        rtcConfig.bundlePolicy          = PeerConnection.BundlePolicy.MAXBUNDLE;
-        rtcConfig.rtcpMuxPolicy         = PeerConnection.RtcpMuxPolicy.REQUIRE;
-        rtcConfig.continualGatheringPolicy =
-            PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
+        PeerConnection.RTCConfiguration rtcConfig = new PeerConnection.RTCConfiguration(iceServers);
+        rtcConfig.sdpSemantics             = PeerConnection.SdpSemantics.UNIFIED_PLAN;
+        rtcConfig.iceTransportsType        = PeerConnection.IceTransportsType.ALL;
+        rtcConfig.bundlePolicy             = PeerConnection.BundlePolicy.MAXBUNDLE;
+        rtcConfig.rtcpMuxPolicy            = PeerConnection.RtcpMuxPolicy.REQUIRE;
+        rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
 
         peerConnection = factory.createPeerConnection(rtcConfig, new PeerConnection.Observer() {
             @Override public void onIceCandidate(IceCandidate c) { sendCandidate(c); }
@@ -313,16 +317,13 @@ public class CallActivity extends AppCompatActivity {
             }
         });
 
-        // Audio
         audioSource = factory.createAudioSource(buildAudioConstraints());
         localAudioTrack = factory.createAudioTrack("audio0", audioSource);
         localAudioTrack.setEnabled(true);
 
-        // Video
         if (isVideo) {
             videoSource   = factory.createVideoSource(false);
-            surfaceHelper = SurfaceTextureHelper.create("CaptureThread",
-                                eglBase.getEglBaseContext());
+            surfaceHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
             videoCapturer = createCapturer(true);
             if (videoCapturer != null) {
                 videoCapturer.initialize(surfaceHelper, this, videoSource.getCapturerObserver());
@@ -333,30 +334,26 @@ public class CallActivity extends AppCompatActivity {
             localVideoTrack.addSink(binding.localVideo);
         }
 
-        // Add tracks
         List<String> ids = new ArrayList<>();
         ids.add("stream0");
         peerConnection.addTrack(localAudioTrack, ids);
         if (isVideo && localVideoTrack != null) peerConnection.addTrack(localVideoTrack, ids);
 
-        // Set up audio routing (earpiece by default for audio calls, speaker for video)
         if (isVideo) enableSpeaker(true);
         else         enableSpeaker(false);
 
-        // Firebase setup
-        // FIX-5: Only caller generates a callId if missing.
-        // Callee MUST receive callId from intent (via FCM). If it's null for callee,
-        // the FCM delivery failed — log and abort rather than connecting to a wrong Firebase node.
         if (callId == null) {
             if (isCaller) {
                 callId = FirebaseUtils.db().getReference("activeCalls").push().getKey();
             } else {
-                android.util.Log.e("CallActivity", "Callee callId is null — FCM delivery issue. Aborting call.");
-                finish();
-                return;
+                android.util.Log.e("CallActivity", "Callee callId is null — FCM issue. Aborting.");
+                finish(); return;
             }
         }
         callRef = FirebaseUtils.db().getReference("activeCalls").child(callId);
+
+        // FIX-KILLED: onDisconnect auto-cleans Firebase if device loses connection/app killed
+        callRef.child("status").onDisconnect().setValue("ended");
 
         if (isCaller) {
             String myUid  = FirebaseUtils.getCurrentUid();
@@ -368,7 +365,6 @@ public class CallActivity extends AppCompatActivity {
             callRef.setValue(c).addOnCompleteListener(t -> createOffer());
             PushNotify.notifyUser(partnerUid, myUid, myName,
                 isVideo ? "video_call" : "call", callId);
-            // FIX-5: Caller listens for callee-initiated restart requests
             watchCalleeIceRestartRequest();
         } else {
             callRef.child("status").setValue("accepted");
@@ -377,7 +373,43 @@ public class CallActivity extends AppCompatActivity {
 
         watchCallStatus();
         watchRemoteCandidates();
+        // FIX: watch remote camera state signal from Firebase
+        watchRemoteCameraState();
         registerNetworkCallback();
+    }
+
+    // ── FIX: Watch remote party's camera state via Firebase signal ──────────
+    private void watchRemoteCameraState() {
+        if (callRef == null || !isVideo) return;
+        callRef.child("camState").child(partnerUid).addValueEventListener(
+            new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot s) {
+                    Boolean camOn = s.getValue(Boolean.class);
+                    remoteCamOn = (camOn == null || camOn);
+                    runOnUiThread(() -> updateRemoteCamOverlay());
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+    }
+
+    private void updateRemoteCamOverlay() {
+        if (binding.layoutRemoteCamOff == null) return;
+        binding.layoutRemoteCamOff.setVisibility(remoteCamOn ? View.GONE : View.VISIBLE);
+    }
+
+    // ── FIX: Network quality indicator ─────────────────────────────────────
+    private void showQualityIndicator(PeerConnection.IceConnectionState state) {
+        if (binding.layoutQuality == null) return;
+        if (state == PeerConnection.IceConnectionState.CONNECTED ||
+            state == PeerConnection.IceConnectionState.COMPLETED) {
+            binding.layoutQuality.setVisibility(View.VISIBLE);
+            if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Good");
+        } else if (state == PeerConnection.IceConnectionState.DISCONNECTED) {
+            binding.layoutQuality.setVisibility(View.VISIBLE);
+            if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Weak");
+        } else {
+            binding.layoutQuality.setVisibility(View.GONE);
+        }
     }
 
     private MediaConstraints buildAudioConstraints() {
@@ -393,12 +425,12 @@ public class CallActivity extends AppCompatActivity {
     private void startCapture() {
         if (videoCapturer == null) return;
         try {
-            videoCapturer.startCapture(
-                Constants.VIDEO_WIDTH_HD, Constants.VIDEO_HEIGHT_HD, Constants.VIDEO_FPS);
+            videoCapturer.startCapture(Constants.VIDEO_WIDTH_HD, Constants.VIDEO_HEIGHT_HD, Constants.VIDEO_FPS);
+            capturerRunning = true;
         } catch (Exception e) {
             try {
-                videoCapturer.startCapture(
-                    Constants.VIDEO_WIDTH_VGA, Constants.VIDEO_HEIGHT_VGA, Constants.VIDEO_FPS);
+                videoCapturer.startCapture(Constants.VIDEO_WIDTH_VGA, Constants.VIDEO_HEIGHT_VGA, Constants.VIDEO_FPS);
+                capturerRunning = true;
             } catch (Exception ignored) {}
         }
     }
@@ -406,14 +438,74 @@ public class CallActivity extends AppCompatActivity {
     private CameraVideoCapturer createCapturer(boolean preferFront) {
         Camera2Enumerator e = new Camera2Enumerator(this);
         String[] devices = e.getDeviceNames();
-        // First pass: preferred direction
         for (String d : devices)
             if (preferFront ? e.isFrontFacing(d) : e.isBackFacing(d))
                 return e.createCapturer(d, null);
-        // Second pass: any camera
-        for (String d : devices)
-            return e.createCapturer(d, null);
+        for (String d : devices) return e.createCapturer(d, null);
         return null;
+    }
+
+    // ── FIX-BG: Pause camera when app goes to background ──────────────────
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // FIX: Stop camera capture when app is backgrounded (saves battery + hides green dot)
+        if (isVideo && videoCapturer != null && capturerRunning && !isInPictureInPictureMode()) {
+            try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // FIX: Resume camera capture when app returns to foreground
+        if (isVideo && videoCapturer != null && !capturerRunning && camOn) {
+            startCapture();
+        }
+    }
+
+    // ── FIX-PIP: Picture-in-Picture mode when Home button pressed ──────────
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        // FIX: Enter PiP when user presses Home during video call
+        if (isVideo && callConnected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            enterPipMode();
+        }
+    }
+
+    private void enterPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder();
+                builder.setAspectRatio(new Rational(9, 16));
+                enterPictureInPictureMode(builder.build());
+            } catch (Exception ignored) {}
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPipMode) {
+        super.onPictureInPictureModeChanged(isInPipMode);
+        // FIX: Hide controls in PiP mode, show only video feeds
+        View controls = binding.getRoot().findViewById(
+            com.callx.app.calls.R.id.btn_end_call);
+        if (controls != null) {
+            // Hide all bottom controls in PiP
+            binding.btnEndCall.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
+            binding.btnToggleMic.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
+            binding.btnToggleCamera.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
+            binding.btnToggleSpeaker.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
+            binding.btnSwitchCamera.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
+            binding.tvCallerName.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
+            binding.tvCallStatus.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
+        }
+        // Resume camera if returning from PiP
+        if (!isInPipMode && isVideo && videoCapturer != null && !capturerRunning && camOn) {
+            startCapture();
+        }
     }
 
     // ── Camera switch ──────────────────────────────────────────────────────
@@ -421,19 +513,16 @@ public class CallActivity extends AppCompatActivity {
     private void switchCamera() {
         if (!isVideo || videoCapturer == null) return;
         usingFrontCamera = !usingFrontCamera;
-        if (videoCapturer instanceof CameraVideoCapturer) {
+        if (videoCapturer instanceof CameraVideoCapturer)
             ((CameraVideoCapturer) videoCapturer).switchCamera(null);
-        }
-        // Mirror local video for front, don't mirror for back
         binding.localVideo.setMirror(usingFrontCamera);
     }
 
-    // ── Speaker toggle ─────────────────────────────────────────────────────
+    // ── FIX: Speaker toggle with proper initial state ──────────────────────
 
     private void toggleSpeaker() {
         speakerOn = !speakerOn;
         enableSpeaker(speakerOn);
-        binding.btnToggleSpeaker.setAlpha(speakerOn ? 1f : 0.4f);
     }
 
     private void enableSpeaker(boolean on) {
@@ -441,12 +530,81 @@ public class CallActivity extends AppCompatActivity {
         speakerOn = on;
         audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
         audioManager.setSpeakerphoneOn(on);
-        binding.btnToggleSpeaker.setAlpha(on ? 1f : 0.4f);
+        binding.btnToggleSpeaker.setAlpha(on ? 1f : 0.5f);
+        if (binding.tvSpeakerLabel != null)
+            binding.tvSpeakerLabel.setText(on ? "Speaker On" : "Speaker");
+    }
+
+    // ── FIX: Mic toggle — icon + label + alpha + Firebase signal ──────────
+
+    private void toggleMic() {
+        micOn = !micOn;
+        if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
+        updateMicUI();
+        // Signal to remote party (optional — for mute indicator on their screen)
+        if (callRef != null) {
+            String myUid = FirebaseUtils.getCurrentUid();
+            if (myUid != null)
+                callRef.child("micState").child(myUid).setValue(micOn);
+        }
+    }
+
+    private void updateMicUI() {
+        binding.btnToggleMic.setAlpha(micOn ? 1f : 0.4f);
+        // FIX: Change icon when muted
+        binding.btnToggleMic.setImageResource(micOn
+            ? com.callx.app.calls.R.drawable.ic_mic
+            : com.callx.app.calls.R.drawable.ic_mic_off);
+        if (binding.tvMicLabel != null)
+            binding.tvMicLabel.setText(micOn ? "Mute" : "Unmute");
+        // FIX: Red tint background when muted
+        binding.btnToggleMic.setBackgroundResource(micOn
+            ? com.callx.app.calls.R.drawable.circle_avatar_bg
+            : com.callx.app.calls.R.drawable.circle_reject_light);
+    }
+
+    // ── FIX: Camera toggle — icon + label + alpha + Firebase signal ───────
+
+    private void toggleCamera() {
+        camOn = !camOn;
+        if (localVideoTrack != null) localVideoTrack.setEnabled(camOn);
+        // FIX: Also stop/start physical capture when cam is toggled
+        if (isVideo && videoCapturer != null) {
+            if (!camOn && capturerRunning) {
+                try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
+            } else if (camOn && !capturerRunning) {
+                startCapture();
+            }
+        }
+        // FIX: Show/hide local cam off badge
+        if (binding.layoutLocalCamOffBadge != null)
+            binding.layoutLocalCamOffBadge.setVisibility(camOn ? View.GONE : View.VISIBLE);
+        updateCameraUI();
+        // Signal to remote party
+        if (callRef != null) {
+            String myUid = FirebaseUtils.getCurrentUid();
+            if (myUid != null)
+                callRef.child("camState").child(myUid).setValue(camOn);
+        }
+    }
+
+    private void updateCameraUI() {
+        if (!isVideo) return;
+        binding.btnToggleCamera.setAlpha(camOn ? 1f : 0.4f);
+        binding.btnToggleCamera.setImageResource(camOn
+            ? com.callx.app.calls.R.drawable.ic_video
+            : com.callx.app.calls.R.drawable.ic_video_off);
+        if (binding.tvCameraLabel != null)
+            binding.tvCameraLabel.setText(camOn ? "Camera" : "Cam Off");
+        binding.btnToggleCamera.setBackgroundResource(camOn
+            ? com.callx.app.calls.R.drawable.circle_avatar_bg
+            : com.callx.app.calls.R.drawable.circle_reject_light);
     }
 
     // ── ICE state / reconnection ───────────────────────────────────────────
 
     private void handleIceStateChange(PeerConnection.IceConnectionState s) {
+        showQualityIndicator(s);
         if (s == PeerConnection.IceConnectionState.CONNECTED ||
             s == PeerConnection.IceConnectionState.COMPLETED) {
             cancelPendingIceRestart();
@@ -458,49 +616,49 @@ public class CallActivity extends AppCompatActivity {
                 scheduleIceRestart();
             }
         } else if (s == PeerConnection.IceConnectionState.FAILED) {
-            if (callConnected) {
-                scheduleIceRestart();
-            } else {
-                Toast.makeText(this, "Call connection failed", Toast.LENGTH_SHORT).show();
-                endCall();
+            if (callConnected && iceRestartCount < Constants.MAX_ICE_RESTART_ATTEMPTS) {
+                performIceRestart();
+            } else if (callConnected) {
+                runOnUiThread(this::endCall);
             }
+        } else if (s == PeerConnection.IceConnectionState.CLOSED) {
+            if (!finishing) runOnUiThread(this::endCall);
         }
     }
 
     private void scheduleIceRestart() {
         cancelPendingIceRestart();
-        if (iceRestartCount >= Constants.ICE_MAX_RESTARTS) {
-            Toast.makeText(this, "Connection lost", Toast.LENGTH_SHORT).show();
-            endCall();
-            return;
-        }
         iceRestartRunnable = () -> {
-            iceRestartCount++;
-            if (peerConnection != null && isCaller) {
-                // Caller restarts ICE by creating a new offer
-                MediaConstraints mc = new MediaConstraints();
-                mc.mandatory.add(new MediaConstraints.KeyValuePair("IceRestart", "true"));
-                peerConnection.createOffer(new SdpObserver() {
-                    @Override public void onCreateSuccess(SessionDescription sdp) {
-                        peerConnection.setLocalDescription(noopSdp(), sdp);
-                        Map<String, Object> m = new HashMap<>();
-                        m.put("type", sdp.type.canonicalForm());
-                        m.put("sdp", sdp.description);
-                        callRef.child("offer").setValue(m);
-                    }
-                    @Override public void onSetSuccess() {}
-                    @Override public void onCreateFailure(String e) { endCall(); }
-                    @Override public void onSetFailure(String e) {}
-                }, mc);
-            } else if (peerConnection != null && !isCaller) {
-                // FIX-5: Callee requests restart by writing a Firebase signal → caller picks it up
-                if (callRef != null) {
-                    callRef.child("iceRestartRequest").setValue(
-                        System.currentTimeMillis());
-                }
-            }
+            if (!finishing && peerConnection != null) performIceRestart();
         };
-        iceRestartHandler.postDelayed(iceRestartRunnable, Constants.ICE_RECONNECT_TIMEOUT_MS);
+        iceRestartHandler.postDelayed(iceRestartRunnable, 4_000);
+    }
+
+    private void performIceRestart() {
+        if (peerConnection == null || finishing) return;
+        iceRestartCount++;
+        if (isCaller) {
+            MediaConstraints mc = new MediaConstraints();
+            mc.mandatory.add(new MediaConstraints.KeyValuePair("IceRestart", "true"));
+            peerConnection.createOffer(new SdpObserver() {
+                @Override public void onCreateSuccess(SessionDescription sdp) {
+                    peerConnection.setLocalDescription(noopSdp(), sdp);
+                    if (callRef != null) {
+                        Map<String, Object> o = new HashMap<>();
+                        o.put("type", sdp.type.canonicalForm());
+                        o.put("sdp",  sdp.description);
+                        callRef.child("offer").setValue(o);
+                    }
+                }
+                @Override public void onSetSuccess() {}
+                @Override public void onCreateFailure(String e) {}
+                @Override public void onSetFailure(String e) {}
+            }, mc);
+        } else {
+            // Callee signals caller to restart
+            if (callRef != null)
+                callRef.child("iceRestartRequest").setValue(System.currentTimeMillis());
+        }
     }
 
     private void cancelPendingIceRestart() {
@@ -510,175 +668,90 @@ public class CallActivity extends AppCompatActivity {
         }
     }
 
-    // ── Network change monitoring ──────────────────────────────────────────
-
-    private void registerNetworkCallback() {
-        try {
-            ConnectivityManager cm =
-                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return;
-            NetworkRequest req = new NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build();
-            networkCallback = new ConnectivityManager.NetworkCallback() {
-                @Override public void onAvailable(Network network) {
-                    if (callConnected && peerConnection != null) {
-                        runOnUiThread(() -> {
-                            iceRestartCount = 0;
-                            scheduleIceRestart();
-                        });
-                    }
-                }
-            };
-            cm.registerNetworkCallback(req, networkCallback);
-        } catch (Exception ignored) {}
-    }
-
-    private void unregisterNetworkCallback() {
-        try {
-            ConnectivityManager cm =
-                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm != null && networkCallback != null)
-                cm.unregisterNetworkCallback(networkCallback);
-        } catch (Exception ignored) {}
-    }
-
-    // ── SDP offer/answer ───────────────────────────────────────────────────
-
-    private void createOffer() {
-        MediaConstraints mc = new MediaConstraints();
-        mc.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"));
-        if (isVideo) mc.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"));
-        peerConnection.createOffer(new SdpObserver() {
-            @Override public void onCreateSuccess(SessionDescription sdp) {
-                peerConnection.setLocalDescription(noopSdp(), sdp);
-                Map<String, Object> m = new HashMap<>();
-                m.put("type", sdp.type.canonicalForm()); m.put("sdp", sdp.description);
-                callRef.child("offer").setValue(m);
-                watchForAnswer();
-            }
-            @Override public void onSetSuccess() {}
-            @Override public void onCreateFailure(String e) {}
-            @Override public void onSetFailure(String e) {}
-        }, mc);
-    }
-
-    private void watchForAnswer() {
-        callRef.child("answer").addValueEventListener(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists() || peerConnection == null ||
-                    peerConnection.getRemoteDescription() != null) return;
-                String type = s.child("type").getValue(String.class);
-                String sdp  = s.child("sdp").getValue(String.class);
-                if (type == null || sdp == null) return;
-                SessionDescription answer = new SessionDescription(
-                    SessionDescription.Type.fromCanonicalForm(type), sdp);
-                peerConnection.setRemoteDescription(new SdpObserver() {
-                    @Override public void onSetSuccess() { remoteDescSet = true; drainCandidates(); }
-                    @Override public void onCreateSuccess(SessionDescription s) {}
-                    @Override public void onSetFailure(String e) {}
-                    @Override public void onCreateFailure(String e) {}
-                }, answer);
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        });
-    }
-
-    private void watchForOffer() {
-        callRef.child("offer").addValueEventListener(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists() || peerConnection == null) return;
-                String type = s.child("type").getValue(String.class);
-                String sdp  = s.child("sdp").getValue(String.class);
-                if (type == null || sdp == null) return;
-                // ICE restart: allow re-processing offer even if remote desc already set
-                SessionDescription offer = new SessionDescription(
-                    SessionDescription.Type.fromCanonicalForm(type), sdp);
-                peerConnection.setRemoteDescription(new SdpObserver() {
-                    @Override public void onSetSuccess() {
-                        remoteDescSet = true; drainCandidates(); createAnswer();
-                    }
-                    @Override public void onCreateSuccess(SessionDescription s) {}
-                    @Override public void onSetFailure(String e) {}
-                    @Override public void onCreateFailure(String e) {}
-                }, offer);
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        });
-    }
-
-    private void createAnswer() {
-        MediaConstraints mc = new MediaConstraints();
-        mc.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"));
-        if (isVideo) mc.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"));
-        peerConnection.createAnswer(new SdpObserver() {
-            @Override public void onCreateSuccess(SessionDescription sdp) {
-                peerConnection.setLocalDescription(noopSdp(), sdp);
-                Map<String, Object> m = new HashMap<>();
-                m.put("type", sdp.type.canonicalForm()); m.put("sdp", sdp.description);
-                callRef.child("answer").setValue(m);
-            }
-            @Override public void onSetSuccess() {}
-            @Override public void onCreateFailure(String e) {}
-            @Override public void onSetFailure(String e) {}
-        }, mc);
-    }
-
-    // ── ICE candidates ─────────────────────────────────────────────────────
-
-    private void sendCandidate(IceCandidate c) {
-        if (callRef == null) return;
-        String myUid = FirebaseUtils.getCurrentUid();
-        if (myUid == null) return;
-        Map<String, Object> m = new HashMap<>();
-        m.put("candidate", c.sdp);
-        m.put("sdpMid", c.sdpMid);
-        m.put("sdpMLineIndex", c.sdpMLineIndex);
-        callRef.child("candidates").child(myUid).push().setValue(m);
-    }
-
-    private void watchRemoteCandidates() {
-        remoteCandidateListener = new ChildEventListener() {
-            @Override public void onChildAdded(DataSnapshot s, String p) {
-                String cand = s.child("candidate").getValue(String.class);
-                String mid  = s.child("sdpMid").getValue(String.class);
-                Integer idx = s.child("sdpMLineIndex").getValue(Integer.class);
-                if (cand == null || mid == null || idx == null) return;
-                IceCandidate ic = new IceCandidate(mid, idx, cand);
-                if (remoteDescSet) peerConnection.addIceCandidate(ic);
-                else pendingCandidates.add(ic);
-            }
-            @Override public void onChildChanged(DataSnapshot s, String p) {}
-            @Override public void onChildRemoved(DataSnapshot s) {}
-            @Override public void onChildMoved(DataSnapshot s, String p) {}
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        callRef.child("candidates").child(partnerUid)
-            .addChildEventListener(remoteCandidateListener);
-    }
-
-    private void drainCandidates() {
-        for (IceCandidate ic : pendingCandidates) peerConnection.addIceCandidate(ic);
-        pendingCandidates.clear();
-    }
-
-    // ── Call lifecycle ─────────────────────────────────────────────────────
-
-    // FIX-5: Caller listens for callee-initiated ICE restart signal
-    private ValueEventListener iceRestartRequestListener;
     private void watchCalleeIceRestartRequest() {
         iceRestartRequestListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists() || peerConnection == null || !callConnected) return;
-                // Callee wrote a timestamp here → caller performs the restart
-                runOnUiThread(() -> {
-                    iceRestartCount = 0; // callee explicitly asked, reset counter
-                    scheduleIceRestart();
-                });
+                Long ts = s.getValue(Long.class);
+                if (ts != null && ts > 0) {
+                    runOnUiThread(() -> { iceRestartCount = 0; scheduleIceRestart(); });
+                }
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
         callRef.child("iceRestartRequest").addValueEventListener(iceRestartRequestListener);
+    }
+
+    // ── Firebase signaling ─────────────────────────────────────────────────
+
+    private void createOffer() {
+        if (peerConnection == null) return;
+        peerConnection.createOffer(new SdpObserver() {
+            @Override public void onCreateSuccess(SessionDescription sdp) {
+                peerConnection.setLocalDescription(noopSdp(), sdp);
+                if (callRef == null) return;
+                Map<String, Object> o = new HashMap<>();
+                o.put("type", sdp.type.canonicalForm());
+                o.put("sdp",  sdp.description);
+                callRef.child("offer").setValue(o);
+            }
+            @Override public void onSetSuccess() {}
+            @Override public void onCreateFailure(String e) {}
+            @Override public void onSetFailure(String e) {}
+        }, new MediaConstraints());
+    }
+
+    private void watchForOffer() {
+        if (callRef == null) return;
+        callRef.child("offer").addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot s) {
+                if (!s.exists()) {
+                    callRef.child("offer").addValueEventListener(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot s2) {
+                            if (s2.exists()) { callRef.child("offer").removeEventListener(this); handleOffer(s2); }
+                        }
+                        @Override public void onCancelled(DatabaseError e) {}
+                    });
+                } else {
+                    handleOffer(s);
+                }
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        });
+    }
+
+    private void handleOffer(DataSnapshot s) {
+        String type = s.child("type").getValue(String.class);
+        String sdp  = s.child("sdp").getValue(String.class);
+        if (type == null || sdp == null) return;
+        SessionDescription offer = new SessionDescription(
+            SessionDescription.Type.fromCanonicalForm(type), sdp);
+        peerConnection.setRemoteDescription(new SdpObserver() {
+            @Override public void onSetSuccess() {
+                remoteDescSet = true;
+                drainPendingCandidates();
+                runOnUiThread(CallActivity.this::createAnswer);
+            }
+            @Override public void onCreateSuccess(SessionDescription s2) {}
+            @Override public void onCreateFailure(String e) {}
+            @Override public void onSetFailure(String e) {}
+        }, offer);
+    }
+
+    private void createAnswer() {
+        if (peerConnection == null) return;
+        peerConnection.createAnswer(new SdpObserver() {
+            @Override public void onCreateSuccess(SessionDescription sdp) {
+                peerConnection.setLocalDescription(noopSdp(), sdp);
+                if (callRef == null) return;
+                Map<String, Object> a = new HashMap<>();
+                a.put("type", sdp.type.canonicalForm());
+                a.put("sdp",  sdp.description);
+                callRef.child("answer").setValue(a);
+            }
+            @Override public void onSetSuccess() {}
+            @Override public void onCreateFailure(String e) {}
+            @Override public void onSetFailure(String e) {}
+        }, new MediaConstraints());
     }
 
     private void watchCallStatus() {
@@ -686,24 +759,16 @@ public class CallActivity extends AppCompatActivity {
             @Override public void onDataChange(DataSnapshot s) {
                 String st = s.getValue(String.class);
                 if ("ended".equals(st) || "rejected".equals(st) || "cancelled".equals(st)) {
-                    // BUG-3 FIX: Jab callee reject kare, CALLER ko missed call notification milni chahiye
-                    // notifyMissedCall(toUid=myUid=caller, fromUid=partnerUid=callee_name, ...)
-                    // Pehle galat tha: partnerUid (callee) ko notify karta tha instead of caller (myUid)
                     if (!callConnected && isCaller
                             && ("rejected".equals(st) || "cancelled".equals(st))) {
-                        String myUid  = FirebaseUtils.getCurrentUid();
-                        String myName = FirebaseUtils.getCurrentName();
+                        String myUid = FirebaseUtils.getCurrentUid();
                         if (myUid != null) {
-                            // myUid = caller ko notify karo ki call miss ho gayi
-                            // BUG-2 FIX: partnerPhoto bhi pass karo taaki missed call notification me avatar aaye
-                            PushNotify.notifyMissedCall(
-                                myUid,       // BUG-3 FIX: caller ko send karo (was: partnerUid)
+                            PushNotify.notifyMissedCall(myUid,
                                 partnerUid != null ? partnerUid : "",
                                 partnerName != null ? partnerName : "",
                                 callId != null ? callId : "",
                                 isVideo,
-                                partnerPhoto != null ? partnerPhoto : "" // BUG-2 FIX: photo
-                            );
+                                partnerPhoto != null ? partnerPhoto : "");
                         }
                     }
                     runOnUiThread(() -> endCall());
@@ -713,6 +778,72 @@ public class CallActivity extends AppCompatActivity {
         };
         callRef.child("status").addValueEventListener(statusListener);
     }
+
+    private void watchRemoteCandidates() {
+        if (callRef == null) return;
+        remoteCandidateListener = new ChildEventListener() {
+            @Override public void onChildAdded(DataSnapshot s, String prev) {
+                String sdpMid   = s.child("sdpMid").getValue(String.class);
+                String sdpMLine = s.child("sdpMLineIndex").getValue(String.class);
+                String cand     = s.child("candidate").getValue(String.class);
+                if (sdpMid == null || cand == null) return;
+                int idx = 0;
+                try { if (sdpMLine != null) idx = Integer.parseInt(sdpMLine); } catch (Exception ignored) {}
+                IceCandidate ic = new IceCandidate(sdpMid, idx, cand);
+                if (remoteDescSet) peerConnection.addIceCandidate(ic);
+                else               pendingCandidates.add(ic);
+            }
+            @Override public void onChildChanged(DataSnapshot s, String p) {}
+            @Override public void onChildRemoved(DataSnapshot s) {}
+            @Override public void onChildMoved(DataSnapshot s, String p) {}
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        String myUid = FirebaseUtils.getCurrentUid();
+        if (myUid == null) return;
+        callRef.child("candidates").child(myUid).addChildEventListener(remoteCandidateListener);
+    }
+
+    private void drainPendingCandidates() {
+        if (peerConnection == null) return;
+        for (IceCandidate ic : pendingCandidates) peerConnection.addIceCandidate(ic);
+        pendingCandidates.clear();
+    }
+
+    private void sendCandidate(IceCandidate c) {
+        if (callRef == null) return;
+        String myUid = FirebaseUtils.getCurrentUid();
+        if (myUid == null) return;
+        Map<String, Object> m = new HashMap<>();
+        m.put("sdpMid",        c.sdpMid);
+        m.put("sdpMLineIndex", String.valueOf(c.sdpMLineIndex));
+        m.put("candidate",     c.sdp);
+        callRef.child("candidates").child(partnerUid).push().setValue(m);
+    }
+
+    private void registerNetworkCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return;
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override public void onAvailable(Network net) {
+                runOnUiThread(() -> { if (callConnected) scheduleIceRestart(); });
+            }
+        };
+        cm.registerNetworkCallback(
+            new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(),
+            networkCallback);
+    }
+
+    private void unregisterNetworkCallback() {
+        if (networkCallback == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) cm.unregisterNetworkCallback(networkCallback);
+        } catch (Exception ignored) {}
+    }
+
+    // ── Call connected ─────────────────────────────────────────────────────
 
     private void onCallConnected() {
         if (callConnected) return;
@@ -726,33 +857,21 @@ public class CallActivity extends AppCompatActivity {
         fg.putExtra("name",         partnerName != null ? partnerName : "");
         fg.putExtra("callId",       callId != null ? callId : "");
         fg.putExtra("isVideo",      isVideo);
-        fg.putExtra("partnerThumb", partnerThumb != null ? partnerThumb : ""); // FIX-6
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            startForegroundService(fg);
+        fg.putExtra("partnerThumb", partnerThumb != null ? partnerThumb : "");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(fg);
         else startService(fg);
 
         ticker = new Runnable() {
             @Override public void run() {
                 long e = (System.currentTimeMillis() - startedAt) / 1000;
-                binding.tvCallStatus.setText(
-                    String.format("Connected \u2022 %d:%02d", e / 60, e % 60));
+                binding.tvCallStatus.setText(String.format("Connected \u2022 %d:%02d", e/60, e%60));
                 tick.postDelayed(this, 1_000);
             }
         };
         tick.post(ticker);
     }
 
-    private void toggleMic() {
-        micOn = !micOn;
-        if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
-        binding.btnToggleMic.setAlpha(micOn ? 1f : 0.4f);
-    }
-
-    private void toggleCamera() {
-        camOn = !camOn;
-        if (localVideoTrack != null) localVideoTrack.setEnabled(camOn);
-        binding.btnToggleCamera.setAlpha(camOn ? 1f : 0.4f);
-    }
+    // ── End call ───────────────────────────────────────────────────────────
 
     private void endCall() {
         if (finishing) return;
@@ -760,42 +879,40 @@ public class CallActivity extends AppCompatActivity {
         cancelPendingIceRestart();
         if (ticker != null) tick.removeCallbacks(ticker);
         try { stopService(new Intent(this, CallForegroundService.class)); } catch (Exception ignored) {}
+
         if (callRef != null) {
             long dur = startedAt == 0 ? 0 : System.currentTimeMillis() - startedAt;
             callRef.child("status").setValue("ended");
+            // FIX: Cancel onDisconnect so it doesn't fire again after explicit end
+            callRef.child("status").onDisconnect().cancel();
+
             String myUid = FirebaseUtils.getCurrentUid();
             if (myUid != null) {
                 final long fDur = dur;
-                final long fTimestamp = System.currentTimeMillis();
-                final String fMediaType = isVideo ? "video" : "audio";
+                final long fTs  = System.currentTimeMillis();
+                final String fType = isVideo ? "video" : "audio";
 
-                // ── A ke liye log (caller=outgoing, callee=incoming) ──
                 Map<String, Object> myLog = new HashMap<>();
                 myLog.put("partnerUid",  partnerUid);
                 myLog.put("partnerName", partnerName);
                 myLog.put("direction",   isCaller ? "outgoing" : "incoming");
-                myLog.put("mediaType",   fMediaType);
-                myLog.put("timestamp",   fTimestamp);
+                myLog.put("mediaType",   fType);
+                myLog.put("timestamp",   fTs);
                 myLog.put("duration",    fDur);
-                FirebaseUtils.getCallsRef(myUid).push().setValue(myLog)
-                    .addOnFailureListener(e -> android.util.Log.w("CallActivity", "Firebase my-log failed", e));
+                FirebaseUtils.getCallsRef(myUid).push().setValue(myLog);
 
-                // ── Partner ke liye bhi log — opposite direction ──
-                // A calls B: A=outgoing → B=incoming  |  B answers A: B=incoming → A=outgoing
                 if (partnerUid != null && !partnerUid.isEmpty()) {
                     String myName = FirebaseUtils.getCurrentName();
                     Map<String, Object> partnerLog = new HashMap<>();
                     partnerLog.put("partnerUid",  myUid);
                     partnerLog.put("partnerName", myName != null ? myName : "");
                     partnerLog.put("direction",   isCaller ? "incoming" : "outgoing");
-                    partnerLog.put("mediaType",   fMediaType);
-                    partnerLog.put("timestamp",   fTimestamp);
+                    partnerLog.put("mediaType",   fType);
+                    partnerLog.put("timestamp",   fTs);
                     partnerLog.put("duration",    fDur);
-                    FirebaseUtils.getCallsRef(partnerUid).push().setValue(partnerLog)
-                        .addOnFailureListener(e -> android.util.Log.w("CallActivity", "Firebase partner-log failed", e));
+                    FirebaseUtils.getCallsRef(partnerUid).push().setValue(partnerLog);
                 }
 
-                // ── Room cache — apne liye ──
                 bgExecutor.execute(() -> {
                     try {
                         CallLogEntity entity = new CallLogEntity();
@@ -803,18 +920,17 @@ public class CallActivity extends AppCompatActivity {
                         entity.partnerUid  = partnerUid;
                         entity.partnerName = partnerName;
                         entity.direction   = isCaller ? "outgoing" : "incoming";
-                        entity.mediaType   = fMediaType;
-                        entity.timestamp   = fTimestamp;
+                        entity.mediaType   = fType;
+                        entity.timestamp   = fTs;
                         entity.duration    = fDur;
-                        AppDatabase.getInstance(getApplicationContext())
-                            .callLogDao().insertCallLog(entity);
+                        AppDatabase.getInstance(getApplicationContext()).callLogDao().insertCallLog(entity);
                     } catch (Exception ex) {
                         android.util.Log.w("CallActivity", "Room log failed", ex);
                     }
                 });
             }
         }
-        // Restore audio mode
+
         if (audioManager != null) {
             audioManager.setSpeakerphoneOn(false);
             audioManager.setMode(AudioManager.MODE_NORMAL);
@@ -826,12 +942,13 @@ public class CallActivity extends AppCompatActivity {
     private void releaseWebRTC() {
         try { unregisterNetworkCallback(); } catch (Exception ignored) {}
         try {
-            if (remoteCandidateListener != null && callRef != null)
-                callRef.child("candidates").child(partnerUid)
-                    .removeEventListener(remoteCandidateListener);
+            if (remoteCandidateListener != null && callRef != null) {
+                String myUid = FirebaseUtils.getCurrentUid();
+                if (myUid != null)
+                    callRef.child("candidates").child(myUid).removeEventListener(remoteCandidateListener);
+            }
             if (statusListener != null && callRef != null)
                 callRef.child("status").removeEventListener(statusListener);
-            // FIX-5: cleanup callee ICE restart request listener
             if (iceRestartRequestListener != null && callRef != null)
                 callRef.child("iceRestartRequest").removeEventListener(iceRestartRequestListener);
             if (videoCapturer != null) { videoCapturer.stopCapture(); videoCapturer.dispose(); }
@@ -849,9 +966,7 @@ public class CallActivity extends AppCompatActivity {
             if (factory  != null) factory.dispose();
         } catch (Exception ignored) {}
         try { bgExecutor.shutdownNow(); } catch (Exception ignored) {}
-        try {
-            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
-        } catch (Exception ignored) {}
+        try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) {}
     }
 
     private SdpObserver noopSdp() {

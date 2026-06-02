@@ -24,12 +24,7 @@ import java.util.List;
 
 /**
  * ReelMoreBottomSheet
- * Production Instagram/TikTok-style bottom sheet for the 3-dot menu in Reel Player.
- *
- * Duet system additions:
- *  ✅ ACTION_VIEW_DUETS — "View Duets" option (shows duet count badge)
- *  ✅ duetCount badge on the "Duet" action item
- *  ✅ "Remix Settings" for owners to control duet/stitch permission
+ * Premium Instagram/TikTok-style bottom sheet for the 3-dot menu in Reel Player.
  */
 public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
 
@@ -41,9 +36,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private static final String ARG_SPEED_LABEL = "speed_label";
     private static final String ARG_ALLOW_DUET   = "allow_duet";
     private static final String ARG_ALLOW_STITCH = "allow_stitch";
-    private static final String ARG_DUET_COUNT   = "duet_count";
 
-    // Callback
+    // Callback interface — caller handles all actions
     public interface OnItemClickListener {
         void onMoreItemClick(String action);
     }
@@ -54,7 +48,6 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_SPEED               = "speed";
     public static final String ACTION_DOWNLOAD            = "download";
     public static final String ACTION_DUET                = "duet";
-    public static final String ACTION_VIEW_DUETS          = "view_duets";    // ✅ NEW
     public static final String ACTION_STITCH              = "stitch";
     public static final String ACTION_VIDEO_REPLY         = "video_reply";
     public static final String ACTION_SHARE_TO_STORY      = "share_to_story";
@@ -67,45 +60,39 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_ANALYTICS           = "analytics";
     public static final String ACTION_PINNED_COMMENTS     = "pinned_comments";
     public static final String ACTION_QR_CODE             = "qr_code";
-    public static final String ACTION_REMIX_SETTINGS      = "remix_settings"; // ✅ NEW
     public static final String ACTION_DELETE              = "delete";
 
     // ─── Item model ──────────────────────────────────────────────────────────
     private static class MenuItem {
         String  action;
         String  label;
-        int     iconRes;
-        int     textColor;
+        int     iconRes;   // drawable resource id
+        int     textColor; // 0 = use default white
         boolean isDividerAfter;
-        String  badge; // optional count badge (e.g. "12")
 
         MenuItem(String action, String label, int iconRes) {
-            this(action, label, iconRes, 0, false, null);
+            this(action, label, iconRes, 0, false);
         }
         MenuItem(String action, String label, int iconRes, int textColor, boolean dividerAfter) {
-            this(action, label, iconRes, textColor, dividerAfter, null);
-        }
-        MenuItem(String action, String label, int iconRes, int textColor,
-                 boolean dividerAfter, String badge) {
             this.action         = action;
             this.label          = label;
             this.iconRes        = iconRes;
             this.textColor      = textColor;
             this.isDividerAfter = dividerAfter;
-            this.badge          = badge;
         }
     }
 
-    // Colors
-    private static final int CLR_PINK   = 0xFFFF416C;
-    private static final int CLR_CYAN   = 0xFF00C6FF;
-    private static final int CLR_YELLOW = 0xFFFFD700;
-    private static final int CLR_GREEN  = 0xFF00F260;
-    private static final int CLR_PURPLE = 0xFFA855F7;
-    private static final int CLR_ORANGE = 0xFFFF9500;
-    private static final int CLR_TEAL   = 0xFF00E5FF;
-    private static final int CLR_RED    = 0xFFFF4444;
-    private static final int CLR_GOLD   = 0xFFFFE082;
+
+    // ─── Item colors ─────────────────────────────────────────────────────────
+    private static final int CLR_PINK   = 0xFFFF416C; // Save, Report
+    private static final int CLR_CYAN   = 0xFF00C6FF; // Bookmark, Copy Link
+    private static final int CLR_YELLOW = 0xFFFFD700; // Speed
+    private static final int CLR_GREEN  = 0xFF00F260; // Download, Share to Story
+    private static final int CLR_PURPLE = 0xFFA855F7; // Duet, Stitch, Video Reply, Collab
+    private static final int CLR_ORANGE = 0xFFFF9500; // Edit, QR Code
+    private static final int CLR_TEAL   = 0xFF00E5FF; // Analytics, Pinned Comments
+    private static final int CLR_RED    = 0xFFFF4444; // Report, Delete
+    private static final int CLR_GOLD   = 0xFFFFE082; // Not Interested
 
     private OnItemClickListener listener;
     private boolean isOwner;
@@ -113,19 +100,11 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private String  speedLabel;
     private boolean allowDuet   = true;
     private boolean allowStitch = true;
-    private int     duetCount   = 0;
 
     // ─── Factory ─────────────────────────────────────────────────────────────
     public static ReelMoreBottomSheet newInstance(boolean isOwner, boolean isSaved,
                                                   String speedLabel,
                                                   boolean allowDuet, boolean allowStitch) {
-        return newInstance(isOwner, isSaved, speedLabel, allowDuet, allowStitch, 0);
-    }
-
-    public static ReelMoreBottomSheet newInstance(boolean isOwner, boolean isSaved,
-                                                  String speedLabel,
-                                                  boolean allowDuet, boolean allowStitch,
-                                                  int duetCount) {
         ReelMoreBottomSheet sheet = new ReelMoreBottomSheet();
         Bundle args = new Bundle();
         args.putBoolean(ARG_IS_OWNER,    isOwner);
@@ -133,7 +112,6 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         args.putString (ARG_SPEED_LABEL, speedLabel);
         args.putBoolean(ARG_ALLOW_DUET,   allowDuet);
         args.putBoolean(ARG_ALLOW_STITCH, allowStitch);
-        args.putInt    (ARG_DUET_COUNT,   duetCount);
         sheet.setArguments(args);
         return sheet;
     }
@@ -153,16 +131,16 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         super.onCreate(savedInstanceState);
         setStyle(STYLE_NORMAL, R.style.ReelMoreBottomSheetTheme);
         if (getArguments() != null) {
-            isOwner     = getArguments().getBoolean(ARG_IS_OWNER,    false);
-            isSaved     = getArguments().getBoolean(ARG_IS_SAVED,    false);
-            speedLabel  = getArguments().getString (ARG_SPEED_LABEL, "Speed: 1x");
+            isOwner    = getArguments().getBoolean(ARG_IS_OWNER,    false);
+            isSaved    = getArguments().getBoolean(ARG_IS_SAVED,    false);
+            speedLabel = getArguments().getString (ARG_SPEED_LABEL, "Speed: 1x");
             allowDuet   = getArguments().getBoolean(ARG_ALLOW_DUET,   true);
             allowStitch = getArguments().getBoolean(ARG_ALLOW_STITCH, true);
-            duetCount   = getArguments().getInt    (ARG_DUET_COUNT,   0);
         }
     }
 
-    @Nullable @Override
+    @Nullable
+    @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
@@ -172,11 +150,14 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+
+        // Expand fully on open
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             d.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
             d.getBehavior().setSkipCollapsed(true);
         }
+
         LinearLayout container = view.findViewById(R.id.ll_more_items);
         buildMenuItems(container);
     }
@@ -188,6 +169,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
 
         for (int i = 0; i < items.size(); i++) {
             MenuItem item = items.get(i);
+
+            // Row
             LinearLayout row = new LinearLayout(ctx);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -199,41 +182,26 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
 
             // Icon
             ImageView icon = new ImageView(ctx);
-            LinearLayout.LayoutParams iconParams =
-                new LinearLayout.LayoutParams(dpToPx(26), dpToPx(26));
+            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dpToPx(26), dpToPx(26));
             iconParams.setMarginEnd(dpToPx(18));
             icon.setLayoutParams(iconParams);
             icon.setImageResource(item.iconRes);
+
             int iconColor = item.textColor != 0 ? item.textColor : Color.WHITE;
             icon.setColorFilter(iconColor);
 
             // Label
             TextView label = new TextView(ctx);
             label.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
             label.setText(item.label);
             label.setTextSize(15f);
             label.setTextColor(item.textColor != 0 ? item.textColor : Color.WHITE);
+            label.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
 
             row.addView(icon);
             row.addView(label);
-
-            // Badge (duet count, etc.)
-            if (item.badge != null && !item.badge.isEmpty()) {
-                TextView badge = new TextView(ctx);
-                LinearLayout.LayoutParams bp =
-                    new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-                badge.setLayoutParams(bp);
-                badge.setText(item.badge);
-                badge.setTextColor(0xFFA855F7);
-                badge.setTextSize(12f);
-                badge.setPadding(dpToPx(8), dpToPx(2), dpToPx(8), dpToPx(2));
-                badge.setBackgroundColor(0x22A855F7);
-                row.addView(badge);
-            }
-
             container.addView(row);
 
             // Divider
@@ -247,6 +215,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
                 container.addView(divider);
             }
 
+            // Click
             final String action = item.action;
             row.setOnClickListener(v -> {
                 dismiss();
@@ -255,70 +224,61 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         }
     }
 
-    // ─── Viewer items ─────────────────────────────────────────────────────────
+    // ─── Viewer menu items ────────────────────────────────────────────────────
     private List<MenuItem> buildViewerItems() {
         String saveLabel = isSaved ? "Unsave" : "Save";
-        int    saveIcon  = isSaved ? R.drawable.ic_close : R.drawable.ic_bookmark;
-        String duetBadge = duetCount > 0 ? formatCount(duetCount) : null;
+        int    saveIcon  = isSaved
+            ? R.drawable.ic_close
+            : R.drawable.ic_bookmark;
 
         List<MenuItem> list = new ArrayList<>();
-        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,              saveIcon,                CLR_PINK,   false));
-        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections", R.drawable.ic_bookmark,  CLR_CYAN,   true));
-        list.add(new MenuItem(ACTION_SPEED,                speedLabel,             R.drawable.ic_speed,     CLR_YELLOW, false));
-        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",             R.drawable.ic_download_reel, CLR_GREEN, true));
-        if (allowDuet) {
-            list.add(new MenuItem(ACTION_DUET,     "Duet",        R.drawable.ic_video_call, CLR_PURPLE, false, null));
-            if (duetCount > 0)
-                list.add(new MenuItem(ACTION_VIEW_DUETS, "View Duets", R.drawable.ic_reels,
-                                      CLR_PURPLE, false, duetBadge));
-        }
+        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,             saveIcon,                CLR_PINK,   false));
+        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,  CLR_CYAN,   true));
+        list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed,     CLR_YELLOW, false));
+        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel, CLR_GREEN, true));
+        if (allowDuet)
+            list.add(new MenuItem(ACTION_DUET,             "Duet",                R.drawable.ic_video_call,CLR_PURPLE, false));
         if (allowStitch)
-            list.add(new MenuItem(ACTION_STITCH,       "Stitch",      R.drawable.ic_swap,       CLR_PURPLE, false));
-        list.add(new MenuItem(ACTION_VIDEO_REPLY,      "Video Reply",  R.drawable.ic_reply,      CLR_PURPLE, false));
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY,   "Share to Story",R.drawable.ic_share_reel, CLR_GREEN, true));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST,   "Collab Request",R.drawable.ic_group,     CLR_TEAL,   true));
-        list.add(new MenuItem(ACTION_NOT_INTERESTED,   "Not Interested",R.drawable.ic_eye_off,   CLR_GOLD,   false));
-        list.add(new MenuItem(ACTION_COPY_LINK,        "Copy Link",    R.drawable.ic_link,       CLR_CYAN,   true));
-        list.add(new MenuItem(ACTION_REPORT,           "Report",       R.drawable.ic_flag,       CLR_RED,    false));
+            list.add(new MenuItem(ACTION_STITCH,           "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
+        list.add(new MenuItem(ACTION_VIDEO_REPLY,          "Video Reply",         R.drawable.ic_reply,     CLR_PURPLE, false));
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,CLR_GREEN,  true));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,     CLR_TEAL,   true));
+        list.add(new MenuItem(ACTION_NOT_INTERESTED,       "Not Interested",      R.drawable.ic_eye_off,   CLR_GOLD,   false));
+        list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,      CLR_CYAN,   true));
+        list.add(new MenuItem(ACTION_REPORT,               "Report",              R.drawable.ic_flag,      CLR_RED,    false));
         return list;
     }
 
-    // ─── Owner items ──────────────────────────────────────────────────────────
+    // ─── Owner menu items ─────────────────────────────────────────────────────
     private List<MenuItem> buildOwnerItems() {
         String saveLabel = isSaved ? "Unsave" : "Save";
-        int    saveIcon  = isSaved ? R.drawable.ic_close : R.drawable.ic_bookmark;
-        String duetBadge = duetCount > 0 ? formatCount(duetCount) : null;
+        int    saveIcon  = isSaved
+            ? R.drawable.ic_close
+            : R.drawable.ic_bookmark;
 
         List<MenuItem> list = new ArrayList<>();
-        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,              saveIcon,               CLR_PINK,   false));
-        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections", R.drawable.ic_bookmark,  CLR_CYAN,   true));
-        list.add(new MenuItem(ACTION_SPEED,                speedLabel,             R.drawable.ic_speed,     CLR_YELLOW, false));
-        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",             R.drawable.ic_download_reel, CLR_GREEN, true));
-        list.add(new MenuItem(ACTION_EDIT,                 "Edit Reel",            R.drawable.ic_edit,      CLR_ORANGE, false));
-        list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",            R.drawable.ic_reel_explore, CLR_TEAL, false));
-        list.add(new MenuItem(ACTION_PINNED_COMMENTS,      "Pinned Comments",      R.drawable.ic_pin,       CLR_TEAL,   false));
-        list.add(new MenuItem(ACTION_REMIX_SETTINGS,       "Remix Settings",       R.drawable.ic_settings,  CLR_TEAL,   true)); // ✅ NEW
-        if (duetCount > 0)
-            list.add(new MenuItem(ACTION_VIEW_DUETS,       "View Duets",           R.drawable.ic_reels,     CLR_PURPLE, false, duetBadge)); // ✅ NEW
+        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,             saveIcon,                CLR_PINK,   false));
+        list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,  CLR_CYAN,   true));
+        list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed,     CLR_YELLOW, false));
+        list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel, CLR_GREEN, true));
+        list.add(new MenuItem(ACTION_EDIT,                 "Edit Reel",           R.drawable.ic_edit,      CLR_ORANGE, false));
+        list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",           R.drawable.ic_reel_explore, CLR_TEAL, false));
+        list.add(new MenuItem(ACTION_PINNED_COMMENTS,      "Pinned Comments",     R.drawable.ic_pin,       CLR_TEAL,   true));
         if (allowDuet)
-            list.add(new MenuItem(ACTION_DUET,             "Duet",                 R.drawable.ic_video_call, CLR_PURPLE, false));
+            list.add(new MenuItem(ACTION_DUET,             "Duet",                R.drawable.ic_video_call,CLR_PURPLE, false));
         if (allowStitch)
-            list.add(new MenuItem(ACTION_STITCH,           "Stitch",               R.drawable.ic_swap,      CLR_PURPLE, false));
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",       R.drawable.ic_share_reel, CLR_GREEN, true));
-        list.add(new MenuItem(ACTION_QR_CODE,              "QR Code",              R.drawable.ic_qr_code,   CLR_ORANGE, false));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",       R.drawable.ic_group,     CLR_TEAL,   true));
-        list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",            R.drawable.ic_link,      CLR_CYAN,   false));
-        list.add(new MenuItem(ACTION_DELETE,               "Delete",               R.drawable.ic_delete,    CLR_RED,    false));
+            list.add(new MenuItem(ACTION_STITCH,           "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,CLR_GREEN,  true));
+        list.add(new MenuItem(ACTION_QR_CODE,              "QR Code",             R.drawable.ic_qr_code,   CLR_ORANGE, false));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,     CLR_TEAL,   true));
+        list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,      CLR_CYAN,   false));
+        list.add(new MenuItem(ACTION_DELETE,               "Delete",              R.drawable.ic_delete,    CLR_RED,    false));
         return list;
     }
 
-    private String formatCount(int n) {
-        if (n >= 1_000_000) return String.format("%.1fM", n / 1_000_000f);
-        if (n >= 1_000)     return String.format("%.1fK", n / 1_000f);
-        return String.valueOf(n);
-    }
-
+    // ─── Utility ─────────────────────────────────────────────────────────────
     private int dpToPx(int dp) {
-        return Math.round(dp * requireContext().getResources().getDisplayMetrics().density);
+        float density = requireContext().getResources().getDisplayMetrics().density;
+        return Math.round(dp * density);
     }
 }

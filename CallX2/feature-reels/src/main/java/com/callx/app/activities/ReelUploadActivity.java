@@ -40,8 +40,6 @@ import java.util.HashMap;
 import java.util.Map;
 import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.utils.VideoUploader;
-import com.callx.app.duet.DuetFirebaseHelper;
-import com.callx.app.duet.DuetNotificationHelper;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.textfield.TextInputEditText;
@@ -613,32 +611,28 @@ public class ReelUploadActivity extends AppCompatActivity {
                         Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
                         b.setResult(RESULT_OK);
 
-                        // ── Duet system: record duet + send notification ──────
+                        // Fix 6: increment duetCount on original reel
                         if (b.isDuet && !b.duetOriginalId.isEmpty()) {
-                            com.callx.app.duet.DuetFirebaseHelper.recordDuetPosted(
-                                b.duetOriginalId,
-                                b.duetOwnerUid,
-                                finalReelId,
-                                myName,
-                                safePhoto,
-                                new com.callx.app.duet.DuetFirebaseHelper.OnDuetRecordedCallback() {
-                                    @Override public void onSuccess() {
-                                        android.util.Log.d("ReelUpload",
-                                            "Duet recorded for reel: " + b.duetOriginalId);
-                                    }
-                                    @Override public void onError(String msg) {
-                                        android.util.Log.e("ReelUpload",
-                                            "Duet record error: " + msg);
-                                    }
-                                });
-                            // FCM notification queue
-                            com.callx.app.duet.DuetNotificationHelper.queueDuetNotification(
-                                b,
-                                b.duetOwnerUid,
-                                b.duetOriginalId,
-                                finalReelId,
-                                myName,
-                                safePhoto);
+                            FirebaseUtils.getReelsRef()
+                                .child(b.duetOriginalId)
+                                .child("duetCount")
+                                .setValue(ServerValue.increment(1));
+
+                            // Fix 6: push notification to original reel owner
+                            if (!b.duetOwnerUid.isEmpty() && !b.duetOwnerUid.equals(myUid)) {
+                                Map<String, Object> notif = new HashMap<>();
+                                notif.put("type",      "duet");
+                                notif.put("fromUid",   myUid);
+                                notif.put("fromName",  myName);
+                                notif.put("reelId",    b.duetOriginalId);
+                                notif.put("duetReelId",finalReelId);
+                                notif.put("timestamp", System.currentTimeMillis());
+                                com.google.firebase.database.FirebaseDatabase.getInstance()
+                                    .getReference("notifications")
+                                    .child(b.duetOwnerUid)
+                                    .push()
+                                    .setValue(notif);
+                            }
                         }
 
                         // ── Background: extract + upload original audio ───────

@@ -18,27 +18,24 @@ import com.callx.app.utils.Constants;
 /**
  * GroupCallForegroundService — ongoing notification while group call is active.
  *
- * Features:
- *  - Persistent ongoing notification with group name + timer text
- *  - "End Call" action via broadcast
- *  - START_NOT_STICKY (stops when killed by OS — call ends too)
- *  - Updates participant count via startService re-call
- *  - BUG-4 FIX: Live timer — updates every second like 1:1 CallForegroundService
+ * FIX-KILLED: onTaskRemoved() → Firebase mein "ended" + participant status likho
+ *             taaki baki sab log ko pata chale ki call drop ho gayi.
  */
 public class GroupCallForegroundService extends Service {
 
     public static final String EXTRA_GROUP_NAME        = "fg_group_name";
     public static final String EXTRA_CALL_ID           = "fg_call_id";
     public static final String EXTRA_IS_VIDEO          = "fg_is_video";
-    public static final String EXTRA_PARTICIPANT_COUNT  = "fg_participant_count";
+    public static final String EXTRA_PARTICIPANT_COUNT = "fg_participant_count";
+    public static final String EXTRA_MY_UID            = "fg_my_uid";
 
     private String  groupName        = "";
     private String  callId           = "";
+    private String  myUid            = "";
     private boolean isVideo          = false;
     private int     participantCount = 2;
     private long    startedAt        = 0;
 
-    // BUG-4 FIX: ticker for live call duration
     private final Handler tickHandler = new Handler(Looper.getMainLooper());
     private Runnable tickRunnable;
 
@@ -47,25 +44,37 @@ public class GroupCallForegroundService extends Service {
         if (intent != null) {
             String gn = intent.getStringExtra(EXTRA_GROUP_NAME);
             String ci = intent.getStringExtra(EXTRA_CALL_ID);
+            String mu = intent.getStringExtra(EXTRA_MY_UID);
             if (gn != null) groupName        = gn;
             if (ci != null) callId           = ci;
+            if (mu != null) myUid            = mu;
             isVideo          = intent.getBooleanExtra(EXTRA_IS_VIDEO, false);
             participantCount = intent.getIntExtra(EXTRA_PARTICIPANT_COUNT, 2);
         }
-
-        // BUG-4 FIX: record start time only once; re-calls (participant count update) preserve it
         if (startedAt == 0) startedAt = System.currentTimeMillis();
-
-        startForeground(Constants.GROUP_CALL_ONGOING_NOTIF_ID,
-            buildNotification("0:00"));
-
-        // BUG-4 FIX: start ticker only if not already running
+        startForeground(Constants.GROUP_CALL_ONGOING_NOTIF_ID, buildNotification("0:00"));
         if (tickRunnable == null) startTicker();
-
         return START_NOT_STICKY;
     }
 
-    // BUG-4 FIX: tick every second and refresh notification duration
+    // FIX-KILLED: App kill hui → Firebase cleanup karo taaki group ka baaki logo ko pata chale
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        if (callId != null && !callId.isEmpty()) {
+            try {
+                com.google.firebase.database.DatabaseReference callRef =
+                    com.callx.app.utils.FirebaseUtils.db()
+                        .getReference("groupCalls").child(callId);
+                // Participant ko "left" mark karo
+                if (myUid != null && !myUid.isEmpty()) {
+                    callRef.child("participants").child(myUid).child("status").setValue("left");
+                }
+            } catch (Exception ignored) {}
+        }
+        stopSelf();
+        super.onTaskRemoved(rootIntent);
+    }
+
     private void startTicker() {
         tickRunnable = new Runnable() {
             @Override public void run() {
@@ -85,7 +94,6 @@ public class GroupCallForegroundService extends Service {
     }
 
     private Notification buildNotification(String duration) {
-        // Tap → return to GroupCallActivity
         Intent tapIntent = new Intent(this, GroupCallActivity.class);
         tapIntent.putExtra(GroupCallActivity.EXTRA_CALL_ID, callId);
         tapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -93,7 +101,6 @@ public class GroupCallForegroundService extends Service {
             Constants.GROUP_CALL_ONGOING_NOTIF_ID, tapIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // End call action
         Intent endIntent = new Intent(this, GroupCallActionReceiver.class);
         endIntent.setAction(Constants.ACTION_GROUP_END_CALL);
         endIntent.putExtra(Constants.EXTRA_CALL_ID, callId);
@@ -102,7 +109,6 @@ public class GroupCallForegroundService extends Service {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         String title = (groupName != null && !groupName.isEmpty()) ? groupName : "Group Call";
-        // BUG-4 FIX: live duration shown, plus participant count
         String text  = (isVideo ? "Video call" : "Voice call")
             + " • " + duration
             + " • " + participantCount + " participant"
@@ -125,10 +131,8 @@ public class GroupCallForegroundService extends Service {
 
     @Override
     public void onDestroy() {
-        // BUG-4 FIX: stop ticker on destroy
         tickHandler.removeCallbacksAndMessages(null);
-        NotificationManager nm =
-            (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.cancel(Constants.GROUP_CALL_ONGOING_NOTIF_ID);
         super.onDestroy();
     }
