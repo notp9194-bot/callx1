@@ -320,7 +320,6 @@ public class ReelsFragment extends Fragment {
         }
     }
 
-    /** Shows unread count badge on the Activity (notifications) tab */
     private void loadNotificationBadge() {
         if (reelBottomNav == null || !isAdded() || getContext() == null) return;
         String myUid = safeMyUid();

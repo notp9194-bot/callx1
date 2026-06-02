@@ -861,7 +861,6 @@ public class ReelPlayerFragment extends Fragment
                 if (player.getDuration() > 0) {
                     int p = (int)(player.getCurrentPosition() * 1000 / player.getDuration());
                     progressVideo.setProgress(p);
-                    // Save to Firebase at every 10% watched milestone
                     int pct = (int)(player.getCurrentPosition() * 100 / player.getDuration());
                     int milestone = (pct / 10) * 10;
                     if (milestone != lastSavedProgressPct && milestone > 0) {

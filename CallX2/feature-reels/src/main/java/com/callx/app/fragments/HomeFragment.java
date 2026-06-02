@@ -15,12 +15,9 @@ import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.reels.R;
-import com.callx.app.activities.HashtagReelsActivity;
 import com.callx.app.activities.ReelCameraActivity;
 import com.callx.app.activities.ReelCommentActivity;
 import com.callx.app.activities.ReelExploreActivity;
-import com.callx.app.activities.ReelNotificationsActivity;
-import com.callx.app.activities.ReelSearchActivity;
 import com.callx.app.activities.ReelUploadActivity;
 import com.callx.app.activities.SingleReelPlayerActivity;
 import com.callx.app.activities.UserReelsActivity;
@@ -605,7 +602,7 @@ public class HomeFragment extends Fragment {
         tvCaption.setText(captionText);
         if (captionText.contains("#")) {
             android.text.SpannableString spannable = new android.text.SpannableString(captionText);
-            java.util.regex.Pattern hp = java.util.regex.Pattern.compile("#(\w+)");
+            java.util.regex.Pattern hp = java.util.regex.Pattern.compile("#(\\w+)");
             java.util.regex.Matcher hm = hp.matcher(captionText);
             while (hm.find()) {
                 final String tag = hm.group(1);
@@ -861,53 +858,35 @@ public class HomeFragment extends Fragment {
             if (pbActivity != null) pbActivity.setVisibility(View.GONE);
             return;
         }
-        // Load UIDs of people the user follows in the reels system
-        FirebaseUtils.getReelFollowsRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (!isAdded() || getContext() == null) return;
-                List<String> followedUids = new ArrayList<>();
-                for (DataSnapshot s : snap.getChildren()) followedUids.add(s.getKey());
-                if (followedUids.isEmpty()) {
-                    renderFriendsActivity(new ArrayList<>());
-                    return;
-                }
-                loadFriendRecentPosts(followedUids);
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                if (!isAdded()) return;
-                requireActivity().runOnUiThread(() -> {
-                    if (pbActivity != null) pbActivity.setVisibility(View.GONE);
-                });
-            }
-        });
-    }
 
-    private void loadFriendRecentPosts(List<String> followedUids) {
-        Set<String> uidSet = new HashSet<>(followedUids);
-        FirebaseUtils.getReelsRef()
+        FirebaseUtils.db().getReference("reel_notifications").child(myUid)
             .orderByChild("timestamp")
-            .limitToLast(60)
+            .limitToLast(10)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (!isAdded() || getContext() == null) return;
                     List<Map<String, Object>> activities = new ArrayList<>();
                     for (DataSnapshot s : snap.getChildren()) {
-                        ReelModel r = s.getValue(ReelModel.class);
-                        if (r == null || r.uid == null || !uidSet.contains(r.uid)) continue;
-                        if (r.reelId == null) r.reelId = s.getKey();
-                        long diffDays = (System.currentTimeMillis() - r.timestamp) / 86400_000L;
-                        if (diffDays > 7) continue;
                         Map<String, Object> item = new HashMap<>();
-                        String name = r.ownerName != null ? r.ownerName : "Someone";
-                        item.put("message",    "@" + name + " posted a new reel");
-                        item.put("timestamp",  r.timestamp);
-                        item.put("type",       "post");
-                        item.put("from_uid",   r.uid);
-                        item.put("from_photo", r.ownerPhoto != null ? r.ownerPhoto : "");
-                        item.put("reel_id",    r.reelId);
-                        activities.add(item);
+                        String type     = s.child("type").getValue(String.class);
+                        String message  = s.child("message").getValue(String.class);
+                        String fromUid  = s.child("from_uid").getValue(String.class);
+                        String fromPhoto= s.child("from_photo").getValue(String.class);
+                        String fromThumb= s.child("from_thumb").getValue(String.class);
+                        Long   ts       = s.child("timestamp").getValue(Long.class);
+                        String resolvedPhoto = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : (fromPhoto != null ? fromPhoto : "");
+                        if (message != null) {
+                            item.put("message",    message);
+                            item.put("timestamp",  ts != null ? ts : 0L);
+                            item.put("type",       type != null ? type : "like");
+                            item.put("from_uid",   fromUid != null ? fromUid : "");
+                            item.put("from_photo", resolvedPhoto);
+                            activities.add(item);
+                        }
                     }
-                    loadFriendReposts(followedUids, activities);
+                    activities.sort((a, b) ->
+                        Long.compare((Long) b.get("timestamp"), (Long) a.get("timestamp")));
+                    renderFriendsActivity(activities);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     if (!isAdded()) return;
@@ -916,62 +895,6 @@ public class HomeFragment extends Fragment {
                     });
                 }
             });
-    }
-
-    private void loadFriendReposts(List<String> followedUids, List<Map<String, Object>> existing) {
-        List<String> sample = followedUids.subList(0, Math.min(5, followedUids.size()));
-        if (sample.isEmpty()) { finalizeFriendsActivity(existing); return; }
-        int[] remaining = {sample.size()};
-        for (String uid : sample) {
-            FirebaseUtils.getReelRepostsByUserRef(uid)
-                .orderByValue().limitToLast(3)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        if (!isAdded() || getContext() == null) return;
-                        for (DataSnapshot s : snap.getChildren()) {
-                            Long ts = s.getValue(Long.class);
-                            if (ts == null) continue;
-                            if ((System.currentTimeMillis() - ts) / 86400_000L > 7) continue;
-                            FirebaseUtils.db().getReference("users").child(uid)
-                                .addListenerForSingleValueEvent(new ValueEventListener() {
-                                    @Override public void onDataChange(@NonNull DataSnapshot uSnap) {
-                                        String uname = uSnap.child("name").getValue(String.class);
-                                        if (uname == null) uname = uSnap.child("username").getValue(String.class);
-                                        if (uname == null) uname = "Someone";
-                                        String photo = uSnap.child("photoUrl").getValue(String.class);
-                                        Map<String, Object> item = new HashMap<>();
-                                        item.put("message",    "@" + uname + " reposted a reel");
-                                        item.put("timestamp",  ts);
-                                        item.put("type",       "repost");
-                                        item.put("from_uid",   uid);
-                                        item.put("from_photo", photo != null ? photo : "");
-                                        synchronized (existing) { existing.add(item); }
-                                    }
-                                    @Override public void onCancelled(@NonNull DatabaseError e) {}
-                                });
-                        }
-                        synchronized (remaining) {
-                            remaining[0]--;
-                            if (remaining[0] <= 0) finalizeFriendsActivity(existing);
-                        }
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {
-                        synchronized (remaining) {
-                            remaining[0]--;
-                            if (remaining[0] <= 0) finalizeFriendsActivity(existing);
-                        }
-                    }
-                });
-        }
-    }
-
-    private void finalizeFriendsActivity(List<Map<String, Object>> activities) {
-        if (!isAdded() || getContext() == null) return;
-        activities.sort((a, b) ->
-            Long.compare((Long) b.get("timestamp"), (Long) a.get("timestamp")));
-        List<Map<String, Object>> top = activities.size() > 15
-            ? activities.subList(0, 15) : activities;
-        renderFriendsActivity(new ArrayList<>(top));
     }
 
     @SuppressWarnings("unchecked")
@@ -1023,7 +946,6 @@ public class HomeFragment extends Fragment {
                 int iconRes = "repost".equals(type) ? R.drawable.ic_repost
                     : "comment".equals(type) ? R.drawable.ic_comment_reel
                     : "follow".equals(type) ? R.drawable.ic_person
-                    : "post".equals(type) ? R.drawable.ic_add_reels
                     : R.drawable.ic_heart_filled;
                 icon.setImageResource(iconRes);
                 LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dpToPx(16), dpToPx(16));
@@ -1134,9 +1056,9 @@ public class HomeFragment extends Fragment {
             View card = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_home_continue_watching, containerContinueWatching, false);
 
-            ImageView ivThumb    = card.findViewById(R.id.iv_cw_thumb);
-            TextView  tvOwner    = card.findViewById(R.id.tv_cw_owner);
-            ProgressBar pbWatch  = card.findViewById(R.id.pb_cw_progress);
+            ImageView ivThumb   = card.findViewById(R.id.iv_cw_thumb);
+            TextView  tvOwner   = card.findViewById(R.id.tv_cw_owner);
+            ProgressBar pbWatch = card.findViewById(R.id.pb_cw_progress);
 
             tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
@@ -1144,7 +1066,6 @@ public class HomeFragment extends Fragment {
                 Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().into(ivThumb);
             }
 
-            // Load real watch progress from Firebase and populate the progress bar
             final String reelId = reel.reelId;
             final String name   = reel.ownerName;
             String myUid = safeMyUid();

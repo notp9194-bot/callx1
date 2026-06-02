@@ -276,6 +276,7 @@
                         android:textSize="15sp"
                         android:fontFamily="sans-serif-medium"/>
 
+
                     <TextView
                         android:id="@+id/btn_see_all_suggested"
                         android:layout_width="wrap_content"
@@ -330,6 +331,7 @@
                         android:textColor="#FFFFFF"
                         android:textSize="15sp"
                         android:fontFamily="sans-serif-medium"/>
+
 
                     <TextView
                         android:id="@+id/btn_see_all_activity"
