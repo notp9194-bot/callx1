@@ -15,9 +15,12 @@ import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.reels.R;
+import com.callx.app.activities.HashtagReelsActivity;
 import com.callx.app.activities.ReelCameraActivity;
 import com.callx.app.activities.ReelCommentActivity;
 import com.callx.app.activities.ReelExploreActivity;
+import com.callx.app.activities.ReelNotificationsActivity;
+import com.callx.app.activities.ReelSearchActivity;
 import com.callx.app.activities.ReelUploadActivity;
 import com.callx.app.activities.SingleReelPlayerActivity;
 import com.callx.app.activities.UserReelsActivity;
@@ -76,6 +79,9 @@ public class HomeFragment extends Fragment {
     private LinearLayout       btnAddStory;
     private ImageButton        btnHomeUpload;
     private CircleImageView    ivMyStoryAvatar;
+    private TextView           btnSeeAllActivity;
+    private TextView           btnSeeAllSuggested;
+    private ImageButton        btnHomeSearch;
 
     private boolean isFollowingMode = true;
 
@@ -127,6 +133,9 @@ public class HomeFragment extends Fragment {
         btnAddStory               = v.findViewById(R.id.btn_add_story);
         btnHomeUpload             = v.findViewById(R.id.btn_home_upload);
         ivMyStoryAvatar           = v.findViewById(R.id.iv_my_story_avatar);
+        btnSeeAllActivity         = v.findViewById(R.id.btn_see_all_activity);
+        btnSeeAllSuggested        = v.findViewById(R.id.btn_see_all_suggested);
+        btnHomeSearch             = v.findViewById(R.id.btn_home_search);
     }
 
     private void setupListeners() {
@@ -166,6 +175,27 @@ public class HomeFragment extends Fragment {
             btnHomeUpload.setOnClickListener(v -> {
                 if (isAdded() && getContext() != null)
                     startActivity(new Intent(getContext(), ReelUploadActivity.class));
+            });
+        }
+
+        if (btnHomeSearch != null) {
+            btnHomeSearch.setOnClickListener(v -> {
+                if (isAdded() && getContext() != null)
+                    startActivity(new Intent(getContext(), ReelSearchActivity.class));
+            });
+        }
+
+        if (btnSeeAllActivity != null) {
+            btnSeeAllActivity.setOnClickListener(v -> {
+                if (isAdded() && getContext() != null)
+                    startActivity(new Intent(getContext(), ReelNotificationsActivity.class));
+            });
+        }
+
+        if (btnSeeAllSuggested != null) {
+            btnSeeAllSuggested.setOnClickListener(v -> {
+                if (isAdded() && getContext() != null)
+                    startActivity(new Intent(getContext(), ReelExploreActivity.class));
             });
         }
 
@@ -574,7 +604,35 @@ public class HomeFragment extends Fragment {
 
         tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
         tvTime.setText(formatAgo(reel.timestamp));
-        tvCaption.setText(reel.caption != null ? reel.caption : "");
+        String captionText = reel.caption != null ? reel.caption : "";
+        tvCaption.setText(captionText);
+        // Make hashtags clickable in caption
+        if (captionText.contains("#")) {
+            android.text.SpannableString spannable = new android.text.SpannableString(captionText);
+            java.util.regex.Pattern hashPattern = java.util.regex.Pattern.compile("#(\\w+)");
+            java.util.regex.Matcher matcher = hashPattern.matcher(captionText);
+            while (matcher.find()) {
+                final String tag = matcher.group(1);
+                int start = matcher.start();
+                int end   = matcher.end();
+                spannable.setSpan(new android.text.style.ClickableSpan() {
+                    @Override
+                    public void onClick(@NonNull android.view.View widget) {
+                        if (!isAdded() || getContext() == null || tag == null) return;
+                        Intent hi = new Intent(getContext(), HashtagReelsActivity.class);
+                        hi.putExtra("hashtag", tag);
+                        startActivity(hi);
+                    }
+                    @Override
+                    public void updateDrawState(@NonNull android.text.TextPaint ds) {
+                        ds.setColor(0xFF00C6FF);
+                        ds.setUnderlineText(false);
+                    }
+                }, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            tvCaption.setText(spannable);
+            tvCaption.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }
         tvLikes.setText(formatCount(reel.likesCount));
         tvComments.setText(formatCount(reel.commentsCount));
         tvReposts.setText(formatCount(reel.repostCount));
@@ -804,6 +862,7 @@ public class HomeFragment extends Fragment {
     }
 
     // ── Friends Activity ─────────────────────────────────────────────────
+    // Shows what people the user FOLLOWS are doing — their new posts and reposts.
 
     private void loadFriendsActivity() {
         String myUid = safeMyUid();
@@ -812,34 +871,64 @@ public class HomeFragment extends Fragment {
             return;
         }
 
-        FirebaseUtils.db().getReference("reel_notifications").child(myUid)
+        // Step 1: Load the list of UIDs the user follows in the reels system
+        FirebaseUtils.getReelFollowsRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (!isAdded() || getContext() == null) return;
+                List<String> followedUids = new ArrayList<>();
+                for (DataSnapshot s : snap.getChildren()) followedUids.add(s.getKey());
+
+                if (followedUids.isEmpty()) {
+                    renderFriendsActivity(new ArrayList<>());
+                    return;
+                }
+                // Step 2: For each followed uid, load their recent reels (new posts)
+                loadFriendRecentActivity(followedUids, myUid);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                if (!isAdded()) return;
+                requireActivity().runOnUiThread(() -> {
+                    if (pbActivity != null) pbActivity.setVisibility(View.GONE);
+                });
+            }
+        });
+    }
+
+    private void loadFriendRecentActivity(List<String> followedUids, String myUid) {
+        // Load all recent reels, filter by followed uids — gives "friends' new posts"
+        // Also load userReposts for friends — gives "friends' reposts"
+        FirebaseUtils.getReelsRef()
             .orderByChild("timestamp")
-            .limitToLast(10)
+            .limitToLast(60)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (!isAdded() || getContext() == null) return;
                     List<Map<String, Object>> activities = new ArrayList<>();
+                    Set<String> uidSet = new HashSet<>(followedUids);
+
                     for (DataSnapshot s : snap.getChildren()) {
+                        ReelModel r = s.getValue(ReelModel.class);
+                        if (r == null || r.uid == null) continue;
+                        if (!uidSet.contains(r.uid)) continue;
+                        if (r.reelId == null) r.reelId = s.getKey();
+
+                        // Check if reel is recent (last 7 days)
+                        long diffDays = (System.currentTimeMillis() - r.timestamp) / (86400_000L);
+                        if (diffDays > 7) continue;
+
                         Map<String, Object> item = new HashMap<>();
-                        String type     = s.child("type").getValue(String.class);
-                        String message  = s.child("message").getValue(String.class);
-                        String fromUid  = s.child("from_uid").getValue(String.class);
-                        String fromPhoto= s.child("from_photo").getValue(String.class);
-                        String fromThumb= s.child("from_thumb").getValue(String.class);
-                        Long   ts       = s.child("timestamp").getValue(Long.class);
-                        String resolvedPhoto = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : (fromPhoto != null ? fromPhoto : "");
-                        if (message != null) {
-                            item.put("message",    message);
-                            item.put("timestamp",  ts != null ? ts : 0L);
-                            item.put("type",       type != null ? type : "like");
-                            item.put("from_uid",   fromUid != null ? fromUid : "");
-                            item.put("from_photo", resolvedPhoto);
-                            activities.add(item);
-                        }
+                        String name = r.ownerName != null ? r.ownerName : "Someone";
+                        item.put("message",    "@" + name + " posted a new reel");
+                        item.put("timestamp",  r.timestamp);
+                        item.put("type",       "post");
+                        item.put("from_uid",   r.uid);
+                        item.put("from_photo", r.ownerPhoto != null ? r.ownerPhoto : "");
+                        item.put("reel_id",    r.reelId);
+                        activities.add(item);
                     }
-                    activities.sort((a, b) ->
-                        Long.compare((Long) b.get("timestamp"), (Long) a.get("timestamp")));
-                    renderFriendsActivity(activities);
+
+                    // Also collect reposts by friends
+                    loadFriendReposts(followedUids, activities);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     if (!isAdded()) return;
@@ -848,6 +937,73 @@ public class HomeFragment extends Fragment {
                     });
                 }
             });
+    }
+
+    private void loadFriendReposts(List<String> followedUids, List<Map<String, Object>> existing) {
+        if (followedUids.isEmpty()) {
+            finalizeFriendsActivity(existing);
+            return;
+        }
+        // Pick up to 5 friends to load reposts from (avoid too many reads)
+        List<String> sample = followedUids.subList(0, Math.min(5, followedUids.size()));
+        final int[] remaining = {sample.size()};
+
+        for (String uid : sample) {
+            FirebaseUtils.getReelRepostsByUserRef(uid)
+                .orderByValue()
+                .limitToLast(3)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (!isAdded() || getContext() == null) return;
+                        for (DataSnapshot s : snap.getChildren()) {
+                            Long ts = s.getValue(Long.class);
+                            if (ts == null) continue;
+                            long diffDays = (System.currentTimeMillis() - ts) / 86400_000L;
+                            if (diffDays > 7) continue;
+
+                            // Load user info for this uid
+                            FirebaseUtils.db().getReference("users").child(uid)
+                                .addListenerForSingleValueEvent(new ValueEventListener() {
+                                    @Override public void onDataChange(@NonNull DataSnapshot uSnap) {
+                                        if (!isAdded() || getContext() == null) return;
+                                        String name  = uSnap.child("name").getValue(String.class);
+                                        String photo = uSnap.child("photoUrl").getValue(String.class);
+                                        if (name == null) name = uSnap.child("username").getValue(String.class);
+                                        if (name == null) name = "Someone";
+                                        Map<String, Object> item = new HashMap<>();
+                                        item.put("message",    "@" + name + " reposted a reel");
+                                        item.put("timestamp",  ts);
+                                        item.put("type",       "repost");
+                                        item.put("from_uid",   uid);
+                                        item.put("from_photo", photo != null ? photo : "");
+                                        synchronized (existing) { existing.add(item); }
+                                    }
+                                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                                });
+                        }
+                        synchronized (remaining) {
+                            remaining[0]--;
+                            if (remaining[0] <= 0) finalizeFriendsActivity(existing);
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        synchronized (remaining) {
+                            remaining[0]--;
+                            if (remaining[0] <= 0) finalizeFriendsActivity(existing);
+                        }
+                    }
+                });
+        }
+    }
+
+    private void finalizeFriendsActivity(List<Map<String, Object>> activities) {
+        if (!isAdded() || getContext() == null) return;
+        activities.sort((a, b) ->
+            Long.compare((Long) b.get("timestamp"), (Long) a.get("timestamp")));
+        // Cap at 15 most recent
+        List<Map<String, Object>> top = activities.size() > 15
+            ? activities.subList(0, 15) : activities;
+        renderFriendsActivity(new ArrayList<>(top));
     }
 
     @SuppressWarnings("unchecked")
@@ -899,6 +1055,7 @@ public class HomeFragment extends Fragment {
                 int iconRes = "repost".equals(type) ? R.drawable.ic_repost
                     : "comment".equals(type) ? R.drawable.ic_comment_reel
                     : "follow".equals(type) ? R.drawable.ic_person
+                    : "post".equals(type) ? R.drawable.ic_add_reels
                     : R.drawable.ic_heart_filled;
                 icon.setImageResource(iconRes);
                 LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dpToPx(16), dpToPx(16));
@@ -922,6 +1079,23 @@ public class HomeFragment extends Fragment {
                 tvTime.setTextColor(0xFF888888);
                 tvTime.setTextSize(11f);
                 row.addView(tvTime);
+
+                // Row tap: "post" type opens reel, others open user profile
+                final String rowReelId  = act.containsKey("reel_id") ? (String) act.get("reel_id") : null;
+                final String rowFromUid = (String) act.get("from_uid");
+                row.setClickable(true);
+                row.setFocusable(true);
+                row.setBackgroundResource(android.R.drawable.list_selector_background);
+                row.setOnClickListener(vv -> {
+                    if (!isAdded() || getContext() == null) return;
+                    if (rowReelId != null && "post".equals(type)) {
+                        openReelById(rowReelId, message);
+                    } else if (rowFromUid != null && !rowFromUid.isEmpty()) {
+                        Intent ui = new Intent(getContext(), UserReelsActivity.class);
+                        ui.putExtra(UserReelsActivity.EXTRA_UID,  rowFromUid);
+                        startActivity(ui);
+                    }
+                });
 
                 containerFriendsActivity.addView(row);
 
@@ -1009,8 +1183,9 @@ public class HomeFragment extends Fragment {
             View card = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_home_continue_watching, containerContinueWatching, false);
 
-            ImageView ivThumb = card.findViewById(R.id.iv_cw_thumb);
-            TextView tvOwner  = card.findViewById(R.id.tv_cw_owner);
+            ImageView ivThumb   = card.findViewById(R.id.iv_cw_thumb);
+            TextView  tvOwner   = card.findViewById(R.id.tv_cw_owner);
+            ProgressBar pbWatch = card.findViewById(R.id.pb_cw_progress);
 
             tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
@@ -1018,11 +1193,27 @@ public class HomeFragment extends Fragment {
                 Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().into(ivThumb);
             }
 
-            // ✅ Open the specific reel in SingleReelPlayerActivity
+            // Load real watch progress from Firebase and update progress bar
             final String reelId = reel.reelId;
             final String name   = reel.ownerName;
-            card.setOnClickListener(v -> openReelById(reelId, name));
+            String myUid = safeMyUid();
+            if (pbWatch != null && myUid != null && reelId != null) {
+                FirebaseUtils.getReelWatchProgressRef(myUid).child(reelId)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                            if (!isAdded() || getContext() == null) return;
+                            Integer pct = snap.getValue(Integer.class);
+                            if (pct != null && pct > 0) {
+                                requireActivity().runOnUiThread(() -> {
+                                    if (pbWatch != null) pbWatch.setProgress(pct);
+                                });
+                            }
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {}
+                    });
+            }
 
+            card.setOnClickListener(v -> openReelById(reelId, name));
             containerContinueWatching.addView(card);
         });
         loadReelsByIds(allIds, position + 1);

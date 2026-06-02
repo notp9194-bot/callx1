@@ -137,6 +137,11 @@ public class FirebaseUtils {
         return db().getReference("reelWatchHistory").child(uid);
     }
 
+    /** Per-user watch progress: reelWatchProgress/{uid}/{reelId} = percentage(0-100) */
+    public static DatabaseReference getReelWatchProgressRef(String uid) {
+        return db().getReference("reelWatchProgress").child(uid);
+    }
+
     /** Per-user reels index: reelsByUser/{uid}/{reelId} = true */
     public static DatabaseReference getReelsByUserRef(String uid) {
         return db().getReference("reelsByUser").child(uid);

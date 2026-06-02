@@ -265,6 +265,16 @@
                         android:textColor="#FFFFFF"
                         android:textSize="15sp"
                         android:fontFamily="sans-serif-medium"/>
+
+                    <TextView
+                        android:id="@+id/btn_see_all_suggested"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="See All"
+                        android:textColor="@color/brand_primary"
+                        android:textSize="12sp"
+                        android:clickable="true"
+                        android:focusable="true"/>
                 </LinearLayout>
 
                 <HorizontalScrollView
@@ -310,6 +320,16 @@
                         android:textColor="#FFFFFF"
                         android:textSize="15sp"
                         android:fontFamily="sans-serif-medium"/>
+
+                    <TextView
+                        android:id="@+id/btn_see_all_activity"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="See All"
+                        android:textColor="@color/brand_primary"
+                        android:textSize="12sp"
+                        android:clickable="true"
+                        android:focusable="true"/>
                 </LinearLayout>
 
                 <LinearLayout

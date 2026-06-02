@@ -280,6 +280,7 @@ public class ReelsFragment extends Fragment {
         // FIX #3: Load current user's avatar and set it as the Creator tab icon
         // post() defers until after the view is fully laid out so menu items are ready
         reelBottomNav.post(() -> loadCreatorAvatar());
+        reelBottomNav.post(() -> loadNotificationBadge());
 
         return v;
     }
@@ -317,6 +318,44 @@ public class ReelsFragment extends Fragment {
         if (creatorItem != null && creatorItem.getIcon() != null) {
             creatorItem.getIcon().setTintList(null);
         }
+    }
+
+    /** Shows unread notification count badge on the Activity tab icon */
+    private void loadNotificationBadge() {
+        if (reelBottomNav == null || !isAdded() || getContext() == null) return;
+        String myUid = safeMyUid();
+        if (myUid == null) return;
+
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reel_notifications").child(myUid)
+            .addValueEventListener(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAdded() || reelBottomNav == null) return;
+                    long unread = 0;
+                    for (DataSnapshot s : snap.getChildren()) {
+                        Boolean seen = s.child("seen").getValue(Boolean.class);
+                        if (seen == null || !seen) unread++;
+                    }
+                    final long count = unread;
+                    requireActivity().runOnUiThread(() -> {
+                        if (reelBottomNav == null || !isAdded()) return;
+                        com.google.android.material.badge.BadgeDrawable badge =
+                            reelBottomNav.getOrCreateBadge(R.id.reel_nav_notifications);
+                        if (count > 0) {
+                            badge.setVisible(true);
+                            badge.setNumber((int) Math.min(count, 99));
+                            badge.setBackgroundColor(
+                                ContextCompat.getColor(requireContext(), R.color.brand_primary));
+                            badge.setBadgeTextColor(
+                                ContextCompat.getColor(requireContext(), android.R.color.white));
+                        } else {
+                            badge.setVisible(false);
+                        }
+                    });
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
     }
 
     private void loadCreatorAvatar() {

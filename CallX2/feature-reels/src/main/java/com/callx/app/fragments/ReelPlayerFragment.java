@@ -850,6 +850,8 @@ public class ReelPlayerFragment extends Fragment
 
     // ── Progress tracking ─────────────────────────────────────────────────
 
+    private int lastSavedProgressPct = -1;
+
     private void startProgressTracking() {
         stopProgressTracking();
         progressRunnable = new Runnable() {
@@ -858,8 +860,19 @@ public class ReelPlayerFragment extends Fragment
                 if (player.getDuration() > 0) {
                     int p = (int)(player.getCurrentPosition() * 1000 / player.getDuration());
                     progressVideo.setProgress(p);
+                    // Save watch progress to Firebase at every 10% milestone
+                    int pct = (int)(player.getCurrentPosition() * 100 / player.getDuration());
+                    int milestone = (pct / 10) * 10; // round to nearest 10
+                    if (milestone != lastSavedProgressPct && milestone > 0) {
+                        lastSavedProgressPct = milestone;
+                        String uid = safeMyUid();
+                        if (uid != null && reel != null && reel.reelId != null) {
+                            FirebaseUtils.getReelWatchProgressRef(uid)
+                                .child(reel.reelId).setValue(milestone);
+                        }
+                    }
                 }
-                progressHandler.postDelayed(this, 200);
+                progressHandler.postDelayed(this, 300);
             }
         };
         progressHandler.post(progressRunnable);
@@ -1645,6 +1658,9 @@ public class ReelPlayerFragment extends Fragment
                     });
                 FirebaseUtils.getReelWatchHistoryRef(myUid).child(reel.reelId)
                     .setValue(System.currentTimeMillis());
+                // Reset progress to 0 on first view (will be updated as user watches)
+                FirebaseUtils.getReelWatchProgressRef(myUid).child(reel.reelId)
+                    .setValue(0);
 
                 // Write "🎬 Watched your reel" bubble into owner's chat with viewer.
                 // Only fires on first view (s.exists() guard above ensures this).
