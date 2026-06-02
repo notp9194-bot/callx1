@@ -1279,9 +1279,12 @@ public class ReelPlayerFragment extends Fragment
         String  myUid      = safeMyUid();
         boolean isOwner    = myUid != null && myUid.equals(reel.uid);
         String  speedLabel = "Speed: " + SPEED_LABELS[speedIndex];
+        boolean allowDuet   = reel.allowDuet;   // respect creator's privacy setting
+        boolean allowStitch = true;              // can add allowStitch to ReelModel later
 
         com.callx.app.ui.ReelMoreBottomSheet sheet =
-            com.callx.app.ui.ReelMoreBottomSheet.newInstance(isOwner, isSaved, speedLabel);
+            com.callx.app.ui.ReelMoreBottomSheet.newInstance(isOwner, isSaved, speedLabel,
+                                                              allowDuet, allowStitch);
         sheet.show(getChildFragmentManager(), com.callx.app.ui.ReelMoreBottomSheet.TAG);
     }
 
@@ -1322,8 +1325,6 @@ public class ReelPlayerFragment extends Fragment
                 openReelQRCode(); break;
             case com.callx.app.ui.ReelMoreBottomSheet.ACTION_DELETE:
                 confirmDeleteReel(); break;
-            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_REMIX_SETTINGS:
-                openRemixSettings(); break;
         }
     }
 
@@ -1395,96 +1396,17 @@ public class ReelPlayerFragment extends Fragment
 
     private void openDuet() {
         if (!isAdded() || getActivity() == null || reel == null) return;
-
-        // ── Own-reel guard (fast local check) ────────────────────────────
-        String myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
-        if (myUid != null && myUid.equals(reel.uid)) {
-            Toast.makeText(getContext(), "You can't duet your own reel", Toast.LENGTH_SHORT).show();
+        // Respect creator's privacy setting
+        if (!reel.allowDuet) {
+            Toast.makeText(getContext(), "This creator has disabled duets", Toast.LENGTH_SHORT).show();
             return;
         }
-
-        // ── Permission check from Firebase remix_settings ─────────────────
-        com.google.firebase.database.FirebaseDatabase.getInstance()
-            .getReference("reels")
-            .child(reel.reelId)
-            .child("remix_settings")
-            .child("duet")
-            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                @Override
-                public void onDataChange(@androidx.annotation.NonNull
-                                         com.google.firebase.database.DataSnapshot snap) {
-                    if (!isAdded() || getActivity() == null) return;
-
-                    String perm = snap.getValue(String.class);
-                    if (perm == null) perm = "everyone"; // default: open
-
-                    switch (perm) {
-                        case "off":
-                            Toast.makeText(getContext(),
-                                "@" + reel.ownerName + " has turned off duets",
-                                Toast.LENGTH_SHORT).show();
-                            break;
-
-                        case "followers":
-                            // Check if current user follows the reel owner
-                            com.google.firebase.database.FirebaseDatabase.getInstance()
-                                .getReference("followers")
-                                .child(reel.uid)
-                                .child(myUid)
-                                .addListenerForSingleValueEvent(
-                                    new com.google.firebase.database.ValueEventListener() {
-                                        @Override
-                                        public void onDataChange(
-                                            @androidx.annotation.NonNull
-                                            com.google.firebase.database.DataSnapshot fs) {
-                                            if (!isAdded() || getActivity() == null) return;
-                                            if (fs.exists()) {
-                                                launchDuet();
-                                            } else {
-                                                Toast.makeText(getContext(),
-                                                    "Only @" + reel.ownerName
-                                                        + "'s followers can duet this reel",
-                                                    Toast.LENGTH_SHORT).show();
-                                            }
-                                        }
-                                        @Override
-                                        public void onCancelled(
-                                            @androidx.annotation.NonNull
-                                            com.google.firebase.database.DatabaseError e) {}
-                                    });
-                            break;
-
-                        default: // "everyone"
-                            launchDuet();
-                            break;
-                    }
-                }
-
-                @Override
-                public void onCancelled(@androidx.annotation.NonNull
-                                         com.google.firebase.database.DatabaseError e) {
-                    if (!isAdded() || getActivity() == null) return;
-                    // Fail-open: if Firebase unreachable, allow the duet
-                    launchDuet();
-                }
-            });
-    }
-
-    private void openRemixSettings() {
-        if (!isAdded() || getActivity() == null || reel == null) return;
-        android.content.Intent i = new android.content.Intent(getActivity(),
-            com.callx.app.activities.ReelRemixSettingsActivity.class);
-        i.putExtra(com.callx.app.activities.ReelRemixSettingsActivity.EXTRA_REEL_ID, reel.reelId);
-        startActivity(i);
-    }
-
-    private void launchDuet() {
-        if (!isAdded() || getActivity() == null || reel == null) return;
         Intent i = new Intent(getActivity(), DuetReelActivity.class);
-        i.putExtra(DuetReelActivity.EXTRA_REEL_ID,    reel.reelId);
-        i.putExtra(DuetReelActivity.EXTRA_VIDEO_URL,  reel.videoUrl);
-        i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
-        i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,  reel.uid);
+        i.putExtra(DuetReelActivity.EXTRA_REEL_ID,        reel.reelId);
+        i.putExtra(DuetReelActivity.EXTRA_VIDEO_URL,      reel.videoUrl);
+        i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME,     reel.ownerName);
+        i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,      reel.uid);
+        i.putExtra(DuetReelActivity.EXTRA_DURATION_SEC,   reel.duration / 1000);
         startActivity(i);
     }
 

@@ -198,11 +198,9 @@ public class VideoUploader {
             .put("folder", folder).put("resource_type", "video");
         JSONObject s = sign(payload);
 
-        boolean isUnsigned = s.optBoolean("__unsigned", false);
-        String apiKey  = isUnsigned ? "" : s.optString("api_key",   "");
-        String sig     = isUnsigned ? "" : s.optString("signature", "");
-        String ts      = isUnsigned ? "" : s.optString("timestamp", "");
-        String preset  = isUnsigned ? s.optString("upload_preset", Constants.CLOUDINARY_PRESET) : "";
+        String apiKey  = s.getString("api_key");
+        String sig     = s.getString("signature");
+        String ts      = s.getString("timestamp");
         String cloud   = s.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
         String f       = s.optString("folder", folder);
         String uploadId = UUID.randomUUID().toString().replace("-", "");
@@ -230,7 +228,7 @@ public class VideoUploader {
 
                 final int    cNum    = chunkNum;
                 final int    cTotal  = totalChunks;
-                MultipartBody.Builder bodyBuilder = new MultipartBody.Builder()
+                RequestBody multipart = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", "chunk.mp4",
                         new CountingRequestBody(
@@ -241,15 +239,11 @@ public class VideoUploader {
                                     progress.onProgress((int)(overall * 100));
                                 }
                             }))
-                    .addFormDataPart("folder", f);
-                if (isUnsigned) {
-                    bodyBuilder.addFormDataPart("upload_preset", preset);
-                } else {
-                    bodyBuilder.addFormDataPart("api_key",   apiKey)
-                               .addFormDataPart("timestamp", ts)
-                               .addFormDataPart("signature", sig);
-                }
-                RequestBody multipart = bodyBuilder.build();
+                    .addFormDataPart("api_key",   apiKey)
+                    .addFormDataPart("timestamp", ts)
+                    .addFormDataPart("signature", sig)
+                    .addFormDataPart("folder",    f)
+                    .build();
 
                 Request req = new Request.Builder()
                     .url(upUrl).post(multipart)
@@ -297,44 +291,31 @@ public class VideoUploader {
             .put("folder", folder).put("resource_type", resourceType);
         JSONObject s = sign(payload);
 
-        String cloud   = s.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
-        String f       = s.optString("folder", folder);
-        String mime    = "image".equals(resourceType) ? "image/webp" : "video/mp4";
-        String ext     = "image".equals(resourceType) ? "webp"       : "mp4";
-        String upUrl   = "https://api.cloudinary.com/v1_1/" + cloud
+        String apiKey = s.getString("api_key");
+        String sig    = s.getString("signature");
+        String ts     = s.getString("timestamp");
+        String cloud  = s.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
+        String f      = s.optString("folder", folder);
+
+        String mime = "image".equals(resourceType) ? "image/webp" : "video/mp4";
+        String ext  = "image".equals(resourceType) ? "webp"       : "mp4";
+
+        RequestBody fileBody = new CountingRequestBody(
+            RequestBody.create(file, MediaType.parse(mime)), progress);
+
+        RequestBody multipart = new MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file",      "upload." + ext, fileBody)
+            .addFormDataPart("api_key",   apiKey)
+            .addFormDataPart("timestamp", ts)
+            .addFormDataPart("signature", sig)
+            .addFormDataPart("folder",    f)
+            .build();
+
+        String upUrl = "https://api.cloudinary.com/v1_1/" + cloud
             + "/" + resourceType + "/upload";
-
-        RequestBody multipart;
-        if (s.optBoolean("__unsigned", false)) {
-            // ── Unsigned upload (sign server was unreachable) ─────────────
-            String preset = s.optString("upload_preset", Constants.CLOUDINARY_PRESET);
-            RequestBody fileBody = new CountingRequestBody(
-                RequestBody.create(file, MediaType.parse(mime)), progress);
-            multipart = new MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("file",          "upload." + ext, fileBody)
-                .addFormDataPart("upload_preset", preset)
-                .addFormDataPart("folder",        f)
-                .build();
-        } else {
-            // ── Signed upload (normal path) ────────────────────────────────
-            String apiKey = s.getString("api_key");
-            String sig    = s.getString("signature");
-            String ts     = s.getString("timestamp");
-            RequestBody fileBody = new CountingRequestBody(
-                RequestBody.create(file, MediaType.parse(mime)), progress);
-            multipart = new MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("file",      "upload." + ext, fileBody)
-                .addFormDataPart("api_key",   apiKey)
-                .addFormDataPart("timestamp", ts)
-                .addFormDataPart("signature", sig)
-                .addFormDataPart("folder",    f)
-                .build();
-        }
-
-        Response upRes = HTTP.newCall(
-            new Request.Builder().url(upUrl).post(multipart).build()).execute();
+        Response upRes = HTTP.newCall(new Request.Builder().url(upUrl).post(multipart).build())
+            .execute();
         String upBody  = upRes.body() != null ? upRes.body().string() : "";
         upRes.close();
 
@@ -351,63 +332,19 @@ public class VideoUploader {
         return url;
     }
 
-    // ── Sign helper (falls back to unsigned upload when server unreachable) ──
+    // ── Sign helper ───────────────────────────────────────────────────────
 
-    /**
-     * Tries the sign server first. If it is unreachable (DNS failure, timeout,
-     * or HTTP error), falls back to unsigned Cloudinary upload via the preset.
-     *
-     * Returned JSON always contains:
-     *   { "cloud_name": "…", "folder": "…",
-     *     "api_key": "…", "timestamp": "…", "signature": "…" }   ← signed
-     * OR
-     *   { "cloud_name": "…", "folder": "…",
-     *     "__unsigned": true, "upload_preset": "…" }              ← unsigned fallback
-     */
     private static JSONObject sign(JSONObject payload) throws Exception {
-        try {
-            Request req = new Request.Builder()
-                .url(Constants.SERVER_URL + "/cloudinary/sign")
-                .post(RequestBody.create(payload.toString(),
-                    MediaType.parse("application/json")))
-                .build();
-            Response res  = HTTP.newCall(req).execute();
-            String   body = res.body() != null ? res.body().string() : "";
-            res.close();
-            if (res.isSuccessful()) return new JSONObject(body);
-            // Server returned an error — fall through to unsigned
-            Log.w(TAG, "Sign server HTTP error " + res.code() + " — using unsigned upload");
-        } catch (Exception e) {
-            // DNS failure / timeout / no route — fall through to unsigned
-            Log.w(TAG, "Sign server unreachable (" + e.getMessage()
-                + ") — falling back to unsigned Cloudinary upload");
-        }
-
-        // ── Unsigned fallback ─────────────────────────────────────────────
-        String folder = payload.optString("folder", "callx/videos/file");
-        JSONObject fallback = new JSONObject();
-        fallback.put("cloud_name",    Constants.CLOUDINARY_CLOUD_NAME);
-        fallback.put("folder",        folder);
-        fallback.put("__unsigned",    true);
-        fallback.put("upload_preset", Constants.CLOUDINARY_PRESET);
-        return fallback;
-    }
-
-    /**
-     * Build a multipart body for unsigned Cloudinary upload (no signature needed).
-     */
-    private static RequestBody unsignedBody(File file, String resourceType,
-                                            String folder, String preset)
-        throws IOException {
-        String mime = "image".equals(resourceType) ? "image/webp" : "video/mp4";
-        String ext  = "image".equals(resourceType) ? "webp"       : "mp4";
-        return new MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("file",          "upload." + ext,
-                RequestBody.create(file, MediaType.parse(mime)))
-            .addFormDataPart("upload_preset", preset)
-            .addFormDataPart("folder",        folder)
+        Request req = new Request.Builder()
+            .url(Constants.SERVER_URL + "/cloudinary/sign")
+            .post(RequestBody.create(payload.toString(), MediaType.parse("application/json")))
             .build();
+        Response res  = HTTP.newCall(req).execute();
+        String   body = res.body() != null ? res.body().string() : "";
+        res.close();
+        if (!res.isSuccessful())
+            throw new IOException("Sign failed (" + res.code() + "): " + body);
+        return new JSONObject(body);
     }
 
     // ── Progress tracking ─────────────────────────────────────────────────

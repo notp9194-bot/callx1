@@ -51,19 +51,14 @@ public class ReelModel {
     public String  repostedFromName;
 
     // ── Duet fields ──────────────────────────────────────────────────────────
-    /** true if this reel is a duet of another reel */
-    public boolean isDuet           = false;
-    /** reelId of the original reel that was dueted */
-    public String  duetOfReelId;
-    /** uid of the original reel owner */
-    public String  duetOfUid;
-    /** display name of the original reel owner */
-    public String  duetOfOwnerName;
-    /** original reel video URL (kept for attribution display in feed) */
-    public String  duetOfVideoUrl;
-    /** total times this reel has been dueted by others */
-    public int     duetCount        = 0;
-    // ────────────────────────────────────────────────────────────────────────
+    /** Whether other users can duet this reel. Default true. */
+    public boolean allowDuet     = true;
+    /** If this reel is a duet, the original reel's ID. Null otherwise. */
+    public String  duetOf;
+    /** UID of the original reel's creator (for push notification). */
+    public String  duetOfOwnerUid;
+    /** Running count of duets made on this reel. */
+    public int     duetCount;
 
     public ReelModel() {}
 

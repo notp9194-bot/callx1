@@ -34,6 +34,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private static final String ARG_IS_OWNER    = "is_owner";
     private static final String ARG_IS_SAVED    = "is_saved";
     private static final String ARG_SPEED_LABEL = "speed_label";
+    private static final String ARG_ALLOW_DUET   = "allow_duet";
+    private static final String ARG_ALLOW_STITCH = "allow_stitch";
 
     // Callback interface — caller handles all actions
     public interface OnItemClickListener {
@@ -59,7 +61,6 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_PINNED_COMMENTS     = "pinned_comments";
     public static final String ACTION_QR_CODE             = "qr_code";
     public static final String ACTION_DELETE              = "delete";
-    public static final String ACTION_REMIX_SETTINGS      = "remix_settings";
 
     // ─── Item model ──────────────────────────────────────────────────────────
     private static class MenuItem {
@@ -97,14 +98,20 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private boolean isOwner;
     private boolean isSaved;
     private String  speedLabel;
+    private boolean allowDuet   = true;
+    private boolean allowStitch = true;
 
     // ─── Factory ─────────────────────────────────────────────────────────────
-    public static ReelMoreBottomSheet newInstance(boolean isOwner, boolean isSaved, String speedLabel) {
+    public static ReelMoreBottomSheet newInstance(boolean isOwner, boolean isSaved,
+                                                  String speedLabel,
+                                                  boolean allowDuet, boolean allowStitch) {
         ReelMoreBottomSheet sheet = new ReelMoreBottomSheet();
         Bundle args = new Bundle();
         args.putBoolean(ARG_IS_OWNER,    isOwner);
         args.putBoolean(ARG_IS_SAVED,    isSaved);
         args.putString (ARG_SPEED_LABEL, speedLabel);
+        args.putBoolean(ARG_ALLOW_DUET,   allowDuet);
+        args.putBoolean(ARG_ALLOW_STITCH, allowStitch);
         sheet.setArguments(args);
         return sheet;
     }
@@ -127,6 +134,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             isOwner    = getArguments().getBoolean(ARG_IS_OWNER,    false);
             isSaved    = getArguments().getBoolean(ARG_IS_SAVED,    false);
             speedLabel = getArguments().getString (ARG_SPEED_LABEL, "Speed: 1x");
+            allowDuet   = getArguments().getBoolean(ARG_ALLOW_DUET,   true);
+            allowStitch = getArguments().getBoolean(ARG_ALLOW_STITCH, true);
         }
     }
 
@@ -227,8 +236,10 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections",R.drawable.ic_bookmark,  CLR_CYAN,   true));
         list.add(new MenuItem(ACTION_SPEED,                speedLabel,            R.drawable.ic_speed,     CLR_YELLOW, false));
         list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",            R.drawable.ic_download_reel, CLR_GREEN, true));
-        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_video_call,CLR_PURPLE, false));
-        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
+        if (allowDuet)
+            list.add(new MenuItem(ACTION_DUET,             "Duet",                R.drawable.ic_video_call,CLR_PURPLE, false));
+        if (allowStitch)
+            list.add(new MenuItem(ACTION_STITCH,           "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
         list.add(new MenuItem(ACTION_VIDEO_REPLY,          "Video Reply",         R.drawable.ic_reply,     CLR_PURPLE, false));
         list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,CLR_GREEN,  true));
         list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,     CLR_TEAL,   true));
@@ -253,11 +264,12 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_EDIT,                 "Edit Reel",           R.drawable.ic_edit,      CLR_ORANGE, false));
         list.add(new MenuItem(ACTION_ANALYTICS,            "Analytics",           R.drawable.ic_reel_explore, CLR_TEAL, false));
         list.add(new MenuItem(ACTION_PINNED_COMMENTS,      "Pinned Comments",     R.drawable.ic_pin,       CLR_TEAL,   true));
-        list.add(new MenuItem(ACTION_DUET,                 "Duet",                R.drawable.ic_video_call,CLR_PURPLE, false));
-        list.add(new MenuItem(ACTION_STITCH,               "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
+        if (allowDuet)
+            list.add(new MenuItem(ACTION_DUET,             "Duet",                R.drawable.ic_video_call,CLR_PURPLE, false));
+        if (allowStitch)
+            list.add(new MenuItem(ACTION_STITCH,           "Stitch",              R.drawable.ic_swap,      CLR_PURPLE, false));
         list.add(new MenuItem(ACTION_SHARE_TO_STORY,       "Share to Story",      R.drawable.ic_share_reel,CLR_GREEN,  true));
         list.add(new MenuItem(ACTION_QR_CODE,              "QR Code",             R.drawable.ic_qr_code,   CLR_ORANGE, false));
-        list.add(new MenuItem(ACTION_REMIX_SETTINGS,       "Remix Settings",      R.drawable.ic_swap,      CLR_PURPLE, false));
         list.add(new MenuItem(ACTION_COLLAB_REQUEST,       "Collab Request",      R.drawable.ic_group,     CLR_TEAL,   true));
         list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,      CLR_CYAN,   false));
         list.add(new MenuItem(ACTION_DELETE,               "Delete",              R.drawable.ic_delete,    CLR_RED,    false));

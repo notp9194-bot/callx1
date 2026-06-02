@@ -33,6 +33,11 @@ import com.callx.app.helpers.AudioMixHelper;
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.VideoCompressor;
+
+import com.google.firebase.database.ServerValue;
+
+import java.util.HashMap;
+import java.util.Map;
 import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.utils.VideoUploader;
 import com.google.android.material.chip.Chip;
@@ -79,12 +84,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     public static final String EXTRA_SOUND_ID    = "selected_sound_id";
     public static final String EXTRA_SOUND_TITLE = "selected_sound_title";
     public static final String EXTRA_SOUND_URL   = "selected_sound_url";
-    // ── Duet metadata ─────────────────────────────────────────────────────
-    public static final String EXTRA_IS_DUET           = "upload_is_duet";
-    public static final String EXTRA_DUET_OF_REEL_ID   = "upload_duet_of_reel_id";
-    public static final String EXTRA_DUET_OF_UID       = "upload_duet_of_uid";
-    public static final String EXTRA_DUET_OF_NAME      = "upload_duet_of_name";
-    public static final String EXTRA_DUET_OF_VIDEO_URL = "upload_duet_of_video_url";
+    // Fix 4 & 6 & 8: duet metadata
+    public static final String EXTRA_IS_DUET          = "upload_is_duet";
+    public static final String EXTRA_DUET_ORIGINAL_ID = "upload_duet_original_id";
+    public static final String EXTRA_DUET_OWNER_UID   = "upload_duet_owner_uid";
+    public static final String EXTRA_DUET_LABEL       = "upload_duet_label";
 
     private static final int REQ_PICK_VIDEO  = 901;
     private static final int REQ_PERMISSION  = 902;
@@ -121,12 +125,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     // If true, skip AudioMixHelper in handlePostReel() to avoid double-mixing.
     private boolean audioAlreadyReplaced = false;
 
-    // ── Duet fields read from intent (set by DuetReelActivity → ReelEditorActivity) ──
-    private boolean isDuet           = false;
-    private String  duetOfReelId     = "";
-    private String  duetOfUid        = "";
-    private String  duetOfOwnerName  = "";
-    private String  duetOfVideoUrl   = "";
+    // Fix 4 & 6 & 8: duet metadata
+    private boolean isDuet          = false;
+    private String  duetOriginalId  = "";
+    private String  duetOwnerUid    = "";
+    private String  duetLabel       = "";
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -222,19 +225,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         // ✅ NEW: If ReelCameraActivity already replaced mic audio, skip mixing at upload time.
         audioAlreadyReplaced = i.getBooleanExtra("audio_already_replaced", false);
 
-        // ── Read duet metadata (set by DuetReelActivity via ReelEditorActivity) ──
-        isDuet = i.getBooleanExtra(EXTRA_IS_DUET, false);
-        if (isDuet) {
-            String dRid    = i.getStringExtra(EXTRA_DUET_OF_REEL_ID);
-            String dUid    = i.getStringExtra(EXTRA_DUET_OF_UID);
-            String dName   = i.getStringExtra(EXTRA_DUET_OF_NAME);
-            String dVidUrl = i.getStringExtra(EXTRA_DUET_OF_VIDEO_URL);
-            if (dRid    != null) duetOfReelId    = dRid;
-            if (dUid    != null) duetOfUid       = dUid;
-            if (dName   != null) duetOfOwnerName = dName;
-            if (dVidUrl != null) duetOfVideoUrl  = dVidUrl;
-        }
-
         // ── If no video URI, stop here (gallery flow: user picks video later) ──
         String videoUriStr = i.getStringExtra(EXTRA_VIDEO_URI);
         if (videoUriStr == null || videoUriStr.isEmpty()) return;
@@ -260,6 +250,15 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (musicName != null && !musicName.isEmpty() && etMusic != null) {
             etMusic.setText(musicName);
         }
+
+        // Fix 4 & 6 & 8: read duet metadata
+        isDuet         = i.getBooleanExtra(EXTRA_IS_DUET, false);
+        String dOId    = i.getStringExtra(EXTRA_DUET_ORIGINAL_ID);
+        String dOUid   = i.getStringExtra(EXTRA_DUET_OWNER_UID);
+        String dLabel  = i.getStringExtra(EXTRA_DUET_LABEL);
+        if (dOId   != null) duetOriginalId = dOId;
+        if (dOUid  != null) duetOwnerUid   = dOUid;
+        if (dLabel != null) duetLabel      = dLabel;
     }
 
     // ── Permission ────────────────────────────────────────────────────────
@@ -594,16 +593,13 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.compressionSummary = result.compressionSummary();
                     reel.savingsPercent     = result.savingsPercent();
                 }
-
-                // ── Attach duet metadata ───────────────────────────────────
-                if (a.isDuet && !a.duetOfReelId.isEmpty()) {
-                    reel.isDuet          = true;
-                    reel.duetOfReelId    = a.duetOfReelId;
-                    reel.duetOfUid       = a.duetOfUid;
-                    reel.duetOfOwnerName = a.duetOfOwnerName;
-                    reel.duetOfVideoUrl  = a.duetOfVideoUrl;
+                // Fix 4 & 8: duet fields on the new reel
+                if (a.isDuet && !a.duetOriginalId.isEmpty()) {
+                    reel.duetOf        = a.duetOriginalId;
+                    reel.duetOfOwnerUid = a.duetOwnerUid;
+                    reel.caption       = a.duetLabel.isEmpty() ? reel.caption
+                                         : (a.duetLabel + (reel.caption.isEmpty() ? "" : " – " + reel.caption));
                 }
-                // ──────────────────────────────────────────────────────────
 
                 FirebaseUtils.getReelsRef().child(finalReelId).setValue(reel)
                     .addOnSuccessListener(unused -> {
@@ -614,6 +610,30 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                         Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
                         b.setResult(RESULT_OK);
+
+                        // Fix 6: increment duetCount on original reel
+                        if (b.isDuet && !b.duetOriginalId.isEmpty()) {
+                            FirebaseUtils.getReelsRef()
+                                .child(b.duetOriginalId)
+                                .child("duetCount")
+                                .setValue(ServerValue.increment(1));
+
+                            // Fix 6: push notification to original reel owner
+                            if (!b.duetOwnerUid.isEmpty() && !b.duetOwnerUid.equals(myUid)) {
+                                Map<String, Object> notif = new HashMap<>();
+                                notif.put("type",      "duet");
+                                notif.put("fromUid",   myUid);
+                                notif.put("fromName",  myName);
+                                notif.put("reelId",    b.duetOriginalId);
+                                notif.put("duetReelId",finalReelId);
+                                notif.put("timestamp", System.currentTimeMillis());
+                                com.google.firebase.database.FirebaseDatabase.getInstance()
+                                    .getReference("notifications")
+                                    .child(b.duetOwnerUid)
+                                    .push()
+                                    .setValue(notif);
+                            }
+                        }
 
                         // ── Background: extract + upload original audio ───────
                         // This runs after the reel is already live, so user doesn't wait.
@@ -639,44 +659,6 @@ public class ReelUploadActivity extends AppCompatActivity {
                                 });
                         }
                         // ─────────────────────────────────────────────────────
-
-                        // ── Duet post-save: increment duetCount + send notification ──
-                        if (b.isDuet && !b.duetOfReelId.isEmpty()) {
-                            // Atomically increment duetCount on original reel
-                            FirebaseUtils.getReelsRef()
-                                .child(b.duetOfReelId).child("duetCount")
-                                .runTransaction(new Transaction.Handler() {
-                                    @NonNull @Override
-                                    public Transaction.Result doTransaction(@NonNull MutableData d) {
-                                        Integer cur = d.getValue(Integer.class);
-                                        d.setValue(cur == null ? 1 : cur + 1);
-                                        return Transaction.success(d);
-                                    }
-                                    @Override public void onComplete(DatabaseError e, boolean committed,
-                                                                     DataSnapshot snap) {}
-                                });
-
-                            // Index this duet under duets/{originalReelId}/{newReelId}
-                            com.google.firebase.database.FirebaseDatabase.getInstance()
-                                .getReference("duets")
-                                .child(b.duetOfReelId)
-                                .child(finalReelId)
-                                .setValue(true);
-
-                            // Send notification to original reel owner (non-fatal if it fails)
-                            try {
-                                com.callx.app.notifications.ReelNotificationHelper
-                                    .showDuetNotification(b,
-                                        myName,
-                                        safePhoto,
-                                        b.duetOfReelId,
-                                        finalReelId);
-                            } catch (Exception notifEx) {
-                                Log.w("ReelUpload", "Duet notification failed (non-fatal): "
-                                    + notifEx.getMessage());
-                            }
-                        }
-                        // ──────────────────────────────────────────────────────
 
                         b.finish();
                     })
