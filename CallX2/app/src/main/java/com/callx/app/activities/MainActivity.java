@@ -239,11 +239,11 @@ public class MainActivity extends AppCompatActivity {
         String tab = intent.getStringExtra("open_tab");
         if (tab == null) return;
         switch (tab) {
-            case "chats":        binding.viewPager.setCurrentItem(0, false); break;
-            case "status":       binding.viewPager.setCurrentItem(1, false); break;
-            case "groups":       binding.viewPager.setCurrentItem(2, false); break;
-            case "reels":        binding.viewPager.setCurrentItem(3, false); break;
-            case "calls":        binding.viewPager.setCurrentItem(4, false); break;
+            case "chats":        binding.viewPager.setCurrentItem(TAB_CHATS,  false); break;
+            case "reels":        binding.viewPager.setCurrentItem(TAB_REELS,  false); break;
+            case "status":       binding.viewPager.setCurrentItem(TAB_STATUS, false); break;
+            case "groups":       binding.viewPager.setCurrentItem(TAB_GROUPS, false); break;
+            case "calls":        binding.viewPager.setCurrentItem(TAB_CALLS,  false); break;
         }
     }
 
@@ -625,11 +625,11 @@ public class MainActivity extends AppCompatActivity {
         if (ytEntryRoot == null) return;
 
         de.hdodenhof.circleimageview.CircleImageView ivAvatar =
-            ytEntryRoot.findViewById(com.callx.app.youtube.R.id.iv_yt_entry_avatar);
+            ytEntryRoot.findViewById(R.id.iv_yt_entry_avatar);
         View stripView =
-            ytEntryRoot.findViewById(com.callx.app.youtube.R.id.ll_yt_entry_strip);
+            ytEntryRoot.findViewById(R.id.ll_yt_entry_strip);
         TextView tvBadge =
-            ytEntryRoot.findViewById(com.callx.app.youtube.R.id.tv_yt_entry_badge);
+            ytEntryRoot.findViewById(R.id.tv_yt_entry_badge);
 
         // Load YouTube channel avatar from youtube/channels/{uid} (YouTube ka alag profile)
         String uid = currentUid();
@@ -697,8 +697,9 @@ public class MainActivity extends AppCompatActivity {
         View gamesEntryRoot = findViewById(R.id.include_games_entry);
         if (gamesEntryRoot == null) return;
 
-        CircleImageView ivAvatar = gamesEntryRoot.findViewById(R.id.iv_games_entry_avatar);
+        CircleImageView ivAvatar = (CircleImageView) gamesEntryRoot.findViewById(R.id.iv_games_entry_avatar);
         View stripView           = gamesEntryRoot.findViewById(R.id.ll_games_entry_strip);
+        if (ivAvatar == null || stripView == null) return;
 
         // Load user's main profile avatar (same as app profile — Games uses same identity)
         String uid = currentUid();
