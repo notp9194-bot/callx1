@@ -1156,7 +1156,9 @@ public class GroupCallActivity extends AppCompatActivity {
         fg.putExtra(GroupCallForegroundService.EXTRA_IS_VIDEO, isVideo);
         fg.putExtra(GroupCallForegroundService.EXTRA_PARTICIPANT_COUNT,
             participants.size() + 1);
-        fg.putExtra(GroupCallForegroundService.EXTRA_MY_UID, myUid != null ? myUid : "");
+        fg.putExtra(GroupCallForegroundService.EXTRA_MY_UID,   myUid   != null ? myUid   : "");
+        fg.putExtra(GroupCallForegroundService.EXTRA_GROUP_ID,  groupId != null ? groupId : "");
+        fg.putExtra(GroupCallForegroundService.EXTRA_IS_CALLER, isCaller);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             startForegroundService(fg);
         else startService(fg);

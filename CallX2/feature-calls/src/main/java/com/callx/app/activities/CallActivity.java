@@ -858,6 +858,8 @@ public class CallActivity extends AppCompatActivity {
         fg.putExtra("callId",       callId != null ? callId : "");
         fg.putExtra("isVideo",      isVideo);
         fg.putExtra("partnerThumb", partnerThumb != null ? partnerThumb : "");
+        fg.putExtra(CallForegroundService.EXTRA_PARTNER_UID, partnerUid != null ? partnerUid : "");
+        fg.putExtra(CallForegroundService.EXTRA_DIRECTION,   isCaller ? "outgoing" : "incoming");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(fg);
         else startService(fg);
 

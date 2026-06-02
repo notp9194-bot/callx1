@@ -13,6 +13,8 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import com.callx.app.calls.R;
 import com.callx.app.activities.GroupCallActivity;
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.CallLogEntity;
 import com.callx.app.utils.Constants;
 
 /**
@@ -28,16 +30,22 @@ public class GroupCallForegroundService extends Service {
     public static final String EXTRA_IS_VIDEO          = "fg_is_video";
     public static final String EXTRA_PARTICIPANT_COUNT = "fg_participant_count";
     public static final String EXTRA_MY_UID            = "fg_my_uid";
+    public static final String EXTRA_GROUP_ID          = "fg_group_id";
+    public static final String EXTRA_IS_CALLER         = "fg_is_caller";
 
     private String  groupName        = "";
     private String  callId           = "";
     private String  myUid            = "";
+    private String  groupId          = "";
+    private boolean isCaller         = false;
     private boolean isVideo          = false;
     private int     participantCount = 2;
     private long    startedAt        = 0;
 
     private final Handler tickHandler = new Handler(Looper.getMainLooper());
     private Runnable tickRunnable;
+    private final java.util.concurrent.ExecutorService bgEx =
+        java.util.concurrent.Executors.newSingleThreadExecutor();
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -48,6 +56,9 @@ public class GroupCallForegroundService extends Service {
             if (gn != null) groupName        = gn;
             if (ci != null) callId           = ci;
             if (mu != null) myUid            = mu;
+            String gi = intent.getStringExtra(EXTRA_GROUP_ID);
+            if (gi != null) groupId = gi;
+            isCaller = intent.getBooleanExtra(EXTRA_IS_CALLER, false);
             isVideo          = intent.getBooleanExtra(EXTRA_IS_VIDEO, false);
             participantCount = intent.getIntExtra(EXTRA_PARTICIPANT_COUNT, 2);
         }
@@ -70,6 +81,28 @@ public class GroupCallForegroundService extends Service {
                     callRef.child("participants").child(myUid).child("status").setValue("left");
                 }
             } catch (Exception ignored) {}
+        }
+        // FIX-KILLED: Room calllog write — app kill hone pe group call history blank na rahe
+        if (startedAt > 0 && !groupId.isEmpty()) {
+            final long dur = System.currentTimeMillis() - startedAt;
+            final String fGroupId = groupId, fGroupName = groupName;
+            final String fDir = isCaller ? "outgoing" : "incoming";
+            final String fType = isVideo ? "group_video" : "group_audio";
+            final long fTs = startedAt;
+            bgEx.execute(() -> {
+                try {
+                    CallLogEntity entity = new CallLogEntity();
+                    entity.id          = java.util.UUID.randomUUID().toString();
+                    entity.partnerUid  = fGroupId;
+                    entity.partnerName = fGroupName != null ? fGroupName : "";
+                    entity.direction   = fDir;
+                    entity.mediaType   = fType;
+                    entity.timestamp   = fTs;
+                    entity.duration    = dur;
+                    AppDatabase.getInstance(getApplicationContext())
+                        .callLogDao().insertCallLog(entity);
+                } catch (Exception ignored) {}
+            });
         }
         stopSelf();
         super.onTaskRemoved(rootIntent);
