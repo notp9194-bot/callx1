@@ -39,6 +39,7 @@
       private boolean isVideo, acted = false;
       private ValueEventListener statusListener;
       private final Handler autoRejectHandler = new Handler(Looper.getMainLooper());
+      private Vibrator vibrator;
       private static final int AUTO_REJECT_MS = 60_000;
       @Override
       protected void onCreate(Bundle savedInstanceState) {
@@ -251,7 +252,6 @@
               pulse.playTogether(scaleX, scaleY);
               pulse.setDuration(800);
               pulse.setInterpolator(new DecelerateInterpolator());
-              pulse.setRepeatCount(ObjectAnimator.INFINITE); // pulse repeats
               scaleX.setRepeatCount(ObjectAnimator.INFINITE);
               scaleY.setRepeatCount(ObjectAnimator.INFINITE);
               scaleX.setRepeatMode(ObjectAnimator.REVERSE);
