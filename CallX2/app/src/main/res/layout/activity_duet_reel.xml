@@ -26,13 +26,18 @@
                 FIX: app:resize_mode="fill" — video fills the entire half without blank bars
                 use_controller="false" — no ExoPlayer controls shown
             -->
+            <!--
+                CRITICAL FIX: surface_type="texture_view" — SurfaceView conflicts with
+                CameraX PreviewView (both fight for Z-layer ownership, one goes blank).
+                TextureView renders in the same window layer — no conflict.
+            -->
             <androidx.media3.ui.PlayerView
                 android:id="@+id/player_view_original"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 app:use_controller="false"
                 app:resize_mode="fill"
-                app:surface_type="surface_view"/>
+                app:surface_type="texture_view"/>
 
             <TextView
                 android:layout_width="wrap_content"

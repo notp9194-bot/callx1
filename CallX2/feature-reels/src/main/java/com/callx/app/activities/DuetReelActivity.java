@@ -166,14 +166,16 @@ public class DuetReelActivity extends AppCompatActivity {
     private void setupOriginalPlayer() {
         exoPlayer = new ExoPlayer.Builder(this).build();
 
-        // FIX: use_artwork=false, resize_mode=fill so video fills the pane
+        // CRITICAL FIX: TextureView — SurfaceView conflicts with CameraX PreviewView
+        // (SurfaceView creates its own Z-layer, clashes with camera surface → blank)
+        // TextureView renders in same window layer as camera, both show correctly.
         playerViewOriginal.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         playerViewOriginal.setUseArtwork(false);
         playerViewOriginal.setPlayer(exoPlayer);
 
         exoPlayer.setMediaItem(MediaItem.fromUri(videoUrl));
         exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
-        exoPlayer.setVolume(0f); // mute original — mic audio only in recording
+        exoPlayer.setVolume(0f);
         exoPlayer.prepare();
 
         exoPlayer.addListener(new Player.Listener() {
