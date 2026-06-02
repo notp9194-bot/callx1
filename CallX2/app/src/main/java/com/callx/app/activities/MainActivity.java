@@ -274,6 +274,9 @@ public class MainActivity extends AppCompatActivity {
         // isTabActive stays true and reels keep playing in the background.
         boolean isReelsTab = binding.viewPager.getCurrentItem() == TAB_REELS;
         notifyReelsTabVisibility(isReelsTab);
+        // FIX: Re-apply nav visibility on resume — onPageSelected does NOT re-fire
+        // when returning from a sub-activity on the same tab, so bars stay hidden.
+        setMainNavVisible(!isReelsTab);
     }
 
     @Override protected void onDestroy() {
