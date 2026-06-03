@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.media.MediaPlayer;
 import android.view.*;
 import android.widget.*;
+import android.widget.SeekBar;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.paging.PagingDataAdapter;
@@ -741,9 +742,26 @@ public class MessagePagingAdapter
                     String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     final int pos = position;
                     h.btnPlayPause.setOnClickListener(v -> toggleAudio(h, aUrl, pos));
-                    // FIX: restore correct icon — if this item is the one currently playing
                     boolean isThisPlaying = (pos == playingPos && player != null && player.isPlaying());
                     h.btnPlayPause.setImageResource(isThisPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
+                    // Duration
+                    if (h.tvAudioDur != null)
+                        h.tvAudioDur.setText(m.duration != null ? FileUtils.formatDuration(m.duration) : "0:00");
+                    // SeekBar wiring
+                    if (h.seekAudio != null) {
+                        h.seekAudio.setMax(100);
+                        h.seekAudio.setProgress(isThisPlaying ? getCurrentAudioProgress() : 0);
+                        h.seekAudio.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                                if (fromUser && player != null && playingPos == pos) {
+                                    int dur = player.getDuration();
+                                    if (dur > 0) player.seekTo(progress * dur / 100);
+                                }
+                            }
+                            @Override public void onStartTrackingTouch(SeekBar sb) {}
+                            @Override public void onStopTrackingTouch(SeekBar sb) {}
+                        });
+                    }
                     // FIX v14: Audio preload — MediaStreamCache se pehle 512KB cache karo
                     // Taaki play button press karne par turant start ho, buffer nahi kare
                     java.io.File cachedAudio = MediaCache.getCached(ctx, aUrl);
@@ -819,44 +837,64 @@ public class MessagePagingAdapter
                 break;
         }
 
-        // ── Delivery status (sent messages only) ─────────────────
-        if (sent && h.tvStatus != null) {
-            h.tvStatus.setVisibility(View.VISIBLE);
-            String status = m.status != null ? m.status : "sent";
-            switch (status) {
-                case "seen":
-                case "read":
-                    h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
-                    break;
-                case "delivered":
-                    h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
-                    break;
-                case "pending":
-                    // Clock icon — sent locally, not yet reached Firebase
-                    h.tvStatus.setText("🕐");
-                    h.tvStatus.setTextColor(0xFFAAAAAA);
-                    break;
-                case "failed":
-                    // Error icon — Firebase push rejected; tap to retry
-                    h.tvStatus.setText("⚠");
-                    h.tvStatus.setTextColor(0xFFFF5555);
-                    h.tvStatus.setOnClickListener(v -> {
-                        if (actionListener != null) actionListener.onRetry(m);
-                    });
-                    break;
-                default: // "sent" — one grey tick
-                    h.tvStatus.setText("✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
-                    h.tvStatus.setOnClickListener(null);
-                    break;
-            }
-        } else if (h.tvStatus != null) {
-            h.tvStatus.setVisibility(View.GONE);
+        // ── Delivery status — iv_status drawable icons ─────────────────
+        if (h.ivStatus != null) {
+            if (sent) {
+                h.ivStatus.setVisibility(View.VISIBLE);
+                String status = m.status != null ? m.status : "pending";
+                switch (status) {
+                    case "seen": case "read":
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_double_blue); break;
+                    case "delivered":
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_double); break;
+                    case "failed":
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_failed); break;
+                    case "pending":
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_clock); break;
+                    default:
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_single); break;
+                }
+            } else { h.ivStatus.setVisibility(View.GONE); }
+        }
+        // Retry button for failed messages
+        if (h.btnRetry != null) {
+            boolean failed = "failed".equals(m.status) && sent;
+            h.btnRetry.setVisibility(failed ? View.VISIBLE : View.GONE);
+            if (failed) h.btnRetry.setOnClickListener(v -> { if (actionListener != null) actionListener.onRetry(m); });
+        }
+        // Legacy tv_status — always hide (new layouts use iv_status)
+        if (h.tvStatus != null) h.tvStatus.setVisibility(View.GONE);
+
+        // ── Link Preview ────────────────────────────────────────────
+        if (h.llLinkPreview != null) {
+            boolean hasPreview = m.linkPreviewUrl != null && !m.linkPreviewUrl.isEmpty();
+            boolean hasTitle   = m.linkPreviewTitle != null && !m.linkPreviewTitle.isEmpty();
+            if ((hasPreview || hasTitle) && ("text".equals(m.type) || m.type == null)) {
+                h.llLinkPreview.setVisibility(View.VISIBLE);
+                if (h.tvLinkTitle != null) h.tvLinkTitle.setText(hasTitle ? m.linkPreviewTitle : m.linkPreviewUrl);
+                if (h.tvLinkDesc != null) {
+                    if (m.linkPreviewDescription != null && !m.linkPreviewDescription.isEmpty()) {
+                        h.tvLinkDesc.setVisibility(View.VISIBLE); h.tvLinkDesc.setText(m.linkPreviewDescription);
+                    } else h.tvLinkDesc.setVisibility(View.GONE);
+                }
+                if (h.tvLinkSite != null) {
+                    if (m.linkPreviewSiteName != null && !m.linkPreviewSiteName.isEmpty()) {
+                        h.tvLinkSite.setVisibility(View.VISIBLE); h.tvLinkSite.setText(m.linkPreviewSiteName);
+                    } else h.tvLinkSite.setVisibility(View.GONE);
+                }
+                if (h.ivLinkImage != null) {
+                    if (m.linkPreviewImageUrl != null && !m.linkPreviewImageUrl.isEmpty()) {
+                        h.ivLinkImage.setVisibility(View.VISIBLE);
+                        Glide.with(ctx).load(m.linkPreviewImageUrl).centerCrop().into(h.ivLinkImage);
+                    } else h.ivLinkImage.setVisibility(View.GONE);
+                }
+                final String lUrl = m.linkPreviewUrl;
+                h.llLinkPreview.setOnClickListener(v -> {
+                    if (lUrl != null) try {
+                        ctx.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(lUrl)));
+                    } catch (Exception ignored) {}
+                });
+            } else h.llLinkPreview.setVisibility(View.GONE);
         }
 
         // ── Long press — multi-select mode ya action sheet ─────────────────
@@ -890,6 +928,15 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // Audio playback toggle
     // ──────────────────────────────────────────────────────────────
+    private int getCurrentAudioProgress() {
+        if (player == null || !player.isPlaying()) return 0;
+        try {
+            int dur = player.getDuration();
+            int cur = player.getCurrentPosition();
+            return dur > 0 ? cur * 100 / dur : 0;
+        } catch (Exception e) { return 0; }
+    }
+
     private void toggleAudio(@NonNull VH h, String url, int position) {
         if (playingPos == position && player != null && player.isPlaying()) {
             player.pause();
@@ -1140,45 +1187,71 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
-        TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
+        TextView     tvDateHeader;
         ImageView    ivImage;
-        TextView     tvStatus;   // tv_status in both item layouts
+        TextView     tvStatus;
         LinearLayout llAudio, llFile;
         ImageButton  btnPlayPause;
         ImageView    btnDownload;
-        // SwipeReplySystem v1: reply preview views
+        SeekBar      seekAudio;
+        TextView     tvAudioDur;
         LinearLayout llReplyPreview;
         TextView     tvReplySender, tvReplyText;
         ImageView    ivReplyThumb;
-        // Reactions row (ll_reactions / tv_reactions in both item layouts)
         LinearLayout llReactions;
         TextView     tvReactions;
-        // Unread messages divider
         TextView     tvUnreadDivider;
+        // Production additions
+        android.widget.ImageView    ivStatus;
+        android.widget.ImageButton  btnRetry;
+        android.view.View           llLinkPreview;
+        android.widget.TextView     tvLinkTitle, tvLinkDesc, tvLinkSite;
+        android.widget.ImageView    ivLinkImage;
+        android.widget.LinearLayout llContact;
+        android.widget.TextView     tvContactName, tvContactPhone;
+        de.hdodenhof.circleimageview.CircleImageView ivContactPhoto;
+        android.widget.FrameLayout  flImage, flUploadOverlay;
+        android.widget.ProgressBar  progressImageUpload;
+        android.widget.TextView     tvUploadPct;
 
         VH(@NonNull View v) {
             super(v);
-            tvMessage      = v.findViewById(R.id.tv_message);
-            tvTime         = v.findViewById(R.id.tv_time);
-            tvSenderName   = v.findViewById(R.id.tv_sender_name);
-            tvDateHeader   = v.findViewById(R.id.tv_date_header);
-            ivImage        = v.findViewById(R.id.iv_image);
-            tvStatus       = v.findViewById(R.id.tv_status);
-            llAudio        = v.findViewById(R.id.ll_audio);
-            btnPlayPause   = v.findViewById(R.id.btn_play_pause);
-            llFile         = v.findViewById(R.id.ll_file);
-            tvFileName     = v.findViewById(R.id.tv_file_name);
-            btnDownload    = v.findViewById(R.id.btn_download);
-            // SwipeReplySystem v1
-            llReplyPreview = v.findViewById(R.id.ll_reply_preview);
-            tvReplySender  = v.findViewById(R.id.tv_reply_sender);
-            tvReplyText    = v.findViewById(R.id.tv_reply_text);
-            ivReplyThumb   = v.findViewById(R.id.iv_reply_thumb);
-            // Reactions
-            llReactions    = v.findViewById(R.id.ll_reactions);
-            tvReactions    = v.findViewById(R.id.tv_reactions);
-            // Unread divider
-            tvUnreadDivider = v.findViewById(R.id.tv_unread_divider);
+            tvMessage        = v.findViewById(R.id.tv_message);
+            tvTime           = v.findViewById(R.id.tv_time);
+            tvSenderName     = v.findViewById(R.id.tv_sender_name);
+            tvDateHeader     = v.findViewById(R.id.tv_date_header);
+            ivImage          = v.findViewById(R.id.iv_image);
+            tvStatus         = v.findViewById(R.id.tv_status);
+            llAudio          = v.findViewById(R.id.ll_audio);
+            btnPlayPause     = v.findViewById(R.id.btn_play_pause);
+            seekAudio        = v.findViewById(R.id.seek_audio);
+            tvAudioDur       = v.findViewById(R.id.tv_audio_dur);
+            llFile           = v.findViewById(R.id.ll_file);
+            tvFileName       = v.findViewById(R.id.tv_file_name);
+            btnDownload      = v.findViewById(R.id.btn_download);
+            llReplyPreview   = v.findViewById(R.id.ll_reply_preview);
+            tvReplySender    = v.findViewById(R.id.tv_reply_sender);
+            tvReplyText      = v.findViewById(R.id.tv_reply_text);
+            ivReplyThumb     = v.findViewById(R.id.iv_reply_thumb);
+            llReactions      = v.findViewById(R.id.ll_reactions);
+            tvReactions      = v.findViewById(R.id.tv_reactions);
+            tvUnreadDivider  = v.findViewById(R.id.tv_unread_divider);
+            // Production additions
+            ivStatus         = v.findViewById(R.id.iv_status);
+            btnRetry         = v.findViewById(R.id.btn_retry);
+            llLinkPreview    = v.findViewById(R.id.ll_link_preview);
+            tvLinkTitle      = v.findViewById(R.id.tv_link_title);
+            tvLinkDesc       = v.findViewById(R.id.tv_link_desc);
+            tvLinkSite       = v.findViewById(R.id.tv_link_site);
+            ivLinkImage      = v.findViewById(R.id.iv_link_image);
+            llContact        = v.findViewById(R.id.ll_contact);
+            tvContactName    = v.findViewById(R.id.tv_contact_name);
+            tvContactPhone   = v.findViewById(R.id.tv_contact_phone);
+            ivContactPhoto   = v.findViewById(R.id.iv_contact_photo);
+            flImage          = v.findViewById(R.id.fl_image);
+            flUploadOverlay  = v.findViewById(R.id.fl_upload_overlay);
+            progressImageUpload = v.findViewById(R.id.progress_image_upload);
+            tvUploadPct      = v.findViewById(R.id.tv_upload_pct);
         }
     }
 }

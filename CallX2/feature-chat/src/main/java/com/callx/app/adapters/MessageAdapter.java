@@ -137,6 +137,25 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
         boolean sent = viewType == TYPE_SENT;
 
+        // ── Message grouping: hide tail for consecutive messages from same sender ──
+        boolean showTail = true;
+        if (pos + 1 < messages.size()) {
+            Message next = messages.get(pos + 1);
+            if (!Boolean.TRUE.equals(next.deleted) && next.senderId != null
+                    && next.senderId.equals(m.senderId)
+                    && (next.timestamp != null && m.timestamp != null
+                        && (next.timestamp - m.timestamp) < 60_000)) { // within 60s
+                showTail = false;
+            }
+        }
+        // Apply no-tail bubble background when consecutive
+        android.view.View llBubbleGroup = h.itemView.findViewById(R.id.ll_bubble);
+        if (llBubbleGroup != null && showTail == false) {
+            llBubbleGroup.setBackgroundResource(sent
+                ? R.drawable.bubble_sent   // fallback — ideally bubble_sent_notail
+                : R.drawable.bubble_received);
+        }
+
         h.tvMessage.setVisibility(View.GONE);
         h.ivImage.setVisibility(View.GONE);
         if (h.flVideo  != null) h.flVideo.setVisibility(View.GONE);
@@ -229,36 +248,43 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
         switch (type) {
             case "image": {
-                h.ivImage.setVisibility(View.VISIBLE);
+                // Use fl_image wrapper if available (new layout), else direct iv_image
+                if (h.flImage != null) h.flImage.setVisibility(View.VISIBLE);
+                else h.ivImage.setVisibility(View.VISIBLE);
                 String url = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
-                android.util.Log.d("ImageLoad", "Loading image: " + url);
-                // Check if already cached
                 java.io.File cached = MediaCache.getCached(ctx, url);
                 if (cached != null) {
-                    android.util.Log.d("ImageLoad", "Image found in cache: " + cached.getAbsolutePath());
                     Glide.with(ctx).load(cached)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
                             .into(h.ivImage);
                 } else {
-                    android.util.Log.d("ImageLoad", "Image NOT in cache, will download: " + url);
-                    // Not cached yet - load from network and let MediaCache download in background
                     Glide.with(ctx).load(url)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
                             .into(h.ivImage);
-                    // Background cache
                     MediaCache.get(ctx, url, new MediaCache.Callback() {
-                        @Override public void onReady(java.io.File file) {
-                            android.util.Log.d("ImageLoad", "Image cached: " + file.getAbsolutePath());
-                        }
-                        @Override public void onError(String reason) {
-                            android.util.Log.w("ImageLoad", "Failed to cache image: " + reason);
-                        }
+                        @Override public void onReady(java.io.File file) {}
+                        @Override public void onError(String reason) {}
                     });
+                }
+                // Per-message upload progress (local uploads)
+                if (h.flUploadOverlay != null) {
+                    if (m.uploadProgress >= 0 && m.uploadProgress < 100) {
+                        h.flUploadOverlay.setVisibility(View.VISIBLE);
+                        if (h.progressImageUpload != null) h.progressImageUpload.setProgress(m.uploadProgress);
+                        if (h.tvUploadPct != null) h.tvUploadPct.setText(m.uploadProgress + "%");
+                    } else {
+                        h.flUploadOverlay.setVisibility(View.GONE);
+                    }
                 }
                 final String fu = url;
                 h.ivImage.setOnClickListener(v -> openMedia(ctx, fu, "image"));
+                // Long press on image — save/share options
+                h.ivImage.setOnLongClickListener(v -> {
+                    showImageActions(ctx, m, sent, fu);
+                    return true;
+                });
                 break;
             }
             case "video": {
@@ -334,19 +360,34 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     h.btnPlayAudio.setOnClickListener(v -> togglePlay(h, m, fPos));
                     h.btnPlayAudio.setImageResource(
                             playingPos == pos ? R.drawable.ic_pause : R.drawable.ic_play);
-                    
+
+                    // ── SeekBar wiring ──────────────────────────────────────────
+                    if (h.seekAudio != null) {
+                        h.seekAudio.setMax(100);
+                        if (playingPos == pos && player != null && player.isPlaying()) {
+                            startSeekBarUpdater(h, pos);
+                        } else {
+                            h.seekAudio.setProgress(0);
+                        }
+                        h.seekAudio.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+                            @Override public void onProgressChanged(android.widget.SeekBar sb, int progress, boolean fromUser) {
+                                if (fromUser && player != null && playingPos == fPos) {
+                                    int dur = player.getDuration();
+                                    if (dur > 0) player.seekTo(progress * dur / 100);
+                                }
+                            }
+                            @Override public void onStartTrackingTouch(android.widget.SeekBar sb) {}
+                            @Override public void onStopTrackingTouch(android.widget.SeekBar sb) {}
+                        });
+                    }
+
                     // Pre-cache audio in background
                     if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
                         java.io.File cachedAudio = MediaCache.getCached(ctx, m.mediaUrl);
                         if (cachedAudio == null) {
-                            android.util.Log.d("AudioLoad", "Pre-caching audio: " + m.mediaUrl);
                             MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
-                                @Override public void onReady(java.io.File file) {
-                                    android.util.Log.d("AudioLoad", "Audio cached: " + file.getAbsolutePath());
-                                }
-                                @Override public void onError(String reason) {
-                                    android.util.Log.w("AudioLoad", "Failed to cache audio: " + reason);
-                                }
+                                @Override public void onReady(java.io.File file) {}
+                                @Override public void onError(String reason) {}
                             });
                         }
                     }
@@ -440,6 +481,29 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 }
                 break;
             }
+            case "contact": {
+                if (h.llContact != null) {
+                    h.llContact.setVisibility(View.VISIBLE);
+                    if (h.tvContactName  != null) h.tvContactName.setText(m.contactName  != null ? m.contactName  : "Contact");
+                    if (h.tvContactPhone != null) h.tvContactPhone.setText(m.contactPhone != null ? m.contactPhone : "");
+                    if (h.ivContactPhoto != null && m.contactPhotoUrl != null && !m.contactPhotoUrl.isEmpty()) {
+                        Glide.with(ctx).load(m.contactPhotoUrl)
+                            .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                            .placeholder(R.drawable.ic_person).into(h.ivContactPhoto);
+                    }
+                    android.widget.ImageButton btnAdd = h.itemView.findViewById(R.id.btn_add_contact);
+                    if (btnAdd != null && m.contactPhone != null) {
+                        btnAdd.setOnClickListener(v -> {
+                            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_INSERT);
+                            i.setType(android.provider.ContactsContract.Contacts.CONTENT_TYPE);
+                            i.putExtra(android.provider.ContactsContract.Intents.Insert.NAME,  m.contactName != null ? m.contactName : "");
+                            i.putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, m.contactPhone);
+                            try { ctx.startActivity(i); } catch (Exception ignored) {}
+                        });
+                    }
+                }
+                break;
+            }
             default: {
                 h.tvMessage.setVisibility(View.VISIBLE);
                 h.tvMessage.setTextColor(
@@ -463,6 +527,47 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                 h.tvMessage.setHighlightColor(0x33FFFFFF);
                 break;
+            }
+        }
+
+        // ── Link Preview ────────────────────────────────────────────────
+        if (h.llLinkPreview != null) {
+            boolean hasUrl = m.linkPreviewUrl != null && !m.linkPreviewUrl.isEmpty();
+            boolean hasTitle = m.linkPreviewTitle != null && !m.linkPreviewTitle.isEmpty();
+            if ((hasUrl || hasTitle) && ("text".equals(type) || type == null)) {
+                h.llLinkPreview.setVisibility(View.VISIBLE);
+                if (h.tvLinkTitle != null)
+                    h.tvLinkTitle.setText(hasTitle ? m.linkPreviewTitle : m.linkPreviewUrl);
+                if (h.tvLinkDesc != null) {
+                    if (m.linkPreviewDescription != null && !m.linkPreviewDescription.isEmpty()) {
+                        h.tvLinkDesc.setVisibility(View.VISIBLE);
+                        h.tvLinkDesc.setText(m.linkPreviewDescription);
+                    } else { h.tvLinkDesc.setVisibility(View.GONE); }
+                }
+                if (h.tvLinkSite != null) {
+                    if (m.linkPreviewSiteName != null && !m.linkPreviewSiteName.isEmpty()) {
+                        h.tvLinkSite.setVisibility(View.VISIBLE);
+                        h.tvLinkSite.setText(m.linkPreviewSiteName);
+                    } else { h.tvLinkSite.setVisibility(View.GONE); }
+                }
+                if (h.ivLinkImage != null) {
+                    if (m.linkPreviewImageUrl != null && !m.linkPreviewImageUrl.isEmpty()) {
+                        h.ivLinkImage.setVisibility(View.VISIBLE);
+                        Glide.with(ctx).load(m.linkPreviewImageUrl).centerCrop()
+                            .placeholder(R.drawable.bg_circle_white).into(h.ivLinkImage);
+                    } else { h.ivLinkImage.setVisibility(View.GONE); }
+                }
+                final String linkUrl = m.linkPreviewUrl;
+                h.llLinkPreview.setOnClickListener(v -> {
+                    if (linkUrl != null) {
+                        try {
+                            ctx.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(linkUrl)));
+                        } catch (Exception ignored) {}
+                    }
+                });
+            } else {
+                h.llLinkPreview.setVisibility(View.GONE);
             }
         }
 
@@ -710,33 +815,63 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             h.tvStarredIcon.setVisibility(
                     Boolean.TRUE.equals(m.starred) ? View.VISIBLE : View.GONE);
 
-        if (h.tvStatus != null) {
+        // ── Status tick icons (iv_status drawable) ─────────────────────────
+        if (h.ivStatus != null) {
             if (sent) {
-                h.tvStatus.setVisibility(View.VISIBLE);
-                switch (m.status == null ? "sent" : m.status) {
+                h.ivStatus.setVisibility(View.VISIBLE);
+                String st = m.status == null ? "pending" : m.status;
+                switch (st) {
                     case "read":
-                        h.tvStatus.setText("\u2713\u2713 ");
-                        h.tvStatus.setTextSize(14f);
-                        h.tvStatus.setTextColor(
-                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_double_blue);
                         break;
                     case "delivered":
-                        h.tvStatus.setText("\u2713\u2713");
-                        h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(
-                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_double);
                         break;
-                    default:
-                        h.tvStatus.setText("\u2713");
-                        h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(
-                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                    case "failed":
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_failed);
+                        break;
+                    case "pending":
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_clock);
+                        break;
+                    default: // sent
+                        h.ivStatus.setImageResource(R.drawable.ic_tick_single);
                         break;
                 }
             } else {
-                h.tvStatus.setVisibility(View.GONE);
+                h.ivStatus.setVisibility(View.GONE);
             }
         }
+
+        // ── Retry button (failed messages only) ────────────────────────────
+        if (h.btnRetry != null) {
+            boolean failed = "failed".equals(m.status);
+            h.btnRetry.setVisibility(failed && sent ? View.VISIBLE : View.GONE);
+            if (failed && sent) {
+                h.btnRetry.setOnClickListener(v -> {
+                    if (actionListener != null) {
+                        // Reuse onForward as retry signal — or add onRetry to ActionListener
+                        // For now, fire a custom event
+                        retryMessage(h.itemView.getContext(), m);
+                    }
+                });
+            }
+        }
+
+        // Legacy tv_status kept for backward compat (always gone in new layout)
+        if (h.tvStatus != null) h.tvStatus.setVisibility(View.GONE);
+    }
+
+    private void retryMessage(android.content.Context ctx, Message m) {
+        // Notify the host Activity to retry sending this message
+        android.widget.Toast.makeText(ctx, "Retrying…", android.widget.Toast.LENGTH_SHORT).show();
+        // Fire a local broadcast so ChatActivity can pick it up
+        android.content.Intent intent = new android.content.Intent("com.callx.app.RETRY_MESSAGE");
+        intent.putExtra("messageId", m.id != null ? m.id : "");
+        intent.putExtra("text", m.text != null ? m.text : "");
+        intent.putExtra("type", m.type != null ? m.type : "text");
+        intent.putExtra("mediaUrl", m.mediaUrl != null ? m.mediaUrl : "");
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(ctx)
+            .sendBroadcast(intent);
     }
 
     private void setupLongPress(VH h, Message m, boolean sent, Context ctx) {
@@ -792,11 +927,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         View sv = LayoutInflater.from(ctx)
                 .inflate(R.layout.bottom_sheet_message_actions, null);
 
-        // Emoji quick-react row
-        String[] emojis  = {"❤️", "👍", "😂", "😮", "😢", "🙏"};
+        // Emoji quick-react row (including 🔥 and + full picker)
+        String[] emojis  = {"❤️", "👍", "😂", "😮", "😢", "🙏", "🔥"};
         int[]    emojiIds = {
             R.id.emoji_heart, R.id.emoji_thumb, R.id.emoji_laugh,
-            R.id.emoji_wow,   R.id.emoji_sad,   R.id.emoji_pray};
+            R.id.emoji_wow,   R.id.emoji_sad,   R.id.emoji_pray, R.id.emoji_fire};
         for (int i = 0; i < emojiIds.length; i++) {
             TextView et = sv.findViewById(emojiIds[i]);
             final String emoji = emojis[i];
@@ -811,6 +946,49 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     if (actionListener != null) actionListener.onReact(m, emoji);
                 });
             }
+        }
+        // "+" button opens full EmojiPickerSheet
+        TextView emojiMore = sv.findViewById(R.id.emoji_more);
+        if (emojiMore != null) {
+            emojiMore.setOnClickListener(v -> {
+                sheet.dismiss();
+                if (ctx instanceof androidx.fragment.app.FragmentActivity) {
+                    com.callx.app.chat.ui.EmojiPickerSheet picker =
+                        com.callx.app.chat.ui.EmojiPickerSheet.newInstance(selectedEmoji -> {
+                            if (actionListener != null) actionListener.onReact(m, selectedEmoji);
+                        });
+                    picker.show(((androidx.fragment.app.FragmentActivity) ctx).getSupportFragmentManager(), "emoji_picker");
+                }
+            });
+        }
+        // Save to gallery / Share actions (media messages)
+        TextView saveMediaBtn = sv.findViewById(R.id.action_save_media);
+        if (saveMediaBtn != null) {
+            boolean isMedia = "image".equals(m.type) || "video".equals(m.type);
+            if (isMedia && m.mediaUrl != null) {
+                saveMediaBtn.setVisibility(View.VISIBLE);
+                saveMediaBtn.setOnClickListener(v -> {
+                    sheet.dismiss();
+                    showImageActions(ctx, m, sent, m.mediaUrl);
+                });
+            } else { saveMediaBtn.setVisibility(View.GONE); }
+        }
+        // Share action for text or media
+        TextView shareBtn = sv.findViewById(R.id.action_share);
+        if (shareBtn != null && !Boolean.TRUE.equals(m.deleted)) {
+            shareBtn.setVisibility(View.VISIBLE);
+            shareBtn.setOnClickListener(v -> {
+                sheet.dismiss();
+                android.content.Intent share = new android.content.Intent(android.content.Intent.ACTION_SEND);
+                if ("text".equals(m.type) || m.type == null) {
+                    share.setType("text/plain");
+                    share.putExtra(android.content.Intent.EXTRA_TEXT, m.text != null ? m.text : "");
+                } else if (m.mediaUrl != null) {
+                    share.setType("*/*");
+                    share.putExtra(android.content.Intent.EXTRA_TEXT, m.mediaUrl);
+                }
+                ctx.startActivity(android.content.Intent.createChooser(share, "Share"));
+            });
         }
 
         // Reply
@@ -901,6 +1079,94 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         sheet.show();
     }
 
+    /** Image long-press: Save to gallery / Share options */
+    private void showImageActions(Context ctx, Message m, boolean sent, String url) {
+        new android.app.AlertDialog.Builder(ctx)
+            .setTitle("Image")
+            .setItems(new CharSequence[]{"Save to Gallery", "Share", "Open"}, (dialog, which) -> {
+                switch (which) {
+                    case 0: // Save
+                        if (android.os.Build.VERSION.SDK_INT < 29) {
+                            android.widget.Toast.makeText(ctx, "Storage permission required", android.widget.Toast.LENGTH_SHORT).show();
+                        } else {
+                            // MediaStore insert
+                            android.content.ContentValues values = new android.content.ContentValues();
+                            values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "callx_" + System.currentTimeMillis() + ".jpg");
+                            values.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                            values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CallX");
+                            android.net.Uri uri = ctx.getContentResolver().insert(
+                                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                            if (uri != null) {
+                                MediaCache.get(ctx, url, new MediaCache.Callback() {
+                                    @Override public void onReady(java.io.File file) {
+                                        try {
+                                            java.io.OutputStream os = ctx.getContentResolver().openOutputStream(uri);
+                                            java.io.InputStream is = new java.io.FileInputStream(file);
+                                            byte[] buf = new byte[8192]; int n;
+                                            while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
+                                            os.close(); is.close();
+                                            android.widget.Toast.makeText(ctx, "Saved!", android.widget.Toast.LENGTH_SHORT).show();
+                                        } catch (Exception e) {
+                                            android.widget.Toast.makeText(ctx, "Save failed", android.widget.Toast.LENGTH_SHORT).show();
+                                        }
+                                    }
+                                    @Override public void onError(String r) {
+                                        android.widget.Toast.makeText(ctx, "Download failed", android.widget.Toast.LENGTH_SHORT).show();
+                                    }
+                                });
+                            }
+                        }
+                        break;
+                    case 1: // Share
+                        MediaCache.get(ctx, url, new MediaCache.Callback() {
+                            @Override public void onReady(java.io.File file) {
+                                android.net.Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
+                                    ctx, ctx.getPackageName() + ".provider", file);
+                                android.content.Intent share = new android.content.Intent(android.content.Intent.ACTION_SEND);
+                                share.setType("image/*");
+                                share.putExtra(android.content.Intent.EXTRA_STREAM, fileUri);
+                                share.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                ctx.startActivity(android.content.Intent.createChooser(share, "Share via"));
+                            }
+                            @Override public void onError(String r) {
+                                android.widget.Toast.makeText(ctx, "Download failed", android.widget.Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                        break;
+                    case 2: openMedia(ctx, url, "image"); break;
+                }
+            }).show();
+    }
+
+    // SeekBar real-time progress updater
+    private final android.os.Handler seekHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable seekUpdater;
+
+    private void startSeekBarUpdater(VH h, int pos) {
+        stopSeekBarUpdater();
+        seekUpdater = new Runnable() {
+            @Override public void run() {
+                if (player != null && player.isPlaying() && playingPos == pos) {
+                    try {
+                        int dur = player.getDuration();
+                        int cur = player.getCurrentPosition();
+                        if (dur > 0 && h.seekAudio != null) {
+                            h.seekAudio.setProgress(cur * 100 / dur);
+                            if (h.tvAudioDur != null)
+                                h.tvAudioDur.setText(FileUtils.formatDuration((long) cur));
+                        }
+                    } catch (Exception ignored) {}
+                    seekHandler.postDelayed(this, 200);
+                }
+            }
+        };
+        seekHandler.post(seekUpdater);
+    }
+
+    private void stopSeekBarUpdater() {
+        if (seekUpdater != null) { seekHandler.removeCallbacks(seekUpdater); seekUpdater = null; }
+    }
+
     private void openMedia(Context ctx, String url, String type) {
         if (url == null || url.isEmpty()) return;
         Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
@@ -921,9 +1187,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         if (player != null && playingPos == pos && player.isPlaying()) {
             player.pause();
             h.btnPlayAudio.setImageResource(R.drawable.ic_play);
+            stopSeekBarUpdater();
             return;
         }
         if (player != null) { try { player.release(); } catch (Exception ignored) {} player = null; }
+        stopSeekBarUpdater();
         playingPos = pos;
         h.btnPlayAudio.setImageResource(R.drawable.ic_pause);
 
@@ -960,9 +1228,13 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
             
             player.prepareAsync();
-            player.setOnPreparedListener(MediaPlayer::start);
+            player.setOnPreparedListener(mp -> { mp.start(); startSeekBarUpdater(h, pos); });
             player.setOnCompletionListener(mp -> {
                 h.btnPlayAudio.setImageResource(R.drawable.ic_play);
+                stopSeekBarUpdater();
+                if (h.seekAudio != null) h.seekAudio.setProgress(0);
+                if (h.tvAudioDur != null && m.duration != null)
+                    h.tvAudioDur.setText(FileUtils.formatDuration(m.duration));
                 try { mp.release(); } catch (Exception ignored) {}
                 player = null; playingPos = -1;
             });
@@ -1078,6 +1350,18 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         TextView     tvForwarded;
         TextView     tvStarredIcon;
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
+        // Production additions
+        android.view.View llLinkPreview;
+        android.widget.TextView tvLinkTitle, tvLinkDesc, tvLinkSite;
+        android.widget.ImageView ivLinkImage;
+        android.widget.ImageView ivStatus;          // tick icon (replaces tv_status text)
+        android.widget.ImageButton btnRetry;
+        android.widget.LinearLayout llContact;
+        android.widget.TextView tvContactName, tvContactPhone;
+        de.hdodenhof.circleimageview.CircleImageView ivContactPhoto;
+        android.widget.FrameLayout flImage, flUploadOverlay;
+        android.widget.ProgressBar progressImageUpload;
+        android.widget.TextView tvUploadPct;
 
         VH(View v) {
             super(v);
@@ -1106,7 +1390,23 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvPinnedLabel = v.findViewById(R.id.tv_pinned_label);
             tvForwarded  = v.findViewById(R.id.tv_forwarded);
             tvStarredIcon = v.findViewById(R.id.tv_starred_icon);
-            ivSenderAvatar = v.findViewById(R.id.iv_sender_avatar);
+            ivSenderAvatar    = v.findViewById(R.id.iv_sender_avatar);
+            // Production additions
+            llLinkPreview     = v.findViewById(R.id.ll_link_preview);
+            tvLinkTitle       = v.findViewById(R.id.tv_link_title);
+            tvLinkDesc        = v.findViewById(R.id.tv_link_desc);
+            tvLinkSite        = v.findViewById(R.id.tv_link_site);
+            ivLinkImage       = v.findViewById(R.id.iv_link_image);
+            ivStatus          = v.findViewById(R.id.iv_status);
+            btnRetry          = v.findViewById(R.id.btn_retry);
+            llContact         = v.findViewById(R.id.ll_contact);
+            tvContactName     = v.findViewById(R.id.tv_contact_name);
+            tvContactPhone    = v.findViewById(R.id.tv_contact_phone);
+            ivContactPhoto    = v.findViewById(R.id.iv_contact_photo);
+            flImage           = v.findViewById(R.id.fl_image);
+            flUploadOverlay   = v.findViewById(R.id.fl_upload_overlay);
+            progressImageUpload = v.findViewById(R.id.progress_image_upload);
+            tvUploadPct       = v.findViewById(R.id.tv_upload_pct);
         }
     }
 }

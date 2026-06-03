@@ -82,6 +82,15 @@
                 android:textSize="12sp"
                 android:textStyle="italic"
                 android:visibility="gone"/>
+            <!-- E2E encryption indicator -->
+            <TextView
+                android:id="@+id/tv_e2e_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔒 End-to-end encrypted"
+                android:textColor="#80FFFFFF"
+                android:textSize="10sp"
+                android:visibility="visible"/>
         </LinearLayout>
 
         <!-- Reel button -->
@@ -495,6 +504,13 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Cancel reply"/>
     </LinearLayout>
+
+
+    <!-- Recording UI shown while voice recording -->
+    <include
+        layout="@layout/layout_recording_ui"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
 
     <!-- Input row -->
     <LinearLayout
