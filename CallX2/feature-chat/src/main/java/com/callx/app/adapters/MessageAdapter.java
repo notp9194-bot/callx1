@@ -143,7 +143,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         if (h.llAudio  != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile   != null) h.llFile.setVisibility(View.GONE);
         if (h.tvEdited != null) h.tvEdited.setVisibility(View.GONE);
-        if (h.llCall   != null) h.llCall.setVisibility(View.GONE);
 
         // Feature 8: Pinned label
         if (h.tvPinnedLabel != null)
@@ -442,132 +441,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 break;
             }
             default: {
-                // ── CALL BUBBLE ───────────────────────────────────────────
-                if ("call".equals(type) && h.llCall != null) {
-                    h.llCall.setVisibility(View.VISIBLE);
-
-                    // ── Dynamic text/icon color based on sent vs received theme ──
-                    int callTextColor = com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent);
-                    int callSubColor  = android.graphics.Color.argb(180,
-                        android.graphics.Color.red(callTextColor),
-                        android.graphics.Color.green(callTextColor),
-                        android.graphics.Color.blue(callTextColor));
-                    if (h.tvCallType        != null) h.tvCallType.setTextColor(callTextColor);
-                    if (h.tvCallStatus      != null) h.tvCallStatus.setTextColor(callSubColor);
-                    if (h.tvCallDate        != null) h.tvCallDate.setTextColor(callSubColor);
-                    if (h.tvCallTime        != null) h.tvCallTime.setTextColor(callSubColor);
-                    if (h.ivCallIcon        != null) h.ivCallIcon.setColorFilter(callTextColor);
-                    if (h.btnRecordAudioNote!= null) h.btnRecordAudioNote.setTextColor(callTextColor);
-                    if (h.btnRecordVideoNote!= null) h.btnRecordVideoNote.setTextColor(callTextColor);
-                    if (h.btnCallBack       != null) h.btnCallBack.setTextColor(callTextColor);
-                    if (h.btnCallBackSolo   != null) h.btnCallBackSolo.setTextColor(callTextColor);
-
-                    // ── Call type ──────────────────────────────────────────
-                    boolean isVideoCall = "video".equals(m.callType);
-                    if (h.tvCallType != null)
-                        h.tvCallType.setText(isVideoCall ? "Video call" : "Voice call");
-                    if (h.ivCallIcon != null) {
-                        h.ivCallIcon.setImageResource(isVideoCall
-                            ? com.callx.app.chat.R.drawable.ic_video_call
-                            : com.callx.app.chat.R.drawable.ic_phone);
-                    }
-
-                    // ── Date & Time ────────────────────────────────────────
-                    if (m.timestamp != null) {
-                        java.util.Date d = new java.util.Date(m.timestamp);
-                        java.text.SimpleDateFormat dateFmt = new java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault());
-                        java.text.SimpleDateFormat timeFmt2 = new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
-                        // Show "Today" / "Yesterday" / date
-                        java.util.Calendar today = java.util.Calendar.getInstance();
-                        java.util.Calendar msgCal = java.util.Calendar.getInstance();
-                        msgCal.setTime(d);
-                        String dateLabel;
-                        if (today.get(java.util.Calendar.YEAR) == msgCal.get(java.util.Calendar.YEAR)
-                                && today.get(java.util.Calendar.DAY_OF_YEAR) == msgCal.get(java.util.Calendar.DAY_OF_YEAR)) {
-                            dateLabel = "Today";
-                        } else {
-                            today.add(java.util.Calendar.DAY_OF_YEAR, -1);
-                            if (today.get(java.util.Calendar.YEAR) == msgCal.get(java.util.Calendar.YEAR)
-                                    && today.get(java.util.Calendar.DAY_OF_YEAR) == msgCal.get(java.util.Calendar.DAY_OF_YEAR)) {
-                                dateLabel = "Yesterday";
-                            } else {
-                                dateLabel = dateFmt.format(d);
-                            }
-                        }
-                        if (h.tvCallDate != null) h.tvCallDate.setText(dateLabel);
-                        if (h.tvCallTime != null) h.tvCallTime.setText(timeFmt2.format(d));
-                    }
-
-                    // ── Call status ────────────────────────────────────────
-                    String cStatus = m.callStatus != null ? m.callStatus : "";
-                    String statusLabel;
-                    boolean unanswered;
-                    switch (cStatus) {
-                        case "missed":    statusLabel = "Missed"; unanswered = true; break;
-                        case "no_answer": statusLabel = "No answer"; unanswered = true; break;
-                        case "rejected":  statusLabel = "Declined"; unanswered = true; break;
-                        default: {
-                            long dur = m.duration != null ? m.duration : 0;
-                            if (dur > 0) {
-                                long secs = dur / 1000;
-                                statusLabel = secs >= 60
-                                    ? String.format(Locale.getDefault(), "%d:%02d", secs/60, secs%60)
-                                    : secs + "s";
-                            } else {
-                                statusLabel = "";
-                            }
-                            unanswered = false;
-                        }
-                    }
-                    if (h.tvCallStatus != null) h.tvCallStatus.setText(statusLabel);
-
-                    // ── Action buttons ────────────────────────────────────
-                    // Call back handler (shared)
-                    android.view.View.OnClickListener callBackListener = v -> {
-                        android.content.Intent intent = new android.content.Intent(
-                            isVideoCall
-                                ? "com.callx.app.action.START_VIDEO_CALL"
-                                : "com.callx.app.action.START_AUDIO_CALL");
-                        intent.putExtra("partnerUid", m.senderId);
-                        v.getContext().sendBroadcast(intent);
-                    };
-
-                    if (unanswered) {
-                        // Unanswered: show full actions row (call back + audio note + video note)
-                        if (h.llCallActions != null) h.llCallActions.setVisibility(View.VISIBLE);
-                        if (h.btnCallBackSolo != null) h.btnCallBackSolo.setVisibility(View.GONE);
-                        if (h.btnCallBack != null) {
-                            h.btnCallBack.setOnClickListener(callBackListener);
-                        }
-                        if (h.btnRecordAudioNote != null)
-                            h.btnRecordAudioNote.setOnClickListener(v -> {
-                                android.content.Intent intent = new android.content.Intent(
-                                    "com.callx.app.action.RECORD_AUDIO_NOTE");
-                                intent.putExtra("partnerUid", m.senderId);
-                                v.getContext().sendBroadcast(intent);
-                            });
-                        if (h.btnRecordVideoNote != null)
-                            h.btnRecordVideoNote.setOnClickListener(v -> {
-                                android.content.Intent intent = new android.content.Intent(
-                                    "com.callx.app.action.RECORD_VIDEO_NOTE");
-                                intent.putExtra("partnerUid", m.senderId);
-                                v.getContext().sendBroadcast(intent);
-                            });
-                    } else {
-                        // Completed call: show solo call back button only
-                        if (h.llCallActions != null) h.llCallActions.setVisibility(View.GONE);
-                        if (h.btnCallBackSolo != null) {
-                            h.btnCallBackSolo.setVisibility(View.VISIBLE);
-                            h.btnCallBackSolo.setOnClickListener(callBackListener);
-                        }
-                    }
-
-                    bindFooter(h, m, sent);
-                    applySelectionHighlight(h, m);
-                    setupLongPress(h, m, sent, ctx);
-                    return;
-                }
-                // ── DEFAULT TEXT ──────────────────────────────────────────
                 h.tvMessage.setVisibility(View.VISIBLE);
                 h.tvMessage.setTextColor(
                         com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent));
@@ -1205,18 +1078,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         TextView     tvForwarded;
         TextView     tvStarredIcon;
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
-        // ── Call bubble views ──────────────────────────────────────────────
-        LinearLayout llCall;
-        LinearLayout llCallActions;
-        ImageView    ivCallIcon;
-        TextView     tvCallType;
-        TextView     tvCallStatus;
-        TextView     btnRecordAudioNote;
-        TextView     btnRecordVideoNote;
-        TextView     tvCallDate;
-        TextView     tvCallTime;
-        TextView     btnCallBack;
-        TextView     btnCallBackSolo;
 
         VH(View v) {
             super(v);
@@ -1246,20 +1107,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvForwarded  = v.findViewById(R.id.tv_forwarded);
             tvStarredIcon = v.findViewById(R.id.tv_starred_icon);
             ivSenderAvatar = v.findViewById(R.id.iv_sender_avatar);
-            // Call bubble — find root first, then children FROM root to avoid include scope issues
-            llCall            = v.findViewById(R.id.ll_call);
-            if (llCall != null) {
-                llCallActions     = llCall.findViewById(R.id.ll_call_actions);
-                ivCallIcon        = llCall.findViewById(R.id.iv_call_icon);
-                tvCallType        = llCall.findViewById(R.id.tv_call_type);
-                tvCallStatus      = llCall.findViewById(R.id.tv_call_status);
-                btnRecordAudioNote = llCall.findViewById(R.id.btn_record_audio_note);
-                btnRecordVideoNote = llCall.findViewById(R.id.btn_record_video_note);
-                tvCallDate         = llCall.findViewById(R.id.tv_call_date);
-                tvCallTime         = llCall.findViewById(R.id.tv_call_time);
-                btnCallBack        = llCall.findViewById(R.id.btn_call_back);
-                btnCallBackSolo    = llCall.findViewById(R.id.btn_call_back_solo);
-            }
         }
     }
 }

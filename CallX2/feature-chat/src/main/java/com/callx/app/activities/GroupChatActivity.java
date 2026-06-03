@@ -486,8 +486,6 @@ public class GroupChatActivity extends AppCompatActivity {
         m.starred           = e.starred;
         m.pinned            = e.pinned;
         m.fontStyle         = e.fontStyle;  // FIX: typing style — Room se load hone par preserve karo
-        m.callType          = e.callType;
-        m.callStatus        = e.callStatus;
         return m;
     }
 
@@ -517,8 +515,6 @@ public class GroupChatActivity extends AppCompatActivity {
         e.isGroup               = true;
         e.syncedAt              = System.currentTimeMillis();
         e.fontStyle             = m.fontStyle;
-        e.callType              = m.callType;
-        e.callStatus            = m.callStatus;
         return e;
     }
 

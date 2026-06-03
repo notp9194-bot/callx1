@@ -197,8 +197,6 @@ public class ChatRepository {
         e.forwardedFrom   = m.forwardedFrom;
         e.starred         = m.starred;
         e.pinned          = m.pinned;
-        e.callType        = m.callType;
-        e.callStatus      = m.callStatus;
         e.syncedAt        = System.currentTimeMillis();
         return e;
     }

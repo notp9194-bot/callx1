@@ -1024,19 +1024,17 @@ public class CallActivity extends AppCompatActivity {
         try { stopService(new Intent(this, CallForegroundService.class)); }
         catch (Exception ignored) {}
 
+        final String myUid = FirebaseUtils.getCurrentUid();
+
         if (callRef != null) {
             long dur = startedAt == 0 ? 0 : System.currentTimeMillis() - startedAt;
             callRef.child("status").setValue("ended");
             callRef.child("status").onDisconnect().cancel();
 
             // FIX-CLEANUP: camState hata do
-            if (isVideo) {
-                String myUid = FirebaseUtils.getCurrentUid();
-                if (myUid != null)
-                    callRef.child("camState").child(myUid).removeValue();
-            }
+            if (isVideo && myUid != null)
+                callRef.child("camState").child(myUid).removeValue();
 
-            String myUid = FirebaseUtils.getCurrentUid();
             if (myUid != null) {
                 final long fDur = dur, fTs = System.currentTimeMillis();
                 final String fType = isVideo ? "video" : "audio";
@@ -1050,29 +1048,6 @@ public class CallActivity extends AppCompatActivity {
                 myLog.put("duration",    fDur);
                 FirebaseUtils.getCallsRef(myUid).push().setValue(myLog);
 
-                // ── Save call bubble message to chat (sirf caller likhega) ──
-                if (isCaller) {
-                    final boolean fCallConnected = callConnected;
-                    final String fMyName = FirebaseUtils.getCurrentName();
-                    String chatId = FirebaseUtils.getChatId(myUid, partnerUid != null ? partnerUid : "");
-                    com.google.firebase.database.DatabaseReference msgRef =
-                        FirebaseUtils.getMessagesRef(chatId);
-                    String msgKey = msgRef.push().getKey();
-                    if (msgKey != null) {
-                        Map<String, Object> callMsg = new HashMap<>();
-                        callMsg.put("id",          msgKey);
-                        callMsg.put("senderId",    myUid);
-                        callMsg.put("senderName",  fMyName != null ? fMyName : "");
-                        callMsg.put("type",        "call");
-                        callMsg.put("callType",    fType);
-                        callMsg.put("callStatus",  fCallConnected ? "completed" : "no_answer");
-                        callMsg.put("duration",    fCallConnected ? fDur : 0L);
-                        callMsg.put("timestamp",   fTs);
-                        msgRef.child(msgKey).setValue(callMsg);
-                    }
-                }
-                // ────────────────────────────────────────────────────────────
-
                 if (partnerUid != null && !partnerUid.isEmpty()) {
                     String myName = FirebaseUtils.getCurrentName();
                     Map<String, Object> pl = new HashMap<>();
@@ -1083,6 +1058,31 @@ public class CallActivity extends AppCompatActivity {
                     pl.put("timestamp",   fTs);
                     pl.put("duration",    fDur);
                     FirebaseUtils.getCallsRef(partnerUid).push().setValue(pl);
+                }
+
+                // ── Push call entry bubble to shared chat thread ─────────────
+                // Only caller pushes (avoids duplicate). Both sides see it via Firebase listener.
+                if (isCaller && partnerUid != null && !partnerUid.isEmpty()) {
+                    final String chatId  = myUid.compareTo(partnerUid) < 0
+                        ? myUid + "_" + partnerUid
+                        : partnerUid + "_" + myUid;
+                    final String direction = callConnected ? "connected" : "missed";
+                    final DatabaseReference msgRef = FirebaseUtils.db()
+                        .getReference("messages").child(chatId);
+                    final String msgKey = msgRef.push().getKey();
+                    if (msgKey != null) {
+                        Map<String, Object> callMsg = new HashMap<>();
+                        callMsg.put("id",        msgKey);
+                        callMsg.put("messageId", msgKey);
+                        callMsg.put("senderId",  myUid);
+                        callMsg.put("type",      "call_entry");
+                        callMsg.put("text",      direction);
+                        callMsg.put("fileName",  fType);
+                        callMsg.put("duration",  fDur);
+                        callMsg.put("timestamp", fTs);
+                        callMsg.put("status",    "sent");
+                        msgRef.child(msgKey).setValue(callMsg);
+                    }
                 }
 
                 bgExecutor.execute(() -> {
@@ -1109,6 +1109,24 @@ public class CallActivity extends AppCompatActivity {
             audioManager.setMode(AudioManager.MODE_NORMAL);
         }
         releaseWebRTC();
+
+        // ── Launch AddNoteActivity for caller when call went unanswered ───────
+        if (isCaller && !callConnected && myUid != null && partnerUid != null && !partnerUid.isEmpty()) {
+            try {
+                final String chatId2 = myUid.compareTo(partnerUid) < 0
+                    ? myUid + "_" + partnerUid
+                    : partnerUid + "_" + myUid;
+                android.content.Intent noteIntent = new android.content.Intent(this, AddNoteActivity.class);
+                noteIntent.putExtra(AddNoteActivity.EXTRA_PARTNER_UID,   partnerUid);
+                noteIntent.putExtra(AddNoteActivity.EXTRA_PARTNER_NAME,  partnerName != null ? partnerName : "");
+                noteIntent.putExtra(AddNoteActivity.EXTRA_PARTNER_PHOTO, partnerPhoto != null ? partnerPhoto : "");
+                noteIntent.putExtra(AddNoteActivity.EXTRA_CHAT_ID,       chatId2);
+                noteIntent.putExtra(AddNoteActivity.EXTRA_IS_VIDEO,      isVideo);
+                startActivity(noteIntent);
+            } catch (Exception ex) {
+                android.util.Log.w("CallActivity", "AddNoteActivity launch failed", ex);
+            }
+        }
         finish();
     }
 

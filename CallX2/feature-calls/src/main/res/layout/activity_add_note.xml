@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    activity_add_note.xml
+    Add Note screen — launched after a missed call so caller can leave an audio or video note.
+    Audio call → audio recorder UI.
+    Video call → video recorder via camera intent.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:background="@color/dark_bg"
+    android:padding="24dp">
+
+    <!-- Partner avatar placeholder -->
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_note_partner_avatar"
+        android:layout_width="72dp"
+        android:layout_height="72dp"
+        android:src="@drawable/ic_person"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="12dp"/>
+
+    <!-- Partner name -->
+    <TextView
+        android:id="@+id/tv_note_partner_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Partner"
+        android:textSize="18sp"
+        android:textColor="@color/white"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp"/>
+
+    <!-- Sub-title: "didn't answer — leave a note" -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="didn't answer. Leave a note?"
+        android:textSize="13sp"
+        android:textColor="@color/text_muted"
+        android:layout_marginBottom="32dp"/>
+
+    <!-- Big mic/camera icon (changes based on call type) -->
+    <ImageView
+        android:id="@+id/iv_note_type_icon"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:src="@drawable/ic_mic"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Record / Stop toggle button -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_note_record"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:src="@drawable/ic_mic"
+        android:contentDescription="Record"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Recording timer (shows while recording) -->
+    <TextView
+        android:id="@+id/tv_note_timer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="0:00"
+        android:textSize="28sp"
+        android:textColor="@color/white"
+        android:fontFamily="monospace"
+        android:visibility="invisible"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- Status hint -->
+    <TextView
+        android:id="@+id/tv_note_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Tap mic to start recording"
+        android:textSize="13sp"
+        android:textColor="@color/text_muted"
+        android:layout_marginBottom="32dp"/>
+
+    <!-- Send / Skip buttons row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <!-- Skip -->
+        <Button
+            android:id="@+id/btn_note_skip"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Skip"
+            android:textColor="@color/white"
+            android:layout_marginEnd="16dp"/>
+
+        <!-- Send (enabled only after recording) -->
+        <Button
+            android:id="@+id/btn_note_send"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Send"
+            android:enabled="false"/>
+
+    </LinearLayout>
+
+</LinearLayout>

@@ -68,6 +68,7 @@ public class MessagePagingAdapter
     private static final int TYPE_RECEIVED    = 2;
     private static final int TYPE_STATUS_SEEN = 3;
     private static final int TYPE_REEL_SEEN   = 4;
+    private static final int TYPE_CALL_ENTRY  = 5;
 
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
@@ -164,6 +165,7 @@ public class MessagePagingAdapter
         if (m == null) return TYPE_RECEIVED;
         if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
         if ("reel_seen".equals(m.type))   return TYPE_REEL_SEEN;
+        if ("call_entry".equals(m.type))  return TYPE_CALL_ENTRY;
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
     }
 
@@ -174,6 +176,7 @@ public class MessagePagingAdapter
         if (viewType == TYPE_SENT)             layout = R.layout.item_message_sent;
         else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
         else if (viewType == TYPE_REEL_SEEN)   layout = R.layout.item_reel_seen_bubble;
+        else if (viewType == TYPE_CALL_ENTRY)  layout = R.layout.item_call_entry_bubble;
         else                                   layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         return new VH(v);
@@ -197,7 +200,63 @@ public class MessagePagingAdapter
             bindReelSeenBubble(h, m);
             return;
         }
+        // ── CALL ENTRY BUBBLE — system call log row in chat ──────────────────
+        if ("call_entry".equals(m.type)) {
+            bindCallEntryBubble(h, m);
+            return;
+        }
         bindMessage(h, m, position);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // CALL ENTRY BUBBLE — centered system call log row in chat.
+    // Layout: item_call_entry_bubble.xml
+    //   tv_call_entry_icon  — emoji (📞 audio, 📹 video)
+    //   tv_call_entry_label — e.g. "Audio call • 2:30" or "Missed video call"
+    //   tv_call_entry_time  — formatted timestamp (hh:mm a)
+    // No long-press / reactions — it's a system event.
+    // ──────────────────────────────────────────────────────────────
+    private void bindCallEntryBubble(@NonNull VH h, @NonNull Message m) {
+        android.widget.TextView tvIcon  = h.itemView.findViewById(R.id.tv_call_entry_icon);
+        android.widget.TextView tvLabel = h.itemView.findViewById(R.id.tv_call_entry_label);
+        android.widget.TextView tvTime  = h.itemView.findViewById(R.id.tv_call_entry_time);
+
+        boolean isVideoCall = "video".equals(m.fileName);
+        boolean isMissed    = "missed".equals(m.text);
+        boolean iAmCaller   = currentUid != null && currentUid.equals(m.senderId);
+
+        // Icon
+        if (tvIcon != null) tvIcon.setText(isVideoCall ? "📹" : "📞");
+
+        // Label text
+        String label;
+        if (isMissed) {
+            if (iAmCaller) {
+                label = isVideoCall ? "No answer (video)" : "No answer";
+            } else {
+                label = isVideoCall ? "Missed video call" : "Missed call";
+            }
+            if (tvLabel != null) tvLabel.setTextColor(android.graphics.Color.parseColor("#FF5555"));
+        } else {
+            // Call was connected — show duration
+            String durStr = "";
+            if (m.duration != null && m.duration > 0) {
+                long sec = m.duration / 1000;
+                durStr = " • " + String.format(java.util.Locale.getDefault(), "%d:%02d", sec / 60, sec % 60);
+            }
+            if (iAmCaller) {
+                label = isVideoCall ? ("Video call" + durStr) : ("Audio call" + durStr);
+            } else {
+                label = isVideoCall ? ("Incoming video call" + durStr) : ("Incoming call" + durStr);
+            }
+            if (tvLabel != null) tvLabel.setTextColor(0xFFFFFFFF);
+        }
+        if (tvLabel != null) tvLabel.setText(label);
+
+        // Time
+        if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+        }
     }
 
     // ──────────────────────────────────────────────────────────────
