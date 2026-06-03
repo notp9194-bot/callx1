@@ -80,12 +80,24 @@ public class ChatRepository {
             long lastTs = mCache.getLastSyncTimestamp(chatId);
             Log.d(TAG, "Delta sync chatId=" + chatId + " since=" + lastTs);
 
-            Query query = mFirebase.getReference("chats")
-                .child(chatId)
-                .child("messages")
-                .orderByChild("timestamp")
-                .startAfter(lastTs == 0 ? null : (double) lastTs, "timestamp")
-                .limitToLast(PAGE_SIZE);
+            // FIX: startAfter(null, "timestamp") is invalid Firebase syntax when lastTs==0.
+            // When no prior sync: use limitToLast to get the most recent PAGE_SIZE messages.
+            // When delta sync: use startAfter((double)lastTs) which is the correct overload.
+            Query query;
+            if (lastTs == 0) {
+                query = mFirebase.getReference("chats")
+                    .child(chatId)
+                    .child("messages")
+                    .orderByChild("timestamp")
+                    .limitToLast(PAGE_SIZE);
+            } else {
+                query = mFirebase.getReference("chats")
+                    .child(chatId)
+                    .child("messages")
+                    .orderByChild("timestamp")
+                    .startAfter((double) lastTs)
+                    .limitToLast(PAGE_SIZE);
+            }
 
             query.addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override

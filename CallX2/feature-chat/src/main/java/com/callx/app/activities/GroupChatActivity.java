@@ -518,12 +518,6 @@ public class GroupChatActivity extends AppCompatActivity {
         return e;
     }
 
-    // ── @mention autocomplete fields ──────────────────────────────────────
-    private java.util.List<String[]> groupMembersList = new java.util.ArrayList<>(); // {uid, name}
-    private android.widget.PopupWindow mentionPopup;
-    private android.widget.ListView    mentionListView;
-    private android.widget.ArrayAdapter<String> mentionAdapter;
-
     // ─────────────────────────────────────────────────────────────────────
     // INPUT BAR
     // ─────────────────────────────────────────────────────────────────────
@@ -532,13 +526,10 @@ public class GroupChatActivity extends AppCompatActivity {
         binding.etMessage.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable s) {}
-            @Override public void onTextChanged(CharSequence s, int a, int b, int c2) {
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
                 boolean has = s.toString().trim().length() > 0;
                 binding.btnSend.setVisibility(has ? View.VISIBLE : View.GONE);
                 binding.btnMic.setVisibility(has ? View.GONE : View.VISIBLE);
-
-                // @mention autocomplete
-                handleMentionTyping(s.toString(), a + b + c2);
 
                 // Character counter: 200 se kam bacha ho toh dikhao
                 int remaining = MAX_MESSAGE_LENGTH - s.length();
@@ -564,79 +555,9 @@ public class GroupChatActivity extends AppCompatActivity {
         binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
         binding.btnMic.setOnClickListener(v -> toggleRecording());
-
-        // Load group members for @mention autocomplete
-        loadGroupMembersForMention();
     }
 
     private static final int MAX_MESSAGE_LENGTH = 4000;
-
-    // ── @mention autocomplete ──────────────────────────────────────────────
-    private void handleMentionTyping(String text, int cursor) {
-        if (text == null || text.isEmpty()) { dismissMentionPopup(); return; }
-        int start = text.lastIndexOf('@', cursor > 0 ? cursor - 1 : 0);
-        if (start < 0) { dismissMentionPopup(); return; }
-        String query = text.substring(start + 1, Math.min(cursor, text.length())).toLowerCase();
-        if (query.contains(" ")) { dismissMentionPopup(); return; }
-
-        java.util.List<String> matches = new java.util.ArrayList<>();
-        java.util.List<String[]> matched = new java.util.ArrayList<>();
-        for (String[] member : groupMembersList) {
-            if (member[1].toLowerCase().startsWith(query)) {
-                matches.add(member[1]);
-                matched.add(member);
-            }
-        }
-        if (matches.isEmpty()) { dismissMentionPopup(); return; }
-        showMentionPopup(matches, matched, start, cursor);
-    }
-
-    private void showMentionPopup(java.util.List<String> names, java.util.List<String[]> members, int atStart, int cursor) {
-        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
-            this, android.R.layout.simple_list_item_1, names);
-        android.widget.ListView lv = new android.widget.ListView(this);
-        lv.setAdapter(adapter);
-        lv.setBackgroundColor(0xFFFFFFFF);
-
-        if (mentionPopup != null && mentionPopup.isShowing()) mentionPopup.dismiss();
-        mentionPopup = new android.widget.PopupWindow(lv,
-            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-            Math.min(names.size(), 4) * (int)(48 * getResources().getDisplayMetrics().density));
-        mentionPopup.setFocusable(false);
-        mentionPopup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xFFFFFFFF));
-        try { mentionPopup.showAsDropDown(binding.etMessage, 0, 0); } catch (Exception ignored) {}
-
-        lv.setOnItemClickListener((parent, view, pos, id) -> {
-            String[] member = members.get(pos);
-            String text = binding.etMessage.getText().toString();
-            String before = text.substring(0, atStart);
-            String after  = text.substring(Math.min(cursor, text.length()));
-            String newText = before + "@" + member[1] + " " + after;
-            binding.etMessage.setText(newText);
-            binding.etMessage.setSelection(before.length() + member[1].length() + 2);
-            dismissMentionPopup();
-        });
-    }
-
-    private void dismissMentionPopup() {
-        if (mentionPopup != null && mentionPopup.isShowing()) { mentionPopup.dismiss(); mentionPopup = null; }
-    }
-
-    private void loadGroupMembersForMention() {
-        com.callx.app.utils.FirebaseUtils.getGroupMembersRef(groupId)
-            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
-                    groupMembersList.clear();
-                    for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
-                        String uid  = child.getKey();
-                        String name = child.child("name").getValue(String.class);
-                        if (uid != null && name != null && !uid.equals(currentUid))
-                            groupMembersList.add(new String[]{uid, name});
-                    }
-                }
-                @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
-            });
-    }
 
     private void sendText() {
         String text = binding.etMessage.getText().toString().trim();

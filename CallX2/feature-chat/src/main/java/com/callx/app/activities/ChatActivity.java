@@ -165,15 +165,6 @@ public class ChatActivity extends AppCompatActivity {
     // ── Voice recorder ─────────────────────────────────────────────────────
     private VoiceRecorder recorder;
 
-    // ── Recording UI (WaveformView + timer) ──────────────────────────────
-    private final android.os.Handler recHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private Runnable recTimerRunnable;
-
-    // ── Link preview ──────────────────────────────────────────────────────
-    private final android.os.Handler lpHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
-    private Runnable lpDebounceRunnable;
-    private String  lastLinkPreviewUrl = "";
-
     // ── Pinned message ─────────────────────────────────────────────────────
     private String pinnedMsgId   = null;
     private String pinnedMsgText = null;
@@ -223,16 +214,6 @@ public class ChatActivity extends AppCompatActivity {
         watchBlock();
         watchPartnerPermaBlock();
         watchPinnedMessage();
-        // FIX: capture unread count BEFORE markMessagesRead() zeroes it out,
-        // so the adapter can show the "↓ N unread messages" divider at the right position.
-        ioExecutor.execute(() -> {
-            long unread = db.chatDao().getUnreadCount(chatId);
-            if (unread > 0) {
-                int total  = db.messageDao().getMessageCount(chatId);
-                int divPos = (int) Math.max(0, total - unread);
-                runOnUiThread(() -> pagingAdapter.setFirstUnreadPosition(divPos, (int) unread));
-            }
-        });
         markMessagesRead();
 
         // ── Task 5: Offline banner + message pruning ──
@@ -603,20 +584,6 @@ public class ChatActivity extends AppCompatActivity {
         binding.rvMessages.setAdapter(pagingAdapter);
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
 
-        // Dismiss keyboard on RecyclerView tap
-        binding.rvMessages.setOnTouchListener((v, event) -> {
-            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
-                android.view.inputmethod.InputMethodManager imm =
-                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                android.view.View focusedView = getCurrentFocus();
-                if (focusedView != null && imm != null)
-                    imm.hideSoftInputFromWindow(focusedView.getWindowToken(), 0);
-                focusedView = focusedView != null ? focusedView : v;
-                focusedView.clearFocus();
-            }
-            return false;
-        });
-
         // [FIX-5] Auto-scroll only when new item arrives at the very end
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override
@@ -868,17 +835,6 @@ public class ChatActivity extends AppCompatActivity {
 
         binding.btnSend.setOnClickListener(v -> sendTextMessage());
         binding.btnMic.setOnClickListener(v -> toggleRecording());
-
-        // Link preview: debounce 800ms after typing stops
-        binding.etMessage.addTextChangedListener(new android.text.TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int st, int c2, int a) {}
-            @Override public void onTextChanged(CharSequence s, int st, int b, int c2) {
-                if (lpDebounceRunnable != null) lpHandler.removeCallbacks(lpDebounceRunnable);
-                lpDebounceRunnable = () -> fetchLinkPreviewForInput(s.toString());
-                lpHandler.postDelayed(lpDebounceRunnable, 800);
-            }
-            @Override public void afterTextChanged(android.text.Editable s) {}
-        });
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> launchCamera());
 
@@ -1392,16 +1348,17 @@ public class ChatActivity extends AppCompatActivity {
             hideMultiSelectBar();
         });
 
-        // Info — only for single select
+        // Info — only for single select (shows message delivery details)
         android.view.View btnInfo = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.btn_selection_info);
         if (btnInfo != null) btnInfo.setOnClickListener(v -> {
             java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
             if (sel.size() == 1) {
-                // reuse existing info action
-                if (pagingAdapter.getActionListener() != null)
-                    pagingAdapter.getActionListener().onForward(sel.get(0)); // placeholder — info
+                Message infoMsg = sel.get(0);
+                showMessageInfoDialog(infoMsg);
             }
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
         });
     }
 
@@ -1427,6 +1384,43 @@ public class ChatActivity extends AppCompatActivity {
         android.view.View selBar = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.ll_selection_toolbar);
         if (selBar != null) selBar.setVisibility(android.view.View.GONE);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MESSAGE INFO DIALOG — FIX: was calling onForward() as placeholder
+    // Now shows real delivery info: sent time, status, and recipient details.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void showMessageInfoDialog(Message m) {
+        if (m == null) return;
+        java.text.SimpleDateFormat sdf =
+            new java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault());
+        String sentTime = m.timestamp != null && m.timestamp > 0
+                ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
+
+        String statusLabel;
+        switch (m.status != null ? m.status : "sent") {
+            case "read":
+            case "seen":   statusLabel = "✓✓  Read";       break;
+            case "delivered": statusLabel = "✓✓  Delivered"; break;
+            case "pending":   statusLabel = "🕐  Pending";   break;
+            case "failed":    statusLabel = "⚠  Failed";    break;
+            default:          statusLabel = "✓   Sent";      break;
+        }
+
+        String typeLabel = m.type != null ? m.type.substring(0, 1).toUpperCase()
+                + m.type.substring(1) : "Text";
+
+        String info = "Sent:  " + sentTime + "\n"
+                    + "Status:  " + statusLabel + "\n"
+                    + "Type:  " + typeLabel + "\n"
+                    + "To:  " + (partnerName != null ? partnerName : partnerUid);
+
+        new AlertDialog.Builder(this)
+            .setTitle("ℹ Message Info")
+            .setMessage(info)
+            .setPositiveButton("OK", null)
+            .show();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2199,17 +2193,6 @@ public class ChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
     // CLEAR CHAT (N8)
     // ─────────────────────────────────────────────────────────────────────
-
-    // ── Link Preview for input bar ─────────────────────────────────────
-    private void fetchLinkPreviewForInput(String text) {
-        String url = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(text);
-        if (url == null || url.equals(lastLinkPreviewUrl)) return;
-        lastLinkPreviewUrl = url;
-        com.callx.app.utils.LinkPreviewFetcher.fetch(this, url, preview -> {
-            // Store for use when message is sent — attach to Message object
-            // (UI preview strip could be added to input bar in future)
-        });
-    }
 
     private void confirmClearChat() {
         new AlertDialog.Builder(this)

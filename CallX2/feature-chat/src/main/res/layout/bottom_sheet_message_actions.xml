@@ -5,7 +5,7 @@
     android:orientation="vertical"
     android:paddingBottom="16dp">
 
-    <!-- Quick emoji reaction row + "+" button for full picker -->
+    <!-- Emoji reaction quick-pick row -->
     <LinearLayout
         android:id="@+id/ll_emoji_row"
         android:layout_width="match_parent"
@@ -18,45 +18,49 @@
         <TextView android:id="@+id/emoji_heart"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="❤️" android:textSize="26sp"
-            android:background="?attr/selectableItemBackgroundBorderless" android:padding="4dp"/>
+            android:text="❤️" android:textSize="28sp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"/>
         <TextView android:id="@+id/emoji_thumb"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="👍" android:textSize="26sp"
-            android:background="?attr/selectableItemBackgroundBorderless" android:padding="4dp"/>
+            android:text="👍" android:textSize="28sp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"/>
         <TextView android:id="@+id/emoji_laugh"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="😂" android:textSize="26sp"
-            android:background="?attr/selectableItemBackgroundBorderless" android:padding="4dp"/>
+            android:text="😂" android:textSize="28sp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"/>
         <TextView android:id="@+id/emoji_wow"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="😮" android:textSize="26sp"
-            android:background="?attr/selectableItemBackgroundBorderless" android:padding="4dp"/>
+            android:text="😮" android:textSize="28sp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"/>
         <TextView android:id="@+id/emoji_sad"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="😢" android:textSize="26sp"
-            android:background="?attr/selectableItemBackgroundBorderless" android:padding="4dp"/>
+            android:text="😢" android:textSize="28sp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"/>
         <TextView android:id="@+id/emoji_pray"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="🙏" android:textSize="26sp"
-            android:background="?attr/selectableItemBackgroundBorderless" android:padding="4dp"/>
-        <TextView android:id="@+id/emoji_fire"
-            android:layout_width="0dp" android:layout_height="match_parent"
-            android:layout_weight="1" android:gravity="center"
-            android:text="🔥" android:textSize="26sp"
-            android:background="?attr/selectableItemBackgroundBorderless" android:padding="4dp"/>
-        <!-- + button for full emoji picker -->
+            android:text="🙏" android:textSize="28sp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"/>
+        <!-- FIX: "+" opens full emoji picker so user is not limited to 6 reactions -->
         <TextView android:id="@+id/emoji_more"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="+" android:textSize="22sp" android:textStyle="bold"
-            android:textColor="#666666"
-            android:background="?attr/selectableItemBackgroundBorderless" android:padding="4dp"/>
+            android:text="+" android:textSize="22sp"
+            android:textColor="#555555"
+            android:textStyle="bold"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"
+            android:contentDescription="More reactions"/>
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
@@ -77,26 +81,11 @@
         android:background="?attr/selectableItemBackground"
         android:visibility="gone"/>
 
+    <!-- N4: Copy Message -->
     <TextView android:id="@+id/action_copy"
         android:layout_width="match_parent" android:layout_height="52dp"
         android:gravity="center_vertical" android:paddingStart="20dp"
         android:text="📋  Copy" android:textSize="15sp"
-        android:textColor="#212121"
-        android:background="?attr/selectableItemBackground"
-        android:visibility="gone"/>
-
-    <TextView android:id="@+id/action_save_media"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="💾  Save to Gallery" android:textSize="15sp"
-        android:textColor="#212121"
-        android:background="?attr/selectableItemBackground"
-        android:visibility="gone"/>
-
-    <TextView android:id="@+id/action_share"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="↗  Share" android:textSize="15sp"
         android:textColor="#212121"
         android:background="?attr/selectableItemBackground"
         android:visibility="gone"/>
@@ -122,6 +111,7 @@
         android:textColor="#212121"
         android:background="?attr/selectableItemBackground"/>
 
+    <!-- N7: Message Info (sender only) -->
     <TextView android:id="@+id/action_info"
         android:layout_width="match_parent" android:layout_height="52dp"
         android:gravity="center_vertical" android:paddingStart="20dp"
