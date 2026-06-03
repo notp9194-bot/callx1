@@ -4,11 +4,66 @@
     android:layout_height="match_parent"
     android:background="@color/black">
 
-    <!-- Full-screen remote video -->
+    <!-- Full-screen remote video (hidden in audio call, shown after upgrade) -->
     <org.webrtc.SurfaceViewRenderer
         android:id="@+id/remote_video"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+        android:layout_height="match_parent"
+        android:visibility="gone"/>
+
+    <!-- Incoming video upgrade request overlay (Google Dialer style) -->
+    <LinearLayout
+        android:id="@+id/layout_incoming_upgrade"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginTop="0dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#DD1A237E"
+        android:paddingVertical="20dp"
+        android:paddingHorizontal="24dp"
+        android:visibility="gone"
+        android:elevation="16dp">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Video call request"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp"/>
+        <TextView
+            android:id="@+id/tv_upgrade_requester"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#BBFFFFFF"
+            android:textSize="13sp"
+            android:layout_marginBottom="16dp"/>
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+            <Button
+                android:id="@+id/btn_decline_upgrade"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Decline"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#C62828"
+                android:layout_marginEnd="16dp"
+                android:paddingHorizontal="20dp"/>
+            <Button
+                android:id="@+id/btn_accept_upgrade"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Accept"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#2E7D32"
+                android:paddingHorizontal="20dp"/>
+        </LinearLayout>
+    </LinearLayout>
 
     <!-- FIX: Remote camera OFF overlay — shown when remote party turns camera off -->
     <LinearLayout
@@ -192,6 +247,36 @@
                     android:textSize="10sp"
                     android:layout_marginTop="4dp"/>
             </LinearLayout>
+        </LinearLayout>
+
+        <!-- Video Upgrade Button (only visible during audio calls) -->
+        <LinearLayout
+            android:id="@+id/layout_upgrade_video"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_upgrade_video_btn"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="12dp"
+            android:layout_marginBottom="20dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone">
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_video"
+                android:tint="@color/white"
+                android:layout_marginEnd="8dp"/>
+            <TextView
+                android:id="@+id/tv_upgrade_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Switch to Video"
+                android:textColor="@color/white"
+                android:textSize="14sp"
+                android:textStyle="bold"/>
         </LinearLayout>
 
         <!-- Row 2: Mic | End Call | Camera -->

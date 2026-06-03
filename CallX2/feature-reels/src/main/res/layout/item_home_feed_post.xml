@@ -80,23 +80,6 @@
             android:tint="#CCFFFFFF"
             android:visibility="gone"/>
 
-        <!-- Views count overlay (bottom-left) -->
-        <TextView
-            android:id="@+id/tv_post_views"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|start"
-            android:layout_margin="8dp"
-            android:text="0 views"
-            android:textColor="#FFFFFF"
-            android:textSize="10sp"
-            android:fontFamily="sans-serif-medium"
-            android:background="#66000000"
-            android:paddingStart="5dp"
-            android:paddingEnd="5dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"/>
-
         <!-- Repost badge -->
         <LinearLayout
             android:id="@+id/layout_repost_badge"
@@ -156,7 +139,7 @@
             android:text="0"
             android:textColor="#CCCCCC"
             android:textSize="12sp"
-            android:layout_marginEnd="4dp"/>
+            android:layout_marginEnd="8dp"/>
 
         <ImageButton
             android:id="@+id/btn_post_comment"
@@ -174,7 +157,7 @@
             android:text="0"
             android:textColor="#CCCCCC"
             android:textSize="12sp"
-            android:layout_marginEnd="4dp"/>
+            android:layout_marginEnd="8dp"/>
 
         <ImageButton
             android:id="@+id/btn_post_repost"
@@ -193,16 +176,6 @@
             android:text="0"
             android:textColor="#CCCCCC"
             android:textSize="12sp"/>
-
-        <!-- Share button -->
-        <ImageButton
-            android:id="@+id/btn_post_share"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_share_reel"
-            android:tint="#AAAAAA"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Share"/>
 
         <ImageButton
             android:id="@+id/btn_post_save"
@@ -225,6 +198,6 @@
         android:text=""
         android:textColor="#DDDDDD"
         android:textSize="13sp"
-        android:maxLines="3"
+        android:maxLines="2"
         android:ellipsize="end"/>
 </LinearLayout>

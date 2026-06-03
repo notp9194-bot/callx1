@@ -3,8 +3,6 @@ package com.callx.app.fragments;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
@@ -81,13 +79,6 @@ public class HomeFragment extends Fragment {
     private LinearLayout       btnAddStory;
     private ImageButton        btnHomeUpload;
     private CircleImageView    ivMyStoryAvatar;
-    private TextView           btnSeeAllActivity;
-    private TextView           btnSeeAllSuggested;
-    private ImageButton        btnHomeSearch;
-
-    // Real-time feed listener handle — detached in onPause
-    private ValueEventListener feedListener;
-    private com.google.firebase.database.DatabaseReference feedRef;
 
     private boolean isFollowingMode = true;
 
@@ -139,9 +130,6 @@ public class HomeFragment extends Fragment {
         btnAddStory               = v.findViewById(R.id.btn_add_story);
         btnHomeUpload             = v.findViewById(R.id.btn_home_upload);
         ivMyStoryAvatar           = v.findViewById(R.id.iv_my_story_avatar);
-        btnSeeAllActivity         = v.findViewById(R.id.btn_see_all_activity);
-        btnSeeAllSuggested        = v.findViewById(R.id.btn_see_all_suggested);
-        btnHomeSearch             = v.findViewById(R.id.btn_home_search);
     }
 
     private void setupListeners() {
@@ -184,22 +172,25 @@ public class HomeFragment extends Fragment {
             });
         }
 
-        if (btnHomeSearch != null) {
-            btnHomeSearch.setOnClickListener(v -> {
+        View btnSearch = getView() != null ? getView().findViewById(R.id.btn_home_search) : null;
+        if (btnSearch != null) {
+            btnSearch.setOnClickListener(v -> {
                 if (isAdded() && getContext() != null)
                     startActivity(new Intent(getContext(), ReelSearchActivity.class));
             });
         }
 
-        if (btnSeeAllActivity != null) {
-            btnSeeAllActivity.setOnClickListener(v -> {
+        View btnSeeAllAct = getView() != null ? getView().findViewById(R.id.btn_see_all_activity) : null;
+        if (btnSeeAllAct != null) {
+            btnSeeAllAct.setOnClickListener(v -> {
                 if (isAdded() && getContext() != null)
                     startActivity(new Intent(getContext(), ReelNotificationsActivity.class));
             });
         }
 
-        if (btnSeeAllSuggested != null) {
-            btnSeeAllSuggested.setOnClickListener(v -> {
+        View btnSeeAllSug = getView() != null ? getView().findViewById(R.id.btn_see_all_suggested) : null;
+        if (btnSeeAllSug != null) {
+            btnSeeAllSug.setOnClickListener(v -> {
                 if (isAdded() && getContext() != null)
                     startActivity(new Intent(getContext(), ReelExploreActivity.class));
             });
@@ -486,38 +477,28 @@ public class HomeFragment extends Fragment {
             });
         } else {
             final String uid = myUid;
-            // Real-time listener for "For You" feed — detach in onPause
-            if (feedRef != null && feedListener != null) feedRef.removeEventListener(feedListener);
-            feedRef = FirebaseUtils.getReelsRef().orderByChild("timestamp").limitToLast(30);
-            feedListener = new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (!isAdded() || getContext() == null) return;
-                    List<ReelModel> posts = new ArrayList<>();
-                    for (DataSnapshot s : snap.getChildren()) {
-                        ReelModel r = s.getValue(ReelModel.class);
-                        if (r != null) {
-                            if (r.reelId == null) r.reelId = s.getKey();
-                            posts.add(r);
+            FirebaseUtils.getReelsRef()
+                .orderByChild("timestamp")
+                .limitToLast(20)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (!isAdded() || getContext() == null) return;
+                        List<ReelModel> posts = new ArrayList<>();
+                        for (DataSnapshot s : snap.getChildren()) {
+                            ReelModel r = s.getValue(ReelModel.class);
+                            if (r != null) {
+                                if (r.reelId == null) r.reelId = s.getKey();
+                                posts.add(r);
+                            }
                         }
+                        posts.sort((a, b) -> Float.compare(b.trendingScore(), a.trendingScore()));
+                        renderFeedPosts(posts, uid);
                     }
-                    // Sort by trending score (likes weighted + recency)
-                    long now = System.currentTimeMillis();
-                    posts.sort((a, b) -> {
-                        double scoreA = a.likesCount * 1.5 + a.commentsCount * 3.0
-                            - (now - a.timestamp) / 3_600_000.0;
-                        double scoreB = b.likesCount * 1.5 + b.commentsCount * 3.0
-                            - (now - b.timestamp) / 3_600_000.0;
-                        return Double.compare(scoreB, scoreA);
-                    });
-                    renderFeedPosts(posts, uid);
-                    if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    showFeedLoading(false);
-                    if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
-                }
-            };
-            feedRef.addValueEventListener(feedListener);
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        showFeedLoading(false);
+                        if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                    }
+                });
         }
     }
 
@@ -595,36 +576,7 @@ public class HomeFragment extends Fragment {
             for (int i = 0; i < count; i++) {
                 addFeedPostCard(posts.get(i), likedIds, savedIds, myUid);
             }
-            // Load More button if there are more posts
-            if (posts.size() > 10) {
-                addLoadMoreButton(posts, likedIds, savedIds, myUid, 10);
-            }
         });
-    }
-
-    private void addLoadMoreButton(List<ReelModel> posts, Set<String> likedIds,
-                                   Set<String> savedIds, String myUid, int fromIndex) {
-        if (containerFeed == null || !isAdded() || getContext() == null) return;
-        TextView btnMore = new TextView(requireContext());
-        btnMore.setText("Load more posts");
-        btnMore.setTextColor(getResources().getColor(R.color.brand_primary, null));
-        btnMore.setTextSize(13f);
-        btnMore.setGravity(android.view.Gravity.CENTER);
-        btnMore.setPadding(0, dpToPx(14), 0, dpToPx(14));
-        btnMore.setClickable(true); btnMore.setFocusable(true);
-        btnMore.setBackgroundResource(android.R.drawable.list_selector_background);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        btnMore.setLayoutParams(lp);
-        btnMore.setOnClickListener(v -> {
-            containerFeed.removeView(btnMore);
-            int end = Math.min(fromIndex + 10, posts.size());
-            for (int i = fromIndex; i < end; i++) {
-                addFeedPostCard(posts.get(i), likedIds, savedIds, myUid);
-            }
-            if (end < posts.size()) addLoadMoreButton(posts, likedIds, savedIds, myUid, end);
-        });
-        containerFeed.addView(btnMore);
     }
 
     private void addFeedPostCard(ReelModel reel, Set<String> likedIds,
@@ -649,62 +601,26 @@ public class HomeFragment extends Fragment {
 
         tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
         tvTime.setText(formatAgo(reel.timestamp));
-
-        // Views count (if field exists on model)
-        TextView tvViews = card.findViewById(R.id.tv_post_views);
-        if (tvViews != null) {
-            long viewCount = reel.viewsCount > 0 ? reel.viewsCount : reel.likesCount * 8L;
-            tvViews.setText(formatCount(viewCount) + " views");
-        }
         String captionText = reel.caption != null ? reel.caption : "";
         tvCaption.setText(captionText);
-        if (captionText.contains("#") || captionText.contains("@")) {
+        if (captionText.contains("#")) {
             android.text.SpannableString spannable = new android.text.SpannableString(captionText);
-            if (captionText.contains("#")) {
-                java.util.regex.Matcher hm = java.util.regex.Pattern.compile("#(\\w+)").matcher(captionText);
-                while (hm.find()) {
-                    final String tag = hm.group(1);
-                    final int hs = hm.start(), he = hm.end();
-                    spannable.setSpan(new android.text.style.ClickableSpan() {
-                        @Override public void onClick(@NonNull android.view.View w) {
-                            if (!isAdded() || getContext() == null || tag == null) return;
-                            Intent hi = new Intent(getContext(), HashtagReelsActivity.class);
-                            hi.putExtra("hashtag", tag); startActivity(hi);
-                        }
-                        @Override public void updateDrawState(@NonNull android.text.TextPaint ds) {
-                            ds.setColor(0xFF00C6FF); ds.setUnderlineText(false);
-                        }
-                    }, hs, he, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                }
-            }
-            if (captionText.contains("@")) {
-                java.util.regex.Matcher mm = java.util.regex.Pattern.compile("@(\\w+)").matcher(captionText);
-                while (mm.find()) {
-                    final String mentionName = mm.group(1);
-                    final int ms = mm.start(), me2 = mm.end();
-                    spannable.setSpan(new android.text.style.ClickableSpan() {
-                        @Override public void onClick(@NonNull android.view.View w) {
-                            if (!isAdded() || getContext() == null) return;
-                            FirebaseUtils.db().getReference("users")
-                                .orderByChild("username").equalTo(mentionName).limitToFirst(1)
-                                .addListenerForSingleValueEvent(new ValueEventListener() {
-                                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                                        if (!isAdded() || getContext() == null) return;
-                                        for (DataSnapshot s : snap.getChildren()) {
-                                            Intent ui = new Intent(getContext(), UserReelsActivity.class);
-                                            ui.putExtra(UserReelsActivity.EXTRA_UID, s.getKey());
-                                            ui.putExtra(UserReelsActivity.EXTRA_NAME, mentionName);
-                                            startActivity(ui); return;
-                                        }
-                                    }
-                                    @Override public void onCancelled(@NonNull DatabaseError e) {}
-                                });
-                        }
-                        @Override public void updateDrawState(@NonNull android.text.TextPaint ds) {
-                            ds.setColor(0xFFFFAA00); ds.setUnderlineText(false);
-                        }
-                    }, ms, me2, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                }
+            java.util.regex.Pattern hp = java.util.regex.Pattern.compile("#(\\w+)");
+            java.util.regex.Matcher hm = hp.matcher(captionText);
+            while (hm.find()) {
+                final String tag = hm.group(1);
+                final int hs = hm.start(), he = hm.end();
+                spannable.setSpan(new android.text.style.ClickableSpan() {
+                    @Override public void onClick(@NonNull android.view.View w) {
+                        if (!isAdded() || getContext() == null || tag == null) return;
+                        Intent hi = new Intent(getContext(), HashtagReelsActivity.class);
+                        hi.putExtra("hashtag", tag);
+                        startActivity(hi);
+                    }
+                    @Override public void updateDrawState(@NonNull android.text.TextPaint ds) {
+                        ds.setColor(0xFF00C6FF); ds.setUnderlineText(false);
+                    }
+                }, hs, he, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             tvCaption.setText(spannable);
             tvCaption.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
@@ -743,27 +659,8 @@ public class HomeFragment extends Fragment {
         final String reelId   = reel.reelId;
         final String ownerUid = reel.uid;
 
-        // Single tap → open reel | Double-tap → like
-        final long[] lastTap = {0L};
-        ivThumb.setOnClickListener(x -> {
-            long now = System.currentTimeMillis();
-            if (now - lastTap[0] < 350) {
-                if (myUid != null && reelId != null && !isLiked[0]) {
-                    isLiked[0] = true;
-                    if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart_filled);
-                    FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(true);
-                    FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
-                        .setValue(System.currentTimeMillis());
-                    tvLikes.setText(formatCount(reel.likesCount + 1));
-                    ivThumb.animate().scaleX(1.08f).scaleY(1.08f).setDuration(100)
-                        .withEndAction(() -> ivThumb.animate().scaleX(1f).scaleY(1f).setDuration(100).start())
-                        .start();
-                }
-            } else {
-                openReelById(reelId, reel.ownerName);
-            }
-            lastTap[0] = now;
-        });
+        // Tap thumbnail → open this specific reel in the player
+        ivThumb.setOnClickListener(x -> openReelById(reelId, reel.ownerName));
 
         // Avatar tap → open user's reel profile
         avatar.setOnClickListener(x -> {
@@ -789,7 +686,11 @@ public class HomeFragment extends Fragment {
                     FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                         .setValue(System.currentTimeMillis());
                     // Optimistic UI count update
-                    tvLikes.setText(formatCount(reel.likesCount + 1));
+                    try {
+                        int cur = Integer.parseInt(tvLikes.getText().toString()
+                            .replace("K", "000").replace("M", "000000"));
+                        tvLikes.setText(formatCount(cur + 1));
+                    } catch (Exception ignored) {}
                 } else {
                     btnLike.setImageResource(R.drawable.ic_heart);
                     FirebaseUtils.getReelLikesRef(reelId).child(myUid).removeValue();
@@ -841,7 +742,12 @@ public class HomeFragment extends Fragment {
                     requireContext(), reelId, myUid, FirebaseUtils.getCurrentName(),
                     ownerUid, reel.ownerName, reel.thumbUrl);
                 Toast.makeText(requireContext(), "Reposted!", Toast.LENGTH_SHORT).show();
-                tvReposts.setText(formatCount(reel.repostCount + 1));
+                try {
+                    int cur = Integer.parseInt(tvReposts.getText().toString());
+                    tvReposts.setText(formatCount(cur + 1));
+                } catch (Exception ignored) {
+                    tvReposts.setText(formatCount(reel.repostCount + 1));
+                }
             });
         }
 
@@ -860,23 +766,6 @@ public class HomeFragment extends Fragment {
                     FirebaseUtils.getReelSavesRef(myUid).child(reelId).removeValue();
                     FirebaseUtils.getReelSavesIndexRef(reelId).child(myUid).removeValue();
                 }
-            });
-        }
-
-        // ── Share button ──
-        ImageButton btnShare = card.findViewById(R.id.btn_post_share);
-        if (btnShare != null) {
-            btnShare.setOnClickListener(x -> {
-                if (!isAdded() || getContext() == null) return;
-                String shareText = (reel.ownerName != null ? "@" + reel.ownerName + " shared a reel" : "Check out this reel")
-                    + (reel.caption != null && !reel.caption.isEmpty() ? ": " + reel.caption : "")
-                    + "
-
-CallX App";
-                android.content.Intent shareIntent = new android.content.Intent(android.content.Intent.ACTION_SEND);
-                shareIntent.setType("text/plain");
-                shareIntent.putExtra(android.content.Intent.EXTRA_TEXT, shareText);
-                startActivity(android.content.Intent.createChooser(shareIntent, "Share via"));
             });
         }
 
@@ -972,46 +861,35 @@ CallX App";
             if (pbActivity != null) pbActivity.setVisibility(View.GONE);
             return;
         }
-        FirebaseUtils.getReelFollowsRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (!isAdded() || getContext() == null) return;
-                List<String> followedUids = new ArrayList<>();
-                for (DataSnapshot s : snap.getChildren()) followedUids.add(s.getKey());
-                if (followedUids.isEmpty()) { renderFriendsActivity(new ArrayList<>()); return; }
-                loadFriendRecentPosts(followedUids);
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                if (!isAdded()) return;
-                requireActivity().runOnUiThread(() -> {
-                    if (pbActivity != null) pbActivity.setVisibility(View.GONE);
-                });
-            }
-        });
-    }
 
-    private void loadFriendRecentPosts(List<String> followedUids) {
-        Set<String> uidSet = new HashSet<>(followedUids);
-        FirebaseUtils.getReelsRef().orderByChild("timestamp").limitToLast(60)
+        FirebaseUtils.db().getReference("reel_notifications").child(myUid)
+            .orderByChild("timestamp")
+            .limitToLast(10)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (!isAdded() || getContext() == null) return;
                     List<Map<String, Object>> activities = new ArrayList<>();
                     for (DataSnapshot s : snap.getChildren()) {
-                        ReelModel r = s.getValue(ReelModel.class);
-                        if (r == null || r.uid == null || !uidSet.contains(r.uid)) continue;
-                        if (r.reelId == null) r.reelId = s.getKey();
-                        if ((System.currentTimeMillis() - r.timestamp) / 86400_000L > 7) continue;
                         Map<String, Object> item = new HashMap<>();
-                        String name = r.ownerName != null ? r.ownerName : "Someone";
-                        item.put("message",    "@" + name + " posted a new reel");
-                        item.put("timestamp",  r.timestamp);
-                        item.put("type",       "post");
-                        item.put("from_uid",   r.uid);
-                        item.put("from_photo", r.ownerPhoto != null ? r.ownerPhoto : "");
-                        item.put("reel_id",    r.reelId);
-                        activities.add(item);
+                        String type     = s.child("type").getValue(String.class);
+                        String message  = s.child("message").getValue(String.class);
+                        String fromUid  = s.child("from_uid").getValue(String.class);
+                        String fromPhoto= s.child("from_photo").getValue(String.class);
+                        String fromThumb= s.child("from_thumb").getValue(String.class);
+                        Long   ts       = s.child("timestamp").getValue(Long.class);
+                        String resolvedPhoto = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : (fromPhoto != null ? fromPhoto : "");
+                        if (message != null) {
+                            item.put("message",    message);
+                            item.put("timestamp",  ts != null ? ts : 0L);
+                            item.put("type",       type != null ? type : "like");
+                            item.put("from_uid",   fromUid != null ? fromUid : "");
+                            item.put("from_photo", resolvedPhoto);
+                            activities.add(item);
+                        }
                     }
-                    loadFriendReposts(followedUids, activities);
+                    activities.sort((a, b) ->
+                        Long.compare((Long) b.get("timestamp"), (Long) a.get("timestamp")));
+                    renderFriendsActivity(activities);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     if (!isAdded()) return;
@@ -1020,57 +898,6 @@ CallX App";
                     });
                 }
             });
-    }
-
-    private void loadFriendReposts(List<String> followedUids, List<Map<String, Object>> existing) {
-        List<String> sample = followedUids.subList(0, Math.min(5, followedUids.size()));
-        if (sample.isEmpty()) { finalizeFriendsActivity(existing); return; }
-        int[] remaining = {sample.size()};
-        for (String uid : sample) {
-            FirebaseUtils.getReelRepostsByUserRef(uid).orderByValue().limitToLast(3)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        if (!isAdded() || getContext() == null) return;
-                        for (DataSnapshot s : snap.getChildren()) {
-                            Long ts = s.getValue(Long.class);
-                            if (ts == null || (System.currentTimeMillis() - ts) / 86400_000L > 7) continue;
-                            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                                @Override public void onDataChange(@NonNull DataSnapshot uSnap) {
-                                    String uname = uSnap.child("name").getValue(String.class);
-                                    if (uname == null) uname = uSnap.child("username").getValue(String.class);
-                                    if (uname == null) uname = "Someone";
-                                    String photo = uSnap.child("photoUrl").getValue(String.class);
-                                    Map<String, Object> item = new HashMap<>();
-                                    item.put("message",    "@" + uname + " reposted a reel");
-                                    item.put("timestamp",  ts);
-                                    item.put("type",       "repost");
-                                    item.put("from_uid",   uid);
-                                    item.put("from_photo", photo != null ? photo : "");
-                                    synchronized (existing) { existing.add(item); }
-                                }
-                                @Override public void onCancelled(@NonNull DatabaseError e) {}
-                            });
-                        }
-                        synchronized (remaining) {
-                            remaining[0]--;
-                            if (remaining[0] <= 0) finalizeFriendsActivity(existing);
-                        }
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {
-                        synchronized (remaining) {
-                            remaining[0]--;
-                            if (remaining[0] <= 0) finalizeFriendsActivity(existing);
-                        }
-                    }
-                });
-        }
-    }
-
-    private void finalizeFriendsActivity(List<Map<String, Object>> activities) {
-        if (!isAdded() || getContext() == null) return;
-        activities.sort((a, b) -> Long.compare((Long) b.get("timestamp"), (Long) a.get("timestamp")));
-        List<Map<String, Object>> top = activities.size() > 15 ? activities.subList(0, 15) : activities;
-        renderFriendsActivity(new ArrayList<>(top));
     }
 
     @SuppressWarnings("unchecked")
@@ -1122,7 +949,6 @@ CallX App";
                 int iconRes = "repost".equals(type) ? R.drawable.ic_repost
                     : "comment".equals(type) ? R.drawable.ic_comment_reel
                     : "follow".equals(type) ? R.drawable.ic_person
-                    : "post".equals(type) ? R.drawable.ic_add_reels
                     : R.drawable.ic_heart_filled;
                 icon.setImageResource(iconRes);
                 LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dpToPx(16), dpToPx(16));
@@ -1147,20 +973,6 @@ CallX App";
                 tvTime.setTextSize(11f);
                 row.addView(tvTime);
 
-                final String rowReelId  = act.containsKey("reel_id") ? (String) act.get("reel_id") : null;
-                final String rowFromUid = (String) act.get("from_uid");
-                row.setClickable(true); row.setFocusable(true);
-                row.setBackgroundResource(android.R.drawable.list_selector_background);
-                row.setOnClickListener(vv -> {
-                    if (!isAdded() || getContext() == null) return;
-                    if (rowReelId != null && "post".equals(type)) {
-                        openReelById(rowReelId, message);
-                    } else if (rowFromUid != null && !rowFromUid.isEmpty()) {
-                        Intent ui = new Intent(getContext(), UserReelsActivity.class);
-                        ui.putExtra(UserReelsActivity.EXTRA_UID, rowFromUid);
-                        startActivity(ui);
-                    }
-                });
                 containerFriendsActivity.addView(row);
 
                 View divider = new View(requireContext());
@@ -1180,37 +992,17 @@ CallX App";
             if (pbContinue != null) pbContinue.setVisibility(View.GONE);
             return;
         }
-        // Cross-check watch progress to exclude 90%+ finished reels
-        FirebaseUtils.getReelWatchProgressRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot progressSnap) {
-                if (!isAdded() || getContext() == null) return;
-                Set<String> finishedIds = new HashSet<>();
-                for (DataSnapshot s : progressSnap.getChildren()) {
-                    Integer pct = s.getValue(Integer.class);
-                    if (pct != null && pct >= 90) finishedIds.add(s.getKey());
-                }
-                loadWatchHistoryFiltered(myUid, finishedIds);
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                loadWatchHistoryFiltered(myUid, new HashSet<>());
-            }
-        });
-    }
 
-    private void loadWatchHistoryFiltered(String myUid, Set<String> finishedIds) {
         FirebaseUtils.getReelWatchHistoryRef(myUid)
             .orderByValue()
-            .limitToLast(12)
+            .limitToLast(8)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (!isAdded() || getContext() == null) return;
                     List<String> reelIds = new ArrayList<>();
-                    for (DataSnapshot s : snap.getChildren()) {
-                        if (!finishedIds.contains(s.getKey())) reelIds.add(s.getKey());
-                    }
+                    for (DataSnapshot s : snap.getChildren()) reelIds.add(s.getKey());
                     Collections.reverse(reelIds);
-                    List<String> top = reelIds.size() > 8 ? reelIds.subList(0, 8) : reelIds;
-                    if (top.isEmpty()) {
+                    if (reelIds.isEmpty()) {
                         requireActivity().runOnUiThread(() -> {
                             if (pbContinue != null) pbContinue.setVisibility(View.GONE);
                             if (!isAdded() || getContext() == null) return;
@@ -1224,7 +1016,7 @@ CallX App";
                         });
                         return;
                     }
-                    loadReelsByIds(new ArrayList<>(top), 0);
+                    loadReelsByIds(reelIds, 0);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     if (!isAdded()) return;
@@ -1362,36 +1154,27 @@ CallX App";
 
     private void renderSuggestedCreators(List<String[]> creators, String myUid) {
         if (!isAdded() || getContext() == null) return;
-        if (myUid == null) {
-            requireActivity().runOnUiThread(() -> {
-                if (pbSuggested != null) pbSuggested.setVisibility(View.GONE);
+        requireActivity().runOnUiThread(() -> {
+            if (containerSuggestedCreators == null || !isAdded()) return;
+            if (pbSuggested != null) pbSuggested.setVisibility(View.GONE);
+
+            // First fetch the followed set for correct button state
+            if (myUid == null) {
                 addCreatorCards(creators, new HashSet<>());
-            });
-            return;
-        }
-        // Fetch followed set — exclude already-followed users from suggestions
-        FirebaseUtils.getReelFollowsRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (!isAdded() || getContext() == null) return;
-                Set<String> followed = new HashSet<>();
-                for (DataSnapshot s : snap.getChildren()) followed.add(s.getKey());
-                // Filter: keep only creators NOT already followed
-                List<String[]> unfolowed = new ArrayList<>();
-                for (String[] cr : creators) {
-                    if (!followed.contains(cr[0])) unfolowed.add(cr);
+                return;
+            }
+            FirebaseUtils.getReelFollowsRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    Set<String> followed = new HashSet<>();
+                    for (DataSnapshot s : snap.getChildren()) followed.add(s.getKey());
+                    if (isAdded() && getContext() != null)
+                        requireActivity().runOnUiThread(() -> addCreatorCards(creators, followed));
                 }
-                requireActivity().runOnUiThread(() -> {
-                    if (pbSuggested != null) pbSuggested.setVisibility(View.GONE);
-                    addCreatorCards(unfolowed, followed);
-                });
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                if (!isAdded() || getContext() == null) return;
-                requireActivity().runOnUiThread(() -> {
-                    if (pbSuggested != null) pbSuggested.setVisibility(View.GONE);
-                    addCreatorCards(creators, new HashSet<>());
-                });
-            }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (isAdded() && getContext() != null)
+                        requireActivity().runOnUiThread(() -> addCreatorCards(creators, new HashSet<>()));
+                }
+            });
         });
     }
 
@@ -1516,22 +1299,24 @@ CallX App";
     private void loadMyAvatar() {
         String myUid = safeMyUid();
         if (myUid == null || ivMyStoryAvatar == null) return;
-        FirebaseUtils.getUserRef(myUid)
+        // Reels profile avatar load karo (reels/users/{uid})
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (!isAdded() || getContext() == null) return;
-                    String thumb = snap.child("thumbUrl").getValue(String.class);
-                    String photo = snap.child("photoUrl").getValue(String.class);
-                    String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                    if (url != null && !url.isEmpty()) {
-                        Glide.with(requireContext()).load(url)
-                            .apply(RequestOptions.circleCropTransform())
-                            .placeholder(R.drawable.ic_person)
-                            .into(ivMyStoryAvatar);
-                    }
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (!isAdded() || getContext() == null) return;
+                String thumb = snap.child("thumbUrl").getValue(String.class);
+                String photo = snap.child("photoUrl").getValue(String.class);
+                String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                if (url != null && !url.isEmpty()) {
+                    Glide.with(requireContext()).load(url)
+                        .apply(RequestOptions.circleCropTransform())
+                        .placeholder(R.drawable.ic_person)
+                        .into(ivMyStoryAvatar);
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────
@@ -1575,33 +1360,6 @@ CallX App";
         long hours = mins / 60;
         if (hours < 24) return hours + "h";
         return (hours / 24) + "d";
-    }
-
-    @Override
-    public void onPause() {
-        super.onPause();
-        // Detach real-time listener to prevent updates while off-screen
-        if (feedRef != null && feedListener != null) {
-            feedRef.removeEventListener(feedListener);
-        }
-    }
-
-    @Override
-    public void onResume() {
-        super.onResume();
-        // Re-attach For You real-time listener when screen returns
-        if (!isFollowingMode && feedRef != null && feedListener != null) {
-            feedRef.addValueEventListener(feedListener);
-        }
-    }
-
-    @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        if (feedRef != null && feedListener != null) {
-            feedRef.removeEventListener(feedListener);
-            feedRef = null; feedListener = null;
-        }
     }
 
     private int dpToPx(int dp) {
