@@ -214,6 +214,16 @@ public class ChatActivity extends AppCompatActivity {
         watchBlock();
         watchPartnerPermaBlock();
         watchPinnedMessage();
+        // FIX: capture unread count BEFORE markMessagesRead() zeroes it out,
+        // so the adapter can show the "↓ N unread messages" divider at the right position.
+        ioExecutor.execute(() -> {
+            long unread = db.chatDao().getUnreadCount(chatId);
+            if (unread > 0) {
+                int total  = db.messageDao().getMessageCount(chatId);
+                int divPos = (int) Math.max(0, total - unread);
+                runOnUiThread(() -> pagingAdapter.setFirstUnreadPosition(divPos, (int) unread));
+            }
+        });
         markMessagesRead();
 
         // ── Task 5: Offline banner + message pruning ──

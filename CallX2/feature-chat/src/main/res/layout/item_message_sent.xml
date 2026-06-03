@@ -26,6 +26,23 @@
         android:gravity="center"
         android:visibility="gone"/>
 
+    <!-- Unread messages divider — shown at the first unread message when chat opens -->
+    <TextView
+        android:id="@+id/tv_unread_divider"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:background="#1A2196F3"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp"
+        android:textColor="#1565C0"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="4dp"
+        android:layout_marginTop="4dp"
+        android:visibility="gone"/>
+
     <!-- Pinned label -->
     <TextView
         android:id="@+id/tv_pinned_label"

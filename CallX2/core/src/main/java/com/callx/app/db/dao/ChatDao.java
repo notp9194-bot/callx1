@@ -29,6 +29,11 @@ public interface ChatDao {
     @Query("SELECT * FROM chats WHERE chatId = :chatId LIMIT 1")
     ChatEntity getChat(String chatId);
 
+    /** Lightweight unread count read — used to place the unread divider before resetting. */
+    @WorkerThread
+    @Query("SELECT COALESCE(unread, 0) FROM chats WHERE chatId = :chatId LIMIT 1")
+    long getUnreadCount(String chatId);
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertChat(ChatEntity chat);
 

@@ -81,6 +81,15 @@ public class MessagePagingAdapter
     private ActionListener actionListener;
     private MediaPlayer player;
     private int playingPos = -1;
+    /** Position of the first unread message — shows "↓ N unread" divider above it. -1 = none. */
+    private int firstUnreadPosition  = -1;
+    private int initialUnreadCount   = 0;
+
+    /** Called from ChatActivity before markMessagesRead() resets the badge. */
+    public void setFirstUnreadPosition(int position, int unreadCount) {
+        this.firstUnreadPosition = position;
+        this.initialUnreadCount  = unreadCount;
+    }
 
     // ── Interface for long-press actions ─────────────────────────
     public interface ActionListener {
@@ -508,6 +517,19 @@ public class MessagePagingAdapter
             h.tvDateHeader.setVisibility(View.GONE);
         }
 
+        // ── Unread messages divider ───────────────────────────────────────
+        if (h.tvUnreadDivider != null) {
+            if (firstUnreadPosition >= 0 && position == firstUnreadPosition) {
+                String label = initialUnreadCount == 1
+                        ? "\u2193 1 unread message"
+                        : "\u2193 " + initialUnreadCount + " unread messages";
+                h.tvUnreadDivider.setText(label);
+                h.tvUnreadDivider.setVisibility(View.VISIBLE);
+            } else {
+                h.tvUnreadDivider.setVisibility(View.GONE);
+            }
+        }
+
         // ── Theme-aware bubble background ─────────────────────────────────
         try {
             android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
@@ -719,6 +741,9 @@ public class MessagePagingAdapter
                     String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
                     final int pos = position;
                     h.btnPlayPause.setOnClickListener(v -> toggleAudio(h, aUrl, pos));
+                    // FIX: restore correct icon — if this item is the one currently playing
+                    boolean isThisPlaying = (pos == playingPos && player != null && player.isPlaying());
+                    h.btnPlayPause.setImageResource(isThisPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
                     // FIX v14: Audio preload — MediaStreamCache se pehle 512KB cache karo
                     // Taaki play button press karne par turant start ho, buffer nahi kare
                     java.io.File cachedAudio = MediaCache.getCached(ctx, aUrl);
@@ -1029,6 +1054,17 @@ public class MessagePagingAdapter
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
         if (holder.ivImage != null) Glide.with(holder.ivImage).clear(holder.ivImage);
+        // FIX: if this holder was playing audio, stop it — otherwise audio plays invisibly
+        int pos = holder.getBindingAdapterPosition();
+        if (pos != RecyclerView.NO_ID && pos == playingPos) {
+            if (player != null) {
+                try { player.stop(); player.release(); } catch (Exception ignored) {}
+                player = null;
+            }
+            playingPos = -1;
+        }
+        if (holder.btnPlayPause != null)
+            holder.btnPlayPause.setImageResource(R.drawable.ic_play);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -1117,6 +1153,8 @@ public class MessagePagingAdapter
         // Reactions row (ll_reactions / tv_reactions in both item layouts)
         LinearLayout llReactions;
         TextView     tvReactions;
+        // Unread messages divider
+        TextView     tvUnreadDivider;
 
         VH(@NonNull View v) {
             super(v);
@@ -1139,6 +1177,8 @@ public class MessagePagingAdapter
             // Reactions
             llReactions    = v.findViewById(R.id.ll_reactions);
             tvReactions    = v.findViewById(R.id.tv_reactions);
+            // Unread divider
+            tvUnreadDivider = v.findViewById(R.id.tv_unread_divider);
         }
     }
 }
