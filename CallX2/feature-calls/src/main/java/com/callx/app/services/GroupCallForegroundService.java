@@ -35,6 +35,7 @@ public class GroupCallForegroundService extends Service {
 
     // Static field — set by GroupCallActivity when first ICE peer connects
     public static volatile long connectedAt = 0;
+    private String  groupName        = "";
     private String  callId           = "";
     private String  myUid            = "";
     private String  groupId          = "";
