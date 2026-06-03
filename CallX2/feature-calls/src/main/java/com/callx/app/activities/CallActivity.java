@@ -164,6 +164,8 @@ public class CallActivity extends AppCompatActivity {
         if (partnerUid == null) { finish(); return; }
 
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        // Volume buttons → call volume control karo, music nahi
+        setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
         acquireWakeLock();
 
         binding.tvCallerName.setText(partnerName != null ? partnerName : "Unknown");
@@ -875,11 +877,15 @@ public class CallActivity extends AppCompatActivity {
                                     (partnerName != null ? partnerName : "Contact") + " is on another call"));
                         } else if ("rejected".equals(st) || "cancelled".equals(st)) {
                             String myUid = FirebaseUtils.getCurrentUid();
+                            String myName = FirebaseUtils.getCurrentName();
                             if (myUid != null) {
-                                PushNotify.notifyMissedCall(myUid,
-                                    partnerUid  != null ? partnerUid  : "",
-                                    partnerName != null ? partnerName : "",
-                                    callId      != null ? callId      : "",
+                                // FIX: toUid = partnerUid (callee ko missed call notification)
+                                // Pehle toUid = myUid tha — caller apne aap ko notify kar raha tha
+                                PushNotify.notifyMissedCall(
+                                    partnerUid   != null ? partnerUid   : "",
+                                    myUid,
+                                    myName       != null ? myName       : "",
+                                    callId       != null ? callId       : "",
                                     isVideo,
                                     partnerPhoto != null ? partnerPhoto : "");
                             }
@@ -1132,6 +1138,12 @@ public class CallActivity extends AppCompatActivity {
             @Override public void onCreateFailure(String e) {}
             @Override public void onSetFailure(String e) {}
         };
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Back = call end karo silently nahi
+        endCall();
     }
 
     @Override
