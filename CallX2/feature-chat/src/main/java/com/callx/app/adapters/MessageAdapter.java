@@ -1196,19 +1196,20 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         h.btnPlayAudio.setImageResource(R.drawable.ic_pause);
 
         // Pehle cached file check karo — agar hai to seedha play karo (zero data)
+        final Long msgDuration = m.duration;
         java.io.File cached = MediaCache.getCached(h.itemView.getContext(), m.mediaUrl);
         if (cached != null) {
-            playFromFile(h, cached.getAbsolutePath(), pos);
+            playFromFile(h, cached.getAbsolutePath(), pos, msgDuration);
             return;
         }
         // Cache nahi hai — download karo phir play karo
         MediaCache.get(h.itemView.getContext(), m.mediaUrl, new MediaCache.Callback() {
-            @Override public void onReady(java.io.File file) { playFromFile(h, file.getAbsolutePath(), pos); }
-            @Override public void onError(String reason)     { playFromFile(h, m.mediaUrl, pos); }
+            @Override public void onReady(java.io.File file) { playFromFile(h, file.getAbsolutePath(), pos, msgDuration); }
+            @Override public void onError(String reason)     { playFromFile(h, m.mediaUrl, pos, msgDuration); }
         });
     }
 
-    private void playFromFile(VH h, String path, int pos) {
+    private void playFromFile(VH h, String path, int pos, Long duration) {
         try {
             if (player != null) { try { player.release(); } catch (Exception ignored) {} }
             player = new MediaPlayer();
@@ -1233,8 +1234,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 h.btnPlayAudio.setImageResource(R.drawable.ic_play);
                 stopSeekBarUpdater();
                 if (h.seekAudio != null) h.seekAudio.setProgress(0);
-                if (h.tvAudioDur != null && m.duration != null)
-                    h.tvAudioDur.setText(FileUtils.formatDuration(m.duration));
+                if (h.tvAudioDur != null && duration != null)
+                    h.tvAudioDur.setText(FileUtils.formatDuration(duration));
                 try { mp.release(); } catch (Exception ignored) {}
                 player = null; playingPos = -1;
             });
