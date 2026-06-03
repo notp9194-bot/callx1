@@ -7,7 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -73,7 +72,6 @@ import com.callx.app.db.entity.CallLogEntity;
 
 public class CallActivity extends AppCompatActivity {
 
-    // UI
     private ActivityCallBinding binding;
 
     // Call params
@@ -85,12 +83,16 @@ public class CallActivity extends AppCompatActivity {
     private boolean callConnected = false;
     private boolean finishing = false;
     private boolean remoteCamOn = true;
-    // FIX-RESTORE: flag set when launched from ongoing-call notification tap
     private boolean isRestore = false;
 
     // Timer
     private final Handler tick = new Handler(Looper.getMainLooper());
     private Runnable ticker;
+
+    // Feature 4: Call Timeout — 60s mein koi na uthaye toh auto-cancel
+    private static final long CALL_TIMEOUT_MS = 60_000L;
+    private final Handler timeoutHandler = new Handler(Looper.getMainLooper());
+    private Runnable timeoutRunnable;
 
     // ICE reconnection
     private int iceRestartCount = 0;
@@ -104,11 +106,11 @@ public class CallActivity extends AppCompatActivity {
     // Audio
     private AudioManager audioManager;
 
-    // FIX-NOISY: AudioBecomingNoisy receiver — headphone unplug pe speaker off
+    // FIX-NOISY: Headphone unplug receiver
     private BroadcastReceiver noisyReceiver;
     private boolean noisyReceiverRegistered = false;
 
-    // FIX-BT: Bluetooth SCO support
+    // FIX-BT: Bluetooth SCO receiver
     private BroadcastReceiver btScoReceiver;
     private boolean btScoReceiverRegistered = false;
 
@@ -123,8 +125,10 @@ public class CallActivity extends AppCompatActivity {
     private AudioSource audioSource;
     private SurfaceTextureHelper surfaceHelper;
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
-
     private boolean capturerRunning = false;
+
+    // Feature 3: Adaptive quality state
+    private boolean usingLowQuality = false;
 
     // Firebase signaling
     private DatabaseReference callRef;
@@ -155,7 +159,6 @@ public class CallActivity extends AppCompatActivity {
         isCaller     = getIntent().getBooleanExtra("isCaller", false);
         isVideo      = getIntent().getBooleanExtra("video", false);
         callId       = getIntent().getStringExtra("callId");
-        // FIX-RESTORE: detect if launched from ongoing notification tap
         isRestore    = getIntent().getBooleanExtra("isRestore", false);
 
         if (partnerUid == null) { finish(); return; }
@@ -175,13 +178,13 @@ public class CallActivity extends AppCompatActivity {
             if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.GONE);
         }
 
-        String callAvatarUrl = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
+        String callAvatarUrl = (partnerThumb != null && !partnerThumb.isEmpty())
+            ? partnerThumb : partnerPhoto;
         if (callAvatarUrl != null && !callAvatarUrl.isEmpty()) {
             Glide.with(this).load(callAvatarUrl).circleCrop().into(binding.ivCallAvatar);
-            if (binding.ivRemoteCamOffAvatar != null) {
+            if (binding.ivRemoteCamOffAvatar != null)
                 Glide.with(this).load(callAvatarUrl).circleCrop()
                     .into(binding.ivRemoteCamOffAvatar);
-            }
         }
 
         binding.btnEndCall.setOnClickListener(v -> endCall());
@@ -192,21 +195,50 @@ public class CallActivity extends AppCompatActivity {
 
         updateMicUI();
         updateCameraUI();
-
-        // FIX-DRAG: Local video PiP box ko drag karna allow karo
         setupLocalVideoDrag();
 
-        // FIX-RESTORE: Agar notification se wapas aaye toh re-init nahi karna
-        // CallActivity already running hai — sirf UI refresh karo
-        if (isRestore && callConnected) {
-            // Activity already connected — nothing to re-init
-            return;
+        // Feature 4: Caller ke liye 60s timeout — agar na uthaye toh cancel
+        if (isCaller) {
+            timeoutRunnable = () -> {
+                if (!callConnected && !finishing) {
+                    binding.tvCallStatus.setText("No answer");
+                    endCall();
+                }
+            };
+            timeoutHandler.postDelayed(timeoutRunnable, CALL_TIMEOUT_MS);
         }
 
+        if (isRestore && callConnected) return;
         checkPermsAndInit();
     }
 
-    // ── FIX-DRAG: Local video drag in any corner ───────────────────────────
+    // ── Feature 3: Adaptive Video — resolution dynamically adjust ─────────
+    private void applyVideoBitrate(boolean lowQuality) {
+        if (!isVideo || videoCapturer == null || capturerRunning == false) return;
+        if (lowQuality == usingLowQuality) return;
+        usingLowQuality = lowQuality;
+        try {
+            videoCapturer.stopCapture();
+            capturerRunning = false;
+        } catch (Exception ignored) {}
+
+        int w, h;
+        if (lowQuality) {
+            // Poor network → VGA (640×480)
+            w = Constants.VIDEO_WIDTH_VGA;
+            h = Constants.VIDEO_HEIGHT_VGA;
+        } else {
+            // Good network → HD (1280×720)
+            w = Constants.VIDEO_WIDTH_HD;
+            h = Constants.VIDEO_HEIGHT_HD;
+        }
+        try {
+            videoCapturer.startCapture(w, h, Constants.VIDEO_FPS);
+            capturerRunning = true;
+        } catch (Exception ignored) {}
+    }
+
+    // ── Feature 5: Local video drag ───────────────────────────────────────
     private void setupLocalVideoDrag() {
         if (!isVideo) return;
         binding.localVideo.setOnTouchListener(new View.OnTouchListener() {
@@ -221,15 +253,12 @@ public class CallActivity extends AppCompatActivity {
                     case MotionEvent.ACTION_MOVE:
                         float newX = event.getRawX() + dX;
                         float newY = event.getRawY() + dY;
-                        // Keep within screen bounds
                         ViewGroup parent = (ViewGroup) v.getParent();
                         if (parent != null) {
                             newX = Math.max(0, Math.min(newX, parent.getWidth()  - v.getWidth()));
                             newY = Math.max(0, Math.min(newY, parent.getHeight() - v.getHeight()));
                         }
-                        v.setX(newX);
-                        v.setY(newY);
-                        // Also move the cam-off badge to match
+                        v.setX(newX); v.setY(newY);
                         if (binding.layoutLocalCamOffBadge != null) {
                             binding.layoutLocalCamOffBadge.setX(newX);
                             binding.layoutLocalCamOffBadge.setY(newY);
@@ -265,7 +294,8 @@ public class CallActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int req, @NonNull String[] perms, @NonNull int[] results) {
+    public void onRequestPermissionsResult(int req, @NonNull String[] perms,
+                                           @NonNull int[] results) {
         super.onRequestPermissionsResult(req, perms, results);
         if (req == 401) {
             boolean ok = true;
@@ -275,21 +305,19 @@ public class CallActivity extends AppCompatActivity {
         }
     }
 
-    // ── TURN credential fetch ──────────────────────────────────────────────
-
+    // ── TURN fetch ─────────────────────────────────────────────────────────
     private void fetchTurnThenInitWebRTC() {
         bgExecutor.execute(() -> {
             List<PeerConnection.IceServer> iceServers = buildFallbackIce();
             try {
                 String url = Constants.SERVER_URL + Constants.TURN_CREDENTIALS_PATH;
                 HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
+                conn.setConnectTimeout(5000); conn.setReadTimeout(5000);
                 conn.setRequestMethod("GET");
                 if (conn.getResponseCode() == 200) {
-                    BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                    StringBuilder sb = new StringBuilder();
-                    String line;
+                    BufferedReader br = new BufferedReader(
+                        new InputStreamReader(conn.getInputStream()));
+                    StringBuilder sb = new StringBuilder(); String line;
                     while ((line = br.readLine()) != null) sb.append(line);
                     JSONObject j = new JSONObject(sb.toString());
                     String turnUrl = j.optString("url", "");
@@ -317,7 +345,6 @@ public class CallActivity extends AppCompatActivity {
     }
 
     // ── WebRTC init ────────────────────────────────────────────────────────
-
     private void initWebRTC(List<PeerConnection.IceServer> iceServers) {
         eglBase = EglBase.create();
         if (isVideo) {
@@ -332,8 +359,10 @@ public class CallActivity extends AppCompatActivity {
 
         factory = PeerConnectionFactory.builder()
             .setOptions(new PeerConnectionFactory.Options())
-            .setVideoEncoderFactory(new DefaultVideoEncoderFactory(eglBase.getEglBaseContext(), true, true))
-            .setVideoDecoderFactory(new DefaultVideoDecoderFactory(eglBase.getEglBaseContext()))
+            .setVideoEncoderFactory(new DefaultVideoEncoderFactory(
+                eglBase.getEglBaseContext(), true, true))
+            .setVideoDecoderFactory(new DefaultVideoDecoderFactory(
+                eglBase.getEglBaseContext()))
             .createPeerConnectionFactory();
 
         PeerConnection.RTCConfiguration rtcConfig = new PeerConnection.RTCConfiguration(iceServers);
@@ -341,7 +370,8 @@ public class CallActivity extends AppCompatActivity {
         rtcConfig.iceTransportsType        = PeerConnection.IceTransportsType.ALL;
         rtcConfig.bundlePolicy             = PeerConnection.BundlePolicy.MAXBUNDLE;
         rtcConfig.rtcpMuxPolicy            = PeerConnection.RtcpMuxPolicy.REQUIRE;
-        rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
+        rtcConfig.continualGatheringPolicy =
+            PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
 
         peerConnection = factory.createPeerConnection(rtcConfig, new PeerConnection.Observer() {
             @Override public void onIceCandidate(IceCandidate c) { sendCandidate(c); }
@@ -372,16 +402,18 @@ public class CallActivity extends AppCompatActivity {
             }
         });
 
-        audioSource = factory.createAudioSource(buildAudioConstraints());
+        audioSource     = factory.createAudioSource(buildAudioConstraints());
         localAudioTrack = factory.createAudioTrack("audio0", audioSource);
         localAudioTrack.setEnabled(true);
 
         if (isVideo) {
             videoSource   = factory.createVideoSource(false);
-            surfaceHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+            surfaceHelper = SurfaceTextureHelper.create("CaptureThread",
+                eglBase.getEglBaseContext());
             videoCapturer = createCapturer(true);
             if (videoCapturer != null) {
-                videoCapturer.initialize(surfaceHelper, this, videoSource.getCapturerObserver());
+                videoCapturer.initialize(surfaceHelper, this,
+                    videoSource.getCapturerObserver());
                 startCapture();
             }
             localVideoTrack = factory.createVideoTrack("video0", videoSource);
@@ -392,31 +424,29 @@ public class CallActivity extends AppCompatActivity {
         List<String> ids = new ArrayList<>();
         ids.add("stream0");
         peerConnection.addTrack(localAudioTrack, ids);
-        if (isVideo && localVideoTrack != null) peerConnection.addTrack(localVideoTrack, ids);
+        if (isVideo && localVideoTrack != null)
+            peerConnection.addTrack(localVideoTrack, ids);
 
-        if (isVideo) enableSpeaker(true);
-        else         enableSpeaker(false);
+        enableSpeaker(isVideo);
 
         if (callId == null) {
             if (isCaller) {
                 callId = FirebaseUtils.db().getReference("activeCalls").push().getKey();
             } else {
-                android.util.Log.e("CallActivity", "Callee callId is null — FCM issue. Aborting.");
+                android.util.Log.e("CallActivity", "Callee callId null — aborting");
                 finish(); return;
             }
         }
         callRef = FirebaseUtils.db().getReference("activeCalls").child(callId);
-
-        // FIX-KILLED: onDisconnect auto-cleans Firebase if device loses connection/app killed
         callRef.child("status").onDisconnect().setValue("ended");
 
         if (isCaller) {
             String myUid  = FirebaseUtils.getCurrentUid();
             String myName = FirebaseUtils.getCurrentName();
             Map<String, Object> c = new HashMap<>();
-            c.put("from", myUid); c.put("fromName", myName);
-            c.put("to", partnerUid); c.put("video", isVideo);
-            c.put("at", System.currentTimeMillis()); c.put("status", "ringing");
+            c.put("from",   myUid); c.put("fromName", myName);
+            c.put("to",     partnerUid); c.put("video", isVideo);
+            c.put("at",     System.currentTimeMillis()); c.put("status", "ringing");
             callRef.setValue(c).addOnCompleteListener(t -> createOffer());
             PushNotify.notifyUser(partnerUid, myUid, myName,
                 isVideo ? "video_call" : "call", callId);
@@ -434,16 +464,12 @@ public class CallActivity extends AppCompatActivity {
         registerBtScoReceiver();
     }
 
-    // ── FIX-NOISY: Headphone unplug → auto switch to earpiece ─────────────
+    // ── FIX-NOISY: Headphone unplug ───────────────────────────────────────
     private void registerNoisyReceiver() {
         noisyReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
-                if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
-                    // Headphones unplugged — switch back to earpiece (not speaker)
-                    if (speakerOn) {
-                        enableSpeaker(false);
-                    }
-                }
+                if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction()))
+                    if (speakerOn) enableSpeaker(false);
             }
         };
         try {
@@ -453,7 +479,7 @@ public class CallActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
     }
 
-    // ── FIX-BT: Bluetooth SCO state receiver ──────────────────────────────
+    // ── FIX-BT: Bluetooth SCO ─────────────────────────────────────────────
     private void registerBtScoReceiver() {
         btScoReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
@@ -466,7 +492,6 @@ public class CallActivity extends AppCompatActivity {
                             binding.tvSpeakerLabel.setText("Bluetooth");
                     }
                 } else if (state == AudioManager.SCO_AUDIO_STATE_DISCONNECTED) {
-                    // BT dropped — fall back to earpiece
                     if (audioManager != null) {
                         audioManager.setBluetoothScoOn(false);
                         audioManager.stopBluetoothSco();
@@ -488,36 +513,31 @@ public class CallActivity extends AppCompatActivity {
         callRef.child("camState").child(partnerUid).addValueEventListener(
             new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot s) {
-                    Boolean camOnVal = s.getValue(Boolean.class);
-                    remoteCamOn = (camOnVal == null || camOnVal);
-                    runOnUiThread(() -> updateRemoteCamOverlay());
+                    Boolean val = s.getValue(Boolean.class);
+                    remoteCamOn = (val == null || val);
+                    runOnUiThread(() -> {
+                        if (binding.layoutRemoteCamOff != null)
+                            binding.layoutRemoteCamOff.setVisibility(
+                                remoteCamOn ? View.GONE : View.VISIBLE);
+                    });
                 }
                 @Override public void onCancelled(DatabaseError e) {}
             });
     }
 
-    private void updateRemoteCamOverlay() {
-        if (binding.layoutRemoteCamOff == null) return;
-        binding.layoutRemoteCamOff.setVisibility(remoteCamOn ? View.GONE : View.VISIBLE);
-    }
-
-    // ── FIX: Network quality — Good / Weak / Poor ──────────────────────────
+    // ── Network quality indicator ─────────────────────────────────────────
     private void showQualityIndicator(PeerConnection.IceConnectionState state) {
         if (binding.layoutQuality == null) return;
         if (state == PeerConnection.IceConnectionState.CONNECTED ||
             state == PeerConnection.IceConnectionState.COMPLETED) {
             binding.layoutQuality.setVisibility(View.VISIBLE);
             if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Good");
-            if (binding.ivQualityIcon != null)
-                binding.ivQualityIcon.setImageResource(com.callx.app.calls.R.drawable.ic_signal_good);
         } else if (state == PeerConnection.IceConnectionState.DISCONNECTED) {
             binding.layoutQuality.setVisibility(View.VISIBLE);
             if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Weak");
-            if (binding.ivQualityIcon != null)
-                binding.ivQualityIcon.setImageResource(com.callx.app.calls.R.drawable.ic_signal_good);
         } else if (state == PeerConnection.IceConnectionState.FAILED ||
                    state == PeerConnection.IceConnectionState.CHECKING) {
-            // FIX: FAILED / CHECKING state ko "Poor" dikhao — was missing before
+            // FIX: Poor state — pehle missing tha
             binding.layoutQuality.setVisibility(View.VISIBLE);
             if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Poor");
         } else {
@@ -538,11 +558,13 @@ public class CallActivity extends AppCompatActivity {
     private void startCapture() {
         if (videoCapturer == null) return;
         try {
-            videoCapturer.startCapture(Constants.VIDEO_WIDTH_HD, Constants.VIDEO_HEIGHT_HD, Constants.VIDEO_FPS);
+            videoCapturer.startCapture(Constants.VIDEO_WIDTH_HD, Constants.VIDEO_HEIGHT_HD,
+                Constants.VIDEO_FPS);
             capturerRunning = true;
         } catch (Exception e) {
             try {
-                videoCapturer.startCapture(Constants.VIDEO_WIDTH_VGA, Constants.VIDEO_HEIGHT_VGA, Constants.VIDEO_FPS);
+                videoCapturer.startCapture(Constants.VIDEO_WIDTH_VGA, Constants.VIDEO_HEIGHT_VGA,
+                    Constants.VIDEO_FPS);
                 capturerRunning = true;
             } catch (Exception ignored) {}
         }
@@ -550,48 +572,41 @@ public class CallActivity extends AppCompatActivity {
 
     private CameraVideoCapturer createCapturer(boolean preferFront) {
         Camera2Enumerator e = new Camera2Enumerator(this);
-        String[] devices = e.getDeviceNames();
-        for (String d : devices)
+        for (String d : e.getDeviceNames())
             if (preferFront ? e.isFrontFacing(d) : e.isBackFacing(d))
                 return e.createCapturer(d, null);
-        for (String d : devices) return e.createCapturer(d, null);
+        for (String d : e.getDeviceNames()) return e.createCapturer(d, null);
         return null;
     }
 
-    // ── Background lifecycle ───────────────────────────────────────────────
-
-    @Override
-    protected void onStop() {
+    // ── Lifecycle ──────────────────────────────────────────────────────────
+    @Override protected void onStop() {
         super.onStop();
-        if (isVideo && videoCapturer != null && capturerRunning && !isInPictureInPictureMode()) {
-            try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
+        if (isVideo && videoCapturer != null && capturerRunning
+                && !isInPictureInPictureMode()) {
+            try { videoCapturer.stopCapture(); capturerRunning = false; }
+            catch (Exception ignored) {}
         }
     }
 
-    @Override
-    protected void onStart() {
+    @Override protected void onStart() {
         super.onStart();
-        if (isVideo && videoCapturer != null && !capturerRunning && camOn) {
+        if (isVideo && videoCapturer != null && !capturerRunning && camOn)
             startCapture();
-        }
     }
 
     // ── PiP ───────────────────────────────────────────────────────────────
-
-    @Override
-    protected void onUserLeaveHint() {
+    @Override protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (isVideo && callConnected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (isVideo && callConnected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             enterPipMode();
-        }
     }
 
     private void enterPipMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder();
-                builder.setAspectRatio(new Rational(9, 16));
-                enterPictureInPictureMode(builder.build());
+                enterPictureInPictureMode(new PictureInPictureParams.Builder()
+                    .setAspectRatio(new Rational(9, 16)).build());
             } catch (Exception ignored) {}
         }
     }
@@ -599,21 +614,19 @@ public class CallActivity extends AppCompatActivity {
     @Override
     public void onPictureInPictureModeChanged(boolean isInPipMode) {
         super.onPictureInPictureModeChanged(isInPipMode);
-        binding.btnEndCall.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
-        binding.btnToggleMic.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
-        binding.btnToggleCamera.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
-        binding.btnToggleSpeaker.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
-        binding.btnSwitchCamera.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
-        binding.tvCallerName.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
-        binding.tvCallStatus.setVisibility(isInPipMode ? View.GONE : View.VISIBLE);
-        // Resume camera when returning from PiP
-        if (!isInPipMode && isVideo && videoCapturer != null && !capturerRunning && camOn) {
+        int v = isInPipMode ? View.GONE : View.VISIBLE;
+        binding.btnEndCall.setVisibility(v);
+        binding.btnToggleMic.setVisibility(v);
+        binding.btnToggleCamera.setVisibility(v);
+        binding.btnToggleSpeaker.setVisibility(v);
+        binding.btnSwitchCamera.setVisibility(v);
+        binding.tvCallerName.setVisibility(v);
+        binding.tvCallStatus.setVisibility(v);
+        if (!isInPipMode && isVideo && videoCapturer != null && !capturerRunning && camOn)
             startCapture();
-        }
     }
 
-    // ── Camera switch ──────────────────────────────────────────────────────
-
+    // ── Controls ───────────────────────────────────────────────────────────
     private void switchCamera() {
         if (!isVideo || videoCapturer == null) return;
         usingFrontCamera = !usingFrontCamera;
@@ -621,8 +634,6 @@ public class CallActivity extends AppCompatActivity {
             ((CameraVideoCapturer) videoCapturer).switchCamera(null);
         binding.localVideo.setMirror(usingFrontCamera);
     }
-
-    // ── Speaker toggle ─────────────────────────────────────────────────────
 
     private void toggleSpeaker() {
         speakerOn = !speakerOn;
@@ -639,16 +650,13 @@ public class CallActivity extends AppCompatActivity {
             binding.tvSpeakerLabel.setText(on ? "Speaker On" : "Speaker");
     }
 
-    // ── Mic toggle ─────────────────────────────────────────────────────────
-
     private void toggleMic() {
         micOn = !micOn;
         if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
         updateMicUI();
         if (callRef != null) {
             String myUid = FirebaseUtils.getCurrentUid();
-            if (myUid != null)
-                callRef.child("micState").child(myUid).setValue(micOn);
+            if (myUid != null) callRef.child("micState").child(myUid).setValue(micOn);
         }
     }
 
@@ -664,14 +672,13 @@ public class CallActivity extends AppCompatActivity {
             : com.callx.app.calls.R.drawable.circle_reject_light);
     }
 
-    // ── Camera toggle ──────────────────────────────────────────────────────
-
     private void toggleCamera() {
         camOn = !camOn;
         if (localVideoTrack != null) localVideoTrack.setEnabled(camOn);
         if (isVideo && videoCapturer != null) {
             if (!camOn && capturerRunning) {
-                try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
+                try { videoCapturer.stopCapture(); capturerRunning = false; }
+                catch (Exception ignored) {}
             } else if (camOn && !capturerRunning) {
                 startCapture();
             }
@@ -681,8 +688,7 @@ public class CallActivity extends AppCompatActivity {
         updateCameraUI();
         if (callRef != null) {
             String myUid = FirebaseUtils.getCurrentUid();
-            if (myUid != null)
-                callRef.child("camState").child(myUid).setValue(camOn);
+            if (myUid != null) callRef.child("camState").child(myUid).setValue(camOn);
         }
     }
 
@@ -699,21 +705,28 @@ public class CallActivity extends AppCompatActivity {
             : com.callx.app.calls.R.drawable.circle_reject_light);
     }
 
-    // ── ICE state / reconnection ───────────────────────────────────────────
-
+    // ── ICE state ─────────────────────────────────────────────────────────
     private void handleIceStateChange(PeerConnection.IceConnectionState s) {
         showQualityIndicator(s);
+
         if (s == PeerConnection.IceConnectionState.CONNECTED ||
             s == PeerConnection.IceConnectionState.COMPLETED) {
             cancelPendingIceRestart();
             onCallConnected();
             binding.tvCallStatus.setAlpha(1f);
+            // Feature 3: Network kuch behtar hua → restore HD quality
+            applyVideoBitrate(false);
+
         } else if (s == PeerConnection.IceConnectionState.DISCONNECTED) {
             if (callConnected) {
                 binding.tvCallStatus.setText("Reconnecting...");
+                // Feature 3: Network weak → VGA save karo bandwidth
+                applyVideoBitrate(true);
                 scheduleIceRestart();
             }
         } else if (s == PeerConnection.IceConnectionState.FAILED) {
+            // Feature 3: Very poor → stay on low quality
+            applyVideoBitrate(true);
             if (callConnected && iceRestartCount < Constants.ICE_MAX_RESTARTS) {
                 performIceRestart();
             } else if (callConnected) {
@@ -769,9 +782,8 @@ public class CallActivity extends AppCompatActivity {
         iceRestartRequestListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot s) {
                 Long ts = s.getValue(Long.class);
-                if (ts != null && ts > 0) {
+                if (ts != null && ts > 0)
                     runOnUiThread(() -> { iceRestartCount = 0; scheduleIceRestart(); });
-                }
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
@@ -779,7 +791,6 @@ public class CallActivity extends AppCompatActivity {
     }
 
     // ── Firebase signaling ─────────────────────────────────────────────────
-
     private void createOffer() {
         if (peerConnection == null) return;
         peerConnection.createOffer(new SdpObserver() {
@@ -804,13 +815,14 @@ public class CallActivity extends AppCompatActivity {
                 if (!s.exists()) {
                     callRef.child("offer").addValueEventListener(new ValueEventListener() {
                         @Override public void onDataChange(DataSnapshot s2) {
-                            if (s2.exists()) { callRef.child("offer").removeEventListener(this); handleOffer(s2); }
+                            if (s2.exists()) {
+                                callRef.child("offer").removeEventListener(this);
+                                handleOffer(s2);
+                            }
                         }
                         @Override public void onCancelled(DatabaseError e) {}
                     });
-                } else {
-                    handleOffer(s);
-                }
+                } else { handleOffer(s); }
             }
             @Override public void onCancelled(DatabaseError e) {}
         });
@@ -820,8 +832,6 @@ public class CallActivity extends AppCompatActivity {
         String type = s.child("type").getValue(String.class);
         String sdp  = s.child("sdp").getValue(String.class);
         if (type == null || sdp == null) return;
-        SessionDescription offer = new SessionDescription(
-            SessionDescription.Type.fromCanonicalForm(type), sdp);
         peerConnection.setRemoteDescription(new SdpObserver() {
             @Override public void onSetSuccess() {
                 remoteDescSet = true;
@@ -831,7 +841,8 @@ public class CallActivity extends AppCompatActivity {
             @Override public void onCreateSuccess(SessionDescription s2) {}
             @Override public void onCreateFailure(String e) {}
             @Override public void onSetFailure(String e) {}
-        }, offer);
+        }, new SessionDescription(
+            SessionDescription.Type.fromCanonicalForm(type), sdp));
     }
 
     private void createAnswer() {
@@ -855,17 +866,23 @@ public class CallActivity extends AppCompatActivity {
         statusListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot s) {
                 String st = s.getValue(String.class);
-                if ("ended".equals(st) || "rejected".equals(st) || "cancelled".equals(st)) {
-                    if (!callConnected && isCaller
-                            && ("rejected".equals(st) || "cancelled".equals(st))) {
-                        String myUid = FirebaseUtils.getCurrentUid();
-                        if (myUid != null) {
-                            PushNotify.notifyMissedCall(myUid,
-                                partnerUid != null ? partnerUid : "",
-                                partnerName != null ? partnerName : "",
-                                callId != null ? callId : "",
-                                isVideo,
-                                partnerPhoto != null ? partnerPhoto : "");
+                if ("ended".equals(st) || "rejected".equals(st)
+                        || "cancelled".equals(st) || "busy".equals(st)) {
+                    if (!callConnected && isCaller) {
+                        if ("busy".equals(st)) {
+                            runOnUiThread(() ->
+                                binding.tvCallStatus.setText(
+                                    (partnerName != null ? partnerName : "Contact") + " is on another call"));
+                        } else if ("rejected".equals(st) || "cancelled".equals(st)) {
+                            String myUid = FirebaseUtils.getCurrentUid();
+                            if (myUid != null) {
+                                PushNotify.notifyMissedCall(myUid,
+                                    partnerUid  != null ? partnerUid  : "",
+                                    partnerName != null ? partnerName : "",
+                                    callId      != null ? callId      : "",
+                                    isVideo,
+                                    partnerPhoto != null ? partnerPhoto : "");
+                            }
                         }
                     }
                     runOnUiThread(() -> endCall());
@@ -885,7 +902,8 @@ public class CallActivity extends AppCompatActivity {
                 String cand     = s.child("candidate").getValue(String.class);
                 if (sdpMid == null || cand == null) return;
                 int idx = 0;
-                try { if (sdpMLine != null) idx = Integer.parseInt(sdpMLine); } catch (Exception ignored) {}
+                try { if (sdpMLine != null) idx = Integer.parseInt(sdpMLine); }
+                catch (Exception ignored) {}
                 IceCandidate ic = new IceCandidate(sdpMid, idx, cand);
                 if (remoteDescSet) peerConnection.addIceCandidate(ic);
                 else               pendingCandidates.add(ic);
@@ -897,7 +915,8 @@ public class CallActivity extends AppCompatActivity {
         };
         String myUid = FirebaseUtils.getCurrentUid();
         if (myUid == null) return;
-        callRef.child("candidates").child(myUid).addChildEventListener(remoteCandidateListener);
+        callRef.child("candidates").child(myUid)
+            .addChildEventListener(remoteCandidateListener);
     }
 
     private void drainPendingCandidates() {
@@ -919,7 +938,8 @@ public class CallActivity extends AppCompatActivity {
 
     private void registerNetworkCallback() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        ConnectivityManager cm =
+            (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return;
         networkCallback = new ConnectivityManager.NetworkCallback() {
             @Override public void onAvailable(Network net) {
@@ -935,18 +955,25 @@ public class CallActivity extends AppCompatActivity {
     private void unregisterNetworkCallback() {
         if (networkCallback == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
         try {
-            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            ConnectivityManager cm =
+                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) cm.unregisterNetworkCallback(networkCallback);
         } catch (Exception ignored) {}
     }
 
     // ── Call connected ─────────────────────────────────────────────────────
-
     private void onCallConnected() {
         if (callConnected) return;
         callConnected = true;
         iceRestartCount = 0;
         startedAt = System.currentTimeMillis();
+
+        // Feature 4: Cancel timeout — call connected ho gaya
+        if (timeoutRunnable != null) {
+            timeoutHandler.removeCallbacks(timeoutRunnable);
+            timeoutRunnable = null;
+        }
+
         binding.tvCallStatus.setText("Connected \u2022 0:00");
         if (isVideo) binding.ivCallAvatar.setVisibility(View.GONE);
 
@@ -955,18 +982,21 @@ public class CallActivity extends AppCompatActivity {
         fg.putExtra("callId",       callId       != null ? callId       : "");
         fg.putExtra("isVideo",      isVideo);
         fg.putExtra("partnerThumb", partnerThumb != null ? partnerThumb : "");
-        // FIX-NOTIF: Pass partnerPhoto + isCaller so notification tap restores correctly
-        fg.putExtra(CallForegroundService.EXTRA_PARTNER_PHOTO, partnerPhoto != null ? partnerPhoto : "");
-        fg.putExtra(CallForegroundService.EXTRA_IS_CALLER,     isCaller);
-        fg.putExtra(CallForegroundService.EXTRA_PARTNER_UID,   partnerUid   != null ? partnerUid   : "");
-        fg.putExtra(CallForegroundService.EXTRA_DIRECTION,     isCaller ? "outgoing" : "incoming");
+        fg.putExtra(CallForegroundService.EXTRA_PARTNER_PHOTO,
+            partnerPhoto != null ? partnerPhoto : "");
+        fg.putExtra(CallForegroundService.EXTRA_IS_CALLER, isCaller);
+        fg.putExtra(CallForegroundService.EXTRA_PARTNER_UID,
+            partnerUid != null ? partnerUid : "");
+        fg.putExtra(CallForegroundService.EXTRA_DIRECTION,
+            isCaller ? "outgoing" : "incoming");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(fg);
         else startService(fg);
 
         ticker = new Runnable() {
             @Override public void run() {
                 long e = (System.currentTimeMillis() - startedAt) / 1000;
-                binding.tvCallStatus.setText(String.format("Connected \u2022 %d:%02d", e/60, e%60));
+                binding.tvCallStatus.setText(
+                    String.format("Connected \u2022 %d:%02d", e / 60, e % 60));
                 tick.postDelayed(this, 1_000);
             }
         };
@@ -974,20 +1004,26 @@ public class CallActivity extends AppCompatActivity {
     }
 
     // ── End call ───────────────────────────────────────────────────────────
-
     private void endCall() {
         if (finishing) return;
         finishing = true;
+
         cancelPendingIceRestart();
         if (ticker != null) tick.removeCallbacks(ticker);
-        try { stopService(new Intent(this, CallForegroundService.class)); } catch (Exception ignored) {}
+        if (timeoutRunnable != null) {
+            timeoutHandler.removeCallbacks(timeoutRunnable);
+            timeoutRunnable = null;
+        }
+
+        try { stopService(new Intent(this, CallForegroundService.class)); }
+        catch (Exception ignored) {}
 
         if (callRef != null) {
             long dur = startedAt == 0 ? 0 : System.currentTimeMillis() - startedAt;
             callRef.child("status").setValue("ended");
             callRef.child("status").onDisconnect().cancel();
 
-            // FIX-CLEANUP: camState node hata do jab call khatam ho
+            // FIX-CLEANUP: camState hata do
             if (isVideo) {
                 String myUid = FirebaseUtils.getCurrentUid();
                 if (myUid != null)
@@ -996,8 +1032,7 @@ public class CallActivity extends AppCompatActivity {
 
             String myUid = FirebaseUtils.getCurrentUid();
             if (myUid != null) {
-                final long fDur = dur;
-                final long fTs  = System.currentTimeMillis();
+                final long fDur = dur, fTs = System.currentTimeMillis();
                 final String fType = isVideo ? "video" : "audio";
 
                 Map<String, Object> myLog = new HashMap<>();
@@ -1011,14 +1046,14 @@ public class CallActivity extends AppCompatActivity {
 
                 if (partnerUid != null && !partnerUid.isEmpty()) {
                     String myName = FirebaseUtils.getCurrentName();
-                    Map<String, Object> partnerLog = new HashMap<>();
-                    partnerLog.put("partnerUid",  myUid);
-                    partnerLog.put("partnerName", myName != null ? myName : "");
-                    partnerLog.put("direction",   isCaller ? "incoming" : "outgoing");
-                    partnerLog.put("mediaType",   fType);
-                    partnerLog.put("timestamp",   fTs);
-                    partnerLog.put("duration",    fDur);
-                    FirebaseUtils.getCallsRef(partnerUid).push().setValue(partnerLog);
+                    Map<String, Object> pl = new HashMap<>();
+                    pl.put("partnerUid",  myUid);
+                    pl.put("partnerName", myName != null ? myName : "");
+                    pl.put("direction",   isCaller ? "incoming" : "outgoing");
+                    pl.put("mediaType",   fType);
+                    pl.put("timestamp",   fTs);
+                    pl.put("duration",    fDur);
+                    FirebaseUtils.getCallsRef(partnerUid).push().setValue(pl);
                 }
 
                 bgExecutor.execute(() -> {
@@ -1031,7 +1066,8 @@ public class CallActivity extends AppCompatActivity {
                         entity.mediaType   = fType;
                         entity.timestamp   = fTs;
                         entity.duration    = fDur;
-                        AppDatabase.getInstance(getApplicationContext()).callLogDao().insertCallLog(entity);
+                        AppDatabase.getInstance(getApplicationContext())
+                            .callLogDao().insertCallLog(entity);
                     } catch (Exception ex) {
                         android.util.Log.w("CallActivity", "Room log failed", ex);
                     }
@@ -1049,28 +1085,26 @@ public class CallActivity extends AppCompatActivity {
 
     private void releaseWebRTC() {
         try { unregisterNetworkCallback(); } catch (Exception ignored) {}
-
-        // FIX-NOISY: Unregister headphone receiver
         if (noisyReceiverRegistered && noisyReceiver != null) {
             try { unregisterReceiver(noisyReceiver); } catch (Exception ignored) {}
             noisyReceiverRegistered = false;
         }
-        // FIX-BT: Unregister Bluetooth SCO receiver
         if (btScoReceiverRegistered && btScoReceiver != null) {
             try { unregisterReceiver(btScoReceiver); } catch (Exception ignored) {}
             btScoReceiverRegistered = false;
         }
-
         try {
             if (remoteCandidateListener != null && callRef != null) {
                 String myUid = FirebaseUtils.getCurrentUid();
                 if (myUid != null)
-                    callRef.child("candidates").child(myUid).removeEventListener(remoteCandidateListener);
+                    callRef.child("candidates").child(myUid)
+                        .removeEventListener(remoteCandidateListener);
             }
             if (statusListener != null && callRef != null)
                 callRef.child("status").removeEventListener(statusListener);
             if (iceRestartRequestListener != null && callRef != null)
-                callRef.child("iceRestartRequest").removeEventListener(iceRestartRequestListener);
+                callRef.child("iceRestartRequest")
+                    .removeEventListener(iceRestartRequestListener);
             if (videoCapturer != null) { videoCapturer.stopCapture(); videoCapturer.dispose(); }
             if (localVideoTrack  != null) localVideoTrack.dispose();
             if (localAudioTrack  != null) localAudioTrack.dispose();
@@ -1079,14 +1113,16 @@ public class CallActivity extends AppCompatActivity {
             if (peerConnection   != null) { peerConnection.close(); peerConnection.dispose(); }
             if (surfaceHelper    != null) surfaceHelper.dispose();
             if (isVideo) {
-                try { binding.localVideo.release(); } catch (Exception ignored) {}
+                try { binding.localVideo.release();  } catch (Exception ignored) {}
                 try { binding.remoteVideo.release(); } catch (Exception ignored) {}
             }
             if (eglBase  != null) eglBase.release();
             if (factory  != null) factory.dispose();
         } catch (Exception ignored) {}
         try { bgExecutor.shutdownNow(); } catch (Exception ignored) {}
-        try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) {}
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        } catch (Exception ignored) {}
     }
 
     private SdpObserver noopSdp() {
@@ -1103,6 +1139,7 @@ public class CallActivity extends AppCompatActivity {
         if (!finishing) releaseWebRTC();
         if (ticker != null) tick.removeCallbacks(ticker);
         cancelPendingIceRestart();
+        if (timeoutRunnable != null) timeoutHandler.removeCallbacks(timeoutRunnable);
         super.onDestroy();
     }
 }

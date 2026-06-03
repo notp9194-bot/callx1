@@ -267,16 +267,117 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         loadMyAvatar();
-        loadReelsAvatarIntoNavTab();  // Reels profile update hone par nav tab refresh
-        // FIX #3: When MainActivity resumes (e.g. after returning from any activity launched
-        // from a non-Reels tab), notify the ReelsFragment of the actual current tab state.
-        // Without this, onTabPaused() is never called when leaving from other tabs, so
-        // isTabActive stays true and reels keep playing in the background.
+        loadReelsAvatarIntoNavTab();
         boolean isReelsTab = binding.viewPager.getCurrentItem() == TAB_REELS;
         notifyReelsTabVisibility(isReelsTab);
-        // FIX: Re-apply nav visibility on resume — onPageSelected does NOT re-fire
-        // when returning from a sub-activity on the same tab, so bars stay hidden.
         setMainNavVisible(!isReelsTab);
+        // Feature 1: Return to Call Banner
+        updateReturnToCallBanner();
+    }
+
+    // ── Feature 1: Return to Call Banner ─────────────────────────────────
+    // WhatsApp-style green strip — tab dikhata hai jab user call mein ho aur
+    // alag screen pe chala jaye. Tap karne par CallActivity wapas khul jaati hai.
+    private final Handler bannerTickHandler = new Handler(Looper.getMainLooper());
+    private Runnable bannerTickRunnable;
+
+    private void updateReturnToCallBanner() {
+        // CallForegroundService ke static field se check karo
+        boolean callActive;
+        try {
+            Class<?> cls = Class.forName(
+                "com.callx.app.services.CallForegroundService");
+            callActive = (boolean) cls.getField("isRunning").get(null);
+        } catch (Exception e) {
+            callActive = false;
+        }
+
+        View banner = binding.getRoot().findViewById(R.id.banner_return_to_call);
+        if (banner == null) return;
+
+        if (!callActive) {
+            banner.setVisibility(View.GONE);
+            bannerTickHandler.removeCallbacksAndMessages(null);
+            return;
+        }
+
+        // Banner dikhao
+        banner.setVisibility(View.VISIBLE);
+
+        // Name set karo
+        android.widget.TextView tvName =
+            banner.findViewById(R.id.tv_return_to_call_name);
+        android.widget.TextView tvTimer =
+            banner.findViewById(R.id.tv_return_to_call_timer);
+
+        try {
+            Class<?> cls = Class.forName(
+                "com.callx.app.services.CallForegroundService");
+            String name = (String) cls.getField("activePartnerName").get(null);
+            if (tvName != null && name != null && !name.isEmpty())
+                tvName.setText(name + " · Tap to return");
+        } catch (Exception ignored) {}
+
+        // Live timer tick karo
+        bannerTickHandler.removeCallbacksAndMessages(null);
+        bannerTickRunnable = new Runnable() {
+            @Override public void run() {
+                boolean still;
+                try {
+                    Class<?> cls = Class.forName(
+                        "com.callx.app.services.CallForegroundService");
+                    still = (boolean) cls.getField("isRunning").get(null);
+                } catch (Exception ex) { still = false; }
+                if (!still) {
+                    banner.setVisibility(View.GONE);
+                    return;
+                }
+                if (tvTimer != null) {
+                    // Duration from startedAt not exposed — show animated dots instead
+                    String[] dots = {"●○○", "○●○", "○○●"};
+                    tvTimer.setText(dots[(int)((System.currentTimeMillis() / 500) % 3)]);
+                }
+                bannerTickHandler.postDelayed(this, 500);
+            }
+        };
+        bannerTickHandler.post(bannerTickRunnable);
+
+        // Tap → CallActivity wapas kholo with isRestore=true
+        banner.setOnClickListener(v -> {
+            try {
+                Class<?> cls = Class.forName(
+                    "com.callx.app.services.CallForegroundService");
+                String uid   = (String) cls.getField("activePartnerUid").get(null);
+                String name  = (String) cls.getField("activePartnerName").get(null);
+                String photo = (String) cls.getField("activePartnerPhoto").get(null);
+                String thumb = (String) cls.getField("activePartnerThumb").get(null);
+                String cid   = (String) cls.getField("activeCallId").get(null);
+                boolean vid  = (boolean) cls.getField("activeIsVideo").get(null);
+                boolean iCal = (boolean) cls.getField("activeIsCaller").get(null);
+
+                Intent i = new Intent();
+                i.setClassName(this,
+                    "com.callx.app.activities.CallActivity");
+                i.putExtra("partnerUid",   uid);
+                i.putExtra("partnerName",  name);
+                i.putExtra("partnerPhoto", photo);
+                i.putExtra("partnerThumb", thumb);
+                i.putExtra("callId",       cid);
+                i.putExtra("video",        vid);
+                i.putExtra("isCaller",     iCal);
+                i.putExtra("isRestore",    true);
+                i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(i);
+            } catch (Exception ex) {
+                android.util.Log.w("MainActivity", "Banner tap failed", ex);
+            }
+        });
+    }
+
+    @Override protected void onPause() {
+        super.onPause();
+        bannerTickHandler.removeCallbacksAndMessages(null);
     }
 
     @Override protected void onDestroy() {

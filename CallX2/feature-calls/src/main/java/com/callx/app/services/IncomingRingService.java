@@ -20,79 +20,97 @@ import androidx.core.app.Person;
 import com.callx.app.calls.R;
 import com.callx.app.activities.IncomingCallActivity;
 import com.callx.app.utils.Constants;
+
 /**
- * Foreground service that rings and shows a full-screen incoming-call
- * notification even when the app process is killed.
+ * Foreground service that rings on incoming call even from killed state.
  *
- * Notification includes:
- *  - Full-screen intent  → IncomingCallActivity (locked screen / AOD)
- *  - "Accept" action     → opens IncomingCallActivity via activity PendingIntent
- *  - "Decline" action    → broadcast to NotificationActionReceiver
- *  - CallStyle           → Android 12+ green call chip on status bar
- *  - PRIORITY_MAX        → pre-Android 12 heads-up + full-screen
- *  - Looping ringtone    → device default ringtone
- *  - SCREEN_BRIGHT wake lock → screen wakes on incoming call
+ * Feature 2 — BUSY SIGNAL:
+ *   Jab yeh service start ho aur CallForegroundService already chal rahi ho
+ *   (matlab user already ek call mein hai), toh ring karne ki bajaye Firebase
+ *   mein "busy" likh do aur band ho jao. Doosre caller ko auto-missed call
+ *   notification milegi.
  */
 public class IncomingRingService extends Service {
     private MediaPlayer player;
     private PowerManager.WakeLock wakeLock;
     private final Handler stopHandler = new Handler(Looper.getMainLooper());
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String callId    = intent != null ? intent.getStringExtra(Constants.EXTRA_CALL_ID)    : "";
+        String callId    = intent != null ? intent.getStringExtra(Constants.EXTRA_CALL_ID)     : "";
         String fromUid   = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_UID)  : "";
         String fromName  = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_NAME) : "Unknown";
-        // FIX-1: read photo + thumb so they flow through to IncomingCallActivity
-        String fromPhoto = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO) : "";
-        String fromThumb = intent != null ? intent.getStringExtra("partnerThumb") : "";
+        String fromPhoto = intent != null ? intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO): "";
+        String fromThumb = intent != null ? intent.getStringExtra("partnerThumb")               : "";
         boolean isVideo  = intent != null && intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
         if (fromPhoto == null) fromPhoto = "";
         if (fromThumb == null) fromThumb = "";
+
+        // ── Feature 2: BUSY SIGNAL ────────────────────────────────────────
+        // Agar user already ek active call mein hai toh ring mat karo
+        if (CallForegroundService.isRunning) {
+            // Firebase mein "busy" likhdo — caller ko pata chalega
+            if (callId != null && !callId.isEmpty()) {
+                try {
+                    com.callx.app.utils.FirebaseUtils.db()
+                        .getReference("activeCalls")
+                        .child(callId)
+                        .child("status")
+                        .setValue("busy");
+                } catch (Exception ignored) {}
+            }
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        // ─────────────────────────────────────────────────────────────────
+
         startForeground(Constants.CALL_RING_NOTIF_ID,
             buildNotification(callId, fromUid, fromName, fromPhoto, fromThumb, isVideo));
         startRingtone();
         acquireWakeLock();
+
         // Auto-stop after timeout
         stopHandler.postDelayed(() -> {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.cancel(Constants.CALL_RING_NOTIF_ID);
             stopSelf();
         }, Constants.CALL_TIMEOUT_MS + 2_000L);
+
         return START_NOT_STICKY;
     }
+
     private Notification buildNotification(String callId, String fromUid,
                                            String fromName, String fromPhoto,
                                            String fromThumb, boolean isVideo) {
-        // ── Full-screen / tap intent → IncomingCallActivity ─────────────
         Intent fullIntent = new Intent(this, IncomingCallActivity.class);
         fullIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
             | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        fullIntent.putExtra(Constants.EXTRA_CALL_ID,      callId);
-        fullIntent.putExtra(Constants.EXTRA_PARTNER_UID,  fromUid);
-        fullIntent.putExtra(Constants.EXTRA_PARTNER_NAME, fromName);
-        fullIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto); // FIX-1
-        fullIntent.putExtra("partnerThumb",                 fromThumb); // FIX-1
-        fullIntent.putExtra(Constants.EXTRA_IS_VIDEO,     isVideo);
+        fullIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
+        fullIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
+        fullIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
+        fullIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto);
+        fullIntent.putExtra("partnerThumb",                fromThumb);
+        fullIntent.putExtra(Constants.EXTRA_IS_VIDEO,      isVideo);
         PendingIntent fullPi = PendingIntent.getActivity(this,
             Constants.CALL_RING_NOTIF_ID, fullIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        // ── Accept button → activity PendingIntent (avoids bg-start restriction) ─
-        PendingIntent acceptPi = fullPi; // tap opens IncomingCallActivity
-        // ── Decline button → broadcast → NotificationActionReceiver ─────
+
         Intent declineIntent = new Intent(this, NotificationActionReceiver.class);
         declineIntent.setAction(Constants.ACTION_DECLINE_CALL);
-        declineIntent.putExtra(Constants.EXTRA_CALL_ID,        callId);
-        declineIntent.putExtra(Constants.EXTRA_PARTNER_UID,    fromUid);
-        declineIntent.putExtra(Constants.EXTRA_PARTNER_NAME,   fromName);
-        declineIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO,  fromPhoto); // FIX-2
-        declineIntent.putExtra("partnerThumb",                   fromThumb); // FIX-2
-        declineIntent.putExtra(Constants.EXTRA_IS_VIDEO,        isVideo);
-        declineIntent.putExtra(Constants.EXTRA_NOTIF_ID,        Constants.CALL_RING_NOTIF_ID);
+        declineIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
+        declineIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
+        declineIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
+        declineIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto);
+        declineIntent.putExtra("partnerThumb",                 fromThumb);
+        declineIntent.putExtra(Constants.EXTRA_IS_VIDEO,      isVideo);
+        declineIntent.putExtra(Constants.EXTRA_NOTIF_ID,      Constants.CALL_RING_NOTIF_ID);
         PendingIntent declinePi = PendingIntent.getBroadcast(this,
             Constants.CALL_RING_NOTIF_ID + 1, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
         int icon = isVideo ? android.R.drawable.ic_menu_camera : android.R.drawable.ic_menu_call;
         String text = isVideo ? "Incoming video call" : "Incoming voice call";
+
         NotificationCompat.Builder b = new NotificationCompat.Builder(
                 this, Constants.CHANNEL_CALLS_INCOMING)
             .setSmallIcon(icon)
@@ -106,19 +124,16 @@ public class IncomingRingService extends Service {
             .setTimeoutAfter(Constants.CALL_TIMEOUT_MS)
             .setFullScreenIntent(fullPi, true)
             .setContentIntent(fullPi)
-            .addAction(android.R.drawable.ic_menu_call,  "Accept",  acceptPi)
-            .addAction(android.R.drawable.ic_delete,     "Decline", declinePi);
-        // Android 12+ — CallStyle shows green call chip + styled actions
+            .addAction(android.R.drawable.ic_menu_call, "Accept",  fullPi)
+            .addAction(android.R.drawable.ic_delete,    "Decline", declinePi);
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Person caller = new Person.Builder()
-                .setName(fromName)
-                .setImportant(true)
-                .build();
-            b.setStyle(NotificationCompat.CallStyle
-                .forIncomingCall(caller, declinePi, acceptPi));
+            Person caller = new Person.Builder().setName(fromName).setImportant(true).build();
+            b.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, declinePi, fullPi));
         }
         return b.build();
     }
+
     private void startRingtone() {
         try {
             Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
@@ -133,17 +148,18 @@ public class IncomingRingService extends Service {
             player.start();
         } catch (Exception ignored) {}
     }
+
     private void acquireWakeLock() {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm == null) return;
-            // SCREEN_BRIGHT_WAKE_LOCK + ACQUIRE_CAUSES_WAKEUP wakes the screen
             wakeLock = pm.newWakeLock(
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "callx:incoming_ring");
             wakeLock.acquire(Constants.CALL_TIMEOUT_MS + 5_000L);
         } catch (Exception ignored) {}
     }
+
     @Override
     public void onDestroy() {
         stopHandler.removeCallbacksAndMessages(null);
@@ -154,6 +170,7 @@ public class IncomingRingService extends Service {
         }
         super.onDestroy();
     }
+
     @Nullable @Override
     public IBinder onBind(Intent intent) { return null; }
 }

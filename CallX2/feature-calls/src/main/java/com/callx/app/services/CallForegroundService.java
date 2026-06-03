@@ -22,22 +22,14 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
 
 /**
- * Foreground service shown during an active (connected) call.
- * Shows a persistent CallStyle notification (Android 12+) with an
- * "End Call" action so the user can hang up from the shade.
- * Updated every second with the live call duration.
+ * Foreground service for active 1-to-1 calls.
  *
- * Lifecycle:
- *  start  → CallActivity.onConnected()
- *  stop   → CallActivity.endCall()
- *
- * FIX-KILLED: onTaskRemoved() writes "ended" to Firebase so the remote party
- *             knows the call dropped when the OS kills the app.
- *
- * FIX-NOTIF:  openIntent now passes all call extras so tapping the notification
- *             correctly re-opens the active CallActivity screen (was crashing before).
+ * NEW — Static fields exposed so other components (MainActivity banner,
+ * IncomingRingService busy-check) can detect an active call without
+ * binding to the service.
  */
 public class CallForegroundService extends android.app.Service {
+
     public static final String EXTRA_PARTNER_UID   = "fg_partner_uid";
     public static final String EXTRA_PARTNER_PHOTO = "fg_partner_photo";
     public static final String EXTRA_DIRECTION     = "fg_direction";
@@ -45,14 +37,17 @@ public class CallForegroundService extends android.app.Service {
 
     public static final int ID = Constants.CALL_ONGOING_NOTIF_ID;
 
-    private String callerName   = "CallX";
-    private String callId       = "";
-    private String partnerThumb = "";
-    private String partnerPhoto = "";
-    private boolean isVideo     = false;
-    private boolean isCaller    = false;
-    private String  partnerUid  = "";
-    private String  direction   = "outgoing";
+    // ── Feature 1: Return-to-call banner + Feature 2: Busy signal ────────
+    // Static fields — readable from any component in the same process.
+    public static volatile boolean isRunning          = false;
+    public static volatile String  activePartnerUid   = "";
+    public static volatile String  activePartnerName  = "";
+    public static volatile String  activePartnerPhoto = "";
+    public static volatile String  activePartnerThumb = "";
+    public static volatile String  activeCallId       = "";
+    public static volatile boolean activeIsVideo      = false;
+    public static volatile boolean activeIsCaller     = false;
+
     private long startedAt      = 0;
     private Bitmap avatarBitmap = null;
     private final Handler tickHandler = new Handler(Looper.getMainLooper());
@@ -66,30 +61,34 @@ public class CallForegroundService extends android.app.Service {
             String c  = intent.getStringExtra("callId");
             String t  = intent.getStringExtra("partnerThumb");
             String ph = intent.getStringExtra(EXTRA_PARTNER_PHOTO);
-            if (n  != null && !n.isEmpty())  callerName   = n;
-            if (c  != null && !c.isEmpty())  callId       = c;
-            if (t  != null && !t.isEmpty())  partnerThumb = t;
-            if (ph != null && !ph.isEmpty()) partnerPhoto = ph;
-            isVideo  = intent.getBooleanExtra("isVideo", false);
-            isCaller = intent.getBooleanExtra(EXTRA_IS_CALLER, false);
             String pu = intent.getStringExtra(EXTRA_PARTNER_UID);
-            String di = intent.getStringExtra(EXTRA_DIRECTION);
-            if (pu != null && !pu.isEmpty()) partnerUid = pu;
-            if (di != null && !di.isEmpty()) direction  = di;
+            boolean iv = intent.getBooleanExtra("isVideo", false);
+            boolean ic = intent.getBooleanExtra(EXTRA_IS_CALLER, false);
+            String di  = intent.getStringExtra(EXTRA_DIRECTION);
+
+            if (n  != null && !n.isEmpty())  activePartnerName  = n;
+            if (c  != null && !c.isEmpty())  activeCallId       = c;
+            if (t  != null && !t.isEmpty())  activePartnerThumb = t;
+            if (ph != null && !ph.isEmpty()) activePartnerPhoto = ph;
+            if (pu != null && !pu.isEmpty()) activePartnerUid   = pu;
+            activeIsVideo  = iv;
+            activeIsCaller = ic;
         }
         if (startedAt == 0) startedAt = System.currentTimeMillis();
+
+        // Mark service as running — visible to banner + busy-check
+        isRunning = true;
+
         startForeground(ID, buildNotification("Connecting..."));
         startTicker();
 
-        // Load avatar in background for richer notification
-        String avatarUrl = (partnerThumb != null && !partnerThumb.isEmpty())
-            ? partnerThumb : partnerPhoto;
+        // Load avatar in background
+        String avatarUrl = (!activePartnerThumb.isEmpty()) ? activePartnerThumb : activePartnerPhoto;
         if (!avatarUrl.isEmpty()) {
             final String url = avatarUrl;
             bgEx.execute(() -> {
                 try {
-                    HttpURLConnection conn =
-                        (HttpURLConnection) new URL(url).openConnection();
+                    HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                     conn.setConnectTimeout(4000);
                     conn.setReadTimeout(4000);
                     conn.connect();
@@ -107,35 +106,36 @@ public class CallForegroundService extends android.app.Service {
         return START_NOT_STICKY;
     }
 
-    // FIX-KILLED: App swiped away / killed by OS → Firebase mein "ended" likho
+    // FIX-KILLED: App swiped / killed → Firebase "ended" likhte hain
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        if (callId != null && !callId.isEmpty()) {
+        isRunning = false;
+        if (!activeCallId.isEmpty()) {
             try {
                 com.callx.app.utils.FirebaseUtils.db()
                     .getReference("activeCalls")
-                    .child(callId)
+                    .child(activeCallId)
                     .child("status")
                     .setValue("ended");
             } catch (Exception ignored) {}
         }
-        // FIX-KILLED: Room calllog write — app kill hone pe history blank na rahe
-        if (startedAt > 0 && !partnerUid.isEmpty()) {
-            final long dur = System.currentTimeMillis() - startedAt;
-            final String fUid = partnerUid, fDir = direction, fType = isVideo ? "video" : "audio";
+        if (startedAt > 0 && !activePartnerUid.isEmpty()) {
+            final long dur  = System.currentTimeMillis() - startedAt;
+            final String fUid = activePartnerUid, fName = activePartnerName;
+            final String fDir = activeIsCaller ? "outgoing" : "incoming";
+            final String fType = activeIsVideo ? "video" : "audio";
             final long fTs = startedAt;
             bgEx.execute(() -> {
                 try {
-                    CallLogEntity entity = new CallLogEntity();
-                    entity.id          = java.util.UUID.randomUUID().toString();
-                    entity.partnerUid  = fUid;
-                    entity.partnerName = callerName;
-                    entity.direction   = fDir;
-                    entity.mediaType   = fType;
-                    entity.timestamp   = fTs;
-                    entity.duration    = dur;
-                    AppDatabase.getInstance(getApplicationContext())
-                        .callLogDao().insertCallLog(entity);
+                    CallLogEntity e = new CallLogEntity();
+                    e.id          = java.util.UUID.randomUUID().toString();
+                    e.partnerUid  = fUid;
+                    e.partnerName = fName;
+                    e.direction   = fDir;
+                    e.mediaType   = fType;
+                    e.timestamp   = fTs;
+                    e.duration    = dur;
+                    AppDatabase.getInstance(getApplicationContext()).callLogDao().insertCallLog(e);
                 } catch (Exception ignored) {}
             });
         }
@@ -147,8 +147,7 @@ public class CallForegroundService extends android.app.Service {
         tickRunnable = new Runnable() {
             @Override public void run() {
                 long elapsed = (System.currentTimeMillis() - startedAt) / 1000;
-                long m = elapsed / 60, s = elapsed % 60;
-                updateNotification(String.format("%d:%02d", m, s));
+                updateNotification(String.format("%d:%02d", elapsed / 60, elapsed % 60));
                 tickHandler.postDelayed(this, 1_000);
             }
         };
@@ -158,43 +157,37 @@ public class CallForegroundService extends android.app.Service {
     private void updateNotification(String duration) {
         try {
             android.app.NotificationManager nm =
-                (android.app.NotificationManager)
-                getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+                (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(ID, buildNotification("Connected • " + duration));
         } catch (Exception ignored) {}
     }
 
     private Notification buildNotification(String subtitle) {
-        // ── FIX-NOTIF: End call action ────────────────────────────────────
         Intent endIntent = new Intent(this, NotificationActionReceiver.class);
         endIntent.setAction(Constants.ACTION_END_CALL);
-        endIntent.putExtra(Constants.EXTRA_CALL_ID, callId);
+        endIntent.putExtra(Constants.EXTRA_CALL_ID, activeCallId);
         PendingIntent endPi = PendingIntent.getBroadcast(this, ID + 1, endIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // ── FIX-NOTIF: Tap notification → re-open active CallActivity ────
-        // Was: empty Intent → partnerUid == null → CallActivity.finish() immediately
-        // Now: pass all required extras so CallActivity resumes correctly
+        // FIX-NOTIF: Tap → CallActivity with all extras so screen restores correctly
         Intent openIntent = new Intent(this, CallActivity.class);
         openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
             | Intent.FLAG_ACTIVITY_SINGLE_TOP
             | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-        openIntent.putExtra("partnerUid",   partnerUid);
-        openIntent.putExtra("partnerName",  callerName);
-        openIntent.putExtra("partnerPhoto", partnerPhoto);
-        openIntent.putExtra("partnerThumb", partnerThumb);
-        openIntent.putExtra("callId",       callId);
-        openIntent.putExtra("video",        isVideo);
-        openIntent.putExtra("isCaller",     isCaller);
-        // Flag so CallActivity knows it's being restored (skip re-init)
+        openIntent.putExtra("partnerUid",   activePartnerUid);
+        openIntent.putExtra("partnerName",  activePartnerName);
+        openIntent.putExtra("partnerPhoto", activePartnerPhoto);
+        openIntent.putExtra("partnerThumb", activePartnerThumb);
+        openIntent.putExtra("callId",       activeCallId);
+        openIntent.putExtra("video",        activeIsVideo);
+        openIntent.putExtra("isCaller",     activeIsCaller);
         openIntent.putExtra("isRestore",    true);
         PendingIntent openPi = PendingIntent.getActivity(this, ID, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        NotificationCompat.Builder b = new NotificationCompat.Builder(
-                this, Constants.CHANNEL_CALLS)
+        NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS)
             .setSmallIcon(com.callx.app.calls.R.drawable.ic_call_notification)
-            .setContentTitle(callerName)
+            .setContentTitle(activePartnerName)
             .setContentText(subtitle)
             .setOngoing(true)
             .setContentIntent(openPi)
@@ -204,7 +197,8 @@ public class CallForegroundService extends android.app.Service {
         if (avatarBitmap != null) b.setLargeIcon(avatarBitmap);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Person.Builder pb = new Person.Builder().setName(callerName).setImportant(true);
+            Person.Builder pb = new Person.Builder()
+                .setName(activePartnerName).setImportant(true);
             if (avatarBitmap != null) pb.setIcon(IconCompat.createWithBitmap(avatarBitmap));
             b.setStyle(NotificationCompat.CallStyle.forOngoingCall(pb.build(), endPi));
         }
@@ -213,6 +207,7 @@ public class CallForegroundService extends android.app.Service {
 
     @Override
     public void onDestroy() {
+        isRunning = false;  // Banner hide ho jaaye
         tickHandler.removeCallbacksAndMessages(null);
         try { bgEx.shutdownNow(); } catch (Exception ignored) {}
         super.onDestroy();
