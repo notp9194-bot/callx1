@@ -255,7 +255,9 @@ public class ChatActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        saveDraft();  // v18 IMPROVEMENT 2: User navigate away — draft save
+        saveDraft();              // v18 IMPROVEMENT 2: User navigate away — draft save
+        clearOurTypingStatus();   // FIX: typing indicator stuck when app is backgrounded
+        typingHandler.removeCallbacks(stopTypingRunnable);
     }
 
     @Override
@@ -560,6 +562,9 @@ public class ChatActivity extends AppCompatActivity {
             }
             @Override public void onEdit(Message m) {
                 editMessage(m);
+            }
+            @Override public void onPin(Message m) {
+                pinMessage(m);
             }
         });
 
@@ -1407,7 +1412,9 @@ public class ChatActivity extends AppCompatActivity {
 
     private void markRead(Message m) {
         if (m == null || m.id == null) return;
-        if (!currentUid.equals(m.senderId)) {
+        // Only mark received messages (not our own), and skip if already read
+        // — avoids hammering Firebase with redundant writes on every bind
+        if (!currentUid.equals(m.senderId) && !"read".equals(m.status)) {
             messagesRef.child(m.id).child("status").setValue("read");
             ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "read"));
         }
@@ -1646,10 +1653,14 @@ public class ChatActivity extends AppCompatActivity {
                             if (binding.tvPinnedPreview != null)
                                 binding.tvPinnedPreview.setText(
                                         pinnedMsgText != null ? pinnedMsgText : "Pinned message");
+                            // FIX: tapping banner navigates to the pinned message
+                            final String msgId = pinnedMsgId;
+                            binding.llPinnedBanner.setOnClickListener(v -> navigateToOriginal(msgId));
                             if (binding.btnUnpin != null)
                                 binding.btnUnpin.setOnClickListener(v -> unpinMessage());
                         } else {
                             binding.llPinnedBanner.setVisibility(View.GONE);
+                            binding.llPinnedBanner.setOnClickListener(null);
                         }
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -1658,6 +1669,33 @@ public class ChatActivity extends AppCompatActivity {
 
     private void unpinMessage() {
         FirebaseUtils.db().getReference("pinnedMessages").child(chatId).removeValue();
+    }
+
+    /**
+     * Toggles pin on a message.
+     * - If the message is already pinned → unpins it (clears banner).
+     * - Otherwise → writes {id, text} to pinnedMessages/{chatId}.
+     *   watchPinnedMessage() listener will pick up the change and show the banner.
+     */
+    private void pinMessage(Message m) {
+        if (m == null || m.id == null) return;
+        DatabaseReference pinRef =
+                FirebaseUtils.db().getReference("pinnedMessages").child(chatId);
+        if (Boolean.TRUE.equals(m.pinned)) {
+            // Already pinned → unpin
+            pinRef.removeValue();
+            messagesRef.child(m.id).child("pinned").setValue(false);
+        } else {
+            // Pin this message
+            String preview = m.text != null && !m.text.isEmpty()
+                    ? m.text
+                    : (m.type != null ? "[" + m.type + "]" : "Pinned message");
+            java.util.Map<String, Object> pinData = new java.util.HashMap<>();
+            pinData.put("id",   m.id);
+            pinData.put("text", preview);
+            pinRef.setValue(pinData);
+            messagesRef.child(m.id).child("pinned").setValue(true);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────

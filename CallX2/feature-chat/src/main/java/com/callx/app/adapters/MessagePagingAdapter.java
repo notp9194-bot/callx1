@@ -95,6 +95,8 @@ public class MessagePagingAdapter
         default void onRetry(Message m) {}
         /** Called when user chooses Edit from the action sheet (own messages only). */
         default void onEdit(Message m) {}
+        /** Called when user pins or unpins a message from the action sheet. */
+        default void onPin(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -991,10 +993,13 @@ public class MessagePagingAdapter
         boolean canEdit      = isOwnMsg && isTextMsg;
         boolean isStarred    = Boolean.TRUE.equals(m.starred);
 
+        boolean isPinned = Boolean.TRUE.equals(m.pinned);
+
         java.util.List<String> optList = new java.util.ArrayList<>();
         optList.add("Reply");
         optList.add("Copy");
         optList.add(isStarred ? "Unstar" : "Star");
+        optList.add(isPinned ? "Unpin" : "Pin");
         optList.add("Forward");
         if (canEdit) optList.add("Edit");
         optList.add("Delete");
@@ -1010,6 +1015,8 @@ public class MessagePagingAdapter
                             case "Copy":    actionListener.onCopy(m);    break;
                             case "Star":    // fall-through
                             case "Unstar":  actionListener.onStar(m);    break;
+                            case "Pin":     // fall-through
+                            case "Unpin":   actionListener.onPin(m);     break;
                             case "Forward": actionListener.onForward(m); break;
                             case "Edit":    actionListener.onEdit(m);    break;
                             case "Delete":  actionListener.onDelete(m);  break;
