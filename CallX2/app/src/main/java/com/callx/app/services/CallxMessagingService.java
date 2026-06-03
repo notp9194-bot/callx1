@@ -364,11 +364,34 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .setAction(com.callx.app.utils.Constants.ACTION_CALL_BACK)
               .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_UID,   callerUid)
               .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_NAME,  callerName)
-              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_PHOTO, callerPhoto) // FIX-3
-              .putExtra(com.callx.app.utils.Constants.EXTRA_IS_VIDEO,      missedIsVideo) // FIX-3
+              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_IS_VIDEO,      missedIsVideo)
               .putExtra(com.callx.app.utils.Constants.EXTRA_NOTIF_ID, notifId);
           android.app.PendingIntent callBackPi = android.app.PendingIntent.getBroadcast(
               this, ("cb_" + callerUid).hashCode(), callBackIntent,
+              android.app.PendingIntent.FLAG_UPDATE_CURRENT |
+              android.app.PendingIntent.FLAG_IMMUTABLE);
+
+          // LEAVE NOTE action — opens AddNoteActivity (voice/video note for missed call)
+          // chatId = uid1_uid2 sorted so both sides resolve to same conversation
+          String myUidForNote = com.google.firebase.auth.FirebaseAuth.getInstance()
+              .getCurrentUser() != null
+              ? com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser().getUid()
+              : "";
+          String chatIdForNote = myUidForNote.compareTo(callerUid) < 0
+              ? myUidForNote + "_" + callerUid
+              : callerUid + "_" + myUidForNote;
+          android.content.Intent leaveNoteIntent = new android.content.Intent(this,
+              com.callx.app.activities.AddNoteActivity.class)
+              .putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_PARTNER_UID,   callerUid)
+              .putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_PARTNER_NAME,  callerName)
+              .putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_PARTNER_PHOTO, callerPhoto)
+              .putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_CHAT_ID,       chatIdForNote)
+              .putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_IS_VIDEO,      missedIsVideo)
+              .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
+                  android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+          android.app.PendingIntent leaveNotePi = android.app.PendingIntent.getActivity(
+              this, ("note_" + callerUid).hashCode(), leaveNoteIntent,
               android.app.PendingIntent.FLAG_UPDATE_CURRENT |
               android.app.PendingIntent.FLAG_IMMUTABLE);
 
@@ -381,6 +404,10 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .setAutoCancel(true)
               .setContentIntent(openPi)
               .addAction(R.drawable.ic_call_answer, "📞 Call Back", callBackPi)
+              .addAction(missedIsVideo
+                  ? android.R.drawable.ic_menu_camera
+                  : R.drawable.ic_mic,
+                  missedIsVideo ? "📹 Video Note" : "🎤 Voice Note", leaveNotePi)
               .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
 
           // Download avatar async — final vars lambda me safely use ho sakti hain

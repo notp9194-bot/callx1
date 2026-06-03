@@ -146,6 +146,27 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               pendingResult.finish();
               return;
           }
+
+          // ── Leave Note (missed call) — open AddNoteActivity ───────────────
+          if (Constants.ACTION_LEAVE_NOTE.equals(action)) {
+              if (nm != null) nm.cancel(notifId);
+              if (partnerUid != null && !partnerUid.isEmpty()) {
+                  boolean noteIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
+                  String  notePhoto   = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
+                  String  noteChatId  = intent.getStringExtra(Constants.EXTRA_CHAT_ID);
+                  Intent noteIntent = new Intent(context,
+                      com.callx.app.activities.AddNoteActivity.class);
+                  noteIntent.putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_PARTNER_UID,   partnerUid);
+                  noteIntent.putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_PARTNER_NAME,  partnerName != null ? partnerName : "");
+                  noteIntent.putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_PARTNER_PHOTO, notePhoto != null ? notePhoto : "");
+                  noteIntent.putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_CHAT_ID,       noteChatId != null ? noteChatId : "");
+                  noteIntent.putExtra(com.callx.app.activities.AddNoteActivity.EXTRA_IS_VIDEO,      noteIsVideo);
+                  noteIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  context.startActivity(noteIntent);
+              }
+              pendingResult.finish();
+              return;
+          }
   
           // ── Call actions ────────────────────────────────────────────────
           String callId = intent.getStringExtra(Constants.EXTRA_CALL_ID);

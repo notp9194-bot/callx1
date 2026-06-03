@@ -216,6 +216,7 @@ public class Constants {
 
       // ── Missed call action ────────────────────────────────────────────────
       public static final String ACTION_CALL_BACK           = "com.callx.app.ACTION_CALL_BACK";
+      public static final String ACTION_LEAVE_NOTE          = "com.callx.app.ACTION_LEAVE_NOTE";
 
       // ── Status actions ────────────────────────────────────────────────────
       public static final String ACTION_STATUS_REACT        = "com.callx.app.STATUS_REACT";
