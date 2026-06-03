@@ -13,7 +13,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.callx.app.chat.R;
-
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.callx.app.models.Message;
 import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.MediaCache;
@@ -106,6 +106,8 @@ public class MessagePagingAdapter
         default void onEdit(Message m) {}
         /** Called when user pins or unpins a message from the action sheet. */
         default void onPin(Message m) {}
+        /** Called when user taps Info (message delivery details) — sender only. */
+        default void onInfo(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -859,13 +861,9 @@ public class MessagePagingAdapter
             h.tvStatus.setVisibility(View.GONE);
         }
 
-        // ── Long press — multi-select mode ya action sheet ─────────────────
+        // ── Long press — seedha bottom sheet action dialog dikhao ─────────
         h.itemView.setOnLongClickListener(v -> {
-            if (!multiSelectMode) {
-                enterMultiSelectMode(m);
-            } else {
-                if (actionListener != null) showActionBottomSheet(ctx, m);
-            }
+            if (actionListener != null) showActionBottomSheet(ctx, m);
             return true;
         });
         h.itemView.setOnClickListener(v -> {
@@ -980,74 +978,129 @@ public class MessagePagingAdapter
     private void showActionBottomSheet(Context ctx, Message m) {
         if (actionListener == null) return;
 
-        // ── Step 1: Build emoji reaction row ──────────────────────────
-        String[] QUICK_EMOJIS = {"\u2764\uFE0F", "\uD83D\uDC4D", "\uD83D\uDE02",
-                                  "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21"};
-        android.widget.LinearLayout emojiRow = new android.widget.LinearLayout(ctx);
-        emojiRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        emojiRow.setGravity(android.view.Gravity.CENTER);
-        int hPad = (int)(8 * ctx.getResources().getDisplayMetrics().density);
-        int vPad = (int)(12 * ctx.getResources().getDisplayMetrics().density);
-        emojiRow.setPadding(hPad, vPad, hPad, vPad);
+        boolean isOwnMsg  = currentUid != null && currentUid.equals(m.senderId);
+        boolean isTextMsg = m.text != null && !m.text.trim().isEmpty()
+                            && (m.type == null || "text".equals(m.type));
+        boolean canEdit   = isOwnMsg && isTextMsg;
+        boolean isStarred = Boolean.TRUE.equals(m.starred);
+        boolean isPinned  = Boolean.TRUE.equals(m.pinned);
+        boolean deleted   = Boolean.TRUE.equals(m.deleted);
 
-        // Wrap in a container so AlertDialog can host it as a custom title
-        android.widget.LinearLayout wrapper = new android.widget.LinearLayout(ctx);
-        wrapper.setOrientation(android.widget.LinearLayout.VERTICAL);
-        wrapper.addView(emojiRow);
+        BottomSheetDialog sheet = new BottomSheetDialog(ctx);
+        View sv = LayoutInflater.from(ctx)
+                .inflate(R.layout.bottom_sheet_message_actions, null);
 
-        // Keep a dialog reference so emoji tap can dismiss it
-        final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
-
-        for (String emoji : QUICK_EMOJIS) {
-            android.widget.TextView tv = new android.widget.TextView(ctx);
-            tv.setText(emoji);
-            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
-            int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
-            tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
-            tv.setOnClickListener(v -> {
-                actionListener.onReact(m, emoji);
-                if (holder[0] != null) holder[0].dismiss();
-            });
-            emojiRow.addView(tv);
+        // ── Emoji quick-react row ──────────────────────────────────
+        String[] emojis  = {"❤️", "👍", "😂", "😮", "😢", "🙏"};
+        int[]    emojiIds = {
+            R.id.emoji_heart, R.id.emoji_thumb, R.id.emoji_laugh,
+            R.id.emoji_wow,   R.id.emoji_sad,   R.id.emoji_pray};
+        for (int i = 0; i < emojiIds.length; i++) {
+            TextView et = sv.findViewById(emojiIds[i]);
+            final String emoji = emojis[i];
+            if (et != null) {
+                boolean already = m.reactions != null &&
+                        emoji.equals(m.reactions.get(currentUid));
+                et.setAlpha(already ? 1.0f : 0.65f);
+                et.setScaleX(already ? 1.2f : 1.0f);
+                et.setScaleY(already ? 1.2f : 1.0f);
+                et.setOnClickListener(v -> {
+                    sheet.dismiss();
+                    actionListener.onReact(m, emoji);
+                });
+            }
         }
 
-        // ── Step 2: Build action items list ───────────────────────────
-        boolean isOwnMsg     = currentUid != null && currentUid.equals(m.senderId);
-        boolean isTextMsg    = m.text != null && !m.text.trim().isEmpty()
-                               && (m.type == null || "text".equals(m.type));
-        boolean canEdit      = isOwnMsg && isTextMsg;
-        boolean isStarred    = Boolean.TRUE.equals(m.starred);
+        // ── Reply ──────────────────────────────────────────────────
+        sv.findViewById(R.id.action_reply).setOnClickListener(v -> {
+            sheet.dismiss();
+            actionListener.onReply(m);
+        });
 
-        boolean isPinned = Boolean.TRUE.equals(m.pinned);
+        // ── Edit — sender only, text only, not deleted ─────────────
+        TextView editBtn = sv.findViewById(R.id.action_edit);
+        if (editBtn != null) {
+            if (canEdit && !deleted) {
+                editBtn.setVisibility(View.VISIBLE);
+                editBtn.setOnClickListener(v -> {
+                    sheet.dismiss();
+                    actionListener.onEdit(m);
+                });
+            } else {
+                editBtn.setVisibility(View.GONE);
+            }
+        }
 
-        java.util.List<String> optList = new java.util.ArrayList<>();
-        optList.add("Reply");
-        optList.add("Copy");
-        optList.add(isStarred ? "Unstar" : "Star");
-        optList.add(isPinned ? "Unpin" : "Pin");
-        optList.add("Forward");
-        if (canEdit) optList.add("Edit");
-        optList.add("Delete");
-        String[] options = optList.toArray(new String[0]);
+        // ── Copy — text messages only ──────────────────────────────
+        TextView copyBtn = sv.findViewById(R.id.action_copy);
+        if (copyBtn != null) {
+            boolean hasText = m.text != null && !m.text.isEmpty();
+            if (isTextMsg && hasText && !deleted) {
+                copyBtn.setVisibility(View.VISIBLE);
+                copyBtn.setOnClickListener(v -> {
+                    sheet.dismiss();
+                    actionListener.onCopy(m);
+                });
+            } else {
+                copyBtn.setVisibility(View.GONE);
+            }
+        }
 
-        android.app.AlertDialog.Builder builder =
-                new android.app.AlertDialog.Builder(ctx)
-                    .setCustomTitle(wrapper)
-                    .setItems(options, (d, which) -> {
-                        String choice = options[which];
-                        switch (choice) {
-                            case "Reply":   actionListener.onReply(m);   break;
-                            case "Copy":    actionListener.onCopy(m);    break;
-                            case "Star":    // fall-through
-                            case "Unstar":  actionListener.onStar(m);    break;
-                            case "Pin":     // fall-through
-                            case "Unpin":   actionListener.onPin(m);     break;
-                            case "Forward": actionListener.onForward(m); break;
-                            case "Edit":    actionListener.onEdit(m);    break;
-                            case "Delete":  actionListener.onDelete(m);  break;
-                        }
-                    });
-        holder[0] = builder.show();
+        // ── Forward ────────────────────────────────────────────────
+        View forwardBtn = sv.findViewById(R.id.action_forward);
+        if (!deleted) {
+            forwardBtn.setOnClickListener(v -> {
+                sheet.dismiss();
+                actionListener.onForward(m);
+            });
+        } else {
+            forwardBtn.setVisibility(View.GONE);
+        }
+
+        // ── Star / Unstar ──────────────────────────────────────────
+        TextView starBtn = sv.findViewById(R.id.action_star);
+        starBtn.setText(isStarred ? "\u2606  Unstar" : "\u2605  Star Message");
+        starBtn.setOnClickListener(v -> {
+            sheet.dismiss();
+            actionListener.onStar(m);
+        });
+
+        // ── Pin / Unpin ────────────────────────────────────────────
+        TextView pinBtn = sv.findViewById(R.id.action_pin);
+        pinBtn.setText(isPinned ? "\uD83D\uDCCC  Unpin" : "\uD83D\uDCCC  Pin Message");
+        pinBtn.setOnClickListener(v -> {
+            sheet.dismiss();
+            actionListener.onPin(m);
+        });
+
+        // ── Info (sender only) ─────────────────────────────────────
+        TextView infoBtn = sv.findViewById(R.id.action_info);
+        if (infoBtn != null) {
+            if (isOwnMsg) {
+                infoBtn.setVisibility(View.VISIBLE);
+                infoBtn.setOnClickListener(v -> {
+                    sheet.dismiss();
+                    actionListener.onInfo(m);
+                });
+            } else {
+                infoBtn.setVisibility(View.GONE);
+            }
+        }
+
+        // ── Delete ─────────────────────────────────────────────────
+        TextView deleteBtn = sv.findViewById(R.id.action_delete);
+        if (!deleted) {
+            deleteBtn.setVisibility(View.VISIBLE);
+            deleteBtn.setOnClickListener(v -> {
+                sheet.dismiss();
+                actionListener.onDelete(m);
+            });
+        } else {
+            deleteBtn.setVisibility(View.GONE);
+        }
+
+        sheet.setContentView(sv);
+        sheet.show();
     }
 
     @Override
