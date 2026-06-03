@@ -1,9 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Feature: Screen Share -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
-
     <application>
         <activity android:name="com.callx.app.activities.CallActivity"
             android:exported="false"
@@ -38,10 +34,9 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
-        <!-- foregroundServiceType: phoneCall + mediaProjection (Screen Share) -->
         <service android:name="com.callx.app.services.CallForegroundService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall|mediaProjection"/>
+            android:foregroundServiceType="phoneCall"/>
         <service android:name="com.callx.app.services.IncomingRingService"
             android:exported="false"
             android:foregroundServiceType="phoneCall"

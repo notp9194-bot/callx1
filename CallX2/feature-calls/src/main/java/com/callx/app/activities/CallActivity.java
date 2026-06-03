@@ -8,15 +8,12 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
-import android.media.MediaRecorder;
-import android.media.projection.MediaProjectionManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
@@ -32,8 +29,6 @@ import androidx.core.app.ActivityCompat;
 import com.bumptech.glide.Glide;
 import com.callx.app.calls.databinding.ActivityCallBinding;
 import com.callx.app.services.CallForegroundService;
-import com.callx.app.utils.BackgroundBlurProcessor;
-import com.callx.app.utils.CallStatsHelper;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
@@ -58,23 +53,17 @@ import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RtpReceiver;
 import org.webrtc.SdpObserver;
-import org.webrtc.ScreenCapturerAndroid;
 import org.webrtc.SessionDescription;
 import org.webrtc.SurfaceTextureHelper;
-import org.webrtc.VideoCapturer;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -100,7 +89,7 @@ public class CallActivity extends AppCompatActivity {
     private final Handler tick = new Handler(Looper.getMainLooper());
     private Runnable ticker;
 
-    // Call Timeout — 60s mein koi na uthaye toh auto-cancel
+    // Feature 4: Call Timeout — 60s mein koi na uthaye toh auto-cancel
     private static final long CALL_TIMEOUT_MS = 60_000L;
     private final Handler timeoutHandler = new Handler(Looper.getMainLooper());
     private Runnable timeoutRunnable;
@@ -117,11 +106,11 @@ public class CallActivity extends AppCompatActivity {
     // Audio
     private AudioManager audioManager;
 
-    // FIX: Headphone unplug receiver
+    // FIX-NOISY: Headphone unplug receiver
     private BroadcastReceiver noisyReceiver;
     private boolean noisyReceiverRegistered = false;
 
-    // FIX: Bluetooth SCO receiver
+    // FIX-BT: Bluetooth SCO receiver
     private BroadcastReceiver btScoReceiver;
     private boolean btScoReceiverRegistered = false;
 
@@ -131,14 +120,14 @@ public class CallActivity extends AppCompatActivity {
     private PeerConnection peerConnection;
     private VideoTrack localVideoTrack;
     private AudioTrack localAudioTrack;
-    private VideoCapturer videoCapturer;        // camera OR screen capturer
+    private CameraVideoCapturer videoCapturer;
     private VideoSource videoSource;
     private AudioSource audioSource;
     private SurfaceTextureHelper surfaceHelper;
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
     private boolean capturerRunning = false;
 
-    // Adaptive video quality
+    // Feature 3: Adaptive quality state
     private boolean usingLowQuality = false;
 
     // Firebase signaling
@@ -150,31 +139,6 @@ public class CallActivity extends AppCompatActivity {
 
     // Network callback
     private ConnectivityManager.NetworkCallback networkCallback;
-
-    // ══ Feature 1: Call Recording ══════════════════════════════════════════
-    private static final int REQ_RECORD_AUDIO = 403;
-    private MediaRecorder mediaRecorder;
-    private boolean isRecording = false;
-    private File recordingFile;
-
-    // ══ Feature 2: Screen Share ════════════════════════════════════════════
-    private static final int REQ_SCREEN_CAPTURE = 404;
-    private boolean screenSharing = false;
-    private MediaProjectionManager mpManager;
-
-    // ══ Feature 3: E2E Badge ═══════════════════════════════════════════════
-    // Shown when ICE CONNECTED (WebRTC always uses DTLS-SRTP)
-
-    // ══ Feature 4: Background Blur ════════════════════════════════════════
-    private boolean blurEnabled = false;
-    private BackgroundBlurProcessor blurProcessor;
-
-    // ══ Feature 5: Call Stats ═════════════════════════════════════════════
-    private boolean statsVisible = false;
-    private final Handler statsHandler = new Handler(Looper.getMainLooper());
-    private Runnable statsPollRunnable;
-
-    // ══ (Custom Ringtone is in IncomingRingService — no state needed here)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -200,7 +164,6 @@ public class CallActivity extends AppCompatActivity {
         if (partnerUid == null) { finish(); return; }
 
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        mpManager    = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         acquireWakeLock();
 
         binding.tvCallerName.setText(partnerName != null ? partnerName : "Unknown");
@@ -213,38 +176,39 @@ public class CallActivity extends AppCompatActivity {
             binding.btnToggleCamera.setVisibility(View.GONE);
             binding.btnSwitchCamera.setVisibility(View.GONE);
             if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.GONE);
-            // Blur is video-only
-            if (binding.btnBlur != null)      binding.btnBlur.setVisibility(View.GONE);
-            if (binding.tvBlurLabel != null)  binding.tvBlurLabel.setVisibility(View.GONE);
-            // Screen share: still available for audio calls (shares screen as video)
         }
 
-        String avatarUrl = (partnerThumb != null && !partnerThumb.isEmpty())
+        String callAvatarUrl = (partnerThumb != null && !partnerThumb.isEmpty())
             ? partnerThumb : partnerPhoto;
-        if (avatarUrl != null && !avatarUrl.isEmpty())
-            Glide.with(this).load(avatarUrl).circleCrop().into(binding.ivCallAvatar);
+        if (callAvatarUrl != null && !callAvatarUrl.isEmpty()) {
+            Glide.with(this).load(callAvatarUrl).circleCrop().into(binding.ivCallAvatar);
+            if (binding.ivRemoteCamOffAvatar != null)
+                Glide.with(this).load(callAvatarUrl).circleCrop()
+                    .into(binding.ivRemoteCamOffAvatar);
+        }
 
         binding.btnEndCall.setOnClickListener(v -> endCall());
         binding.btnToggleMic.setOnClickListener(v -> toggleMic());
         binding.btnToggleCamera.setOnClickListener(v -> toggleCamera());
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
-
-        // ── New feature buttons ──
-        if (binding.btnRecord != null)
-            binding.btnRecord.setOnClickListener(v -> toggleRecording());
-        if (binding.btnScreenShare != null)
-            binding.btnScreenShare.setOnClickListener(v -> toggleScreenShare());
-        if (binding.btnStats != null)
-            binding.btnStats.setOnClickListener(v -> toggleStats());
-        if (binding.btnBlur != null)
-            binding.btnBlur.setOnClickListener(v -> toggleBlur());
+          // FIX-PIP: Minimize button — video PiP mein jaao, audio background mein
+          if (binding.btnMinimize != null) {
+              binding.btnMinimize.setOnClickListener(v -> {
+                  if (isVideo && callConnected
+                          && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                      enterPipMode();
+                  } else {
+                      moveTaskToBack(true);
+                  }
+              });
+          }
 
         updateMicUI();
         updateCameraUI();
         setupLocalVideoDrag();
 
-        // Call Timeout for caller
+        // Feature 4: Caller ke liye 60s timeout — agar na uthaye toh cancel
         if (isCaller) {
             timeoutRunnable = () -> {
                 if (!callConnected && !finishing) {
@@ -259,271 +223,62 @@ public class CallActivity extends AppCompatActivity {
         checkPermsAndInit();
     }
 
-    // ══ Feature 1: Call Recording ══════════════════════════════════════════
-    private void toggleRecording() {
-        if (!callConnected) {
-            Toast.makeText(this, "Call not connected yet", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (isRecording) stopRecording();
-        else             startRecording();
-    }
-
-    private void startRecording() {
-        // Need RECORD_AUDIO (already granted) + WRITE_EXTERNAL_STORAGE (pre-Q)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
-                && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                   != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQ_RECORD_AUDIO);
-            return;
-        }
-        try {
-            File dir = new File(getExternalFilesDir(Environment.DIRECTORY_MUSIC), "CallX");
-            if (!dir.exists()) dir.mkdirs();
-            String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-            recordingFile = new File(dir, "call_" + ts + ".m4a");
-
-            mediaRecorder = new MediaRecorder();
-            mediaRecorder.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION);
-            mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            mediaRecorder.setAudioSamplingRate(44100);
-            mediaRecorder.setAudioEncodingBitRate(128000);
-            mediaRecorder.setOutputFile(recordingFile.getAbsolutePath());
-            mediaRecorder.prepare();
-            mediaRecorder.start();
-
-            isRecording = true;
-            if (binding.layoutRecordingBadge != null)
-                binding.layoutRecordingBadge.setVisibility(View.VISIBLE);
-            if (binding.tvRecordLabel != null) binding.tvRecordLabel.setText("Stop Rec");
-            binding.btnRecord.setAlpha(1f);
-            binding.btnRecord.setBackgroundResource(
-                com.callx.app.calls.R.drawable.circle_reject_light);
-            Toast.makeText(this, "Recording started", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            Toast.makeText(this, "Recording failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            releaseRecorder();
-        }
-    }
-
-    private void stopRecording() {
-        try {
-            if (mediaRecorder != null) {
-                mediaRecorder.stop();
-                String path = recordingFile != null ? recordingFile.getAbsolutePath() : "";
-                Toast.makeText(this, "Saved: " + path, Toast.LENGTH_LONG).show();
-            }
-        } catch (Exception ignored) {}
-        isRecording = false;
-        releaseRecorder();
-        if (binding.layoutRecordingBadge != null)
-            binding.layoutRecordingBadge.setVisibility(View.GONE);
-        if (binding.tvRecordLabel != null) binding.tvRecordLabel.setText("Record");
-        if (binding.btnRecord != null) {
-            binding.btnRecord.setAlpha(0.8f);
-            binding.btnRecord.setBackgroundResource(
-                com.callx.app.calls.R.drawable.circle_avatar_bg);
-        }
-    }
-
-    private void releaseRecorder() {
-        try { if (mediaRecorder != null) { mediaRecorder.release(); mediaRecorder = null; } }
-        catch (Exception ignored) {}
-    }
-
-    // ══ Feature 2: Screen Share ════════════════════════════════════════════
-    private void toggleScreenShare() {
-        if (screenSharing) stopScreenShare();
-        else               requestScreenShare();
-    }
-
-    private void requestScreenShare() {
-        if (mpManager == null) return;
-        startActivityForResult(mpManager.createScreenCaptureIntent(), REQ_SCREEN_CAPTURE);
-    }
-
-    private void startScreenShare(Intent data) {
-        if (videoCapturer != null && capturerRunning) {
-            try { videoCapturer.stopCapture(); } catch (Exception ignored) {}
-            videoCapturer.dispose();
-        }
-        try {
-            videoCapturer = new ScreenCapturerAndroid(data, new android.media.projection.MediaProjection.Callback() {
-                @Override public void onStop() {
-                    runOnUiThread(() -> stopScreenShare());
-                }
-            });
-            videoCapturer.initialize(surfaceHelper, this, videoSource.getCapturerObserver());
-            videoCapturer.startCapture(1280, 720, 30);
-            capturerRunning = true;
-            screenSharing = true;
-            if (binding.tvScreenShareLabel != null)
-                binding.tvScreenShareLabel.setText("Stop Share");
-            if (binding.btnScreenShare != null)
-                binding.btnScreenShare.setBackgroundResource(
-                    com.callx.app.calls.R.drawable.circle_reject_light);
-            Toast.makeText(this, "Screen sharing started", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            Toast.makeText(this, "Screen share failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void stopScreenShare() {
-        screenSharing = false;
-        if (videoCapturer != null && capturerRunning) {
-            try { videoCapturer.stopCapture(); } catch (Exception ignored) {}
-            videoCapturer.dispose();
-            capturerRunning = false;
-        }
-        // Restore camera capturer
-        if (isVideo) {
-            videoCapturer = createCapturer(usingFrontCamera);
-            if (videoCapturer != null && videoSource != null) {
-                try {
-                    videoCapturer.initialize(surfaceHelper, this,
-                        videoSource.getCapturerObserver());
-                    startCapture();
-                } catch (Exception ignored) {}
-            }
-        }
-        if (binding.tvScreenShareLabel != null)
-            binding.tvScreenShareLabel.setText("Share");
-        if (binding.btnScreenShare != null)
-            binding.btnScreenShare.setBackgroundResource(
-                com.callx.app.calls.R.drawable.circle_avatar_bg);
-    }
-
-    @Override
-    protected void onActivityResult(int req, int result, Intent data) {
-        super.onActivityResult(req, result, data);
-        if (req == REQ_SCREEN_CAPTURE) {
-            if (result == RESULT_OK && data != null) startScreenShare(data);
-            else Toast.makeText(this, "Screen share cancelled", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    // ══ Feature 4: Background Blur ════════════════════════════════════════
-    private void toggleBlur() {
-        if (!isVideo) return;
-        blurEnabled = !blurEnabled;
-
-        if (blurEnabled) {
-            // Init processor if needed
-            if (blurProcessor == null && binding.textureBlurPreview != null) {
-                blurProcessor = new BackgroundBlurProcessor(this, binding.textureBlurPreview);
-                if (localVideoTrack != null) localVideoTrack.addSink(blurProcessor);
-            }
-            if (blurProcessor != null) blurProcessor.setEnabled(true);
-            if (binding.textureBlurPreview != null)
-                binding.textureBlurPreview.setVisibility(View.VISIBLE);
-            binding.localVideo.setVisibility(View.INVISIBLE);
-            if (binding.tvBlurLabel != null) binding.tvBlurLabel.setText("Blur On");
-            if (binding.btnBlur != null)
-                binding.btnBlur.setBackgroundResource(
-                    com.callx.app.calls.R.drawable.circle_reject_light);
-            Toast.makeText(this, "Background blur ON", Toast.LENGTH_SHORT).show();
-        } else {
-            if (blurProcessor != null) blurProcessor.setEnabled(false);
-            if (binding.textureBlurPreview != null)
-                binding.textureBlurPreview.setVisibility(View.GONE);
-            binding.localVideo.setVisibility(View.VISIBLE);
-            if (binding.tvBlurLabel != null) binding.tvBlurLabel.setText("Blur");
-            if (binding.btnBlur != null)
-                binding.btnBlur.setBackgroundResource(
-                    com.callx.app.calls.R.drawable.circle_avatar_bg);
-        }
-    }
-
-    // ══ Feature 5: Call Stats ═════════════════════════════════════════════
-    private void toggleStats() {
-        statsVisible = !statsVisible;
-        if (binding.layoutStatsOverlay != null)
-            binding.layoutStatsOverlay.setVisibility(statsVisible ? View.VISIBLE : View.GONE);
-        if (statsVisible) startStatsPoll();
-        else              stopStatsPoll();
-    }
-
-    private void startStatsPoll() {
-        CallStatsHelper.reset();
-        statsPollRunnable = new Runnable() {
-            @Override public void run() {
-                if (!statsVisible || peerConnection == null) return;
-                CallStatsHelper.collect(peerConnection, (txKbps, rxKbps, loss, rttMs) ->
-                    runOnUiThread(() -> {
-                        if (binding.tvStatsBitrate != null)
-                            binding.tvStatsBitrate.setText(
-                                String.format(Locale.US, "↑%d ↓%d kbps", txKbps, rxKbps));
-                        if (binding.tvStatsLoss != null)
-                            binding.tvStatsLoss.setText(
-                                String.format(Locale.US, "Loss: %.1f%%", loss));
-                        if (binding.tvStatsRtt != null)
-                            binding.tvStatsRtt.setText(
-                                rttMs >= 0
-                                    ? String.format(Locale.US, "RTT: %d ms", rttMs)
-                                    : "RTT: — ms");
-                    }));
-                statsHandler.postDelayed(this, 3000);
-            }
-        };
-        statsHandler.post(statsPollRunnable);
-    }
-
-    private void stopStatsPoll() {
-        statsHandler.removeCallbacksAndMessages(null);
-        statsPollRunnable = null;
-    }
-
-    // ══ Feature 3: E2E Badge ═══════════════════════════════════════════════
-    private void showE2eBadge() {
-        // WebRTC always uses DTLS-SRTP — show badge when connected
-        if (binding.layoutE2eBadge != null)
-            binding.layoutE2eBadge.setVisibility(View.VISIBLE);
-    }
-
-    // ── Adaptive Video ─────────────────────────────────────────────────────
+    // ── Feature 3: Adaptive Video — resolution dynamically adjust ─────────
     private void applyVideoBitrate(boolean lowQuality) {
-        if (!isVideo || videoCapturer == null || !capturerRunning || screenSharing) return;
+        if (!isVideo || videoCapturer == null || capturerRunning == false) return;
         if (lowQuality == usingLowQuality) return;
         usingLowQuality = lowQuality;
-        try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
-        int w = lowQuality ? Constants.VIDEO_WIDTH_VGA : Constants.VIDEO_WIDTH_HD;
-        int h = lowQuality ? Constants.VIDEO_HEIGHT_VGA : Constants.VIDEO_HEIGHT_HD;
+        try {
+            videoCapturer.stopCapture();
+            capturerRunning = false;
+        } catch (Exception ignored) {}
+
+        int w, h;
+        if (lowQuality) {
+            // Poor network → VGA (640×480)
+            w = Constants.VIDEO_WIDTH_VGA;
+            h = Constants.VIDEO_HEIGHT_VGA;
+        } else {
+            // Good network → HD (1280×720)
+            w = Constants.VIDEO_WIDTH_HD;
+            h = Constants.VIDEO_HEIGHT_HD;
+        }
         try {
             videoCapturer.startCapture(w, h, Constants.VIDEO_FPS);
             capturerRunning = true;
         } catch (Exception ignored) {}
     }
 
-    // ── Local video drag ───────────────────────────────────────────────────
+    // ── Feature 5: Local video drag ───────────────────────────────────────
     private void setupLocalVideoDrag() {
         if (!isVideo) return;
-        View.OnTouchListener drag = new View.OnTouchListener() {
+        binding.localVideo.setOnTouchListener(new View.OnTouchListener() {
             float dX, dY;
-            @Override public boolean onTouch(View v, android.view.MotionEvent event) {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
                         dX = v.getX() - event.getRawX();
                         dY = v.getY() - event.getRawY();
                         return true;
                     case MotionEvent.ACTION_MOVE:
-                        float nx = event.getRawX() + dX;
-                        float ny = event.getRawY() + dY;
+                        float newX = event.getRawX() + dX;
+                        float newY = event.getRawY() + dY;
                         ViewGroup parent = (ViewGroup) v.getParent();
                         if (parent != null) {
-                            nx = Math.max(0, Math.min(nx, parent.getWidth()  - v.getWidth()));
-                            ny = Math.max(0, Math.min(ny, parent.getHeight() - v.getHeight()));
+                            newX = Math.max(0, Math.min(newX, parent.getWidth()  - v.getWidth()));
+                            newY = Math.max(0, Math.min(newY, parent.getHeight() - v.getHeight()));
                         }
-                        v.setX(nx); v.setY(ny);
+                        v.setX(newX); v.setY(newY);
+                        if (binding.layoutLocalCamOffBadge != null) {
+                            binding.layoutLocalCamOffBadge.setX(newX);
+                            binding.layoutLocalCamOffBadge.setY(newY);
+                        }
                         return true;
                 }
                 return false;
             }
-        };
-        binding.localVideo.setOnTouchListener(drag);
-        if (binding.textureBlurPreview != null)
-            binding.textureBlurPreview.setOnTouchListener(drag);
+        });
     }
 
     // ── Wake lock ──────────────────────────────────────────────────────────
@@ -539,14 +294,13 @@ public class CallActivity extends AppCompatActivity {
     }
 
     private void checkPermsAndInit() {
-        List<String> needed = new ArrayList<>();
-        needed.add(Manifest.permission.RECORD_AUDIO);
-        if (isVideo) needed.add(Manifest.permission.CAMERA);
+        String[] perms = isVideo
+            ? new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA}
+            : new String[]{Manifest.permission.RECORD_AUDIO};
         boolean ok = true;
-        for (String p : needed)
+        for (String p : perms)
             if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) { ok = false; break; }
-        if (!ok) ActivityCompat.requestPermissions(this,
-            needed.toArray(new String[0]), 401);
+        if (!ok) ActivityCompat.requestPermissions(this, perms, 401);
         else      fetchTurnThenInitWebRTC();
     }
 
@@ -559,9 +313,6 @@ public class CallActivity extends AppCompatActivity {
             for (int r : results) if (r != PackageManager.PERMISSION_GRANTED) { ok = false; break; }
             if (ok) fetchTurnThenInitWebRTC();
             else { Toast.makeText(this, "Mic/Camera permission required", Toast.LENGTH_LONG).show(); finish(); }
-        } else if (req == REQ_RECORD_AUDIO && results.length > 0
-                && results[0] == PackageManager.PERMISSION_GRANTED) {
-            startRecording();
         }
     }
 
@@ -573,14 +324,16 @@ public class CallActivity extends AppCompatActivity {
                 String url = Constants.SERVER_URL + Constants.TURN_CREDENTIALS_PATH;
                 HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                 conn.setConnectTimeout(5000); conn.setReadTimeout(5000);
+                conn.setRequestMethod("GET");
                 if (conn.getResponseCode() == 200) {
                     BufferedReader br = new BufferedReader(
                         new InputStreamReader(conn.getInputStream()));
                     StringBuilder sb = new StringBuilder(); String line;
                     while ((line = br.readLine()) != null) sb.append(line);
                     JSONObject j = new JSONObject(sb.toString());
-                    String turnUrl = j.optString("url",""), user = j.optString("username",""),
-                           cred = j.optString("credential","");
+                    String turnUrl = j.optString("url", "");
+                    String user    = j.optString("username", "");
+                    String cred    = j.optString("credential", "");
                     if (!turnUrl.isEmpty() && !user.isEmpty() && !cred.isEmpty()) {
                         iceServers.clear();
                         iceServers.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
@@ -590,16 +343,16 @@ public class CallActivity extends AppCompatActivity {
                     }
                 }
             } catch (Exception ignored) {}
-            final List<PeerConnection.IceServer> ice = iceServers;
-            runOnUiThread(() -> initWebRTC(ice));
+            final List<PeerConnection.IceServer> finalIce = iceServers;
+            runOnUiThread(() -> initWebRTC(finalIce));
         });
     }
 
     private List<PeerConnection.IceServer> buildFallbackIce() {
-        List<PeerConnection.IceServer> l = new ArrayList<>();
-        l.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
-        l.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2).createIceServer());
-        return l;
+        List<PeerConnection.IceServer> list = new ArrayList<>();
+        list.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
+        list.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2).createIceServer());
+        return list;
     }
 
     // ── WebRTC init ────────────────────────────────────────────────────────
@@ -623,14 +376,15 @@ public class CallActivity extends AppCompatActivity {
                 eglBase.getEglBaseContext()))
             .createPeerConnectionFactory();
 
-        PeerConnection.RTCConfiguration cfg = new PeerConnection.RTCConfiguration(iceServers);
-        cfg.sdpSemantics             = PeerConnection.SdpSemantics.UNIFIED_PLAN;
-        cfg.iceTransportsType        = PeerConnection.IceTransportsType.ALL;
-        cfg.bundlePolicy             = PeerConnection.BundlePolicy.MAXBUNDLE;
-        cfg.rtcpMuxPolicy            = PeerConnection.RtcpMuxPolicy.REQUIRE;
-        cfg.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
+        PeerConnection.RTCConfiguration rtcConfig = new PeerConnection.RTCConfiguration(iceServers);
+        rtcConfig.sdpSemantics             = PeerConnection.SdpSemantics.UNIFIED_PLAN;
+        rtcConfig.iceTransportsType        = PeerConnection.IceTransportsType.ALL;
+        rtcConfig.bundlePolicy             = PeerConnection.BundlePolicy.MAXBUNDLE;
+        rtcConfig.rtcpMuxPolicy            = PeerConnection.RtcpMuxPolicy.REQUIRE;
+        rtcConfig.continualGatheringPolicy =
+            PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
 
-        peerConnection = factory.createPeerConnection(cfg, new PeerConnection.Observer() {
+        peerConnection = factory.createPeerConnection(rtcConfig, new PeerConnection.Observer() {
             @Override public void onIceCandidate(IceCandidate c) { sendCandidate(c); }
             @Override public void onIceCandidatesRemoved(IceCandidate[] c) {}
             @Override public void onSignalingChange(PeerConnection.SignalingState s) {}
@@ -640,11 +394,13 @@ public class CallActivity extends AppCompatActivity {
             @Override public void onIceConnectionReceivingChange(boolean b) {}
             @Override public void onIceGatheringChange(PeerConnection.IceGatheringState s) {}
             @Override public void onAddStream(MediaStream stream) {
-                if (isVideo && !stream.videoTracks.isEmpty()) {
-                    VideoTrack rv = stream.videoTracks.get(0);
-                    rv.setEnabled(true);
-                    runOnUiThread(() -> rv.addSink(binding.remoteVideo));
-                }
+                runOnUiThread(() -> {
+                    if (isVideo && !stream.videoTracks.isEmpty()) {
+                        VideoTrack rv = stream.videoTracks.get(0);
+                        rv.setEnabled(true);
+                        rv.addSink(binding.remoteVideo);
+                    }
+                });
             }
             @Override public void onRemoveStream(MediaStream stream) {}
             @Override public void onDataChannel(DataChannel dc) {}
@@ -676,7 +432,8 @@ public class CallActivity extends AppCompatActivity {
             localVideoTrack.addSink(binding.localVideo);
         }
 
-        List<String> ids = new ArrayList<>(); ids.add("stream0");
+        List<String> ids = new ArrayList<>();
+        ids.add("stream0");
         peerConnection.addTrack(localAudioTrack, ids);
         if (isVideo && localVideoTrack != null)
             peerConnection.addTrack(localVideoTrack, ids);
@@ -684,19 +441,23 @@ public class CallActivity extends AppCompatActivity {
         enableSpeaker(isVideo);
 
         if (callId == null) {
-            if (isCaller)
+            if (isCaller) {
                 callId = FirebaseUtils.db().getReference("activeCalls").push().getKey();
-            else { finish(); return; }
+            } else {
+                android.util.Log.e("CallActivity", "Callee callId null — aborting");
+                finish(); return;
+            }
         }
         callRef = FirebaseUtils.db().getReference("activeCalls").child(callId);
         callRef.child("status").onDisconnect().setValue("ended");
 
         if (isCaller) {
-            String myUid = FirebaseUtils.getCurrentUid(), myName = FirebaseUtils.getCurrentName();
+            String myUid  = FirebaseUtils.getCurrentUid();
+            String myName = FirebaseUtils.getCurrentName();
             Map<String, Object> c = new HashMap<>();
-            c.put("from", myUid); c.put("fromName", myName);
-            c.put("to", partnerUid); c.put("video", isVideo);
-            c.put("at", System.currentTimeMillis()); c.put("status", "ringing");
+            c.put("from",   myUid); c.put("fromName", myName);
+            c.put("to",     partnerUid); c.put("video", isVideo);
+            c.put("at",     System.currentTimeMillis()); c.put("status", "ringing");
             callRef.setValue(c).addOnCompleteListener(t -> createOffer());
             PushNotify.notifyUser(partnerUid, myUid, myName,
                 isVideo ? "video_call" : "call", callId);
@@ -714,12 +475,12 @@ public class CallActivity extends AppCompatActivity {
         registerBtScoReceiver();
     }
 
-    // ── Receivers ─────────────────────────────────────────────────────────
+    // ── FIX-NOISY: Headphone unplug ───────────────────────────────────────
     private void registerNoisyReceiver() {
         noisyReceiver = new BroadcastReceiver() {
-            @Override public void onReceive(Context ctx, Intent intent) {
-                if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())
-                        && speakerOn) enableSpeaker(false);
+            @Override public void onReceive(Context context, Intent intent) {
+                if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction()))
+                    if (speakerOn) enableSpeaker(false);
             }
         };
         try {
@@ -729,13 +490,18 @@ public class CallActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
     }
 
+    // ── FIX-BT: Bluetooth SCO ─────────────────────────────────────────────
     private void registerBtScoReceiver() {
         btScoReceiver = new BroadcastReceiver() {
-            @Override public void onReceive(Context ctx, Intent intent) {
+            @Override public void onReceive(Context context, Intent intent) {
                 int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
                 if (state == AudioManager.SCO_AUDIO_STATE_CONNECTED) {
-                    if (audioManager != null) audioManager.setBluetoothScoOn(true);
-                    speakerOn = false;
+                    if (audioManager != null) {
+                        audioManager.setBluetoothScoOn(true);
+                        speakerOn = false;
+                        if (binding.tvSpeakerLabel != null)
+                            binding.tvSpeakerLabel.setText("Bluetooth");
+                    }
                 } else if (state == AudioManager.SCO_AUDIO_STATE_DISCONNECTED) {
                     if (audioManager != null) {
                         audioManager.setBluetoothScoOn(false);
@@ -770,6 +536,186 @@ public class CallActivity extends AppCompatActivity {
             });
     }
 
+    // ── Network quality indicator ─────────────────────────────────────────
+    private void showQualityIndicator(PeerConnection.IceConnectionState state) {
+        if (binding.layoutQuality == null) return;
+        if (state == PeerConnection.IceConnectionState.CONNECTED ||
+            state == PeerConnection.IceConnectionState.COMPLETED) {
+            binding.layoutQuality.setVisibility(View.VISIBLE);
+            if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Good");
+        } else if (state == PeerConnection.IceConnectionState.DISCONNECTED) {
+            binding.layoutQuality.setVisibility(View.VISIBLE);
+            if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Weak");
+        } else if (state == PeerConnection.IceConnectionState.FAILED ||
+                   state == PeerConnection.IceConnectionState.CHECKING) {
+            // FIX: Poor state — pehle missing tha
+            binding.layoutQuality.setVisibility(View.VISIBLE);
+            if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Poor");
+        } else {
+            binding.layoutQuality.setVisibility(View.GONE);
+        }
+    }
+
+    private MediaConstraints buildAudioConstraints() {
+        MediaConstraints mc = new MediaConstraints();
+        mc.mandatory.add(new MediaConstraints.KeyValuePair("googEchoCancellation", "true"));
+        mc.mandatory.add(new MediaConstraints.KeyValuePair("googNoiseSuppression", "true"));
+        mc.mandatory.add(new MediaConstraints.KeyValuePair("googAutoGainControl",  "true"));
+        mc.mandatory.add(new MediaConstraints.KeyValuePair("googHighpassFilter",   "true"));
+        mc.mandatory.add(new MediaConstraints.KeyValuePair("googTypingNoiseDetection", "true"));
+        return mc;
+    }
+
+    private void startCapture() {
+        if (videoCapturer == null) return;
+        try {
+            videoCapturer.startCapture(Constants.VIDEO_WIDTH_HD, Constants.VIDEO_HEIGHT_HD,
+                Constants.VIDEO_FPS);
+            capturerRunning = true;
+        } catch (Exception e) {
+            try {
+                videoCapturer.startCapture(Constants.VIDEO_WIDTH_VGA, Constants.VIDEO_HEIGHT_VGA,
+                    Constants.VIDEO_FPS);
+                capturerRunning = true;
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private CameraVideoCapturer createCapturer(boolean preferFront) {
+        Camera2Enumerator e = new Camera2Enumerator(this);
+        for (String d : e.getDeviceNames())
+            if (preferFront ? e.isFrontFacing(d) : e.isBackFacing(d))
+                return e.createCapturer(d, null);
+        for (String d : e.getDeviceNames()) return e.createCapturer(d, null);
+        return null;
+    }
+
+    // ── Lifecycle ──────────────────────────────────────────────────────────
+    @Override protected void onStop() {
+        super.onStop();
+        if (isVideo && videoCapturer != null && capturerRunning
+                && !isInPictureInPictureMode()) {
+            try { videoCapturer.stopCapture(); capturerRunning = false; }
+            catch (Exception ignored) {}
+        }
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        if (isVideo && videoCapturer != null && !capturerRunning && camOn)
+            startCapture();
+    }
+
+    // ── PiP ───────────────────────────────────────────────────────────────
+    @Override protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (isVideo && callConnected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            enterPipMode();
+    }
+
+    private void enterPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                enterPictureInPictureMode(new PictureInPictureParams.Builder()
+                    .setAspectRatio(new Rational(9, 16)).build());
+            } catch (Exception ignored) {}
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPipMode) {
+        super.onPictureInPictureModeChanged(isInPipMode);
+        int v = isInPipMode ? View.GONE : View.VISIBLE;
+        binding.btnEndCall.setVisibility(v);
+        binding.btnToggleMic.setVisibility(v);
+        binding.btnToggleCamera.setVisibility(v);
+        binding.btnToggleSpeaker.setVisibility(v);
+        binding.btnSwitchCamera.setVisibility(v);
+        binding.tvCallerName.setVisibility(v);
+        binding.tvCallStatus.setVisibility(v);
+        if (!isInPipMode && isVideo && videoCapturer != null && !capturerRunning && camOn)
+            startCapture();
+    }
+
+    // ── Controls ───────────────────────────────────────────────────────────
+    private void switchCamera() {
+        if (!isVideo || videoCapturer == null) return;
+        usingFrontCamera = !usingFrontCamera;
+        if (videoCapturer instanceof CameraVideoCapturer)
+            ((CameraVideoCapturer) videoCapturer).switchCamera(null);
+        binding.localVideo.setMirror(usingFrontCamera);
+    }
+
+    private void toggleSpeaker() {
+        speakerOn = !speakerOn;
+        enableSpeaker(speakerOn);
+    }
+
+    private void enableSpeaker(boolean on) {
+        if (audioManager == null) return;
+        speakerOn = on;
+        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        audioManager.setSpeakerphoneOn(on);
+        binding.btnToggleSpeaker.setAlpha(on ? 1f : 0.5f);
+        if (binding.tvSpeakerLabel != null)
+            binding.tvSpeakerLabel.setText(on ? "Speaker On" : "Speaker");
+    }
+
+    private void toggleMic() {
+        micOn = !micOn;
+        if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
+        updateMicUI();
+        if (callRef != null) {
+            String myUid = FirebaseUtils.getCurrentUid();
+            if (myUid != null) callRef.child("micState").child(myUid).setValue(micOn);
+        }
+    }
+
+    private void updateMicUI() {
+        binding.btnToggleMic.setAlpha(micOn ? 1f : 0.4f);
+        binding.btnToggleMic.setImageResource(micOn
+            ? com.callx.app.calls.R.drawable.ic_mic
+            : com.callx.app.calls.R.drawable.ic_mic_off);
+        if (binding.tvMicLabel != null)
+            binding.tvMicLabel.setText(micOn ? "Mute" : "Unmute");
+        binding.btnToggleMic.setBackgroundResource(micOn
+            ? com.callx.app.calls.R.drawable.circle_avatar_bg
+            : com.callx.app.calls.R.drawable.circle_reject_light);
+    }
+
+    private void toggleCamera() {
+        camOn = !camOn;
+        if (localVideoTrack != null) localVideoTrack.setEnabled(camOn);
+        if (isVideo && videoCapturer != null) {
+            if (!camOn && capturerRunning) {
+                try { videoCapturer.stopCapture(); capturerRunning = false; }
+                catch (Exception ignored) {}
+            } else if (camOn && !capturerRunning) {
+                startCapture();
+            }
+        }
+        if (binding.layoutLocalCamOffBadge != null)
+            binding.layoutLocalCamOffBadge.setVisibility(camOn ? View.GONE : View.VISIBLE);
+        updateCameraUI();
+        if (callRef != null) {
+            String myUid = FirebaseUtils.getCurrentUid();
+            if (myUid != null) callRef.child("camState").child(myUid).setValue(camOn);
+        }
+    }
+
+    private void updateCameraUI() {
+        if (!isVideo) return;
+        binding.btnToggleCamera.setAlpha(camOn ? 1f : 0.4f);
+        binding.btnToggleCamera.setImageResource(camOn
+            ? com.callx.app.calls.R.drawable.ic_video
+            : com.callx.app.calls.R.drawable.ic_video_off);
+        if (binding.tvCameraLabel != null)
+            binding.tvCameraLabel.setText(camOn ? "Camera" : "Cam Off");
+        binding.btnToggleCamera.setBackgroundResource(camOn
+            ? com.callx.app.calls.R.drawable.circle_avatar_bg
+            : com.callx.app.calls.R.drawable.circle_reject_light);
+    }
+
     // ── ICE state ─────────────────────────────────────────────────────────
     private void handleIceStateChange(PeerConnection.IceConnectionState s) {
         showQualityIndicator(s);
@@ -778,49 +724,35 @@ public class CallActivity extends AppCompatActivity {
             s == PeerConnection.IceConnectionState.COMPLETED) {
             cancelPendingIceRestart();
             onCallConnected();
-            // Feature 3: E2E badge — always on when connected (DTLS-SRTP)
-            showE2eBadge();
-            // Adaptive: restore HD
+            binding.tvCallStatus.setAlpha(1f);
+            // Feature 3: Network kuch behtar hua → restore HD quality
             applyVideoBitrate(false);
 
         } else if (s == PeerConnection.IceConnectionState.DISCONNECTED) {
             if (callConnected) {
                 binding.tvCallStatus.setText("Reconnecting...");
-                applyVideoBitrate(true);   // Adaptive: reduce to VGA
+                // Feature 3: Network weak → VGA save karo bandwidth
+                applyVideoBitrate(true);
                 scheduleIceRestart();
             }
         } else if (s == PeerConnection.IceConnectionState.FAILED) {
+            // Feature 3: Very poor → stay on low quality
             applyVideoBitrate(true);
-            if (callConnected && iceRestartCount < Constants.ICE_MAX_RESTARTS)
+            if (callConnected && iceRestartCount < Constants.ICE_MAX_RESTARTS) {
                 performIceRestart();
-            else if (callConnected)
+            } else if (callConnected) {
                 runOnUiThread(this::endCall);
+            }
         } else if (s == PeerConnection.IceConnectionState.CLOSED) {
             if (!finishing) runOnUiThread(this::endCall);
         }
     }
 
-    private void showQualityIndicator(PeerConnection.IceConnectionState s) {
-        if (binding.layoutQuality == null) return;
-        if (s == PeerConnection.IceConnectionState.CONNECTED ||
-            s == PeerConnection.IceConnectionState.COMPLETED) {
-            binding.layoutQuality.setVisibility(View.VISIBLE);
-            if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Good");
-        } else if (s == PeerConnection.IceConnectionState.DISCONNECTED) {
-            binding.layoutQuality.setVisibility(View.VISIBLE);
-            if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Weak");
-        } else if (s == PeerConnection.IceConnectionState.FAILED ||
-                   s == PeerConnection.IceConnectionState.CHECKING) {
-            binding.layoutQuality.setVisibility(View.VISIBLE);
-            if (binding.tvQualityLabel != null) binding.tvQualityLabel.setText("Poor");
-        } else {
-            binding.layoutQuality.setVisibility(View.GONE);
-        }
-    }
-
     private void scheduleIceRestart() {
         cancelPendingIceRestart();
-        iceRestartRunnable = () -> { if (!finishing && peerConnection != null) performIceRestart(); };
+        iceRestartRunnable = () -> {
+            if (!finishing && peerConnection != null) performIceRestart();
+        };
         iceRestartHandler.postDelayed(iceRestartRunnable, 4_000);
     }
 
@@ -901,7 +833,7 @@ public class CallActivity extends AppCompatActivity {
                         }
                         @Override public void onCancelled(DatabaseError e) {}
                     });
-                } else handleOffer(s);
+                } else { handleOffer(s); }
             }
             @Override public void onCancelled(DatabaseError e) {}
         });
@@ -920,7 +852,8 @@ public class CallActivity extends AppCompatActivity {
             @Override public void onCreateSuccess(SessionDescription s2) {}
             @Override public void onCreateFailure(String e) {}
             @Override public void onSetFailure(String e) {}
-        }, new SessionDescription(SessionDescription.Type.fromCanonicalForm(type), sdp));
+        }, new SessionDescription(
+            SessionDescription.Type.fromCanonicalForm(type), sdp));
     }
 
     private void createAnswer() {
@@ -948,18 +881,19 @@ public class CallActivity extends AppCompatActivity {
                         || "cancelled".equals(st) || "busy".equals(st)) {
                     if (!callConnected && isCaller) {
                         if ("busy".equals(st)) {
-                            runOnUiThread(() -> binding.tvCallStatus.setText(
-                                (partnerName != null ? partnerName : "Contact") +
-                                " is on another call"));
+                            runOnUiThread(() ->
+                                binding.tvCallStatus.setText(
+                                    (partnerName != null ? partnerName : "Contact") + " is on another call"));
                         } else if ("rejected".equals(st) || "cancelled".equals(st)) {
                             String myUid = FirebaseUtils.getCurrentUid();
-                            if (myUid != null)
+                            if (myUid != null) {
                                 PushNotify.notifyMissedCall(myUid,
                                     partnerUid  != null ? partnerUid  : "",
                                     partnerName != null ? partnerName : "",
                                     callId      != null ? callId      : "",
                                     isVideo,
                                     partnerPhoto != null ? partnerPhoto : "");
+                            }
                         }
                     }
                     runOnUiThread(() -> endCall());
@@ -974,12 +908,12 @@ public class CallActivity extends AppCompatActivity {
         if (callRef == null) return;
         remoteCandidateListener = new ChildEventListener() {
             @Override public void onChildAdded(DataSnapshot s, String prev) {
-                String sdpMid = s.child("sdpMid").getValue(String.class);
-                String cand   = s.child("candidate").getValue(String.class);
+                String sdpMid   = s.child("sdpMid").getValue(String.class);
+                String sdpMLine = s.child("sdpMLineIndex").getValue(String.class);
+                String cand     = s.child("candidate").getValue(String.class);
                 if (sdpMid == null || cand == null) return;
                 int idx = 0;
-                try { String ml = s.child("sdpMLineIndex").getValue(String.class);
-                      if (ml != null) idx = Integer.parseInt(ml); }
+                try { if (sdpMLine != null) idx = Integer.parseInt(sdpMLine); }
                 catch (Exception ignored) {}
                 IceCandidate ic = new IceCandidate(sdpMid, idx, cand);
                 if (remoteDescSet) peerConnection.addIceCandidate(ic);
@@ -992,7 +926,8 @@ public class CallActivity extends AppCompatActivity {
         };
         String myUid = FirebaseUtils.getCurrentUid();
         if (myUid == null) return;
-        callRef.child("candidates").child(myUid).addChildEventListener(remoteCandidateListener);
+        callRef.child("candidates").child(myUid)
+            .addChildEventListener(remoteCandidateListener);
     }
 
     private void drainPendingCandidates() {
@@ -1041,10 +976,12 @@ public class CallActivity extends AppCompatActivity {
     private void onCallConnected() {
         if (callConnected) return;
         callConnected = true;
+        // FIX-KILLED v4: Service ko batao call actually connect hui
+        CallForegroundService.activeCallConnected = true;
         iceRestartCount = 0;
         startedAt = System.currentTimeMillis();
 
-        // Cancel call timeout
+        // Feature 4: Cancel timeout — call connected ho gaya
         if (timeoutRunnable != null) {
             timeoutHandler.removeCallbacks(timeoutRunnable);
             timeoutRunnable = null;
@@ -1053,7 +990,6 @@ public class CallActivity extends AppCompatActivity {
         binding.tvCallStatus.setText("Connected \u2022 0:00");
         if (isVideo) binding.ivCallAvatar.setVisibility(View.GONE);
 
-        // Start foreground service
         Intent fg = new Intent(this, CallForegroundService.class);
         fg.putExtra("name",         partnerName  != null ? partnerName  : "");
         fg.putExtra("callId",       callId       != null ? callId       : "");
@@ -1069,175 +1005,15 @@ public class CallActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(fg);
         else startService(fg);
 
-        // Call duration ticker
         ticker = new Runnable() {
             @Override public void run() {
                 long e = (System.currentTimeMillis() - startedAt) / 1000;
                 binding.tvCallStatus.setText(
-                    String.format(Locale.US, "Connected \u2022 %d:%02d", e / 60, e % 60));
+                    String.format("Connected \u2022 %d:%02d", e / 60, e % 60));
                 tick.postDelayed(this, 1_000);
             }
         };
         tick.post(ticker);
-    }
-
-    // ── Controls ───────────────────────────────────────────────────────────
-    private void switchCamera() {
-        if (!isVideo || videoCapturer == null || screenSharing) return;
-        usingFrontCamera = !usingFrontCamera;
-        if (videoCapturer instanceof CameraVideoCapturer)
-            ((CameraVideoCapturer) videoCapturer).switchCamera(null);
-        binding.localVideo.setMirror(usingFrontCamera);
-    }
-
-    private void toggleSpeaker() {
-        speakerOn = !speakerOn;
-        enableSpeaker(speakerOn);
-    }
-
-    private void enableSpeaker(boolean on) {
-        if (audioManager == null) return;
-        speakerOn = on;
-        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-        audioManager.setSpeakerphoneOn(on);
-        binding.btnToggleSpeaker.setAlpha(on ? 1f : 0.5f);
-        if (binding.tvSpeakerLabel != null)
-            binding.tvSpeakerLabel.setText(on ? "Speaker On" : "Speaker");
-    }
-
-    private void toggleMic() {
-        micOn = !micOn;
-        if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
-        updateMicUI();
-        if (callRef != null) {
-            String myUid = FirebaseUtils.getCurrentUid();
-            if (myUid != null) callRef.child("micState").child(myUid).setValue(micOn);
-        }
-    }
-
-    private void updateMicUI() {
-        binding.btnToggleMic.setAlpha(micOn ? 1f : 0.4f);
-        binding.btnToggleMic.setImageResource(micOn
-            ? com.callx.app.calls.R.drawable.ic_mic
-            : com.callx.app.calls.R.drawable.ic_mic_off);
-        if (binding.tvMicLabel != null)
-            binding.tvMicLabel.setText(micOn ? "Mute" : "Unmute");
-        binding.btnToggleMic.setBackgroundResource(micOn
-            ? com.callx.app.calls.R.drawable.circle_avatar_bg
-            : com.callx.app.calls.R.drawable.circle_reject_light);
-    }
-
-    private void toggleCamera() {
-        camOn = !camOn;
-        if (localVideoTrack != null) localVideoTrack.setEnabled(camOn);
-        if (isVideo && videoCapturer != null && !screenSharing) {
-            if (!camOn && capturerRunning) {
-                try { videoCapturer.stopCapture(); capturerRunning = false; }
-                catch (Exception ignored) {}
-            } else if (camOn && !capturerRunning) startCapture();
-        }
-        if (binding.layoutLocalCamOffBadge != null)
-            binding.layoutLocalCamOffBadge.setVisibility(camOn ? View.GONE : View.VISIBLE);
-        updateCameraUI();
-        if (callRef != null) {
-            String myUid = FirebaseUtils.getCurrentUid();
-            if (myUid != null) callRef.child("camState").child(myUid).setValue(camOn);
-        }
-    }
-
-    private void updateCameraUI() {
-        if (!isVideo) return;
-        binding.btnToggleCamera.setAlpha(camOn ? 1f : 0.4f);
-        binding.btnToggleCamera.setImageResource(camOn
-            ? com.callx.app.calls.R.drawable.ic_video
-            : com.callx.app.calls.R.drawable.ic_video_off);
-        if (binding.tvCameraLabel != null)
-            binding.tvCameraLabel.setText(camOn ? "Camera" : "Cam Off");
-        binding.btnToggleCamera.setBackgroundResource(camOn
-            ? com.callx.app.calls.R.drawable.circle_avatar_bg
-            : com.callx.app.calls.R.drawable.circle_reject_light);
-    }
-
-    // ── Lifecycle ──────────────────────────────────────────────────────────
-    @Override protected void onStop() {
-        super.onStop();
-        if (isVideo && videoCapturer != null && capturerRunning && !screenSharing
-                && !isInPictureInPictureMode()) {
-            try { videoCapturer.stopCapture(); capturerRunning = false; }
-            catch (Exception ignored) {}
-        }
-    }
-
-    @Override protected void onStart() {
-        super.onStart();
-        if (isVideo && videoCapturer != null && !capturerRunning && camOn && !screenSharing)
-            startCapture();
-    }
-
-    @Override protected void onUserLeaveHint() {
-        super.onUserLeaveHint();
-        if (isVideo && callConnected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            enterPipMode();
-    }
-
-    private void enterPipMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                enterPictureInPictureMode(new PictureInPictureParams.Builder()
-                    .setAspectRatio(new Rational(9, 16)).build());
-            } catch (Exception ignored) {}
-        }
-    }
-
-    @Override
-    public void onPictureInPictureModeChanged(boolean pip) {
-        super.onPictureInPictureModeChanged(pip);
-        int v = pip ? View.GONE : View.VISIBLE;
-        binding.btnEndCall.setVisibility(v);
-        binding.btnToggleMic.setVisibility(v);
-        binding.btnToggleCamera.setVisibility(v);
-        binding.btnToggleSpeaker.setVisibility(v);
-        binding.btnSwitchCamera.setVisibility(v);
-        binding.tvCallerName.setVisibility(v);
-        binding.tvCallStatus.setVisibility(v);
-        if (binding.layoutExtraControls != null) binding.layoutExtraControls.setVisibility(v);
-        if (!pip && isVideo && videoCapturer != null && !capturerRunning && camOn && !screenSharing)
-            startCapture();
-    }
-
-    // ── Camera helpers ─────────────────────────────────────────────────────
-    private void startCapture() {
-        if (videoCapturer == null || videoSource == null) return;
-        try {
-            videoCapturer.startCapture(Constants.VIDEO_WIDTH_HD, Constants.VIDEO_HEIGHT_HD,
-                Constants.VIDEO_FPS);
-            capturerRunning = true;
-        } catch (Exception e) {
-            try {
-                videoCapturer.startCapture(Constants.VIDEO_WIDTH_VGA, Constants.VIDEO_HEIGHT_VGA,
-                    Constants.VIDEO_FPS);
-                capturerRunning = true;
-            } catch (Exception ignored) {}
-        }
-    }
-
-    private CameraVideoCapturer createCapturer(boolean preferFront) {
-        Camera2Enumerator e = new Camera2Enumerator(this);
-        for (String d : e.getDeviceNames())
-            if (preferFront ? e.isFrontFacing(d) : e.isBackFacing(d))
-                return e.createCapturer(d, null);
-        for (String d : e.getDeviceNames()) return e.createCapturer(d, null);
-        return null;
-    }
-
-    private MediaConstraints buildAudioConstraints() {
-        MediaConstraints mc = new MediaConstraints();
-        mc.mandatory.add(new MediaConstraints.KeyValuePair("googEchoCancellation", "true"));
-        mc.mandatory.add(new MediaConstraints.KeyValuePair("googNoiseSuppression", "true"));
-        mc.mandatory.add(new MediaConstraints.KeyValuePair("googAutoGainControl",  "true"));
-        mc.mandatory.add(new MediaConstraints.KeyValuePair("googHighpassFilter",   "true"));
-        mc.mandatory.add(new MediaConstraints.KeyValuePair("googTypingNoiseDetection", "true"));
-        return mc;
     }
 
     // ── End call ───────────────────────────────────────────────────────────
@@ -1246,11 +1022,11 @@ public class CallActivity extends AppCompatActivity {
         finishing = true;
 
         cancelPendingIceRestart();
-        stopStatsPoll();
         if (ticker != null) tick.removeCallbacks(ticker);
-        if (timeoutRunnable != null) { timeoutHandler.removeCallbacks(timeoutRunnable); }
-        if (isRecording) stopRecording();
-        if (blurProcessor != null) { blurProcessor.release(); blurProcessor = null; }
+        if (timeoutRunnable != null) {
+            timeoutHandler.removeCallbacks(timeoutRunnable);
+            timeoutRunnable = null;
+        }
 
         try { stopService(new Intent(this, CallForegroundService.class)); }
         catch (Exception ignored) {}
@@ -1259,10 +1035,14 @@ public class CallActivity extends AppCompatActivity {
             long dur = startedAt == 0 ? 0 : System.currentTimeMillis() - startedAt;
             callRef.child("status").setValue("ended");
             callRef.child("status").onDisconnect().cancel();
+
+            // FIX-CLEANUP: camState hata do
             if (isVideo) {
                 String myUid = FirebaseUtils.getCurrentUid();
-                if (myUid != null) callRef.child("camState").child(myUid).removeValue();
+                if (myUid != null)
+                    callRef.child("camState").child(myUid).removeValue();
             }
+
             String myUid = FirebaseUtils.getCurrentUid();
             if (myUid != null) {
                 final long fDur = dur, fTs = System.currentTimeMillis();
@@ -1338,10 +1118,7 @@ public class CallActivity extends AppCompatActivity {
             if (iceRestartRequestListener != null && callRef != null)
                 callRef.child("iceRestartRequest")
                     .removeEventListener(iceRestartRequestListener);
-            if (videoCapturer != null) {
-                try { videoCapturer.stopCapture(); } catch (Exception ignored) {}
-                videoCapturer.dispose();
-            }
+            if (videoCapturer != null) { videoCapturer.stopCapture(); videoCapturer.dispose(); }
             if (localVideoTrack  != null) localVideoTrack.dispose();
             if (localAudioTrack  != null) localAudioTrack.dispose();
             if (videoSource      != null) videoSource.dispose();
@@ -1356,8 +1133,9 @@ public class CallActivity extends AppCompatActivity {
             if (factory  != null) factory.dispose();
         } catch (Exception ignored) {}
         try { bgExecutor.shutdownNow(); } catch (Exception ignored) {}
-        try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); }
-        catch (Exception ignored) {}
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        } catch (Exception ignored) {}
     }
 
     private SdpObserver noopSdp() {
@@ -1371,11 +1149,11 @@ public class CallActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        CallForegroundService.activeCallConnected = false;
         if (!finishing) releaseWebRTC();
         if (ticker != null) tick.removeCallbacks(ticker);
         cancelPendingIceRestart();
         if (timeoutRunnable != null) timeoutHandler.removeCallbacks(timeoutRunnable);
-        stopStatsPoll();
         super.onDestroy();
     }
 }
