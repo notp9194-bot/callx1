@@ -1050,6 +1050,27 @@ public class CallActivity extends AppCompatActivity {
                 myLog.put("duration",    fDur);
                 FirebaseUtils.getCallsRef(myUid).push().setValue(myLog);
 
+                // ── Save call bubble message to chat ──────────────────────
+                final boolean fCallConnected = callConnected;
+                final String fMyName = FirebaseUtils.getCurrentName();
+                String chatId = FirebaseUtils.getChatId(myUid, partnerUid != null ? partnerUid : "");
+                com.google.firebase.database.DatabaseReference msgRef =
+                    FirebaseUtils.getMessagesRef(chatId);
+                String msgKey = msgRef.push().getKey();
+                if (msgKey != null) {
+                    Map<String, Object> callMsg = new HashMap<>();
+                    callMsg.put("id",          msgKey);
+                    callMsg.put("senderId",    myUid);
+                    callMsg.put("senderName",  fMyName != null ? fMyName : "");
+                    callMsg.put("type",        "call");
+                    callMsg.put("callType",    fType);
+                    callMsg.put("callStatus",  fCallConnected ? "completed" : "no_answer");
+                    callMsg.put("duration",    fCallConnected ? fDur : 0L);
+                    callMsg.put("timestamp",   fTs);
+                    msgRef.child(msgKey).setValue(callMsg);
+                }
+                // ─────────────────────────────────────────────────────────
+
                 if (partnerUid != null && !partnerUid.isEmpty()) {
                     String myName = FirebaseUtils.getCurrentName();
                     Map<String, Object> pl = new HashMap<>();

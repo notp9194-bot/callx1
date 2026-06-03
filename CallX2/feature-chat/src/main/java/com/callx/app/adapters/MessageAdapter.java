@@ -143,6 +143,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         if (h.llAudio  != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile   != null) h.llFile.setVisibility(View.GONE);
         if (h.tvEdited != null) h.tvEdited.setVisibility(View.GONE);
+        if (h.llCall   != null) h.llCall.setVisibility(View.GONE);
 
         // Feature 8: Pinned label
         if (h.tvPinnedLabel != null)
@@ -441,6 +442,70 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 break;
             }
             default: {
+                // ── CALL BUBBLE ───────────────────────────────────────────
+                if ("call".equals(type) && h.llCall != null) {
+                    h.llCall.setVisibility(View.VISIBLE);
+                    boolean isVideoCall = "video".equals(m.callType);
+                    // Call type label
+                    if (h.tvCallType != null)
+                        h.tvCallType.setText(isVideoCall ? "Video call" : "Voice call");
+                    // Call icon
+                    if (h.ivCallIcon != null) {
+                        h.ivCallIcon.setImageResource(isVideoCall
+                            ? com.callx.app.chat.R.drawable.ic_video_call
+                            : com.callx.app.chat.R.drawable.ic_phone);
+                    }
+                    // Call status
+                    String cStatus = m.callStatus != null ? m.callStatus : "";
+                    String statusLabel;
+                    boolean unanswered;
+                    switch (cStatus) {
+                        case "missed":    statusLabel = "Missed"; unanswered = true; break;
+                        case "no_answer": statusLabel = "No answer"; unanswered = true; break;
+                        case "rejected":  statusLabel = "Declined"; unanswered = true; break;
+                        default: {
+                            // completed — show duration
+                            long dur = m.duration != null ? m.duration : 0;
+                            if (dur > 0) {
+                                long secs = dur / 1000;
+                                statusLabel = secs >= 60
+                                    ? String.format(Locale.getDefault(), "%d:%02d", secs/60, secs%60)
+                                    : secs + "s";
+                            } else {
+                                statusLabel = "";
+                            }
+                            unanswered = false;
+                        }
+                    }
+                    if (h.tvCallStatus != null)
+                        h.tvCallStatus.setText(statusLabel);
+                    // Show record buttons only for unanswered calls
+                    if (h.llCallActions != null) {
+                        h.llCallActions.setVisibility(unanswered ? View.VISIBLE : View.GONE);
+                        if (unanswered) {
+                            if (h.btnRecordAudioNote != null)
+                                h.btnRecordAudioNote.setOnClickListener(v -> {
+                                    // Send intent to ChatActivity to start audio recording
+                                    android.content.Intent intent = new android.content.Intent(
+                                        "com.callx.app.action.RECORD_AUDIO_NOTE");
+                                    intent.putExtra("partnerUid", m.senderId);
+                                    v.getContext().sendBroadcast(intent);
+                                });
+                            if (h.btnRecordVideoNote != null)
+                                h.btnRecordVideoNote.setOnClickListener(v -> {
+                                    android.content.Intent intent = new android.content.Intent(
+                                        "com.callx.app.action.RECORD_VIDEO_NOTE");
+                                    intent.putExtra("partnerUid", m.senderId);
+                                    v.getContext().sendBroadcast(intent);
+                                });
+                        }
+                    }
+                    bindFooter(h, m, sent);
+                    applySelectionHighlight(h, m);
+                    setupLongPress(h, m, sent, ctx);
+                    return;
+                }
+                // ── DEFAULT TEXT ──────────────────────────────────────────
                 h.tvMessage.setVisibility(View.VISIBLE);
                 h.tvMessage.setTextColor(
                         com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent));
@@ -1078,6 +1143,14 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         TextView     tvForwarded;
         TextView     tvStarredIcon;
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
+        // ── Call bubble views ──────────────────────────────────────────────
+        LinearLayout llCall;
+        LinearLayout llCallActions;
+        ImageView    ivCallIcon;
+        TextView     tvCallType;
+        TextView     tvCallStatus;
+        TextView     btnRecordAudioNote;
+        TextView     btnRecordVideoNote;
 
         VH(View v) {
             super(v);
@@ -1107,6 +1180,14 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvForwarded  = v.findViewById(R.id.tv_forwarded);
             tvStarredIcon = v.findViewById(R.id.tv_starred_icon);
             ivSenderAvatar = v.findViewById(R.id.iv_sender_avatar);
+            // Call bubble
+            llCall            = v.findViewById(R.id.ll_call);
+            llCallActions     = v.findViewById(R.id.ll_call_actions);
+            ivCallIcon        = v.findViewById(R.id.iv_call_icon);
+            tvCallType        = v.findViewById(R.id.tv_call_type);
+            tvCallStatus      = v.findViewById(R.id.tv_call_status);
+            btnRecordAudioNote = v.findViewById(R.id.btn_record_audio_note);
+            btnRecordVideoNote = v.findViewById(R.id.btn_record_video_note);
         }
     }
 }

@@ -173,6 +173,9 @@ public class ChatActivity extends AppCompatActivity {
     private ConnectivityManager          connMgr;
     private ConnectivityManager.NetworkCallback netCallback;
 
+    // ── Call Note BroadcastReceiver ────────────────────────────────────────
+    private android.content.BroadcastReceiver callNoteReceiver;
+
     // ── Typing debounce ───────────────────────────────────────────────────
     private final android.os.Handler typingHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable           stopTypingRunnable = () -> setOurTypingStatus(false);
@@ -256,12 +259,46 @@ public class ChatActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         saveDraft();  // v18 IMPROVEMENT 2: User navigate away — draft save
+        // Unregister call note receiver
+        if (callNoteReceiver != null) {
+            try { unregisterReceiver(callNoteReceiver); } catch (Exception ignored) {}
+            callNoteReceiver = null;
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Register receiver for "Record audio/video note" from call bubbles
+        callNoteReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context context, android.content.Intent intent) {
+                String action = intent.getAction();
+                if ("com.callx.app.action.RECORD_AUDIO_NOTE".equals(action)) {
+                    toggleRecording();
+                } else if ("com.callx.app.action.RECORD_VIDEO_NOTE".equals(action)) {
+                    videoPicker.launch("video/*");
+                }
+            }
+        };
+        android.content.IntentFilter filter = new android.content.IntentFilter();
+        filter.addAction("com.callx.app.action.RECORD_AUDIO_NOTE");
+        filter.addAction("com.callx.app.action.RECORD_VIDEO_NOTE");
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(callNoteReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(callNoteReceiver, filter);
+        }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         saveDraft();
+        if (callNoteReceiver != null) {
+            try { unregisterReceiver(callNoteReceiver); } catch (Exception ignored) {}
+            callNoteReceiver = null;
+        }
         if (messagesRef != null && messageListener != null)
             messagesRef.removeEventListener(messageListener);
         typingHandler.removeCallbacks(stopTypingRunnable);
@@ -746,6 +783,8 @@ public class ChatActivity extends AppCompatActivity {
         m.reelId                = e.reelId;       // FIX: reel_seen bubble
         m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
         m.fontStyle             = e.fontStyle;    // FIX: typing style — Room se load hone par preserve karo
+        m.callType              = e.callType;
+        m.callStatus            = e.callStatus;
         return m;
     }
 
@@ -960,6 +999,8 @@ public class ChatActivity extends AppCompatActivity {
         e.isGroup        = false;
         e.syncedAt       = System.currentTimeMillis();
         e.fontStyle      = m.fontStyle;
+        e.callType       = m.callType;
+        e.callStatus     = m.callStatus;
         return e;
     }
 

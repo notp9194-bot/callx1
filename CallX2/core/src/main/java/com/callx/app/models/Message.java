@@ -88,5 +88,15 @@ public class Message {
      */
     public int fontStyle;
 
+    // ── Feature: Call Bubble ──────────────────────────────────────────────
+    /**
+     * For type = "call":
+     *   callType   → "audio" or "video"
+     *   callStatus → "completed" | "missed" | "no_answer" | "rejected"
+     *   duration   → reused (ms, 0 if not answered)
+     */
+    public String callType;
+    public String callStatus;
+
     public Message() {}
 }

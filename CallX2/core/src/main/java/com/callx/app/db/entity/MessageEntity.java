@@ -80,5 +80,9 @@ public class MessageEntity {
      */
     public int fontStyle;
 
+    /** Call bubble fields — type = "call" */
+    public String callType;    // "audio" | "video"
+    public String callStatus;  // "completed" | "missed" | "no_answer" | "rejected"
+
     public MessageEntity() {}
 }

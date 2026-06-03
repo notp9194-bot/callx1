@@ -208,6 +208,24 @@
           FirebaseUtils.getCallsRef(myUid).push().setValue(myMissed)
               .addOnFailureListener(e -> android.util.Log.w("IncomingCall", "B missed-log failed", e));
 
+          // ── Save missed call bubble to chat ──────────────────────────────
+          String chatId = FirebaseUtils.getChatId(myUid, fromUid);
+          com.google.firebase.database.DatabaseReference msgRef =
+              FirebaseUtils.getMessagesRef(chatId);
+          String missedMsgKey = msgRef.push().getKey();
+          if (missedMsgKey != null) {
+              Map<String, Object> callMsg = new HashMap<>();
+              callMsg.put("id",          missedMsgKey);
+              callMsg.put("senderId",    fromUid);
+              callMsg.put("senderName",  fromName != null ? fromName : "");
+              callMsg.put("type",        "call");
+              callMsg.put("callType",    media);
+              callMsg.put("callStatus",  "missed");
+              callMsg.put("duration",    0L);
+              callMsg.put("timestamp",   ts);
+              msgRef.child(missedMsgKey).setValue(callMsg);
+          }
+
           // ── A ke liye (caller = fromUid) — unhe bhi missed dikhao ──
           FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot snap) {

@@ -201,6 +201,9 @@
                         android:visibility="gone"/>
                 </FrameLayout>
 
+                <!-- Call bubble -->
+                <include layout="@layout/item_call_bubble"/>
+
                 <LinearLayout
                     android:id="@+id/ll_audio"
                     android:layout_width="240dp"
