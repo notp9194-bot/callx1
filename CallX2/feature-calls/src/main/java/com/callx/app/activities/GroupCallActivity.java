@@ -35,7 +35,6 @@ import com.callx.app.calls.R;
 import com.callx.app.adapters.GroupCallParticipantAdapter;
 import com.callx.app.services.GroupCallForegroundService;
 import com.callx.app.services.GroupCallRingService;
-import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
 // FIX-8: Room imports for immediate local call log write
@@ -128,7 +127,10 @@ public class GroupCallActivity extends AppCompatActivity {
     private boolean finishing = false;
     private boolean handRaised = false;
     private boolean capturerRunning = false;
+    // callStartedAt = timestamp jab pehli baar koi peer connect hua (ICE CONNECTED)
+    // timerStartedAt = timestamp jab join kiya (timer display ke liye)
     private long callStartedAt = 0;
+    private long timerStartedAt = 0;
 
     // ── Timer ─────────────────────────────────────────────────────────────
     private final Handler tick = new Handler(Looper.getMainLooper());
@@ -223,6 +225,8 @@ public class GroupCallActivity extends AppCompatActivity {
         if (groupId == null || myUid == null) { finish(); return; }
 
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        // Volume buttons should control call volume, not media
+        setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
         loadSettings();
         acquireWakeLock();
         bindViews();
@@ -681,8 +685,11 @@ public class GroupCallActivity extends AppCompatActivity {
             case CONNECTED:
             case COMPLETED:
                 iceRestartCounts.put(uid, 0);
+                // callStartedAt = actual connection time (used for duration/missed-call logic)
                 if (callStartedAt == 0) {
                     callStartedAt = System.currentTimeMillis();
+                    // Also update foreground service for kill-cleanup accuracy
+                    GroupCallForegroundService.connectedAt = callStartedAt;
                 }
                 break;
             case DISCONNECTED:
@@ -1055,6 +1062,7 @@ public class GroupCallActivity extends AppCompatActivity {
 
     private void saveCallLog() {
         if (myUid == null || groupId == null) return;
+        // callStartedAt = 0 means no peer ever connected (missed/unanswered)
         long dur = callStartedAt == 0 ? 0 : System.currentTimeMillis() - callStartedAt;
         Map<String, Object> log = new HashMap<>();
         log.put("groupId",    groupId);
@@ -1136,10 +1144,10 @@ public class GroupCallActivity extends AppCompatActivity {
     // ── Timer & Foreground Service ────────────────────────────────────────
 
     private void startCallTimer() {
-        callStartedAt = System.currentTimeMillis();
+        timerStartedAt = System.currentTimeMillis();
         ticker = new Runnable() {
             @Override public void run() {
-                long el = (System.currentTimeMillis() - callStartedAt) / 1000;
+                long el = (System.currentTimeMillis() - timerStartedAt) / 1000;
                 tvTimer.setText(String.format("%d:%02d", el / 60, el % 60));
                 tick.postDelayed(this, 1000);
             }
@@ -1252,9 +1260,17 @@ public class GroupCallActivity extends AppCompatActivity {
     }
 
     @Override
+    public void onBackPressed() {
+        // Back button = leave call (same as end call button)
+        endCall();
+    }
+
+    @Override
     protected void onDestroy() {
         if (!finishing) releaseWebRTC();
         if (ticker != null) tick.removeCallbacks(ticker);
+        // Reset static field for next call
+        GroupCallForegroundService.connectedAt = 0;
         try {
             if (callEndReceiver != null) unregisterReceiver(callEndReceiver);
         } catch (Exception ignored) {}

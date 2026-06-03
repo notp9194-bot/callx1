@@ -95,22 +95,7 @@
             android:textSize="11sp"/>
     </LinearLayout>
 
-
-      <!-- FIX-PIP: Minimize/PiP button — video call background mein minimize karo -->
-      <ImageButton
-          android:id="@+id/btn_minimize"
-          android:layout_width="40dp"
-          android:layout_height="40dp"
-          android:layout_gravity="top|start"
-          android:layout_margin="16dp"
-          android:src="@drawable/ic_arrow_down"
-          android:background="@drawable/bg_action_btn_circle"
-          android:tint="@color/white"
-          android:alpha="0.85"
-          android:elevation="10dp"
-          android:contentDescription="Minimize call"/>
-
-      <!-- Caller name + status (top-center) -->
+    <!-- Caller name + status (top-center) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

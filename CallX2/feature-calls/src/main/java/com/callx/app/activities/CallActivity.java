@@ -192,17 +192,6 @@ public class CallActivity extends AppCompatActivity {
         binding.btnToggleCamera.setOnClickListener(v -> toggleCamera());
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
-          // FIX-PIP: Minimize button — video PiP mein jaao, audio background mein
-          if (binding.btnMinimize != null) {
-              binding.btnMinimize.setOnClickListener(v -> {
-                  if (isVideo && callConnected
-                          && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                      enterPipMode();
-                  } else {
-                      moveTaskToBack(true);
-                  }
-              });
-          }
 
         updateMicUI();
         updateCameraUI();
@@ -976,8 +965,6 @@ public class CallActivity extends AppCompatActivity {
     private void onCallConnected() {
         if (callConnected) return;
         callConnected = true;
-        // FIX-KILLED v4: Service ko batao call actually connect hui
-        CallForegroundService.activeCallConnected = true;
         iceRestartCount = 0;
         startedAt = System.currentTimeMillis();
 
@@ -1149,7 +1136,6 @@ public class CallActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        CallForegroundService.activeCallConnected = false;
         if (!finishing) releaseWebRTC();
         if (ticker != null) tick.removeCallbacks(ticker);
         cancelPendingIceRestart();
