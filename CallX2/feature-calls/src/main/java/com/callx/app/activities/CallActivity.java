@@ -82,13 +82,12 @@ public class CallActivity extends AppCompatActivity {
     private boolean callConnected = false;
     private boolean finishing = false;
     // FIX: track remote camera state for overlay
-    private boolean remoteCamOn = true;
+      private boolean remoteCamOn = true;
 
-    // ── Video Upgrade (audio→video mid-call) ──────────────────────────────
-    private boolean upgradeRequested  = false;   // we sent the request
-    private boolean upgradePending    = false;   // we received a request
-    private ValueEventListener upgradeRequestListener;
-    private ValueEventListener upgradeResponseListener;
+      // SWITCH: Audio ↔ Video (like Google Dialer)
+      private boolean isSwitchInitiator = false;
+      private ValueEventListener callModeListener;
+      private ValueEventListener upgradeAnswerListener;
 
     // Timer
     private final Handler tick = new Handler(Looper.getMainLooper());
@@ -183,16 +182,9 @@ public class CallActivity extends AppCompatActivity {
         binding.btnToggleCamera.setOnClickListener(v -> toggleCamera());
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
-
-        // Show "Switch to Video" button only during audio calls
-        if (!isVideo && binding.layoutUpgradeVideo != null) {
-            binding.layoutUpgradeVideo.setVisibility(View.VISIBLE);
-            binding.layoutUpgradeVideo.setOnClickListener(v -> requestVideoUpgrade());
-        }
-        if (binding.btnDeclineUpgrade != null)
-            binding.btnDeclineUpgrade.setOnClickListener(v -> declineVideoUpgrade());
-        if (binding.btnAcceptUpgrade != null)
-            binding.btnAcceptUpgrade.setOnClickListener(v -> acceptVideoUpgrade());
+          // SWITCH: Audio ↔ Video toggle button
+          if (binding.btnSwitchCallMode != null)
+              binding.btnSwitchCallMode.setOnClickListener(v -> switchCallMode());
 
         // FIX: initial button visual state
         updateMicUI();
@@ -232,19 +224,13 @@ public class CallActivity extends AppCompatActivity {
             boolean ok = true;
             for (int r : results) if (r != PackageManager.PERMISSION_GRANTED) { ok = false; break; }
             if (ok) fetchTurnThenInitWebRTC();
-            else { Toast.makeText(this, "Mic/Camera permission required", Toast.LENGTH_LONG).show(); finish(); }
-        } else if (req == 200) {
-            // Camera permission for video upgrade
-            boolean camGranted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
-            if (camGranted) {
-                performVideoUpgrade();
-            } else {
-                isVideo = false;
-                upgradeRequested = false;
-                Toast.makeText(this, "Camera permission required for video", Toast.LENGTH_LONG).show();
-                if (binding.layoutUpgradeVideo != null)
-                    binding.layoutUpgradeVideo.setVisibility(View.VISIBLE);
-            }
+              else { Toast.makeText(this, "Mic/Camera permission required", Toast.LENGTH_LONG).show(); finish(); }
+          }
+          if (req == 402) {
+              // Camera permission for audio→video upgrade
+              boolean camOk = results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+              if (camOk) initiateVideoUpgrade();
+              else Toast.makeText(this, "Camera permission needed to switch to video", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -403,12 +389,8 @@ public class CallActivity extends AppCompatActivity {
         watchRemoteCandidates();
         // FIX: watch remote camera state signal from Firebase
         watchRemoteCameraState();
-        // Watch video upgrade signals
-        if (!isVideo) {
-            watchVideoUpgradeRequest();
-            watchVideoUpgradeResponse();
-        }
-        registerNetworkCallback();
+          watchCallModeChange();
+          registerNetworkCallback();
     }
 
     // ── FIX: Watch remote party's camera state via Firebase signal ──────────
@@ -885,7 +867,12 @@ public class CallActivity extends AppCompatActivity {
         startedAt = System.currentTimeMillis();
         binding.tvCallStatus.setText("Connected \u2022 0:00");
         if (isVideo) binding.ivCallAvatar.setVisibility(View.GONE);
-
+          // SWITCH: show the audio↔video button once connected
+          if (binding.layoutSwitchMode != null) {
+              binding.layoutSwitchMode.setVisibility(View.VISIBLE);
+              updateSwitchModeButton();
+          }
+  
         Intent fg = new Intent(this, CallForegroundService.class);
         fg.putExtra("name",         partnerName != null ? partnerName : "");
         fg.putExtra("callId",       callId != null ? callId : "");
@@ -906,7 +893,287 @@ public class CallActivity extends AppCompatActivity {
         tick.post(ticker);
     }
 
-    // ── End call ───────────────────────────────────────────────────────────
+
+      // ══════════════════════════════════════════════════════════════════════
+      // SWITCH: Audio ↔ Video call (like Google Dialer) ——————————————————————
+      // ══════════════════════════════════════════════════════════════════════
+
+      private void switchCallMode() {
+          if (!callConnected || finishing) return;
+          if (!isVideo) {
+              // Audio → Video upgrade — need camera permission
+              if (checkSelfPermission(android.Manifest.permission.CAMERA)
+                      != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                  ActivityCompat.requestPermissions(this,
+                      new String[]{android.Manifest.permission.CAMERA}, 402);
+                  return;
+              }
+              initiateVideoUpgrade();
+          } else {
+              initiateAudioDowngrade();
+          }
+      }
+
+      /** Caller side: switch from audio → video. Signals partner + renegotiates. */
+      private void initiateVideoUpgrade() {
+          isSwitchInitiator = true;
+          isVideo = true;
+          try {
+              binding.remoteVideo.init(eglBase.getEglBaseContext(), null);
+              binding.remoteVideo.setMirror(false);
+              binding.localVideo.init(eglBase.getEglBaseContext(), null);
+              binding.localVideo.setMirror(true);
+          } catch (Exception ignored) {}
+
+          videoSource   = factory.createVideoSource(false);
+          surfaceHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+          videoCapturer = createCapturer(true);
+          if (videoCapturer != null) {
+              videoCapturer.initialize(surfaceHelper, this, videoSource.getCapturerObserver());
+              startCapture();
+          }
+          localVideoTrack = factory.createVideoTrack("video0", videoSource);
+          localVideoTrack.setEnabled(true);
+          localVideoTrack.addSink(binding.localVideo);
+          List<String> sids = new ArrayList<>();
+          sids.add("stream0");
+          peerConnection.addTrack(localVideoTrack, sids);
+
+          binding.localVideo.setVisibility(View.VISIBLE);
+          binding.remoteVideo.setVisibility(View.VISIBLE);
+          binding.btnToggleCamera.setVisibility(View.VISIBLE);
+          binding.btnSwitchCamera.setVisibility(View.VISIBLE);
+          if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.VISIBLE);
+          camOn = true;
+          updateCameraUI();
+          enableSpeaker(true);
+          binding.ivCallAvatar.setVisibility(View.GONE);
+
+          // Signal partner first, then renegotiate
+          if (callRef != null) callRef.child("callMode").setValue("video");
+          createUpgradeOffer();
+          updateSwitchModeButton();
+          Toast.makeText(this, "Switching to video call...", Toast.LENGTH_SHORT).show();
+      }
+
+      /** Caller side: switch from video → audio. */
+      private void initiateAudioDowngrade() {
+          isSwitchInitiator = true;
+          isVideo = false;
+
+          if (videoCapturer != null && capturerRunning) {
+              try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
+          }
+          if (localVideoTrack != null) localVideoTrack.setEnabled(false);
+
+          binding.localVideo.setVisibility(View.GONE);
+          binding.remoteVideo.setVisibility(View.GONE);
+          binding.btnToggleCamera.setVisibility(View.GONE);
+          binding.btnSwitchCamera.setVisibility(View.GONE);
+          if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.GONE);
+          if (binding.layoutLocalCamOffBadge != null)
+              binding.layoutLocalCamOffBadge.setVisibility(View.GONE);
+          if (binding.layoutRemoteCamOff != null)
+              binding.layoutRemoteCamOff.setVisibility(View.GONE);
+          binding.ivCallAvatar.setVisibility(View.VISIBLE);
+          enableSpeaker(false);
+
+          if (callRef != null) callRef.child("callMode").setValue("audio");
+          updateSwitchModeButton();
+          Toast.makeText(this, "Switched to audio call", Toast.LENGTH_SHORT).show();
+      }
+
+      /** Create a re-negotiation offer for video upgrade (initiator side). */
+      private void createUpgradeOffer() {
+          if (peerConnection == null) return;
+          peerConnection.createOffer(new SdpObserver() {
+              @Override public void onCreateSuccess(SessionDescription sdp) {
+                  peerConnection.setLocalDescription(noopSdp(), sdp);
+                  if (callRef == null) return;
+                  Map<String, Object> o = new HashMap<>();
+                  o.put("type", sdp.type.canonicalForm());
+                  o.put("sdp",  sdp.description);
+                  callRef.child("upgradeOffer").setValue(o);
+                  watchUpgradeAnswer();
+              }
+              @Override public void onSetSuccess() {}
+              @Override public void onCreateFailure(String e) {}
+              @Override public void onSetFailure(String e) {}
+          }, new MediaConstraints());
+      }
+
+      /** Initiator listens for the partner's upgrade answer. */
+      private void watchUpgradeAnswer() {
+          if (callRef == null) return;
+          upgradeAnswerListener = new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot s) {
+                  if (!s.exists()) return;
+                  String type = s.child("type").getValue(String.class);
+                  String sdp  = s.child("sdp").getValue(String.class);
+                  if (type == null || sdp == null) return;
+                  callRef.child("upgradeAnswer").removeEventListener(this);
+                  SessionDescription answer = new SessionDescription(
+                      SessionDescription.Type.fromCanonicalForm(type), sdp);
+                  peerConnection.setRemoteDescription(noopSdp(), answer);
+              }
+              @Override public void onCancelled(DatabaseError e) {}
+          };
+          callRef.child("upgradeAnswer").addValueEventListener(upgradeAnswerListener);
+      }
+
+      /** Firebase listener: react to partner switching call mode. */
+      private void watchCallModeChange() {
+          if (callRef == null) return;
+          callModeListener = new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot s) {
+                  String mode = s.getValue(String.class);
+                  if (mode == null || isSwitchInitiator) {
+                      isSwitchInitiator = false; // reset for next switch
+                      return;
+                  }
+                  if ("video".equals(mode) && !isVideo) {
+                      runOnUiThread(() -> onRemoteVideoUpgrade());
+                  } else if ("audio".equals(mode) && isVideo) {
+                      runOnUiThread(() -> onRemoteAudioDowngrade());
+                  }
+              }
+              @Override public void onCancelled(DatabaseError e) {}
+          };
+          callRef.child("callMode").addValueEventListener(callModeListener);
+      }
+
+      /** Receiver side reacts to partner initiating video upgrade. */
+      private void onRemoteVideoUpgrade() {
+          isVideo = true;
+          try {
+              binding.remoteVideo.init(eglBase.getEglBaseContext(), null);
+              binding.remoteVideo.setMirror(false);
+              binding.localVideo.init(eglBase.getEglBaseContext(), null);
+              binding.localVideo.setMirror(true);
+          } catch (Exception ignored) {}
+
+          videoSource   = factory.createVideoSource(false);
+          surfaceHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+          videoCapturer = createCapturer(true);
+          if (videoCapturer != null) {
+              videoCapturer.initialize(surfaceHelper, this, videoSource.getCapturerObserver());
+              startCapture();
+          }
+          localVideoTrack = factory.createVideoTrack("video0", videoSource);
+          localVideoTrack.setEnabled(true);
+          localVideoTrack.addSink(binding.localVideo);
+          List<String> sids = new ArrayList<>();
+          sids.add("stream0");
+          peerConnection.addTrack(localVideoTrack, sids);
+
+          binding.localVideo.setVisibility(View.VISIBLE);
+          binding.remoteVideo.setVisibility(View.VISIBLE);
+          binding.btnToggleCamera.setVisibility(View.VISIBLE);
+          binding.btnSwitchCamera.setVisibility(View.VISIBLE);
+          if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.VISIBLE);
+          camOn = true;
+          updateCameraUI();
+          enableSpeaker(true);
+          binding.ivCallAvatar.setVisibility(View.GONE);
+
+          // Watch for the upgrade offer from the initiator side
+          watchAndAnswerUpgradeOffer();
+          updateSwitchModeButton();
+          Toast.makeText(this, partnerName + " switched to video call", Toast.LENGTH_SHORT).show();
+      }
+
+      /** Receiver side reacts to partner initiating audio downgrade. */
+      private void onRemoteAudioDowngrade() {
+          isVideo = false;
+          if (localVideoTrack != null) localVideoTrack.setEnabled(false);
+          if (videoCapturer != null && capturerRunning) {
+              try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
+          }
+          binding.localVideo.setVisibility(View.GONE);
+          binding.remoteVideo.setVisibility(View.GONE);
+          binding.btnToggleCamera.setVisibility(View.GONE);
+          binding.btnSwitchCamera.setVisibility(View.GONE);
+          if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.GONE);
+          if (binding.layoutLocalCamOffBadge != null)
+              binding.layoutLocalCamOffBadge.setVisibility(View.GONE);
+          if (binding.layoutRemoteCamOff != null)
+              binding.layoutRemoteCamOff.setVisibility(View.GONE);
+          binding.ivCallAvatar.setVisibility(View.VISIBLE);
+          enableSpeaker(false);
+          updateSwitchModeButton();
+          Toast.makeText(this, partnerName + " switched to audio call", Toast.LENGTH_SHORT).show();
+      }
+
+      /** Receiver side: wait for upgrade offer, then send back answer. */
+      private void watchAndAnswerUpgradeOffer() {
+          if (callRef == null) return;
+          callRef.child("upgradeOffer").addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot s) {
+                  if (s.exists()) {
+                      handleUpgradeOffer(s);
+                  } else {
+                      callRef.child("upgradeOffer").addValueEventListener(new ValueEventListener() {
+                          @Override public void onDataChange(DataSnapshot s2) {
+                              if (s2.exists()) {
+                                  callRef.child("upgradeOffer").removeEventListener(this);
+                                  handleUpgradeOffer(s2);
+                              }
+                          }
+                          @Override public void onCancelled(DatabaseError e) {}
+                      });
+                  }
+              }
+              @Override public void onCancelled(DatabaseError e) {}
+          });
+      }
+
+      private void handleUpgradeOffer(DataSnapshot s) {
+          String type = s.child("type").getValue(String.class);
+          String sdp  = s.child("sdp").getValue(String.class);
+          if (type == null || sdp == null) return;
+          SessionDescription offer = new SessionDescription(
+              SessionDescription.Type.fromCanonicalForm(type), sdp);
+          peerConnection.setRemoteDescription(new SdpObserver() {
+              @Override public void onSetSuccess() { runOnUiThread(CallActivity.this::createUpgradeAnswer); }
+              @Override public void onCreateSuccess(SessionDescription s2) {}
+              @Override public void onCreateFailure(String e) {}
+              @Override public void onSetFailure(String e) {}
+          }, offer);
+      }
+
+      private void createUpgradeAnswer() {
+          if (peerConnection == null) return;
+          peerConnection.createAnswer(new SdpObserver() {
+              @Override public void onCreateSuccess(SessionDescription sdp) {
+                  peerConnection.setLocalDescription(noopSdp(), sdp);
+                  if (callRef == null) return;
+                  Map<String, Object> a = new HashMap<>();
+                  a.put("type", sdp.type.canonicalForm());
+                  a.put("sdp",  sdp.description);
+                  callRef.child("upgradeAnswer").setValue(a);
+              }
+              @Override public void onSetSuccess() {}
+              @Override public void onCreateFailure(String e) {}
+              @Override public void onSetFailure(String e) {}
+          }, new MediaConstraints());
+      }
+
+      /** Update the switch-mode button icon & label based on current mode. */
+      private void updateSwitchModeButton() {
+          if (binding.btnSwitchCallMode == null) return;
+          // If currently video → show "Audio" to switch back; if audio → show "Video"
+          binding.btnSwitchCallMode.setImageResource(isVideo
+              ? com.callx.app.calls.R.drawable.ic_mic
+              : com.callx.app.calls.R.drawable.ic_video);
+          if (binding.tvSwitchModeLabel != null)
+              binding.tvSwitchModeLabel.setText(isVideo ? "Audio" : "Video");
+      }
+
+      // ══════════════════════════════════════════════════════════════════════
+      // END SWITCH ————————————————————————————————————————————————————————————
+      // ══════════════════════════════════════════════════════════════════════
+
+      // ── End call ───────────────────────────────────────────────────────────
 
     private void endCall() {
         if (finishing) return;
@@ -974,320 +1241,8 @@ public class CallActivity extends AppCompatActivity {
         finish();
     }
 
-    // ── Video Upgrade System (Audio → Video mid-call) ─────────────────────
-
-    /** Caller/callee initiates upgrade: sends request to partner via Firebase */
-    private void requestVideoUpgrade() {
-        if (!callConnected || upgradeRequested || isVideo) return;
-        upgradeRequested = true;
-        // Hide the upgrade button, show "Waiting..."
-        if (binding.layoutUpgradeVideo != null) {
-            binding.layoutUpgradeVideo.setVisibility(View.GONE);
-        }
-        Toast.makeText(this, "Requesting video call...", Toast.LENGTH_SHORT).show();
-        if (callRef != null) {
-            Map<String, Object> req = new HashMap<>();
-            req.put("from", FirebaseUtils.getCurrentUid());
-            req.put("name", FirebaseUtils.getCurrentName());
-            req.put("ts",   System.currentTimeMillis());
-            callRef.child("videoUpgradeRequest").setValue(req);
-        }
-    }
-
-    /** Other party watches for incoming upgrade request */
-    private void watchVideoUpgradeRequest() {
-        if (callRef == null) return;
-        upgradeRequestListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists()) return;
-                String fromUid = s.child("from").getValue(String.class);
-                String fromName = s.child("name").getValue(String.class);
-                // Only show dialog if the request is from partner (not ourselves)
-                String myUid = FirebaseUtils.getCurrentUid();
-                if (fromUid == null || fromUid.equals(myUid)) return;
-                if (!isVideo && !upgradePending) {
-                    upgradePending = true;
-                    runOnUiThread(() -> showIncomingUpgradeUI(fromName != null ? fromName : partnerName));
-                }
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        callRef.child("videoUpgradeRequest").addValueEventListener(upgradeRequestListener);
-    }
-
-    /** Show the Google Dialer-style accept/decline banner */
-    private void showIncomingUpgradeUI(String requesterName) {
-        if (binding.layoutIncomingUpgrade == null) return;
-        if (binding.tvUpgradeRequester != null)
-            binding.tvUpgradeRequester.setText(requesterName + " wants to switch to video");
-        binding.layoutIncomingUpgrade.setVisibility(View.VISIBLE);
-    }
-
-    private void acceptVideoUpgrade() {
-        upgradePending = false;
-        if (binding.layoutIncomingUpgrade != null)
-            binding.layoutIncomingUpgrade.setVisibility(View.GONE);
-        if (binding.layoutUpgradeVideo != null)
-            binding.layoutUpgradeVideo.setVisibility(View.GONE);
-        // Signal acceptance
-        if (callRef != null)
-            callRef.child("videoUpgradeResponse").setValue("accepted");
-        // Start camera permission check then do upgrade
-        performVideoUpgrade();
-    }
-
-    private void declineVideoUpgrade() {
-        upgradePending = false;
-        if (binding.layoutIncomingUpgrade != null)
-            binding.layoutIncomingUpgrade.setVisibility(View.GONE);
-        // Clear the request node
-        if (callRef != null) {
-            callRef.child("videoUpgradeRequest").removeValue();
-            callRef.child("videoUpgradeResponse").setValue("declined");
-        }
-        Toast.makeText(this, "Video request declined", Toast.LENGTH_SHORT).show();
-    }
-
-    /** Requester watches for partner's accept/decline response */
-    private void watchVideoUpgradeResponse() {
-        if (callRef == null) return;
-        upgradeResponseListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot s) {
-                String resp = s.getValue(String.class);
-                if ("accepted".equals(resp)) {
-                    runOnUiThread(() -> {
-                        Toast.makeText(CallActivity.this, "Video call accepted!", Toast.LENGTH_SHORT).show();
-                        // Requester also starts upgrade
-                        if (upgradeRequested) performVideoUpgrade();
-                    });
-                } else if ("declined".equals(resp)) {
-                    runOnUiThread(() -> {
-                        upgradeRequested = false;
-                        Toast.makeText(CallActivity.this, "Video request declined", Toast.LENGTH_SHORT).show();
-                        // Show upgrade button again
-                        if (binding.layoutUpgradeVideo != null)
-                            binding.layoutUpgradeVideo.setVisibility(View.VISIBLE);
-                        // Clean up
-                        if (callRef != null) {
-                            callRef.child("videoUpgradeRequest").removeValue();
-                            callRef.child("videoUpgradeResponse").removeValue();
-                        }
-                    });
-                }
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        callRef.child("videoUpgradeResponse").addValueEventListener(upgradeResponseListener);
-    }
-
-    /**
-     * Core upgrade: initialise video surfaces, add video track to existing PeerConnection,
-     * then renegotiate (caller creates new offer, callee answers).
-     */
-    private void performVideoUpgrade() {
-        if (isVideo) return;
-        isVideo = true;
-
-        // Check camera permission first
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.CAMERA}, 200);
-            return;
-        }
-
-        // 1. Init video surfaces
-        runOnUiThread(() -> {
-            binding.remoteVideo.init(eglBase.getEglBaseContext(), null);
-            binding.remoteVideo.setMirror(false);
-            binding.localVideo.init(eglBase.getEglBaseContext(), null);
-            binding.localVideo.setMirror(true);
-            binding.remoteVideo.setVisibility(View.VISIBLE);
-            binding.localVideo.setVisibility(View.VISIBLE);
-            binding.btnToggleCamera.setVisibility(View.VISIBLE);
-            binding.btnSwitchCamera.setVisibility(View.VISIBLE);
-            if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.VISIBLE);
-            // Hide avatar
-            binding.ivCallAvatar.setVisibility(View.GONE);
-            enableSpeaker(true);
-        });
-
-        // 2. Create video source + track and add to peerConnection
-        bgExecutor.execute(() -> {
-            try {
-                videoSource     = factory.createVideoSource(false);
-                surfaceHelper   = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
-                videoCapturer   = createCapturer(true);
-                if (videoCapturer != null) {
-                    videoCapturer.initialize(surfaceHelper, this, videoSource.getCapturerObserver());
-                }
-                localVideoTrack = factory.createVideoTrack("video0", videoSource);
-                localVideoTrack.setEnabled(true);
-                runOnUiThread(() -> localVideoTrack.addSink(binding.localVideo));
-
-                List<String> ids = new ArrayList<>();
-                ids.add("stream1");
-                peerConnection.addTrack(localVideoTrack, ids);
-
-                startCapture();
-
-                // 3. Renegotiate — isCaller creates new offer
-                runOnUiThread(() -> {
-                    if (isCaller) {
-                        createUpgradeOffer();
-                    }
-                    // callee will receive the new offer via the existing offer listener
-                    // we need to re-arm watchForOffer for the upgrade offer
-                    else {
-                        watchForUpgradeOffer();
-                    }
-                });
-
-                // Clean up Firebase upgrade flags
-                if (callRef != null) {
-                    callRef.child("videoUpgradeRequest").removeValue();
-                    callRef.child("videoUpgradeResponse").removeValue();
-                }
-            } catch (Exception e) {
-                android.util.Log.e("CallActivity", "Video upgrade failed", e);
-                runOnUiThread(() -> Toast.makeText(this, "Video upgrade failed", Toast.LENGTH_SHORT).show());
-            }
-        });
-    }
-
-    /** Caller sends a new offer with video track added */
-    private void createUpgradeOffer() {
-        if (peerConnection == null) return;
-        MediaConstraints mc = new MediaConstraints();
-        mc.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"));
-        peerConnection.createOffer(new SdpObserver() {
-            @Override public void onCreateSuccess(SessionDescription sdp) {
-                peerConnection.setLocalDescription(noopSdp(), sdp);
-                if (callRef == null) return;
-                Map<String, Object> o = new HashMap<>();
-                o.put("type", sdp.type.canonicalForm());
-                o.put("sdp",  sdp.description);
-                o.put("isUpgrade", true);
-                callRef.child("upgradeOffer").setValue(o);
-            }
-            @Override public void onSetSuccess() {}
-            @Override public void onCreateFailure(String e) {}
-            @Override public void onSetFailure(String e) {}
-        }, mc);
-    }
-
-    /** Callee watches for the upgrade offer */
-    private void watchForUpgradeOffer() {
-        if (callRef == null) return;
-        callRef.child("upgradeOffer").addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot s) {
-                if (s.exists()) {
-                    handleUpgradeOffer(s);
-                } else {
-                    callRef.child("upgradeOffer").addValueEventListener(new ValueEventListener() {
-                        @Override public void onDataChange(DataSnapshot s2) {
-                            if (s2.exists()) {
-                                callRef.child("upgradeOffer").removeEventListener(this);
-                                handleUpgradeOffer(s2);
-                            }
-                        }
-                        @Override public void onCancelled(DatabaseError e) {}
-                    });
-                }
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        });
-    }
-
-    private void handleUpgradeOffer(DataSnapshot s) {
-        String type = s.child("type").getValue(String.class);
-        String sdp  = s.child("sdp").getValue(String.class);
-        if (type == null || sdp == null) return;
-        SessionDescription offer = new SessionDescription(
-            SessionDescription.Type.fromCanonicalForm(type), sdp);
-        peerConnection.setRemoteDescription(new SdpObserver() {
-            @Override public void onSetSuccess() {
-                remoteDescSet = true;
-                drainPendingCandidates();
-                runOnUiThread(CallActivity.this::createUpgradeAnswer);
-                // Add remote video track sink once we get stream
-                runOnUiThread(() -> {
-                    // Remote video will attach via onAddStream/onTrack callback already set up
-                });
-            }
-            @Override public void onCreateSuccess(SessionDescription s2) {}
-            @Override public void onCreateFailure(String e) {}
-            @Override public void onSetFailure(String e) {}
-        }, offer);
-    }
-
-    private void createUpgradeAnswer() {
-        if (peerConnection == null) return;
-        peerConnection.createAnswer(new SdpObserver() {
-            @Override public void onCreateSuccess(SessionDescription sdp) {
-                peerConnection.setLocalDescription(noopSdp(), sdp);
-                if (callRef == null) return;
-                Map<String, Object> a = new HashMap<>();
-                a.put("type", sdp.type.canonicalForm());
-                a.put("sdp",  sdp.description);
-                callRef.child("upgradeAnswer").setValue(a);
-                // caller watches for upgrade answer
-                watchForUpgradeAnswer();
-            }
-            @Override public void onSetSuccess() {}
-            @Override public void onCreateFailure(String e) {}
-            @Override public void onSetFailure(String e) {}
-        }, new MediaConstraints());
-    }
-
-    /** Caller watches for the callee's upgrade answer */
-    private void watchForUpgradeAnswer() {
-        if (callRef == null || !isCaller) return;
-        callRef.child("upgradeAnswer").addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists()) {
-                    callRef.child("upgradeAnswer").addValueEventListener(new ValueEventListener() {
-                        @Override public void onDataChange(DataSnapshot s2) {
-                            if (s2.exists()) {
-                                callRef.child("upgradeAnswer").removeEventListener(this);
-                                applyUpgradeAnswer(s2);
-                            }
-                        }
-                        @Override public void onCancelled(DatabaseError e) {}
-                    });
-                } else {
-                    applyUpgradeAnswer(s);
-                }
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        });
-    }
-
-    private void applyUpgradeAnswer(DataSnapshot s) {
-        String type = s.child("type").getValue(String.class);
-        String sdp  = s.child("sdp").getValue(String.class);
-        if (type == null || sdp == null) return;
-        SessionDescription answer = new SessionDescription(
-            SessionDescription.Type.fromCanonicalForm(type), sdp);
-        peerConnection.setRemoteDescription(noopSdp(), answer);
-        // Clean up upgrade nodes
-        if (callRef != null) {
-            callRef.child("upgradeOffer").removeValue();
-            callRef.child("upgradeAnswer").removeValue();
-        }
-        Toast.makeText(this, "Video call started!", Toast.LENGTH_SHORT).show();
-    }
-
-    private void releaseUpgradeListeners() {
-        if (upgradeRequestListener  != null && callRef != null)
-            callRef.child("videoUpgradeRequest").removeEventListener(upgradeRequestListener);
-        if (upgradeResponseListener != null && callRef != null)
-            callRef.child("videoUpgradeResponse").removeEventListener(upgradeResponseListener);
-    }
-
     private void releaseWebRTC() {
         try { unregisterNetworkCallback(); } catch (Exception ignored) {}
-        releaseUpgradeListeners();
         try {
             if (remoteCandidateListener != null && callRef != null) {
                 String myUid = FirebaseUtils.getCurrentUid();
@@ -1295,7 +1250,11 @@ public class CallActivity extends AppCompatActivity {
                     callRef.child("candidates").child(myUid).removeEventListener(remoteCandidateListener);
             }
             if (statusListener != null && callRef != null)
-                callRef.child("status").removeEventListener(statusListener);
+                  callRef.child("status").removeEventListener(statusListener);
+              if (callModeListener != null && callRef != null)
+                  callRef.child("callMode").removeEventListener(callModeListener);
+              if (upgradeAnswerListener != null && callRef != null)
+                  callRef.child("upgradeAnswer").removeEventListener(upgradeAnswerListener);
             if (iceRestartRequestListener != null && callRef != null)
                 callRef.child("iceRestartRequest").removeEventListener(iceRestartRequestListener);
             if (videoCapturer != null) { videoCapturer.stopCapture(); videoCapturer.dispose(); }
