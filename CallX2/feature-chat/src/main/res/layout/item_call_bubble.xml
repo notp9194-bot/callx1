@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- item_call_bubble.xml — Call entry shown inside chat bubble -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/ll_call"
     android:layout_width="240dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
