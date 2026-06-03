@@ -1,5 +1,6 @@
 package com.callx.app.db.dao;
 
+import androidx.annotation.WorkerThread;
 import androidx.lifecycle.LiveData;
 import androidx.room.Dao;
 import androidx.room.Insert;
