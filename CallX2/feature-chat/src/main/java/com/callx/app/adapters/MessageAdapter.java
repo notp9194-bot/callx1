@@ -1246,18 +1246,20 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvForwarded  = v.findViewById(R.id.tv_forwarded);
             tvStarredIcon = v.findViewById(R.id.tv_starred_icon);
             ivSenderAvatar = v.findViewById(R.id.iv_sender_avatar);
-            // Call bubble
+            // Call bubble — find root first, then children FROM root to avoid include scope issues
             llCall            = v.findViewById(R.id.ll_call);
-            llCallActions     = v.findViewById(R.id.ll_call_actions);
-            ivCallIcon        = v.findViewById(R.id.iv_call_icon);
-            tvCallType        = v.findViewById(R.id.tv_call_type);
-            tvCallStatus      = v.findViewById(R.id.tv_call_status);
-            btnRecordAudioNote = v.findViewById(R.id.btn_record_audio_note);
-            btnRecordVideoNote = v.findViewById(R.id.btn_record_video_note);
-            tvCallDate         = v.findViewById(R.id.tv_call_date);
-            tvCallTime         = v.findViewById(R.id.tv_call_time);
-            btnCallBack        = v.findViewById(R.id.btn_call_back);
-            btnCallBackSolo    = v.findViewById(R.id.btn_call_back_solo);
+            if (llCall != null) {
+                llCallActions     = llCall.findViewById(R.id.ll_call_actions);
+                ivCallIcon        = llCall.findViewById(R.id.iv_call_icon);
+                tvCallType        = llCall.findViewById(R.id.tv_call_type);
+                tvCallStatus      = llCall.findViewById(R.id.tv_call_status);
+                btnRecordAudioNote = llCall.findViewById(R.id.btn_record_audio_note);
+                btnRecordVideoNote = llCall.findViewById(R.id.btn_record_video_note);
+                tvCallDate         = llCall.findViewById(R.id.tv_call_date);
+                tvCallTime         = llCall.findViewById(R.id.tv_call_time);
+                btnCallBack        = llCall.findViewById(R.id.btn_call_back);
+                btnCallBackSolo    = llCall.findViewById(R.id.btn_call_back_solo);
+            }
         }
     }
 }
