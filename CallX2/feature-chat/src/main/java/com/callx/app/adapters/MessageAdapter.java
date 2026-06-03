@@ -740,9 +740,13 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     }
 
     private void setupLongPress(VH h, Message m, boolean sent, Context ctx) {
-        // Single long press → seedha bottom sheet action dialog dikhao
         h.itemView.setOnLongClickListener(v -> {
-            showActionSheet(ctx, m, sent);
+            if (!multiSelectMode) {
+                // Long press pe multi-select mode start karo
+                enterMultiSelectMode(m);
+            } else {
+                showActionSheet(ctx, m, sent);
+            }
             return true;
         });
         h.itemView.setOnClickListener(v -> {
@@ -893,18 +897,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             });
         }
 
-        // Select — multi-select mode start karo
-        TextView selectBtn = sv.findViewById(R.id.action_select);
-        if (selectBtn != null) {
-            selectBtn.setOnClickListener(v -> {
-                sheet.dismiss();
-                enterMultiSelectMode(m);
-            });
-        }
-
         sheet.setContentView(sv);
         sheet.show();
     }
+
+    private void openMedia(Context ctx, String url, String type) {
         if (url == null || url.isEmpty()) return;
         Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
         i.putExtra("url", url); i.putExtra("type", type);
