@@ -203,8 +203,7 @@
 
                 <!-- Call bubble -->
                 <include
-                    android:id="@+id/ll_call"
-                    layout="@layout/item_call_bubble"
+            layout="@layout/item_call_bubble"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"/>
 
