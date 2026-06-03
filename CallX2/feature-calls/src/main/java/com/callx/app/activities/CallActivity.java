@@ -84,10 +84,10 @@ public class CallActivity extends AppCompatActivity {
     // FIX: track remote camera state for overlay
       private boolean remoteCamOn = true;
 
-      // SWITCH: Audio ↔ Video (like Google Dialer)
+      // SWITCH: Audio ↔ Video (Google Dialer style — live call mode switch)
       private boolean isSwitchInitiator = false;
-      private ValueEventListener callModeListener;
-      private ValueEventListener upgradeAnswerListener;
+      private com.google.firebase.database.ValueEventListener callModeListener;
+      private com.google.firebase.database.ValueEventListener upgradeAnswerListener;
 
     // Timer
     private final Handler tick = new Handler(Looper.getMainLooper());
@@ -182,7 +182,7 @@ public class CallActivity extends AppCompatActivity {
         binding.btnToggleCamera.setOnClickListener(v -> toggleCamera());
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
-          // SWITCH: Audio ↔ Video toggle button
+          // SWITCH: Audio ↔ Video toggle (Google Dialer style)
           if (binding.btnSwitchCallMode != null)
               binding.btnSwitchCallMode.setOnClickListener(v -> switchCallMode());
 
@@ -227,9 +227,9 @@ public class CallActivity extends AppCompatActivity {
               else { Toast.makeText(this, "Mic/Camera permission required", Toast.LENGTH_LONG).show(); finish(); }
           }
           if (req == 402) {
-              // Camera permission for audio→video upgrade
-              boolean camOk = results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
-              if (camOk) initiateVideoUpgrade();
+              boolean camGranted = results.length > 0
+                  && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+              if (camGranted) initiateVideoUpgrade();
               else Toast.makeText(this, "Camera permission needed to switch to video", Toast.LENGTH_SHORT).show();
         }
     }
@@ -377,8 +377,15 @@ public class CallActivity extends AppCompatActivity {
             c.put("to", partnerUid); c.put("video", isVideo);
             c.put("at", System.currentTimeMillis()); c.put("status", "ringing");
             callRef.setValue(c).addOnCompleteListener(t -> createOffer());
-            PushNotify.notifyUser(partnerUid, myUid, myName,
-                isVideo ? "video_call" : "call", callId);
+            // photo fetch + notifyCall — see below
+            final String _cid = callId; final boolean _vid = isVideo;
+            FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot _s) {
+                    String _p=_s.child("photoUrl").getValue(String.class), _t=_s.child("thumbUrl").getValue(String.class);
+                    PushNotify.notifyCall(partnerUid,myUid,myName,_p!=null?_p:"",_t!=null?_t:"",_vid,_cid);
+                }
+                @Override public void onCancelled(DatabaseError _e) { PushNotify.notifyUser(partnerUid,myUid,myName,_vid?"video_call":"call",_cid); }
+            });
             watchCalleeIceRestartRequest();
         } else {
             callRef.child("status").setValue("accepted");
@@ -867,12 +874,11 @@ public class CallActivity extends AppCompatActivity {
         startedAt = System.currentTimeMillis();
         binding.tvCallStatus.setText("Connected \u2022 0:00");
         if (isVideo) binding.ivCallAvatar.setVisibility(View.GONE);
-          // SWITCH: show the audio↔video button once connected
-          if (binding.layoutSwitchMode != null) {
+          // SWITCH: Reveal the audio↔video button once connected
+          if (binding.layoutSwitchMode != null)
               binding.layoutSwitchMode.setVisibility(View.VISIBLE);
-              updateSwitchModeButton();
-          }
-  
+          updateSwitchModeButton();
+
         Intent fg = new Intent(this, CallForegroundService.class);
         fg.putExtra("name",         partnerName != null ? partnerName : "");
         fg.putExtra("callId",       callId != null ? callId : "");
@@ -895,13 +901,14 @@ public class CallActivity extends AppCompatActivity {
 
 
       // ══════════════════════════════════════════════════════════════════════
-      // SWITCH: Audio ↔ Video call (like Google Dialer) ——————————————————————
+      // GOOGLE DIALER STYLE: Audio ↔ Video switch during live call
       // ══════════════════════════════════════════════════════════════════════
 
+      /** Called when user taps the switch-mode button during an active call. */
       private void switchCallMode() {
           if (!callConnected || finishing) return;
           if (!isVideo) {
-              // Audio → Video upgrade — need camera permission
+              // Audio → Video: need camera permission
               if (checkSelfPermission(android.Manifest.permission.CAMERA)
                       != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                   ActivityCompat.requestPermissions(this,
@@ -914,19 +921,22 @@ public class CallActivity extends AppCompatActivity {
           }
       }
 
-      /** Caller side: switch from audio → video. Signals partner + renegotiates. */
+      /** Initiator side: audio → video upgrade. Signals partner + renegotiates WebRTC. */
       private void initiateVideoUpgrade() {
           isSwitchInitiator = true;
           isVideo = true;
+          // Initialize SurfaceViews for video
           try {
               binding.remoteVideo.init(eglBase.getEglBaseContext(), null);
               binding.remoteVideo.setMirror(false);
+          } catch (Exception ignored) {}
+          try {
               binding.localVideo.init(eglBase.getEglBaseContext(), null);
               binding.localVideo.setMirror(true);
           } catch (Exception ignored) {}
-
+          // Create video source + capturer
           videoSource   = factory.createVideoSource(false);
-          surfaceHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+          surfaceHelper = SurfaceTextureHelper.create("CaptureThread2", eglBase.getEglBaseContext());
           videoCapturer = createCapturer(true);
           if (videoCapturer != null) {
               videoCapturer.initialize(surfaceHelper, this, videoSource.getCapturerObserver());
@@ -935,55 +945,53 @@ public class CallActivity extends AppCompatActivity {
           localVideoTrack = factory.createVideoTrack("video0", videoSource);
           localVideoTrack.setEnabled(true);
           localVideoTrack.addSink(binding.localVideo);
-          List<String> sids = new ArrayList<>();
+          java.util.List<String> sids = new java.util.ArrayList<>();
           sids.add("stream0");
           peerConnection.addTrack(localVideoTrack, sids);
-
+          // Show video UI
           binding.localVideo.setVisibility(View.VISIBLE);
           binding.remoteVideo.setVisibility(View.VISIBLE);
           binding.btnToggleCamera.setVisibility(View.VISIBLE);
           binding.btnSwitchCamera.setVisibility(View.VISIBLE);
           if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.VISIBLE);
+          binding.ivCallAvatar.setVisibility(View.GONE);
           camOn = true;
           updateCameraUI();
           enableSpeaker(true);
-          binding.ivCallAvatar.setVisibility(View.GONE);
-
-          // Signal partner first, then renegotiate
+          // Signal partner
           if (callRef != null) callRef.child("callMode").setValue("video");
+          // Renegotiate: create new offer with video
           createUpgradeOffer();
           updateSwitchModeButton();
-          Toast.makeText(this, "Switching to video call...", Toast.LENGTH_SHORT).show();
+          Toast.makeText(this, "Switching to video call…", Toast.LENGTH_SHORT).show();
       }
 
-      /** Caller side: switch from video → audio. */
+      /** Initiator side: video → audio downgrade. */
       private void initiateAudioDowngrade() {
           isSwitchInitiator = true;
           isVideo = false;
-
+          // Stop video capture + disable track
           if (videoCapturer != null && capturerRunning) {
               try { videoCapturer.stopCapture(); capturerRunning = false; } catch (Exception ignored) {}
           }
           if (localVideoTrack != null) localVideoTrack.setEnabled(false);
-
+          // Hide video UI
           binding.localVideo.setVisibility(View.GONE);
           binding.remoteVideo.setVisibility(View.GONE);
           binding.btnToggleCamera.setVisibility(View.GONE);
           binding.btnSwitchCamera.setVisibility(View.GONE);
           if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.GONE);
-          if (binding.layoutLocalCamOffBadge != null)
-              binding.layoutLocalCamOffBadge.setVisibility(View.GONE);
-          if (binding.layoutRemoteCamOff != null)
-              binding.layoutRemoteCamOff.setVisibility(View.GONE);
+          if (binding.layoutLocalCamOffBadge != null) binding.layoutLocalCamOffBadge.setVisibility(View.GONE);
+          if (binding.layoutRemoteCamOff    != null) binding.layoutRemoteCamOff.setVisibility(View.GONE);
           binding.ivCallAvatar.setVisibility(View.VISIBLE);
           enableSpeaker(false);
-
+          // Signal partner
           if (callRef != null) callRef.child("callMode").setValue("audio");
           updateSwitchModeButton();
           Toast.makeText(this, "Switched to audio call", Toast.LENGTH_SHORT).show();
       }
 
-      /** Create a re-negotiation offer for video upgrade (initiator side). */
+      /** Create a renegotiation offer (initiator side after video track added). */
       private void createUpgradeOffer() {
           if (peerConnection == null) return;
           peerConnection.createOffer(new SdpObserver() {
@@ -994,7 +1002,7 @@ public class CallActivity extends AppCompatActivity {
                   o.put("type", sdp.type.canonicalForm());
                   o.put("sdp",  sdp.description);
                   callRef.child("upgradeOffer").setValue(o);
-                  watchUpgradeAnswer();
+                  watchForUpgradeAnswer();
               }
               @Override public void onSetSuccess() {}
               @Override public void onCreateFailure(String e) {}
@@ -1002,8 +1010,8 @@ public class CallActivity extends AppCompatActivity {
           }, new MediaConstraints());
       }
 
-      /** Initiator listens for the partner's upgrade answer. */
-      private void watchUpgradeAnswer() {
+      /** Initiator waits for partner's upgrade answer. */
+      private void watchForUpgradeAnswer() {
           if (callRef == null) return;
           upgradeAnswerListener = new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot s) {
@@ -1012,29 +1020,27 @@ public class CallActivity extends AppCompatActivity {
                   String sdp  = s.child("sdp").getValue(String.class);
                   if (type == null || sdp == null) return;
                   callRef.child("upgradeAnswer").removeEventListener(this);
-                  SessionDescription answer = new SessionDescription(
+                  SessionDescription ans = new SessionDescription(
                       SessionDescription.Type.fromCanonicalForm(type), sdp);
-                  peerConnection.setRemoteDescription(noopSdp(), answer);
+                  peerConnection.setRemoteDescription(noopSdp(), ans);
               }
               @Override public void onCancelled(DatabaseError e) {}
           };
           callRef.child("upgradeAnswer").addValueEventListener(upgradeAnswerListener);
       }
 
-      /** Firebase listener: react to partner switching call mode. */
+      /** Firebase listener: react when partner switches call mode. */
       private void watchCallModeChange() {
           if (callRef == null) return;
           callModeListener = new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot s) {
                   String mode = s.getValue(String.class);
-                  if (mode == null || isSwitchInitiator) {
-                      isSwitchInitiator = false; // reset for next switch
-                      return;
-                  }
+                  if (mode == null) return;
+                  if (isSwitchInitiator) { isSwitchInitiator = false; return; } // we triggered this
                   if ("video".equals(mode) && !isVideo) {
-                      runOnUiThread(() -> onRemoteVideoUpgrade());
+                      runOnUiThread(() -> onPartnerUpgradedToVideo());
                   } else if ("audio".equals(mode) && isVideo) {
-                      runOnUiThread(() -> onRemoteAudioDowngrade());
+                      runOnUiThread(() -> onPartnerDowngradedToAudio());
                   }
               }
               @Override public void onCancelled(DatabaseError e) {}
@@ -1042,18 +1048,13 @@ public class CallActivity extends AppCompatActivity {
           callRef.child("callMode").addValueEventListener(callModeListener);
       }
 
-      /** Receiver side reacts to partner initiating video upgrade. */
-      private void onRemoteVideoUpgrade() {
+      /** Receiver side: partner upgraded to video. Setup video locally + send answer. */
+      private void onPartnerUpgradedToVideo() {
           isVideo = true;
-          try {
-              binding.remoteVideo.init(eglBase.getEglBaseContext(), null);
-              binding.remoteVideo.setMirror(false);
-              binding.localVideo.init(eglBase.getEglBaseContext(), null);
-              binding.localVideo.setMirror(true);
-          } catch (Exception ignored) {}
-
+          try { binding.remoteVideo.init(eglBase.getEglBaseContext(), null); binding.remoteVideo.setMirror(false); } catch (Exception ignored) {}
+          try { binding.localVideo.init(eglBase.getEglBaseContext(), null); binding.localVideo.setMirror(true); } catch (Exception ignored) {}
           videoSource   = factory.createVideoSource(false);
-          surfaceHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+          surfaceHelper = SurfaceTextureHelper.create("CaptureThread2", eglBase.getEglBaseContext());
           videoCapturer = createCapturer(true);
           if (videoCapturer != null) {
               videoCapturer.initialize(surfaceHelper, this, videoSource.getCapturerObserver());
@@ -1062,28 +1063,26 @@ public class CallActivity extends AppCompatActivity {
           localVideoTrack = factory.createVideoTrack("video0", videoSource);
           localVideoTrack.setEnabled(true);
           localVideoTrack.addSink(binding.localVideo);
-          List<String> sids = new ArrayList<>();
+          java.util.List<String> sids = new java.util.ArrayList<>();
           sids.add("stream0");
           peerConnection.addTrack(localVideoTrack, sids);
-
           binding.localVideo.setVisibility(View.VISIBLE);
           binding.remoteVideo.setVisibility(View.VISIBLE);
           binding.btnToggleCamera.setVisibility(View.VISIBLE);
           binding.btnSwitchCamera.setVisibility(View.VISIBLE);
           if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.VISIBLE);
+          binding.ivCallAvatar.setVisibility(View.GONE);
           camOn = true;
           updateCameraUI();
           enableSpeaker(true);
-          binding.ivCallAvatar.setVisibility(View.GONE);
-
-          // Watch for the upgrade offer from the initiator side
+          // Wait for the upgrade offer and send back an answer
           watchAndAnswerUpgradeOffer();
           updateSwitchModeButton();
-          Toast.makeText(this, partnerName + " switched to video call", Toast.LENGTH_SHORT).show();
+          Toast.makeText(this, partnerName + " switched to video", Toast.LENGTH_SHORT).show();
       }
 
-      /** Receiver side reacts to partner initiating audio downgrade. */
-      private void onRemoteAudioDowngrade() {
+      /** Receiver side: partner downgraded to audio. */
+      private void onPartnerDowngradedToAudio() {
           isVideo = false;
           if (localVideoTrack != null) localVideoTrack.setEnabled(false);
           if (videoCapturer != null && capturerRunning) {
@@ -1094,30 +1093,24 @@ public class CallActivity extends AppCompatActivity {
           binding.btnToggleCamera.setVisibility(View.GONE);
           binding.btnSwitchCamera.setVisibility(View.GONE);
           if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(View.GONE);
-          if (binding.layoutLocalCamOffBadge != null)
-              binding.layoutLocalCamOffBadge.setVisibility(View.GONE);
-          if (binding.layoutRemoteCamOff != null)
-              binding.layoutRemoteCamOff.setVisibility(View.GONE);
+          if (binding.layoutLocalCamOffBadge != null) binding.layoutLocalCamOffBadge.setVisibility(View.GONE);
+          if (binding.layoutRemoteCamOff    != null) binding.layoutRemoteCamOff.setVisibility(View.GONE);
           binding.ivCallAvatar.setVisibility(View.VISIBLE);
           enableSpeaker(false);
           updateSwitchModeButton();
-          Toast.makeText(this, partnerName + " switched to audio call", Toast.LENGTH_SHORT).show();
+          Toast.makeText(this, partnerName + " switched to audio", Toast.LENGTH_SHORT).show();
       }
 
-      /** Receiver side: wait for upgrade offer, then send back answer. */
+      /** Receiver side: wait for upgrade offer from initiator, then answer. */
       private void watchAndAnswerUpgradeOffer() {
           if (callRef == null) return;
           callRef.child("upgradeOffer").addListenerForSingleValueEvent(new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot s) {
-                  if (s.exists()) {
-                      handleUpgradeOffer(s);
-                  } else {
+                  if (s.exists()) { handleUpgradeOffer(s); }
+                  else {
                       callRef.child("upgradeOffer").addValueEventListener(new ValueEventListener() {
                           @Override public void onDataChange(DataSnapshot s2) {
-                              if (s2.exists()) {
-                                  callRef.child("upgradeOffer").removeEventListener(this);
-                                  handleUpgradeOffer(s2);
-                              }
+                              if (s2.exists()) { callRef.child("upgradeOffer").removeEventListener(this); handleUpgradeOffer(s2); }
                           }
                           @Override public void onCancelled(DatabaseError e) {}
                       });
@@ -1131,14 +1124,12 @@ public class CallActivity extends AppCompatActivity {
           String type = s.child("type").getValue(String.class);
           String sdp  = s.child("sdp").getValue(String.class);
           if (type == null || sdp == null) return;
-          SessionDescription offer = new SessionDescription(
-              SessionDescription.Type.fromCanonicalForm(type), sdp);
           peerConnection.setRemoteDescription(new SdpObserver() {
               @Override public void onSetSuccess() { runOnUiThread(CallActivity.this::createUpgradeAnswer); }
               @Override public void onCreateSuccess(SessionDescription s2) {}
               @Override public void onCreateFailure(String e) {}
               @Override public void onSetFailure(String e) {}
-          }, offer);
+          }, new SessionDescription(SessionDescription.Type.fromCanonicalForm(type), sdp));
       }
 
       private void createUpgradeAnswer() {
@@ -1148,8 +1139,7 @@ public class CallActivity extends AppCompatActivity {
                   peerConnection.setLocalDescription(noopSdp(), sdp);
                   if (callRef == null) return;
                   Map<String, Object> a = new HashMap<>();
-                  a.put("type", sdp.type.canonicalForm());
-                  a.put("sdp",  sdp.description);
+                  a.put("type", sdp.type.canonicalForm()); a.put("sdp", sdp.description);
                   callRef.child("upgradeAnswer").setValue(a);
               }
               @Override public void onSetSuccess() {}
@@ -1158,19 +1148,18 @@ public class CallActivity extends AppCompatActivity {
           }, new MediaConstraints());
       }
 
-      /** Update the switch-mode button icon & label based on current mode. */
+      /** Update switch button icon + label based on current mode. */
       private void updateSwitchModeButton() {
           if (binding.btnSwitchCallMode == null) return;
-          // If currently video → show "Audio" to switch back; if audio → show "Video"
           binding.btnSwitchCallMode.setImageResource(isVideo
-              ? com.callx.app.calls.R.drawable.ic_mic
-              : com.callx.app.calls.R.drawable.ic_video);
+              ? com.callx.app.calls.R.drawable.ic_mic      // in video → tap to go audio
+              : com.callx.app.calls.R.drawable.ic_video);  // in audio → tap to go video
           if (binding.tvSwitchModeLabel != null)
               binding.tvSwitchModeLabel.setText(isVideo ? "Audio" : "Video");
       }
 
       // ══════════════════════════════════════════════════════════════════════
-      // END SWITCH ————————————————————————————————————————————————————————————
+      // END GOOGLE DIALER SWITCH ═════════════════════════════════════════════
       // ══════════════════════════════════════════════════════════════════════
 
       // ── End call ───────────────────────────────────────────────────────────
