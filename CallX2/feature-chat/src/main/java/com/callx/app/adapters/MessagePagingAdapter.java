@@ -75,6 +75,8 @@ public class MessagePagingAdapter
     private final boolean isGroup;
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
+    private final SimpleDateFormat dateLabelFmt =
+            new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
 
     private ActionListener actionListener;
     private MediaPlayer player;
@@ -89,6 +91,8 @@ public class MessagePagingAdapter
         void onStar(Message m);
         void onCopy(Message m);
         void onForward(Message m);
+        /** Called when user taps the ⚠ failed-status icon to retry sending. */
+        default void onRetry(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -440,9 +444,65 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // Core bind logic (mirrors MessageAdapter)
     // ──────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────
+    // Date separator helper — returns "Today", "Yesterday", or "3 Jan 2025"
+    // ──────────────────────────────────────────────────────────────
+    private static String formatDateLabel(long timestamp) {
+        java.util.Calendar msgCal = java.util.Calendar.getInstance();
+        msgCal.setTimeInMillis(timestamp);
+        java.util.Calendar today = java.util.Calendar.getInstance();
+        java.util.Calendar yesterday = java.util.Calendar.getInstance();
+        yesterday.add(java.util.Calendar.DAY_OF_YEAR, -1);
+
+        boolean isToday = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR)
+                && msgCal.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR);
+        boolean isYesterday = msgCal.get(java.util.Calendar.YEAR) == yesterday.get(java.util.Calendar.YEAR)
+                && msgCal.get(java.util.Calendar.DAY_OF_YEAR) == yesterday.get(java.util.Calendar.DAY_OF_YEAR);
+
+        if (isToday) return "Today";
+        if (isYesterday) return "Yesterday";
+        // Older: "3 Jan 2025" or just "3 Jan" if same year
+        boolean sameYear = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR);
+        if (sameYear) {
+            return new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+                    .format(new java.util.Date(timestamp));
+        }
+        return new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault())
+                .format(new java.util.Date(timestamp));
+    }
+
+    private static boolean isSameDay(long ts1, long ts2) {
+        java.util.Calendar c1 = java.util.Calendar.getInstance();
+        java.util.Calendar c2 = java.util.Calendar.getInstance();
+        c1.setTimeInMillis(ts1);
+        c2.setTimeInMillis(ts2);
+        return c1.get(java.util.Calendar.YEAR) == c2.get(java.util.Calendar.YEAR)
+                && c1.get(java.util.Calendar.DAY_OF_YEAR) == c2.get(java.util.Calendar.DAY_OF_YEAR);
+    }
+
     private void bindMessage(@NonNull VH h, @NonNull Message m, int position) {
         Context ctx = h.itemView.getContext();
         boolean sent = currentUid.equals(m.senderId);
+
+        // ── Date separator chip ───────────────────────────────────────────
+        if (h.tvDateHeader != null && m.timestamp != null && m.timestamp > 0) {
+            boolean showHeader;
+            if (position == 0) {
+                showHeader = true;
+            } else {
+                Message prev = getItem(position - 1);
+                showHeader = prev == null || prev.timestamp == null
+                        || !isSameDay(prev.timestamp, m.timestamp);
+            }
+            if (showHeader) {
+                h.tvDateHeader.setText(formatDateLabel(m.timestamp));
+                h.tvDateHeader.setVisibility(View.VISIBLE);
+            } else {
+                h.tvDateHeader.setVisibility(View.GONE);
+            }
+        } else if (h.tvDateHeader != null) {
+            h.tvDateHeader.setVisibility(View.GONE);
+        }
 
         // ── Theme-aware bubble background ─────────────────────────────────
         try {
@@ -710,6 +770,7 @@ public class MessagePagingAdapter
             String status = m.status != null ? m.status : "sent";
             switch (status) {
                 case "seen":
+                case "read":
                     h.tvStatus.setText("✓✓");
                     h.tvStatus.setTextColor(
                         com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
@@ -719,10 +780,24 @@ public class MessagePagingAdapter
                     h.tvStatus.setTextColor(
                         com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
                     break;
-                default:
+                case "pending":
+                    // Clock icon — sent locally, not yet reached Firebase
+                    h.tvStatus.setText("🕐");
+                    h.tvStatus.setTextColor(0xFFAAAAAA);
+                    break;
+                case "failed":
+                    // Error icon — Firebase push rejected; tap to retry
+                    h.tvStatus.setText("⚠");
+                    h.tvStatus.setTextColor(0xFFFF5555);
+                    h.tvStatus.setOnClickListener(v -> {
+                        if (actionListener != null) actionListener.onRetry(m);
+                    });
+                    break;
+                default: // "sent" — one grey tick
                     h.tvStatus.setText("✓");
                     h.tvStatus.setTextColor(
                         com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    h.tvStatus.setOnClickListener(null);
                     break;
             }
         } else if (h.tvStatus != null) {
@@ -941,6 +1016,7 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
+        TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;
         TextView     tvStatus;   // tv_status in both item layouts
         LinearLayout llAudio, llFile;
@@ -956,6 +1032,7 @@ public class MessagePagingAdapter
             tvMessage      = v.findViewById(R.id.tv_message);
             tvTime         = v.findViewById(R.id.tv_time);
             tvSenderName   = v.findViewById(R.id.tv_sender_name);
+            tvDateHeader   = v.findViewById(R.id.tv_date_header);
             ivImage        = v.findViewById(R.id.iv_image);
             tvStatus       = v.findViewById(R.id.tv_status);
             llAudio        = v.findViewById(R.id.ll_audio);

@@ -7,6 +7,25 @@
     android:gravity="start"
     android:padding="3dp">
 
+    <!-- Date header separator — shown when this message is the first of a new day -->
+    <TextView
+        android:id="@+id/tv_date_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_date_chip"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="6dp"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:visibility="gone"/>
+
     <!-- Row: avatar + bubble (this whole view gets translationX during swipe) -->
     <LinearLayout
         android:layout_width="match_parent"

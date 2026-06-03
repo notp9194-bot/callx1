@@ -551,6 +551,13 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginal(messageId); }
+            @Override public void onRetry(Message m) {
+                // Pending/failed message retry — re-push to Firebase
+                if (m.id == null) return;
+                String previewText = m.text != null ? m.text
+                        : (m.type != null ? "[" + m.type + "]" : "[message]");
+                firebasePushMessage(m, m.id, previewText);
+            }
         });
 
         // Multi-select: jab selection change ho, action bar update karo
@@ -1132,16 +1139,27 @@ public class ChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     private void confirmDeleteMessage(Message m) {
-        new AlertDialog.Builder(this)
+        boolean isMine = currentUid != null && currentUid.equals(m.senderId);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle("Delete message")
-                .setMessage("Delete for everyone?")
-                .setPositiveButton("Delete", (d, w) -> {
-                    messagesRef.child(m.id).child("deleted").setValue(true);
-                    messagesRef.child(m.id).child("text").setValue("");
-                    ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+                .setNegativeButton("Cancel", null);
+
+        if (isMine) {
+            // Sender sees both options
+            builder.setPositiveButton("Delete for everyone", (d, w) -> {
+                        messagesRef.child(m.id).child("deleted").setValue(true);
+                        messagesRef.child(m.id).child("text").setValue("");
+                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
+                    })
+                    .setNeutralButton("Delete for me", (d, w) ->
+                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id)));
+        } else {
+            // Receiver can only delete locally
+            builder.setMessage("Delete this message for you only?")
+                    .setPositiveButton("Delete for me", (d, w) ->
+                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id)));
+        }
+        builder.show();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1214,17 +1232,39 @@ public class ChatActivity extends AppCompatActivity {
                 com.callx.app.chat.R.id.btn_selection_forward);
         if (btnFwd != null) btnFwd.setOnClickListener(v -> forwardSelectedMessages());
 
-        // Delete button
+        // Delete button — bulk delete all selected messages
         android.view.View btnDel = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.btn_selection_delete);
         if (btnDel != null) btnDel.setOnClickListener(v -> {
             java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
-            if (!sel.isEmpty()) {
-                // Delete first selected (extend for bulk later)
-                confirmDeleteMessage(sel.get(0));
-                pagingAdapter.exitMultiSelectMode();
-                hideMultiSelectBar();
-            }
+            if (sel.isEmpty()) return;
+            int count = sel.size();
+            String msg = count == 1
+                    ? "Delete this message?"
+                    : "Delete " + count + " messages?";
+            new AlertDialog.Builder(this)
+                .setTitle("Delete messages")
+                .setMessage(msg)
+                .setPositiveButton("Delete for everyone", (d, w) -> {
+                    for (Message m : sel) {
+                        messagesRef.child(m.id).child("deleted").setValue(true);
+                        messagesRef.child(m.id).child("text").setValue("");
+                        final String mid = m.id;
+                        ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                    }
+                    pagingAdapter.exitMultiSelectMode();
+                    hideMultiSelectBar();
+                })
+                .setNeutralButton("Delete for me", (d, w) -> {
+                    for (Message m : sel) {
+                        final String mid = m.id;
+                        ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                    }
+                    pagingAdapter.exitMultiSelectMode();
+                    hideMultiSelectBar();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
         });
 
         // Star button
