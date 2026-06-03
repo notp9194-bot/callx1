@@ -14,29 +14,6 @@ public class PushNotify {
 
     // ── 1:1 message / call notify ─────────────────────────────────────────
 
-      // ── 1:1 Call notify — includes caller photo for avatar in incoming call ──
-      // Caller ke photo + thumb bhi bhejo taaki callee ka incoming call screen
-      // aur notification me avatar dikhega (Google Dialer jaisi quality)
-      public static void notifyCall(String toUid, String fromUid, String fromName,
-                                    String fromPhoto, String fromThumb,
-                                    boolean isVideo, String callId) {
-          try {
-              JSONObject body = new JSONObject()
-                  .put("toUid",     toUid     == null ? "" : toUid)
-                  .put("fromUid",   fromUid   == null ? "" : fromUid)
-                  .put("fromName",  fromName  == null ? "" : fromName)
-                  .put("fromPhoto", fromPhoto == null ? "" : fromPhoto)
-                  .put("fromThumb", fromThumb == null ? "" : fromThumb)
-                  .put("type",      isVideo ? "video_call" : "call")
-                  .put("callId",    callId    == null ? "" : callId)
-                  .put("text",      callId    == null ? "" : callId);
-              postAsync(Constants.SERVER_URL + "/notify", body);
-          } catch (Exception e) {
-              Log.w("PushNotify", "notifyCall err: " + e.getMessage());
-          }
-      }
-
-  
     public static void notifyUser(String toUid, String fromUid, String fromName,
                                   String type, String text) {
         try {

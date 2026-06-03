@@ -33,15 +33,24 @@ import com.callx.app.db.entity.CallLogEntity;
  *
  * FIX-KILLED: onTaskRemoved() writes "ended" to Firebase so the remote party
  *             knows the call dropped when the OS kills the app.
+ *
+ * FIX-NOTIF:  openIntent now passes all call extras so tapping the notification
+ *             correctly re-opens the active CallActivity screen (was crashing before).
  */
 public class CallForegroundService extends android.app.Service {
-    public static final String EXTRA_PARTNER_UID = "fg_partner_uid";
-    public static final String EXTRA_DIRECTION    = "fg_direction";
+    public static final String EXTRA_PARTNER_UID   = "fg_partner_uid";
+    public static final String EXTRA_PARTNER_PHOTO = "fg_partner_photo";
+    public static final String EXTRA_DIRECTION     = "fg_direction";
+    public static final String EXTRA_IS_CALLER     = "fg_is_caller";
+
     public static final int ID = Constants.CALL_ONGOING_NOTIF_ID;
+
     private String callerName   = "CallX";
     private String callId       = "";
     private String partnerThumb = "";
+    private String partnerPhoto = "";
     private boolean isVideo     = false;
+    private boolean isCaller    = false;
     private String  partnerUid  = "";
     private String  direction   = "outgoing";
     private long startedAt      = 0;
@@ -53,13 +62,16 @@ public class CallForegroundService extends android.app.Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            String n = intent.getStringExtra("name");
-            String c = intent.getStringExtra("callId");
-            String t = intent.getStringExtra("partnerThumb");
-            if (n != null && !n.isEmpty()) callerName   = n;
-            if (c != null && !c.isEmpty()) callId       = c;
-            if (t != null && !t.isEmpty()) partnerThumb = t;
-            isVideo = intent.getBooleanExtra("isVideo", false);
+            String n  = intent.getStringExtra("name");
+            String c  = intent.getStringExtra("callId");
+            String t  = intent.getStringExtra("partnerThumb");
+            String ph = intent.getStringExtra(EXTRA_PARTNER_PHOTO);
+            if (n  != null && !n.isEmpty())  callerName   = n;
+            if (c  != null && !c.isEmpty())  callId       = c;
+            if (t  != null && !t.isEmpty())  partnerThumb = t;
+            if (ph != null && !ph.isEmpty()) partnerPhoto = ph;
+            isVideo  = intent.getBooleanExtra("isVideo", false);
+            isCaller = intent.getBooleanExtra(EXTRA_IS_CALLER, false);
             String pu = intent.getStringExtra(EXTRA_PARTNER_UID);
             String di = intent.getStringExtra(EXTRA_DIRECTION);
             if (pu != null && !pu.isEmpty()) partnerUid = pu;
@@ -68,11 +80,16 @@ public class CallForegroundService extends android.app.Service {
         if (startedAt == 0) startedAt = System.currentTimeMillis();
         startForeground(ID, buildNotification("Connecting..."));
         startTicker();
-        if (!partnerThumb.isEmpty()) {
+
+        // Load avatar in background for richer notification
+        String avatarUrl = (partnerThumb != null && !partnerThumb.isEmpty())
+            ? partnerThumb : partnerPhoto;
+        if (!avatarUrl.isEmpty()) {
+            final String url = avatarUrl;
             bgEx.execute(() -> {
                 try {
                     HttpURLConnection conn =
-                        (HttpURLConnection) new URL(partnerThumb).openConnection();
+                        (HttpURLConnection) new URL(url).openConnection();
                     conn.setConnectTimeout(4000);
                     conn.setReadTimeout(4000);
                     conn.connect();
@@ -91,7 +108,6 @@ public class CallForegroundService extends android.app.Service {
     }
 
     // FIX-KILLED: App swiped away / killed by OS → Firebase mein "ended" likho
-    // Taaki remote party ko pata chale call drop ho gayi.
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         if (callId != null && !callId.isEmpty()) {
@@ -149,14 +165,29 @@ public class CallForegroundService extends android.app.Service {
     }
 
     private Notification buildNotification(String subtitle) {
+        // ── FIX-NOTIF: End call action ────────────────────────────────────
         Intent endIntent = new Intent(this, NotificationActionReceiver.class);
         endIntent.setAction(Constants.ACTION_END_CALL);
         endIntent.putExtra(Constants.EXTRA_CALL_ID, callId);
         PendingIntent endPi = PendingIntent.getBroadcast(this, ID + 1, endIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        // ── FIX-NOTIF: Tap notification → re-open active CallActivity ────
+        // Was: empty Intent → partnerUid == null → CallActivity.finish() immediately
+        // Now: pass all required extras so CallActivity resumes correctly
         Intent openIntent = new Intent(this, CallActivity.class);
-        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+            | Intent.FLAG_ACTIVITY_SINGLE_TOP
+            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        openIntent.putExtra("partnerUid",   partnerUid);
+        openIntent.putExtra("partnerName",  callerName);
+        openIntent.putExtra("partnerPhoto", partnerPhoto);
+        openIntent.putExtra("partnerThumb", partnerThumb);
+        openIntent.putExtra("callId",       callId);
+        openIntent.putExtra("video",        isVideo);
+        openIntent.putExtra("isCaller",     isCaller);
+        // Flag so CallActivity knows it's being restored (skip re-init)
+        openIntent.putExtra("isRestore",    true);
         PendingIntent openPi = PendingIntent.getActivity(this, ID, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 

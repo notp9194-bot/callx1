@@ -256,7 +256,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                 "com.callx.app.activities.CallActivity");
             i.putExtra("partnerUid",  log.partnerUid);
             i.putExtra("partnerName", log.partnerName != null ? log.partnerName : "");
-            i.putExtra("partnerPhoto", resolvedPhoto != null ? resolvedPhoto : "");
             i.putExtra("isCaller", true);
             i.putExtra("video", false);
             startActivity(i);
@@ -270,7 +269,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                 "com.callx.app.activities.CallActivity");
             i.putExtra("partnerUid",  log.partnerUid);
             i.putExtra("partnerName", log.partnerName != null ? log.partnerName : "");
-            i.putExtra("partnerPhoto", resolvedPhoto != null ? resolvedPhoto : "");
             i.putExtra("isCaller", true);
             i.putExtra("video", true);
             startActivity(i);
