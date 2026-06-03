@@ -893,11 +893,18 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             });
         }
 
+        // Select — multi-select mode start karo
+        TextView selectBtn = sv.findViewById(R.id.action_select);
+        if (selectBtn != null) {
+            selectBtn.setOnClickListener(v -> {
+                sheet.dismiss();
+                enterMultiSelectMode(m);
+            });
+        }
+
         sheet.setContentView(sv);
         sheet.show();
     }
-
-    private void openMedia(Context ctx, String url, String type) {
         if (url == null || url.isEmpty()) return;
         Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
         i.putExtra("url", url); i.putExtra("type", type);

@@ -110,6 +110,14 @@
         android:background="?attr/selectableItemBackground"
         android:visibility="gone"/>
 
+    <!-- Select — multi-select mode trigger -->
+    <TextView android:id="@+id/action_select"
+        android:layout_width="match_parent" android:layout_height="52dp"
+        android:gravity="center_vertical" android:paddingStart="20dp"
+        android:text="☑  Select"  android:textSize="15sp"
+        android:textColor="#212121"
+        android:background="?attr/selectableItemBackground"/>
+
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="#E0E0E0" android:layout_marginTop="4dp"/>
 

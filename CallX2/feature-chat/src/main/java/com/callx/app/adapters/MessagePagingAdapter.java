@@ -1099,12 +1099,18 @@ public class MessagePagingAdapter
             deleteBtn.setVisibility(View.GONE);
         }
 
+        // ── Select — multi-select mode start karo ─────────────────
+        TextView selectBtn = sv.findViewById(R.id.action_select);
+        if (selectBtn != null) {
+            selectBtn.setOnClickListener(v -> {
+                sheet.dismiss();
+                enterMultiSelectMode(m);
+            });
+        }
+
         sheet.setContentView(sv);
         sheet.show();
     }
-
-    @Override
-    public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
         if (holder.ivImage != null) Glide.with(holder.ivImage).clear(holder.ivImage);
         // FIX: if this holder was playing audio, stop it — otherwise audio plays invisibly
