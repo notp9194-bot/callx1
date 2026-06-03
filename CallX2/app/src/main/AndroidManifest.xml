@@ -182,7 +182,8 @@
         </service>
         <service android:name=".services.CallForegroundService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall"/>
+            android:foregroundServiceType="phoneCall|mediaProjection"
+            tools:replace="android:foregroundServiceType"/>
 
         <activity android:name=".activities.SpecialRequestPopupActivity"
             android:exported="false"
