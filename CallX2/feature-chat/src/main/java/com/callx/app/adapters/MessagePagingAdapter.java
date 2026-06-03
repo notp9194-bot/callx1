@@ -861,11 +861,7 @@ public class MessagePagingAdapter
 
         // ── Long press — multi-select mode ya action sheet ─────────────────
         h.itemView.setOnLongClickListener(v -> {
-            if (!multiSelectMode) {
-                enterMultiSelectMode(m);
-            } else {
-                if (actionListener != null) showActionBottomSheet(ctx, m);
-            }
+            if (actionListener != null) showActionBottomSheet(ctx, m);
             return true;
         });
         h.itemView.setOnClickListener(v -> {

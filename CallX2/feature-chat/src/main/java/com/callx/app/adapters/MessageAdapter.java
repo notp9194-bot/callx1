@@ -741,12 +741,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
     private void setupLongPress(VH h, Message m, boolean sent, Context ctx) {
         h.itemView.setOnLongClickListener(v -> {
-            if (!multiSelectMode) {
-                // Long press pe multi-select mode start karo
-                enterMultiSelectMode(m);
-            } else {
-                showActionSheet(ctx, m, sent);
-            }
+            showActionSheet(ctx, m, sent);
             return true;
         });
         h.itemView.setOnClickListener(v -> {
