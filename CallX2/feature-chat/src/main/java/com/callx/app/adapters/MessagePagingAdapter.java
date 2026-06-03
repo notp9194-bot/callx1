@@ -93,6 +93,8 @@ public class MessagePagingAdapter
         void onForward(Message m);
         /** Called when user taps the ⚠ failed-status icon to retry sending. */
         default void onRetry(Message m) {}
+        /** Called when user chooses Edit from the action sheet (own messages only). */
+        default void onEdit(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -523,9 +525,11 @@ public class MessagePagingAdapter
         if (h.llFile     != null) h.llFile.setVisibility(View.GONE);
         if (h.tvTime     != null) h.tvTime.setVisibility(View.VISIBLE);
 
-        // Timestamp
+        // Timestamp — append "(edited)" when applicable
         if (h.tvTime != null && m.timestamp > 0) {
-            h.tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+            String timeStr = timeFmt.format(new java.util.Date(m.timestamp));
+            if (Boolean.TRUE.equals(m.edited)) timeStr = timeStr + "  \u270F\uFE0F edited";
+            h.tvTime.setText(timeStr);
         }
 
         // ── REPLY PREVIEW (SwipeReplySystem v1) ─────────────────────────
@@ -560,6 +564,30 @@ public class MessagePagingAdapter
                 });
             } else {
                 h.llReplyPreview.setOnClickListener(null);
+            }
+        }
+
+        // ── Reactions display ─────────────────────────────────────────
+        if (h.llReactions != null && h.tvReactions != null) {
+            java.util.Map<String, String> rxMap = m.reactions;
+            if (rxMap != null && !rxMap.isEmpty()) {
+                // Count each unique emoji
+                java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
+                for (String emoji : rxMap.values()) {
+                    counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
+                }
+                StringBuilder sb = new StringBuilder();
+                int shown = 0;
+                for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+                    sb.append(e.getKey());
+                    if (e.getValue() > 1) sb.append(e.getValue());
+                    sb.append(" ");
+                    if (++shown >= 4) break; // max 4 distinct emojis shown
+                }
+                h.tvReactions.setText(sb.toString().trim());
+                h.llReactions.setVisibility(View.VISIBLE);
+            } else {
+                h.llReactions.setVisibility(View.GONE);
             }
         }
 
@@ -924,17 +952,70 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     private void showActionBottomSheet(Context ctx, Message m) {
         if (actionListener == null) return;
-        String[] options = {"Reply", "Copy", "Star", "Forward", "Delete"};
-        new android.app.AlertDialog.Builder(ctx)
-            .setItems(options, (d, which) -> {
-                switch (which) {
-                    case 0: actionListener.onReply(m);   break;
-                    case 1: actionListener.onCopy(m);    break;
-                    case 2: actionListener.onStar(m);    break;
-                    case 3: actionListener.onForward(m); break;
-                    case 4: actionListener.onDelete(m);  break;
-                }
-            }).show();
+
+        // ── Step 1: Build emoji reaction row ──────────────────────────
+        String[] QUICK_EMOJIS = {"\u2764\uFE0F", "\uD83D\uDC4D", "\uD83D\uDE02",
+                                  "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21"};
+        android.widget.LinearLayout emojiRow = new android.widget.LinearLayout(ctx);
+        emojiRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        emojiRow.setGravity(android.view.Gravity.CENTER);
+        int hPad = (int)(8 * ctx.getResources().getDisplayMetrics().density);
+        int vPad = (int)(12 * ctx.getResources().getDisplayMetrics().density);
+        emojiRow.setPadding(hPad, vPad, hPad, vPad);
+
+        // Wrap in a container so AlertDialog can host it as a custom title
+        android.widget.LinearLayout wrapper = new android.widget.LinearLayout(ctx);
+        wrapper.setOrientation(android.widget.LinearLayout.VERTICAL);
+        wrapper.addView(emojiRow);
+
+        // Keep a dialog reference so emoji tap can dismiss it
+        final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
+
+        for (String emoji : QUICK_EMOJIS) {
+            android.widget.TextView tv = new android.widget.TextView(ctx);
+            tv.setText(emoji);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
+            int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
+            tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
+            tv.setOnClickListener(v -> {
+                actionListener.onReact(m, emoji);
+                if (holder[0] != null) holder[0].dismiss();
+            });
+            emojiRow.addView(tv);
+        }
+
+        // ── Step 2: Build action items list ───────────────────────────
+        boolean isOwnMsg     = currentUid != null && currentUid.equals(m.senderId);
+        boolean isTextMsg    = m.text != null && !m.text.trim().isEmpty()
+                               && (m.type == null || "text".equals(m.type));
+        boolean canEdit      = isOwnMsg && isTextMsg;
+        boolean isStarred    = Boolean.TRUE.equals(m.starred);
+
+        java.util.List<String> optList = new java.util.ArrayList<>();
+        optList.add("Reply");
+        optList.add("Copy");
+        optList.add(isStarred ? "Unstar" : "Star");
+        optList.add("Forward");
+        if (canEdit) optList.add("Edit");
+        optList.add("Delete");
+        String[] options = optList.toArray(new String[0]);
+
+        android.app.AlertDialog.Builder builder =
+                new android.app.AlertDialog.Builder(ctx)
+                    .setCustomTitle(wrapper)
+                    .setItems(options, (d, which) -> {
+                        String choice = options[which];
+                        switch (choice) {
+                            case "Reply":   actionListener.onReply(m);   break;
+                            case "Copy":    actionListener.onCopy(m);    break;
+                            case "Star":    // fall-through
+                            case "Unstar":  actionListener.onStar(m);    break;
+                            case "Forward": actionListener.onForward(m); break;
+                            case "Edit":    actionListener.onEdit(m);    break;
+                            case "Delete":  actionListener.onDelete(m);  break;
+                        }
+                    });
+        holder[0] = builder.show();
     }
 
     @Override
@@ -1026,6 +1107,9 @@ public class MessagePagingAdapter
         LinearLayout llReplyPreview;
         TextView     tvReplySender, tvReplyText;
         ImageView    ivReplyThumb;
+        // Reactions row (ll_reactions / tv_reactions in both item layouts)
+        LinearLayout llReactions;
+        TextView     tvReactions;
 
         VH(@NonNull View v) {
             super(v);
@@ -1045,6 +1129,9 @@ public class MessagePagingAdapter
             tvReplySender  = v.findViewById(R.id.tv_reply_sender);
             tvReplyText    = v.findViewById(R.id.tv_reply_text);
             ivReplyThumb   = v.findViewById(R.id.iv_reply_thumb);
+            // Reactions
+            llReactions    = v.findViewById(R.id.ll_reactions);
+            tvReactions    = v.findViewById(R.id.tv_reactions);
         }
     }
 }

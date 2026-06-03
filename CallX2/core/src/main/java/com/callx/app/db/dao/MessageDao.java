@@ -142,6 +142,11 @@ public interface MessageDao {
     @Query("UPDATE messages SET starred = :starred WHERE id = :messageId")
     void updateStarred(String messageId, boolean starred);
 
+    /** Edit message text — marks as edited with a timestamp. */
+    @WorkerThread
+    @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
+    void updateText(String messageId, String newText, long editedAt);
+
     // ─────────────────────────────────────────────────────────────
     // PRUNING / CLEANUP
     // ─────────────────────────────────────────────────────────────

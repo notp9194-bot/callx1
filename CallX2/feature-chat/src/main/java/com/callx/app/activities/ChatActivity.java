@@ -558,6 +558,9 @@ public class ChatActivity extends AppCompatActivity {
                         : (m.type != null ? "[" + m.type + "]" : "[message]");
                 firebasePushMessage(m, m.id, previewText);
             }
+            @Override public void onEdit(Message m) {
+                editMessage(m);
+            }
         });
 
         // Multi-select: jab selection change ho, action bar update karo
@@ -1109,6 +1112,59 @@ public class ChatActivity extends AppCompatActivity {
             cm.setPrimaryClip(ClipData.newPlainText("message", m.text));
             Toast.makeText(this, "Message copied", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // EDIT MESSAGE
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Shows an inline edit dialog for own text messages.
+     * Saves the updated text to Firebase and Room, marks edited=true.
+     * Only text messages can be edited (media captions are not surfaced here).
+     */
+    private void editMessage(Message m) {
+        if (m == null || m.id == null) return;
+        if (!currentUid.equals(m.senderId)) return; // safety guard
+
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setText(m.text);
+        input.setSelection(input.getText().length()); // cursor at end
+        int pad = dp(16);
+        input.setPadding(pad, pad / 2, pad, pad / 2);
+        input.setSingleLine(false);
+        input.setMaxLines(6);
+        input.setInputType(
+                android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+
+        new AlertDialog.Builder(this)
+            .setTitle("Edit message")
+            .setView(input)
+            .setPositiveButton("Save", (d, w) -> {
+                String newText = input.getText().toString().trim();
+                if (newText.isEmpty()) {
+                    Toast.makeText(this, "Message cannot be empty", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (newText.equals(m.text)) return; // no change
+
+                long editedAt = System.currentTimeMillis();
+
+                // 1. Firebase — update text + set edited flag
+                messagesRef.child(m.id).child("text").setValue(newText);
+                messagesRef.child(m.id).child("edited").setValue(true);
+                messagesRef.child(m.id).child("editedAt").setValue(editedAt);
+
+                // 2. Room — update locally so offline view reflects edit
+                ioExecutor.execute(() ->
+                    db.messageDao().updateText(m.id, newText, editedAt));
+
+                Toast.makeText(this, "Message edited", Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     // ─────────────────────────────────────────────────────────────────────
