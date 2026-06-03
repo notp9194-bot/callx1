@@ -18,6 +18,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.calls.databinding.ActivityAddNoteBinding;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.VoiceRecorder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.firebase.database.DatabaseReference;
@@ -250,6 +251,26 @@ public class AddNoteActivity extends AppCompatActivity {
         msg.put("duration",   durationMs != null ? durationMs : 0L);
         msg.put("timestamp",  System.currentTimeMillis());
         msg.put("status",     "sent");
+
+        // ── FCM push — background/killed state notification ──────────────────
+        // Firebase DB me sirf data save karne se foreground me ChatActivity
+        // real-time listener notification dikhata hai, lekin background/killed
+        // me partner ko koi notification nahi aati.
+        // PushNotify.notifyMessage() server ko FCM data payload bhejta hai jo
+        // CallxMessagingService.showMessage() trigger karta hai — teeno states me.
+        final String previewText = isVideo ? "📹 Video note" : "🎤 Voice note";
+        final String pushKey = key;
+        PushNotify.notifyMessage(
+            partnerUid,          // toUid — partner ko notify karo
+            myUid,               // fromUid — sender
+            myName != null ? myName : "",  // fromName
+            chatId,              // chatId
+            pushKey,             // messageId
+            previewText,         // text preview (shown in notification)
+            msgType,             // type: "audio" ya "video"
+            mediaUrl             // mediaUrl (Cloudinary URL)
+        );
+        // ─────────────────────────────────────────────────────────────────────
 
         messagesRef.child(key).setValue(msg)
             .addOnCompleteListener(task -> finish());

@@ -60,8 +60,6 @@
                 <action android:name="com.callx.app.ACCEPT_CALL"/>
                 <action android:name="com.callx.app.DECLINE_CALL"/>
                 <action android:name="com.callx.app.END_CALL"/>
-                <action android:name="com.callx.app.ACTION_CALL_BACK"/>
-                <action android:name="com.callx.app.ACTION_LEAVE_NOTE"/>
             </intent-filter>
         </receiver>
         <receiver android:name="com.callx.app.services.GroupCallActionReceiver"
