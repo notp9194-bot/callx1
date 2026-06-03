@@ -7,7 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
-import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -20,15 +19,17 @@ import androidx.core.app.Person;
 import com.callx.app.calls.R;
 import com.callx.app.activities.IncomingCallActivity;
 import com.callx.app.utils.Constants;
+import com.callx.app.utils.RingtoneSettingsHelper;
 
 /**
- * Foreground service that rings on incoming call even from killed state.
+ * Foreground service: ringtone + notification for incoming calls.
  *
- * Feature 2 — BUSY SIGNAL:
- *   Jab yeh service start ho aur CallForegroundService already chal rahi ho
- *   (matlab user already ek call mein hai), toh ring karne ki bajaye Firebase
- *   mein "busy" likh do aur band ho jao. Doosre caller ko auto-missed call
- *   notification milegi.
+ * Feature: Busy Signal — if CallForegroundService.isRunning, write "busy"
+ * to Firebase and stop immediately (no ring).
+ *
+ * Feature: Custom Ringtone — reads user's preferred ringtone from
+ * RingtoneSettingsHelper (SharedPreferences) before falling back to
+ * system default.
  */
 public class IncomingRingService extends Service {
     private MediaPlayer player;
@@ -46,16 +47,12 @@ public class IncomingRingService extends Service {
         if (fromPhoto == null) fromPhoto = "";
         if (fromThumb == null) fromThumb = "";
 
-        // ── Feature 2: BUSY SIGNAL ────────────────────────────────────────
-        // Agar user already ek active call mein hai toh ring mat karo
+        // ── Feature: BUSY SIGNAL ──────────────────────────────────────────
         if (CallForegroundService.isRunning) {
-            // Firebase mein "busy" likhdo — caller ko pata chalega
             if (callId != null && !callId.isEmpty()) {
                 try {
                     com.callx.app.utils.FirebaseUtils.db()
-                        .getReference("activeCalls")
-                        .child(callId)
-                        .child("status")
+                        .getReference("activeCalls").child(callId).child("status")
                         .setValue("busy");
                 } catch (Exception ignored) {}
             }
@@ -66,10 +63,11 @@ public class IncomingRingService extends Service {
 
         startForeground(Constants.CALL_RING_NOTIF_ID,
             buildNotification(callId, fromUid, fromName, fromPhoto, fromThumb, isVideo));
+
+        // Feature: Custom Ringtone
         startRingtone();
         acquireWakeLock();
 
-        // Auto-stop after timeout
         stopHandler.postDelayed(() -> {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.cancel(Constants.CALL_RING_NOTIF_ID);
@@ -134,10 +132,18 @@ public class IncomingRingService extends Service {
         return b.build();
     }
 
+    /**
+     * Feature: Custom Ringtone
+     * RingtoneSettingsHelper se user ki custom ringtone padhta hai.
+     * Agar set nahi hai toh system default use karta hai.
+     */
     private void startRingtone() {
         try {
-            Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-            player  = new MediaPlayer();
+            // ── Custom Ringtone ─────────────────────────────────────────
+            Uri uri = RingtoneSettingsHelper.getCustomRingtoneUri(this);
+            // ────────────────────────────────────────────────────────────
+
+            player = new MediaPlayer();
             player.setDataSource(this, uri);
             player.setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)

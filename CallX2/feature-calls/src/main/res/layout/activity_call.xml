@@ -10,7 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
 
-    <!-- FIX: Remote camera OFF overlay — shown when remote party turns camera off -->
+    <!-- Remote camera OFF overlay -->
     <LinearLayout
         android:id="@+id/layout_remote_cam_off"
         android:layout_width="match_parent"
@@ -34,7 +34,7 @@
             android:layout_marginTop="12dp"/>
     </LinearLayout>
 
-    <!-- Local (PiP) video - top-right corner -->
+    <!-- Local (PiP) video — top-right corner, draggable -->
     <org.webrtc.SurfaceViewRenderer
         android:id="@+id/local_video"
         android:layout_width="110dp"
@@ -43,14 +43,24 @@
         android:layout_margin="16dp"
         android:elevation="8dp"/>
 
-    <!-- FIX: Local camera OFF badge over PiP -->
+    <!-- Feature: Background blur preview overlay (TextureView over localVideo) -->
+    <TextureView
+        android:id="@+id/texture_blur_preview"
+        android:layout_width="110dp"
+        android:layout_height="150dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp"
+        android:elevation="9dp"
+        android:visibility="gone"/>
+
+    <!-- Local camera OFF badge -->
     <LinearLayout
         android:id="@+id/layout_local_cam_off_badge"
         android:layout_width="110dp"
         android:layout_height="150dp"
         android:layout_gravity="top|end"
         android:layout_margin="16dp"
-        android:elevation="9dp"
+        android:elevation="10dp"
         android:gravity="center"
         android:background="#99000000"
         android:visibility="gone">
@@ -62,17 +72,55 @@
             android:textSize="11sp"/>
     </LinearLayout>
 
-    <!-- Subtle dark scrim for text readability -->
+    <!-- Subtle scrim -->
     <View android:layout_width="match_parent" android:layout_height="match_parent"
         android:background="#44000000"/>
 
-    <!-- FIX: Network quality indicator — top-left -->
+    <!-- ══ Feature: Call Stats overlay ══════════════════════════════════════
+         Tap the stats button to toggle. Shows bitrate, packet loss, RTT.
+    ═══════════════════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/layout_stats_overlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="110dp"
+        android:orientation="vertical"
+        android:background="#AA000000"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:visibility="gone">
+        <TextView
+            android:id="@+id/tv_stats_bitrate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="↑ 0 kbps"
+            android:textColor="#AAFFFFFF"
+            android:textSize="11sp"/>
+        <TextView
+            android:id="@+id/tv_stats_loss"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Loss: 0%"
+            android:textColor="#AAFFFFFF"
+            android:textSize="11sp"/>
+        <TextView
+            android:id="@+id/tv_stats_rtt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="RTT: — ms"
+            android:textColor="#AAFFFFFF"
+            android:textSize="11sp"/>
+    </LinearLayout>
+
+    <!-- Network quality indicator — top-left -->
     <LinearLayout
         android:id="@+id/layout_quality"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
-        android:layout_margin="16dp"
+        android:layout_marginStart="16dp"
         android:layout_marginTop="56dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
@@ -95,6 +143,33 @@
             android:textSize="11sp"/>
     </LinearLayout>
 
+    <!-- ══ Feature: Recording indicator — top-center ═══════════════════════ -->
+    <LinearLayout
+        android:id="@+id/layout_recording_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#CCCC0000"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="4dp"
+        android:visibility="gone">
+        <View
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/circle_reject"
+            android:layout_marginEnd="6dp"/>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="REC"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+
     <!-- Caller name + status (top-center) -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -112,6 +187,32 @@
             android:src="@drawable/ic_person"
             android:background="@color/surface_input"/>
 
+        <!-- ══ Feature: E2E Encryption badge ════════════════════════════════ -->
+        <LinearLayout
+            android:id="@+id/layout_e2e_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#5500C853"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:layout_marginTop="6dp"
+            android:visibility="gone">
+            <ImageView
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:src="@android:drawable/ic_lock_idle_lock"
+                android:tint="#00E676"
+                android:layout_marginEnd="4dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="End-to-end encrypted"
+                android:textColor="#00E676"
+                android:textSize="11sp"/>
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tv_caller_name"
             android:layout_width="wrap_content"
@@ -119,7 +220,7 @@
             android:textColor="@color/white"
             android:textSize="26sp"
             android:textStyle="bold"
-            android:layout_marginTop="16dp"/>
+            android:layout_marginTop="12dp"/>
 
         <TextView
             android:id="@+id/tv_call_status"
@@ -136,8 +237,89 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:paddingBottom="36dp"
+        android:paddingBottom="32dp"
         android:gravity="center">
+
+        <!-- ══ Row 0 (extra): Screen Share | Stats | Record | Blur ═════════ -->
+        <LinearLayout
+            android:id="@+id/layout_extra_controls"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="16dp">
+
+            <!-- Screen Share -->
+            <LinearLayout android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center"
+                android:layout_marginEnd="20dp">
+                <ImageButton
+                    android:id="@+id/btn_screen_share"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:src="@android:drawable/stat_sys_upload"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:contentDescription="Screen Share"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:id="@+id/tv_screen_share_label"
+                    android:text="Share" android:textColor="#AAFFFFFF" android:textSize="9sp"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
+
+            <!-- Call Stats -->
+            <LinearLayout android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center"
+                android:layout_marginEnd="20dp">
+                <ImageButton
+                    android:id="@+id/btn_stats"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:src="@android:drawable/ic_menu_info_details"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:contentDescription="Call Stats"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Stats" android:textColor="#AAFFFFFF" android:textSize="9sp"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
+
+            <!-- Record -->
+            <LinearLayout android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center"
+                android:layout_marginEnd="20dp">
+                <ImageButton
+                    android:id="@+id/btn_record"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:src="@android:drawable/ic_btn_speak_now"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:contentDescription="Record Call"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:id="@+id/tv_record_label"
+                    android:text="Record" android:textColor="#AAFFFFFF" android:textSize="9sp"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
+
+            <!-- Background Blur -->
+            <LinearLayout android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center">
+                <ImageButton
+                    android:id="@+id/btn_blur"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:src="@android:drawable/ic_menu_gallery"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:contentDescription="Background Blur"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:id="@+id/tv_blur_label"
+                    android:text="Blur" android:textColor="#AAFFFFFF" android:textSize="9sp"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
+
+        </LinearLayout>
 
         <!-- Row 1: Speaker | Switch Camera -->
         <LinearLayout
@@ -147,49 +329,29 @@
             android:gravity="center"
             android:layout_marginBottom="20dp">
 
-            <!-- FIX: alpha=1.0 (was 0.4) — Java code toggles alpha at runtime correctly -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center"
                 android:layout_marginEnd="32dp">
-                <ImageButton
-                    android:id="@+id/btn_toggle_speaker"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
+                <ImageButton android:id="@+id/btn_toggle_speaker"
+                    android:layout_width="52dp" android:layout_height="52dp"
                     android:src="@drawable/ic_audio"
                     android:background="@drawable/circle_avatar_bg"
-                    android:alpha="1.0"
                     android:contentDescription="Speaker"/>
-                <TextView
-                    android:id="@+id/tv_speaker_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Speaker"
-                    android:textColor="#AAFFFFFF"
-                    android:textSize="10sp"
+                <TextView android:id="@+id/tv_speaker_label"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Speaker" android:textColor="#AAFFFFFF" android:textSize="10sp"
                     android:layout_marginTop="4dp"/>
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center">
-                <ImageButton
-                    android:id="@+id/btn_switch_camera"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center">
+                <ImageButton android:id="@+id/btn_switch_camera"
+                    android:layout_width="52dp" android:layout_height="52dp"
                     android:src="@drawable/ic_camera"
                     android:background="@drawable/circle_avatar_bg"
                     android:contentDescription="Switch Camera"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Flip"
-                    android:textColor="#AAFFFFFF"
-                    android:textSize="10sp"
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Flip" android:textColor="#AAFFFFFF" android:textSize="10sp"
                     android:layout_marginTop="4dp"/>
             </LinearLayout>
         </LinearLayout>
@@ -201,60 +363,38 @@
             android:orientation="horizontal"
             android:gravity="center">
 
-            <!-- FIX: Mic button with label that changes (Muted/Unmuted) -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center"
                 android:layout_marginEnd="24dp">
-                <ImageButton
-                    android:id="@+id/btn_toggle_mic"
-                    android:layout_width="60dp"
-                    android:layout_height="60dp"
+                <ImageButton android:id="@+id/btn_toggle_mic"
+                    android:layout_width="60dp" android:layout_height="60dp"
                     android:src="@drawable/ic_mic"
                     android:background="@drawable/circle_avatar_bg"
                     android:contentDescription="Mute Mic"/>
-                <TextView
-                    android:id="@+id/tv_mic_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Mute"
-                    android:textColor="#AAFFFFFF"
-                    android:textSize="10sp"
+                <TextView android:id="@+id/tv_mic_label"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Mute" android:textColor="#AAFFFFFF" android:textSize="10sp"
                     android:layout_marginTop="4dp"/>
             </LinearLayout>
 
-            <ImageButton
-                android:id="@+id/btn_end_call"
-                android:layout_width="76dp"
-                android:layout_height="76dp"
+            <ImageButton android:id="@+id/btn_end_call"
+                android:layout_width="76dp" android:layout_height="76dp"
                 android:src="@drawable/ic_phone_off"
                 android:background="@drawable/circle_reject"
                 android:tint="@color/white"
                 android:layout_marginEnd="24dp"
                 android:contentDescription="End Call"/>
 
-            <!-- FIX: Camera button with label -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center">
-                <ImageButton
-                    android:id="@+id/btn_toggle_camera"
-                    android:layout_width="60dp"
-                    android:layout_height="60dp"
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center">
+                <ImageButton android:id="@+id/btn_toggle_camera"
+                    android:layout_width="60dp" android:layout_height="60dp"
                     android:src="@drawable/ic_video"
                     android:background="@drawable/circle_avatar_bg"
                     android:contentDescription="Toggle Camera"/>
-                <TextView
-                    android:id="@+id/tv_camera_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Camera"
-                    android:textColor="#AAFFFFFF"
-                    android:textSize="10sp"
+                <TextView android:id="@+id/tv_camera_label"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Camera" android:textColor="#AAFFFFFF" android:textSize="10sp"
                     android:layout_marginTop="4dp"/>
             </LinearLayout>
         </LinearLayout>

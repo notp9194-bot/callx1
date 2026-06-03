@@ -45,9 +45,12 @@ dependencies {
     implementation 'androidx.room:room-runtime:2.6.1'
     annotationProcessor 'androidx.room:room-compiler:2.6.1'
 
-    // WorkManager — NotificationActionReceiver reply/group-reply ke liye
+    // WorkManager
     implementation 'androidx.work:work-runtime:2.9.0'
 
-    // Full-screen avatar zoom (pinch-to-zoom)
+    // Full-screen avatar zoom
     implementation 'com.github.chrisbanes:PhotoView:2.3.0'
+
+    // Feature: Background Blur — ML Kit Selfie Segmentation
+    implementation 'com.google.mlkit:segmentation-selfie:16.0.0-beta6'
 }
