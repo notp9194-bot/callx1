@@ -1726,19 +1726,37 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void openSpecialRequestDialog() {
-        // Pehle current attempt count fetch karo
+        // Pehle current attempt count + last send timestamp fetch karo
         FirebaseUtils.db().getReference("specialRequests")
-                .child(partnerUid).child(currentUid).child("attemptCount")
+                .child(partnerUid).child(currentUid)
                 .get().addOnSuccessListener(snap -> {
-                    long count = snap.exists() ? (snap.getValue(Long.class) != null
-                            ? snap.getValue(Long.class) : 0L) : 0L;
+                    long count = 0L;
+                    long lastTs = 0L;
+
+                    if (snap.exists()) {
+                        Long c = snap.child("attemptCount").getValue(Long.class);
+                        Long t = snap.child("ts").getValue(Long.class);
+                        if (c != null) count = c;
+                        if (t != null) lastTs = t;
+                    }
 
                     if (count >= MAX_SPECIAL_REQUESTS) {
-                        // 3 attempts ho chuke — permanent block enforce karo
                         FirebaseUtils.db().getReference("permaBlocked")
                                 .child(partnerUid).child(currentUid).setValue(true);
                         Toast.makeText(this,
                                 "You have used all 3 attempts. You are now permanently blocked.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    // 24hr cooldown check
+                    long elapsed = System.currentTimeMillis() - lastTs;
+                    long cooldownMs = 24L * 60 * 60 * 1000;
+                    if (lastTs > 0 && elapsed < cooldownMs) {
+                        long hoursLeft = (cooldownMs - elapsed) / (1000 * 60 * 60);
+                        long minsLeft  = ((cooldownMs - elapsed) % (1000 * 60 * 60)) / (1000 * 60);
+                        Toast.makeText(this,
+                                "Please wait " + hoursLeft + "h " + minsLeft + "m before sending another request.",
                                 Toast.LENGTH_LONG).show();
                         return;
                     }
@@ -1750,10 +1768,10 @@ public class ChatActivity extends AppCompatActivity {
                     int p = dp(16);
                     et.setPadding(p, p, p, p);
 
-                    long remaining = MAX_SPECIAL_REQUESTS - count;
+                    final long finalCount = count;
                     new AlertDialog.Builder(this)
                             .setTitle("Send special request")
-                            .setMessage("Attempt " + (count + 1) + " of " + MAX_SPECIAL_REQUESTS
+                            .setMessage("Attempt " + (finalCount + 1) + " of " + MAX_SPECIAL_REQUESTS
                                     + ". After 3 failed attempts you will be permanently blocked.")
                             .setView(et)
                             .setPositiveButton("Send", (d, w) -> {
@@ -1764,7 +1782,7 @@ public class ChatActivity extends AppCompatActivity {
                                 String myPhoto = (me != null && me.getPhotoUrl() != null)
                                         ? me.getPhotoUrl().toString() : "";
 
-                                long newCount = count + 1;
+                                long newCount = finalCount + 1;
                                 Map<String, Object> entry = new HashMap<>();
                                 entry.put("text",         txt);
                                 entry.put("ts",           System.currentTimeMillis());
@@ -1773,13 +1791,10 @@ public class ChatActivity extends AppCompatActivity {
                                 entry.put("fromPhoto",    myPhoto);
                                 entry.put("attemptCount", newCount);
 
-                                DatabaseReference reqRef = FirebaseUtils.db()
-                                        .getReference("specialRequests")
-                                        .child(partnerUid).child(currentUid);
-                                reqRef.setValue(entry);
+                                FirebaseUtils.db().getReference("specialRequests")
+                                        .child(partnerUid).child(currentUid).setValue(entry);
 
                                 if (newCount >= MAX_SPECIAL_REQUESTS) {
-                                    // Teesra attempt — permanent block
                                     FirebaseUtils.db().getReference("permaBlocked")
                                             .child(partnerUid).child(currentUid).setValue(true);
                                     Toast.makeText(this,

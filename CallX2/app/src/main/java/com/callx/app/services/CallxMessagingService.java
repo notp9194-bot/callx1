@@ -129,6 +129,9 @@ public class CallxMessagingService extends FirebaseMessagingService {
         } else if ("special_request".equals(type)) {
             // Sender (jo perma-block ho chuka hai) ne special request bheji
             showSpecialRequestNotification(data);
+        } else if ("unblock_notify".equals(type)) {
+            // Blocker ne unblock kar diya — blocked user ko notify karo
+            showUnblockNotification(data);
         } else {
             showMessage(data);
         }
@@ -1079,6 +1082,34 @@ public class CallxMessagingService extends FirebaseMessagingService {
         canvas.drawBitmap(src, new Rect(x, y, x + size, y + size), r, paint);
         return out;
     }
+    // ----- Unblock notification — blocked user ko batao ki unblock ho gaya -----
+    private void showUnblockNotification(final Map<String, String> data) {
+        final String fromUid  = data.getOrDefault("fromUid", "");
+        final String fromName = data.getOrDefault("fromName", "User");
+        final int notifId = ("unblock_" + fromUid).hashCode();
+
+        Intent open = new Intent(this, ChatActivity.class);
+        open.putExtra("partnerUid",  fromUid);
+        open.putExtra("partnerName", fromName);
+        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(this, notifId, open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        NotificationCompat.Builder b = new NotificationCompat.Builder(this,
+                Constants.CHANNEL_REQUESTS)
+            .setSmallIcon(R.drawable.ic_person_add)
+            .setContentTitle("You've been unblocked!")
+            .setContentText(fromName + " has unblocked you. You can now message them.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setAutoCancel(true)
+            .setContentIntent(openPi);
+
+        NotificationManager nm = (NotificationManager)
+            getSystemService(Context.NOTIFICATION_SERVICE);
+        nm.notify(notifId, b.build());
+    }
+
     private void showTypingNotification(String fromUid, String fromName,
                                         String chatId, int notifId, String subText) {
         Intent open = new Intent(this, ChatActivity.class);

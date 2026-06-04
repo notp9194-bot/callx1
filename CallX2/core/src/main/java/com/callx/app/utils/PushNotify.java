@@ -151,6 +151,21 @@ public class PushNotify {
         }
     }
 
+    // ── Unblock notify ────────────────────────────────────────────────────
+
+    public static void notifyUnblock(String toUid, String fromUid, String fromName) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",    toUid    == null ? "" : toUid)
+                .put("fromUid",  fromUid  == null ? "" : fromUid)
+                .put("fromName", fromName == null ? "" : fromName)
+                .put("type",     "unblock_notify");
+            postAsync(Constants.SERVER_URL + "/notify", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyUnblock err: " + e.getMessage());
+        }
+    }
+
     // ── Group message notify (convenience overload) ───────────────────────
 
     /**
