@@ -692,37 +692,48 @@ public class MessagePagingAdapter
                 }
                 break;
             case "video":
-                if (h.ivImage != null) {
-                    h.ivImage.setVisibility(View.VISIBLE);
-                    String vUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-                    // FIX v14: Video thumbnail — MediaCache se check karo
-                    java.io.File cachedVid = MediaCache.getCached(ctx, vUrl);
-                    if (cachedVid != null) {
-                        android.util.Log.d("PagingAdapter", "Video cache HIT: " + cachedVid.getName());
-                        Glide.with(ctx).load(cachedVid)
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .placeholder(R.drawable.ic_file)
-                            .into(h.ivImage);
-                    } else {
-                        android.util.Log.d("PagingAdapter", "Video cache MISS, downloading: " + vUrl);
-                        Glide.with(ctx).load(vUrl)
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .placeholder(R.drawable.ic_file)
-                            .into(h.ivImage);
-                        // FIX v14: Video background mein pre-cache karo (MediaStreamCache se partial)
-                        com.callx.app.cache.MediaStreamCache.getInstance(ctx)
-                            .preloadPartial(vUrl, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
-                                @Override public void onComplete(java.io.File file) {
-                                    android.util.Log.d("PagingAdapter", "Video partial cached: " + file.getName());
-                                }
-                                @Override public void onError(String error) {
-                                    android.util.Log.w("PagingAdapter", "Video preload failed: " + error);
-                                }
-                                @Override public void onProgress(int percent) {}
-                            });
+                // POLISH: Use fl_video + iv_video_thumb (thumbnail + play overlay)
+                // Prefer thumbnailUrl (Cloudinary thumb) over raw video URL for preview
+                if (h.flVideo != null && h.ivVideoThumb != null) {
+                    h.flVideo.setVisibility(View.VISIBLE);
+                    if (h.ivImage != null) h.ivImage.setVisibility(View.GONE);
+                    String vUrl   = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    // POLISH FIX: use Cloudinary thumbnail for preview image, not the raw video URL
+                    String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                            ? m.thumbnailUrl : vUrl;
+                    Glide.with(ctx)
+                        .load(thumbUrl)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .placeholder(R.drawable.ic_file)
+                        .centerCrop()
+                        .into(h.ivVideoThumb);
+                    // Duration overlay
+                    if (h.tvDuration != null && m.duration != null && m.duration > 0) {
+                        long secs = m.duration / 1000;
+                        h.tvDuration.setText(String.format(
+                                java.util.Locale.US, "%d:%02d", secs / 60, secs % 60));
+                        h.tvDuration.setVisibility(View.VISIBLE);
                     }
+                    h.flVideo.setOnClickListener(v -> {
+                        Intent i = new Intent().setClassName(ctx.getPackageName(),
+                                "com.callx.app.activities.MediaViewerActivity");
+                        i.putExtra("url", vUrl);
+                        i.putExtra("type", "video");
+                        ctx.startActivity(i);
+                    });
+                } else if (h.ivImage != null) {
+                    // Fallback: layout without fl_video — show thumbnail in ivImage
+                    h.ivImage.setVisibility(View.VISIBLE);
+                    String vUrl     = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                            ? m.thumbnailUrl : vUrl;
+                    Glide.with(ctx).load(thumbUrl)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .placeholder(R.drawable.ic_file)
+                        .into(h.ivImage);
                     h.ivImage.setOnClickListener(v -> {
-                        Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
+                        Intent i = new Intent().setClassName(ctx.getPackageName(),
+                                "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url", vUrl);
                         i.putExtra("type", "video");
                         ctx.startActivity(i);
@@ -786,6 +797,8 @@ public class MessagePagingAdapter
                 }
                 break;
             default: // "text", "emoji", etc.
+                // POLISH: hide link preview by default before checking for URL
+                if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
                 h.tvMessage.setVisibility(View.VISIBLE);
                 String txt = m.text != null ? m.text : "";
                 if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
@@ -807,6 +820,49 @@ public class MessagePagingAdapter
                 h.tvMessage.setAlpha(1f);
                 h.tvMessage.setTextColor(
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
+
+                // POLISH: Link preview — detect URL, fetch OG data async, bind card
+                if (h.llLinkPreview != null && m.text != null) {
+                    String previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text);
+                    if (previewUrl != null) {
+                        // Tag itemView with URL so we detect stale VH on recycle
+                        h.llLinkPreview.setTag(previewUrl);
+                        h.llLinkPreview.setVisibility(View.INVISIBLE); // reserve space while loading
+                        com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
+                                new com.callx.app.utils.LinkPreviewFetcher.Callback() {
+                            @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
+                                // Guard against recycled VH
+                                if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
+                                h.llLinkPreview.setVisibility(View.VISIBLE);
+                                if (h.tvLinkDomain != null) h.tvLinkDomain.setText(r.domain);
+                                if (h.tvLinkTitle  != null) h.tvLinkTitle.setText(r.title);
+                                if (h.ivLinkThumb  != null) {
+                                    if (r.imageUrl != null && !r.imageUrl.isEmpty()) {
+                                        h.ivLinkThumb.setVisibility(View.VISIBLE);
+                                        com.bumptech.glide.Glide.with(ctx)
+                                            .load(r.imageUrl)
+                                            .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                            .centerCrop()
+                                            .into(h.ivLinkThumb);
+                                    } else {
+                                        h.ivLinkThumb.setVisibility(View.GONE);
+                                    }
+                                }
+                                // Tapping the card opens the URL in browser
+                                h.llLinkPreview.setOnClickListener(v -> {
+                                    Intent browserIntent = new Intent(
+                                            Intent.ACTION_VIEW, android.net.Uri.parse(r.url));
+                                    browserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    ctx.startActivity(browserIntent);
+                                });
+                            }
+                            @Override public void onError(String url) {
+                                if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
+                                h.llLinkPreview.setVisibility(View.GONE);
+                            }
+                        });
+                    }
+                }
                 break;
         }
 
@@ -1229,6 +1285,14 @@ public class MessagePagingAdapter
         // Reactions row (ll_reactions / tv_reactions in both item layouts)
         LinearLayout llReactions;
         TextView     tvReactions;
+        // POLISH: Video — proper FrameLayout with thumbnail + play overlay
+        android.widget.FrameLayout flVideo;
+        ImageView    ivVideoThumb;
+        TextView     tvDuration;
+        // POLISH: Link preview card — visible only for text messages with URLs
+        LinearLayout llLinkPreview;
+        TextView     tvLinkTitle, tvLinkDomain;
+        ImageView    ivLinkThumb;
 
         VH(@NonNull View v) {
             super(v);
@@ -1254,6 +1318,15 @@ public class MessagePagingAdapter
             // Reactions
             llReactions    = v.findViewById(R.id.ll_reactions);
             tvReactions    = v.findViewById(R.id.tv_reactions);
+            // POLISH: Video FrameLayout with thumbnail + play overlay
+            flVideo        = v.findViewById(R.id.fl_video);
+            ivVideoThumb   = v.findViewById(R.id.iv_video_thumb);
+            tvDuration     = v.findViewById(R.id.tv_duration);
+            // POLISH: Link preview card
+            llLinkPreview  = v.findViewById(R.id.ll_link_preview);
+            tvLinkTitle    = v.findViewById(R.id.tv_link_title);
+            tvLinkDomain   = v.findViewById(R.id.tv_link_domain);
+            ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
         }
     }
 }

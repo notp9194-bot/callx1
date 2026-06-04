@@ -108,6 +108,14 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
     MessageEntity getMessageById(String messageId);
 
+    /**
+     * POLISH: Reply scroll — count messages newer than a given timestamp in this chat.
+     * Used by navigateToOriginal() to calculate approximate adapter position.
+     */
+    @WorkerThread
+    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND timestamp > :timestamp")
+    int countMessagesAfterTimestamp(String chatId, long timestamp);
+
     /** v18 IMPROVEMENT 5: Failed media uploads — SyncWorker retry karega. */
     @WorkerThread
     @Query("SELECT * FROM messages WHERE mediaLocalPath IS NOT NULL AND (mediaUrl IS NULL OR mediaUrl = '') AND status = 'pending' ORDER BY timestamp ASC")

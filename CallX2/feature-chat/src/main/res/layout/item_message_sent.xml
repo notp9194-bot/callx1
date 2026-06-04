@@ -160,6 +160,62 @@
             android:paddingBottom="4dp"
             android:visibility="gone"/>
 
+        <!-- POLISH: Link preview card — visible only for text messages with URLs -->
+        <LinearLayout
+            android:id="@+id/ll_link_preview"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_reply_preview_sent"
+            android:layout_margin="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:visibility="gone">
+
+            <!-- OG image thumbnail -->
+            <ImageView
+                android:id="@+id/iv_link_thumb"
+                android:layout_width="match_parent"
+                android:layout_height="120dp"
+                android:scaleType="centerCrop"
+                android:visibility="gone"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp">
+
+                <!-- Domain label -->
+                <TextView
+                    android:id="@+id/tv_link_domain"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFD54F"
+                    android:textSize="10sp"
+                    android:textAllCaps="true"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+
+                <!-- Page title -->
+                <TextView
+                    android:id="@+id/tv_link_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/bubble_sent_text"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:layout_marginTop="2dp"/>
+
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- Image -->
         <!-- FIX: was hardcoded 240×220dp — portrait photos cropped, landscape squeezed.
              adjustViewBounds + wrap_content lets the image keep its natural aspect ratio. -->

@@ -2525,14 +2525,45 @@ public class ChatActivity extends AppCompatActivity {
             MessageHighlightAnimator.scrollAndHighlight(
                     binding.rvMessages, pos, binding.fabBackToLatest);
         } else {
-            // Not in current window — load from DB and scroll
-            final int finalPos = pos;
+            // POLISH: Not in current paging window — look up from Room DB and jump by position
+            final String cId = chatId;
             ioExecutor.execute(() -> {
-                // DB lookup for position (approximate — use timestamp)
-                runOnUiThread(() ->
-                    Toast.makeText(this,
-                            "Original message not loaded — scroll up to find it",
+                if (db == null || cId == null) {
+                    runOnUiThread(() -> Toast.makeText(this,
+                            "Message not in view — scroll up to find it",
                             Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                com.callx.app.db.entity.MessageEntity target =
+                        db.messageDao().getMessageById(messageId);
+                if (target == null || target.timestamp == null) {
+                    runOnUiThread(() -> Toast.makeText(this,
+                            "Original message not found", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                // Count how many messages are NEWER than the target (i.e., below it)
+                int posFromBottom = db.messageDao()
+                        .countMessagesAfterTimestamp(cId, target.timestamp);
+                // Approximate adapter position (older msgs are at lower indices — ASC order)
+                int approxPos = pagingAdapter.getItemCount() - posFromBottom - 1;
+                final int safePos = Math.max(0, approxPos);
+                runOnUiThread(() -> {
+                    // Show FAB so user can return to latest easily
+                    if (binding.fabBackToLatest != null) {
+                        binding.fabBackToLatest.setVisibility(View.VISIBLE);
+                        binding.fabBackToLatest.animate().alpha(1f).setDuration(200).start();
+                    }
+                    // scrollToPosition triggers Paging 3 to load the surrounding page
+                    binding.rvMessages.scrollToPosition(safePos);
+                    // Attempt highlight after scroll settles
+                    binding.rvMessages.postDelayed(() -> {
+                        RecyclerView.ViewHolder vh2 =
+                                binding.rvMessages.findViewHolderForAdapterPosition(safePos);
+                        if (vh2 != null) {
+                            MessageHighlightAnimator.flashHighlight(vh2.itemView);
+                        }
+                    }, 500);
+                });
             });
         }
     }
