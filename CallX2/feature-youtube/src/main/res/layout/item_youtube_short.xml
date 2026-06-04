@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Full-screen video player -->
+    <!-- ── Full-screen ExoPlayer ───────────────────────────────────────── -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/pv_short_player"
         android:layout_width="match_parent"
@@ -14,7 +14,7 @@
         app:use_controller="false"
         app:surface_type="texture_view"/>
 
-    <!-- Thumbnail (shown while buffering) -->
+    <!-- Thumbnail shown while buffering -->
     <ImageView
         android:id="@+id/iv_short_thumb"
         android:layout_width="match_parent"
@@ -22,27 +22,87 @@
         android:scaleType="centerCrop"
         android:background="#000000"/>
 
-    <!-- Heart animation on double-tap like -->
+    <!-- Top gradient (status bar readability) -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="100dp"
+        android:layout_gravity="top"
+        android:background="@drawable/bg_shorts_top_gradient"/>
+
+    <!-- Bottom gradient (info overlay readability) -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="320dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_short_gradient_bottom"/>
+
+    <!-- ── Pause / Play overlay (center, shown on tap) ───────────────── -->
+    <FrameLayout
+        android:id="@+id/fl_short_pause_overlay"
+        android:layout_width="72dp"
+        android:layout_height="72dp"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_short_pause_overlay"
+        android:visibility="gone"
+        android:elevation="15dp">
+
+        <ImageView
+            android:id="@+id/iv_short_pause_icon"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_yt_play"
+            android:tint="#FFFFFF"
+            android:contentDescription="Pause"/>
+    </FrameLayout>
+
+    <!-- ── Double-tap heart animation ───────────────────────────────── -->
     <ImageView
         android:id="@+id/iv_short_heart_anim"
-        android:layout_width="100dp"
-        android:layout_height="100dp"
+        android:layout_width="90dp"
+        android:layout_height="90dp"
         android:layout_gravity="center"
         android:src="@drawable/ic_yt_like_filled"
         android:tint="#FF0000"
         android:visibility="gone"
         android:elevation="20dp"/>
 
-    <!-- Right side action buttons -->
+    <!-- ── Buffering spinner ─────────────────────────────────────────── -->
+    <ProgressBar
+        android:id="@+id/pb_short_buffer"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="center"
+        android:indeterminateTint="#FFFFFF"
+        android:visibility="gone"
+        android:elevation="16dp"/>
+
+    <!-- ── Top-right: Mute / Unmute ─────────────────────────────────── -->
+    <ImageButton
+        android:id="@+id/btn_short_mute"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:layout_marginTop="60dp"
+        android:src="@drawable/ic_yt_volume"
+        android:background="@drawable/bg_short_pause_overlay"
+        android:tint="#FFFFFF"
+        android:padding="8dp"
+        android:contentDescription="Mute"
+        android:elevation="14dp"/>
+
+    <!-- ── Right sidebar: action buttons ────────────────────────────── -->
     <LinearLayout
+        android:id="@+id/ll_short_actions"
         android:layout_width="60dp"
         android:layout_height="wrap_content"
-        android:layout_gravity="end|center_vertical"
+        android:layout_gravity="end|bottom"
+        android:layout_marginEnd="4dp"
+        android:layout_marginBottom="100dp"
         android:orientation="vertical"
-        android:gravity="center"
-        android:paddingEnd="8dp"
-        android:paddingBottom="80dp"
-        android:elevation="10dp">
+        android:gravity="center_horizontal"
+        android:elevation="12dp">
 
         <!-- Like -->
         <LinearLayout
@@ -50,7 +110,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="18dp">
             <ImageButton
                 android:id="@+id/btn_short_like"
                 android:layout_width="44dp"
@@ -66,7 +126,8 @@
                 android:text="0"
                 android:textColor="#FFFFFF"
                 android:textSize="11sp"
-                android:layout_marginTop="4dp"/>
+                android:textStyle="bold"
+                android:layout_marginTop="2dp"/>
         </LinearLayout>
 
         <!-- Dislike -->
@@ -75,7 +136,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="18dp">
             <ImageButton
                 android:id="@+id/btn_short_dislike"
                 android:layout_width="44dp"
@@ -90,7 +151,7 @@
                 android:text="Dislike"
                 android:textColor="#FFFFFF"
                 android:textSize="11sp"
-                android:layout_marginTop="4dp"/>
+                android:layout_marginTop="2dp"/>
         </LinearLayout>
 
         <!-- Comment -->
@@ -99,7 +160,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="18dp">
             <ImageButton
                 android:id="@+id/btn_short_comment"
                 android:layout_width="44dp"
@@ -112,10 +173,11 @@
                 android:id="@+id/tv_short_comments"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Comment"
+                android:text="0"
                 android:textColor="#FFFFFF"
                 android:textSize="11sp"
-                android:layout_marginTop="4dp"/>
+                android:textStyle="bold"
+                android:layout_marginTop="2dp"/>
         </LinearLayout>
 
         <!-- Share -->
@@ -124,7 +186,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="18dp">
             <ImageButton
                 android:id="@+id/btn_short_share"
                 android:layout_width="44dp"
@@ -139,7 +201,55 @@
                 android:text="Share"
                 android:textColor="#FFFFFF"
                 android:textSize="11sp"
-                android:layout_marginTop="4dp"/>
+                android:layout_marginTop="2dp"/>
+        </LinearLayout>
+
+        <!-- Save / Bookmark -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginBottom="18dp">
+            <ImageButton
+                android:id="@+id/btn_short_save"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_yt_save"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="#FFFFFF"
+                android:contentDescription="Save"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Save"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:layout_marginTop="2dp"/>
+        </LinearLayout>
+
+        <!-- Remix -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginBottom="18dp">
+            <ImageButton
+                android:id="@+id/btn_short_remix"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_yt_remix"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="#FFFFFF"
+                android:contentDescription="Remix"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Remix"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:layout_marginTop="2dp"/>
         </LinearLayout>
 
         <!-- More -->
@@ -150,22 +260,23 @@
             android:src="@drawable/ic_yt_more"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#FFFFFF"
-            android:contentDescription="More"/>
+            android:contentDescription="More options"/>
 
     </LinearLayout>
 
-    <!-- Bottom info overlay: channel avatar + title + follow button -->
+    <!-- ── Bottom info overlay ───────────────────────────────────────── -->
     <LinearLayout
+        android:id="@+id/ll_short_bottom_info"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:padding="12dp"
-        android:paddingBottom="80dp"
-        android:elevation="10dp"
-        android:background="@drawable/bg_short_gradient_bottom">
+        android:paddingStart="12dp"
+        android:paddingEnd="68dp"
+        android:paddingBottom="4dp"
+        android:elevation="11dp">
 
-        <!-- Channel row -->
+        <!-- Channel row: avatar + name + Subscribe -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -175,8 +286,8 @@
 
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_short_avatar"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
                 android:src="@drawable/ic_person"
                 app:civ_border_color="#FFFFFF"
                 app:civ_border_width="1.5dp"/>
@@ -188,7 +299,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="10dp"
                 android:textColor="#FFFFFF"
-                android:textSize="14sp"
+                android:textSize="13sp"
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="end"/>
@@ -196,27 +307,127 @@
             <Button
                 android:id="@+id/btn_short_follow"
                 android:layout_width="wrap_content"
-                android:layout_height="32dp"
+                android:layout_height="30dp"
                 android:text="Subscribe"
                 android:textColor="#FFFFFF"
-                android:textSize="12sp"
+                android:textSize="11sp"
+                android:textAllCaps="false"
                 android:backgroundTint="#FFFF0000"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"/>
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginStart="8dp"/>
 
         </LinearLayout>
 
-        <!-- Video title -->
+        <!-- Title (expandable) -->
         <TextView
             android:id="@+id/tv_short_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="60dp"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
+            android:textSize="13sp"
+            android:textStyle="bold"
             android:maxLines="2"
-            android:ellipsize="end"/>
+            android:ellipsize="end"
+            android:layout_marginBottom="4dp"/>
+
+        <!-- Description (collapsed by default, tap title to expand) -->
+        <TextView
+            android:id="@+id/tv_short_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#DDDDDD"
+            android:textSize="12sp"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:visibility="gone"
+            android:layout_marginBottom="6dp"/>
+
+        <!-- "more" / "less" toggle -->
+        <TextView
+            android:id="@+id/tv_short_more_desc"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="more..."
+            android:textColor="#AAAAAA"
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp"
+            android:visibility="gone"/>
+
+        <!-- Music strip -->
+        <LinearLayout
+            android:id="@+id/ll_short_music_strip"
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_short_pill"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:layout_marginBottom="8dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_yt_music_note"
+                android:tint="#FFFFFF"
+                android:contentDescription="Music"
+                android:layout_marginEnd="6dp"/>
+
+            <TextView
+                android:id="@+id/tv_short_music"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:singleLine="true"
+                android:ellipsize="marquee"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:scrollHorizontally="true"
+                android:focusable="true"
+                android:focusableInTouchMode="true"/>
+
+        </LinearLayout>
+
+        <!-- Video info pills row: views + duration -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:id="@+id/tv_short_views"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#CCCCCC"
+                android:textSize="11sp"
+                android:layout_marginEnd="12dp"/>
+
+            <TextView
+                android:id="@+id/tv_short_duration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#CCCCCC"
+                android:textSize="11sp"/>
+
+        </LinearLayout>
 
     </LinearLayout>
+
+    <!-- ── Progress bar (bottom edge) ───────────────────────────────── -->
+    <ProgressBar
+        android:id="@+id/pb_short_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_gravity="bottom"
+        android:progress="0"
+        android:max="1000"
+        android:progressTint="#FFFFFF"
+        android:progressBackgroundTint="#44FFFFFF"
+        android:elevation="13dp"/>
 
 </FrameLayout>

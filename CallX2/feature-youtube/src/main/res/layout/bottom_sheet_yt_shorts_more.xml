@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/yt_surface"
+    android:paddingTop="8dp"
+    android:paddingBottom="24dp">
+
+    <!-- Handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="12dp"
+        android:background="#44FFFFFF"/>
+
+    <!-- Save to Watch Later -->
+    <LinearLayout
+        android:id="@+id/item_shorts_more_watch_later"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/bg_shorts_more_item"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@drawable/ic_yt_save" android:tint="@color/yt_text_primary"
+            android:contentDescription="Watch Later"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Watch Later'mein save karo"
+            android:textColor="@color/yt_text_primary" android:textSize="14sp"
+            android:layout_marginStart="18dp"/>
+    </LinearLayout>
+
+    <!-- Add to Playlist -->
+    <LinearLayout
+        android:id="@+id/item_shorts_more_add_playlist"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/bg_shorts_more_item"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@drawable/ic_yt_library" android:tint="@color/yt_text_primary"
+            android:contentDescription="Add to Playlist"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Playlist mein add karo"
+            android:textColor="@color/yt_text_primary" android:textSize="14sp"
+            android:layout_marginStart="18dp"/>
+    </LinearLayout>
+
+    <!-- Download -->
+    <LinearLayout
+        android:id="@+id/item_shorts_more_download"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/bg_shorts_more_item"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@drawable/ic_yt_download" android:tint="@color/yt_text_primary"
+            android:contentDescription="Download"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Download karo"
+            android:textColor="@color/yt_text_primary" android:textSize="14sp"
+            android:layout_marginStart="18dp"/>
+    </LinearLayout>
+
+    <!-- Share -->
+    <LinearLayout
+        android:id="@+id/item_shorts_more_share"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/bg_shorts_more_item"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@drawable/ic_yt_share" android:tint="@color/yt_text_primary"
+            android:contentDescription="Share"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Share karo"
+            android:textColor="@color/yt_text_primary" android:textSize="14sp"
+            android:layout_marginStart="18dp"/>
+    </LinearLayout>
+
+    <!-- Copy Link -->
+    <LinearLayout
+        android:id="@+id/item_shorts_more_copy_link"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/bg_shorts_more_item"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@drawable/ic_yt_copy_link" android:tint="@color/yt_text_primary"
+            android:contentDescription="Copy Link"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Link copy karo"
+            android:textColor="@color/yt_text_primary" android:textSize="14sp"
+            android:layout_marginStart="18dp"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#22FFFFFF" android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"/>
+
+    <!-- Not Interested -->
+    <LinearLayout
+        android:id="@+id/item_shorts_more_not_interested"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/bg_shorts_more_item"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@drawable/ic_yt_not_interested" android:tint="@color/yt_text_primary"
+            android:contentDescription="Not Interested"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Pasand nahi (Not Interested)"
+            android:textColor="@color/yt_text_primary" android:textSize="14sp"
+            android:layout_marginStart="18dp"/>
+    </LinearLayout>
+
+    <!-- Report -->
+    <LinearLayout
+        android:id="@+id/item_shorts_more_report"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/bg_shorts_more_item"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@drawable/ic_yt_flag" android:tint="#FF6666"
+            android:contentDescription="Report"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Report karo"
+            android:textColor="#FF6666" android:textSize="14sp"
+            android:layout_marginStart="18dp"/>
+    </LinearLayout>
+
+</LinearLayout>
