@@ -42,7 +42,7 @@ public class SpecialRequestPopupActivity extends AppCompatActivity {
         dlg.setContentView(sheet);
         dlg.setCancelable(true);
         dlg.setOnDismissListener(d -> finish());
-        // Feature 16: Unblock {fromName} → block + permaBlock + specialReq remove
+        // Feature 16: Unblock {fromName} → block + permaBlock + specialReq + seenReq remove
         btnUnblock.setOnClickListener(v -> {
             if (FirebaseAuth.getInstance().getCurrentUser() == null) {
                 dlg.dismiss(); return;
@@ -53,6 +53,8 @@ public class SpecialRequestPopupActivity extends AppCompatActivity {
             FirebaseUtils.db().getReference("permaBlocked")
                 .child(myUid).child(fromUid).removeValue();
             FirebaseUtils.db().getReference("specialRequests")
+                .child(myUid).child(fromUid).removeValue();
+            FirebaseUtils.db().getReference("seenRequests")
                 .child(myUid).child(fromUid).removeValue();
             dlg.dismiss();
         });

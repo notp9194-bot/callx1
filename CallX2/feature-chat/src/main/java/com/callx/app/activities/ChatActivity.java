@@ -20,6 +20,8 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.Toast;
 
+import com.callx.app.activities.SpecialRequestPopupActivity;
+
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
@@ -213,6 +215,7 @@ public class ChatActivity extends AppCompatActivity {
         watchMute();
         watchBlock();
         watchPartnerPermaBlock();
+        checkAndShowPendingSpecialRequest();
         watchPinnedMessage();
         markMessagesRead();
 
@@ -1627,6 +1630,48 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // SPECIAL REQUEST — blocker ki chat open hone pe check karo
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void checkAndShowPendingSpecialRequest() {
+        if (currentUid == null || partnerUid == null) return;
+
+        DatabaseReference reqRef  = FirebaseUtils.db()
+                .getReference("specialRequests").child(currentUid).child(partnerUid);
+        DatabaseReference seenRef = FirebaseUtils.db()
+                .getReference("seenRequests").child(currentUid).child(partnerUid);
+
+        reqRef.get().addOnSuccessListener(reqSnap -> {
+            if (!reqSnap.exists()) return; // koi request nahi hai
+
+            Long reqTs = reqSnap.child("ts").getValue(Long.class);
+            if (reqTs == null) return;
+
+            seenRef.get().addOnSuccessListener(seenSnap -> {
+                Long seenAt = seenSnap.exists() ? seenSnap.getValue(Long.class) : 0L;
+                if (seenAt == null) seenAt = 0L;
+
+                if (reqTs <= seenAt) return; // yeh request pehle dekh chuka hai
+
+                // Nayi request hai — seenAt update karo phir sheet dikhao
+                final long finalSeenAt = seenAt;
+                seenRef.setValue(reqTs).addOnSuccessListener(v -> {
+                    String fromName  = reqSnap.child("fromName").getValue(String.class);
+                    String fromPhoto = reqSnap.child("fromPhoto").getValue(String.class);
+                    String text      = reqSnap.child("text").getValue(String.class);
+
+                    Intent popup = new Intent(this, SpecialRequestPopupActivity.class);
+                    popup.putExtra("fromUid",   partnerUid);
+                    popup.putExtra("fromName",  fromName  != null ? fromName  : partnerName);
+                    popup.putExtra("fromPhoto", fromPhoto != null ? fromPhoto : "");
+                    popup.putExtra("text",      text      != null ? text      : "Please unblock me");
+                    startActivity(popup);
+                });
+            });
+        });
+    }
+
     // PERMA-BLOCK
     // ─────────────────────────────────────────────────────────────────────
 
@@ -1644,6 +1689,8 @@ public class ChatActivity extends AppCompatActivity {
                 .addValueEventListener(permaBlockListener);
     }
 
+    private static final int MAX_SPECIAL_REQUESTS = 3;
+
     private void applyPermaBlockUi() {
         if (!partnerPermaBlockedMe) {
             binding.etMessage.setEnabled(true);
@@ -1654,45 +1701,102 @@ public class ChatActivity extends AppCompatActivity {
         binding.etMessage.setHint(partnerName + " has blocked you");
         binding.btnSend.setVisibility(View.GONE);
         binding.btnMic.setVisibility(View.GONE);
-        Snackbar.make(binding.getRoot(),
-                        partnerName + " has permanently blocked you",
-                        Snackbar.LENGTH_INDEFINITE)
-                .setAction("Send request", v -> openSpecialRequestDialog())
-                .show();
+
+        // Attempt count check karo pehle — 3 ho chuke hain to button nahi dikhana
+        FirebaseUtils.db().getReference("specialRequests")
+                .child(partnerUid).child(currentUid).child("attemptCount")
+                .get().addOnSuccessListener(snap -> {
+                    long count = snap.exists() ? (snap.getValue(Long.class) != null
+                            ? snap.getValue(Long.class) : 0L) : 0L;
+                    if (count >= MAX_SPECIAL_REQUESTS) {
+                        // Attempts khatam — sirf blocked message dikhao
+                        Snackbar.make(binding.getRoot(),
+                                partnerName + " has permanently blocked you. No more requests allowed.",
+                                Snackbar.LENGTH_LONG).show();
+                    } else {
+                        long remaining = MAX_SPECIAL_REQUESTS - count;
+                        Snackbar.make(binding.getRoot(),
+                                        partnerName + " has permanently blocked you",
+                                        Snackbar.LENGTH_INDEFINITE)
+                                .setAction("Send request (" + remaining + " left)",
+                                        v -> openSpecialRequestDialog())
+                                .show();
+                    }
+                });
     }
 
     private void openSpecialRequestDialog() {
-        EditText et = new EditText(this);
-        et.setHint("Write your message (e.g. Sorry, please unblock me)");
-        et.setMinLines(2);
-        et.setMaxLines(4);
-        int p = dp(16);
-        et.setPadding(p, p, p, p);
-        new AlertDialog.Builder(this)
-                .setTitle("Send special request")
-                .setMessage("Send a one-time unblock request to " + partnerName + ".")
-                .setView(et)
-                .setPositiveButton("Send", (d, w) -> {
-                    String txt = et.getText().toString().trim();
-                    if (txt.isEmpty()) txt = "Please unblock me";
-                    com.google.firebase.auth.FirebaseUser me =
-                            FirebaseAuth.getInstance().getCurrentUser();
-                    String myPhoto = (me != null && me.getPhotoUrl() != null)
-                            ? me.getPhotoUrl().toString() : "";
-                    Map<String, Object> entry = new HashMap<>();
-                    entry.put("text",      txt);
-                    entry.put("ts",        System.currentTimeMillis());
-                    entry.put("fromName",  currentName);
-                    entry.put("fromUid",   currentUid);
-                    entry.put("fromPhoto", myPhoto);
-                    FirebaseUtils.db().getReference("specialRequests")
-                            .child(partnerUid).child(currentUid).setValue(entry);
-                    PushNotify.notifySpecialRequest(
-                            partnerUid, currentUid, currentName, myPhoto, txt);
-                    Toast.makeText(this, "Request sent", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+        // Pehle current attempt count fetch karo
+        FirebaseUtils.db().getReference("specialRequests")
+                .child(partnerUid).child(currentUid).child("attemptCount")
+                .get().addOnSuccessListener(snap -> {
+                    long count = snap.exists() ? (snap.getValue(Long.class) != null
+                            ? snap.getValue(Long.class) : 0L) : 0L;
+
+                    if (count >= MAX_SPECIAL_REQUESTS) {
+                        // 3 attempts ho chuke — permanent block enforce karo
+                        FirebaseUtils.db().getReference("permaBlocked")
+                                .child(partnerUid).child(currentUid).setValue(true);
+                        Toast.makeText(this,
+                                "You have used all 3 attempts. You are now permanently blocked.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    EditText et = new EditText(this);
+                    et.setHint("Write your message (e.g. Sorry, please unblock me)");
+                    et.setMinLines(2);
+                    et.setMaxLines(4);
+                    int p = dp(16);
+                    et.setPadding(p, p, p, p);
+
+                    long remaining = MAX_SPECIAL_REQUESTS - count;
+                    new AlertDialog.Builder(this)
+                            .setTitle("Send special request")
+                            .setMessage("Attempt " + (count + 1) + " of " + MAX_SPECIAL_REQUESTS
+                                    + ". After 3 failed attempts you will be permanently blocked.")
+                            .setView(et)
+                            .setPositiveButton("Send", (d, w) -> {
+                                String txt = et.getText().toString().trim();
+                                if (txt.isEmpty()) txt = "Please unblock me";
+                                com.google.firebase.auth.FirebaseUser me =
+                                        FirebaseAuth.getInstance().getCurrentUser();
+                                String myPhoto = (me != null && me.getPhotoUrl() != null)
+                                        ? me.getPhotoUrl().toString() : "";
+
+                                long newCount = count + 1;
+                                Map<String, Object> entry = new HashMap<>();
+                                entry.put("text",         txt);
+                                entry.put("ts",           System.currentTimeMillis());
+                                entry.put("fromName",     currentName);
+                                entry.put("fromUid",      currentUid);
+                                entry.put("fromPhoto",    myPhoto);
+                                entry.put("attemptCount", newCount);
+
+                                DatabaseReference reqRef = FirebaseUtils.db()
+                                        .getReference("specialRequests")
+                                        .child(partnerUid).child(currentUid);
+                                reqRef.setValue(entry);
+
+                                if (newCount >= MAX_SPECIAL_REQUESTS) {
+                                    // Teesra attempt — permanent block
+                                    FirebaseUtils.db().getReference("permaBlocked")
+                                            .child(partnerUid).child(currentUid).setValue(true);
+                                    Toast.makeText(this,
+                                            "Last attempt used. You are now permanently blocked.",
+                                            Toast.LENGTH_LONG).show();
+                                } else {
+                                    Toast.makeText(this, "Request sent ("
+                                            + newCount + "/" + MAX_SPECIAL_REQUESTS + ")",
+                                            Toast.LENGTH_SHORT).show();
+                                }
+
+                                PushNotify.notifySpecialRequest(
+                                        partnerUid, currentUid, currentName, myPhoto, txt);
+                            })
+                            .setNegativeButton("Cancel", null)
+                            .show();
+                });
     }
 
     // ─────────────────────────────────────────────────────────────────────

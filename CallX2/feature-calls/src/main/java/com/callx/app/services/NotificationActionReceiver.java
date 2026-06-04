@@ -231,6 +231,8 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                     .child(myUid).child(partnerUid).removeValue();
                 FirebaseUtils.db().getReference("specialRequests")
                     .child(myUid).child(partnerUid).removeValue();
+                FirebaseUtils.db().getReference("seenRequests")
+                    .child(myUid).child(partnerUid).removeValue();
             }
             if (nm != null) nm.cancel(notifId);
             // Fix 4: Toast removed
