@@ -1675,15 +1675,20 @@ public class ChatActivity extends AppCompatActivity {
                 .setPositiveButton("Send", (d, w) -> {
                     String txt = et.getText().toString().trim();
                     if (txt.isEmpty()) txt = "Please unblock me";
+                    com.google.firebase.auth.FirebaseUser me =
+                            FirebaseAuth.getInstance().getCurrentUser();
+                    String myPhoto = (me != null && me.getPhotoUrl() != null)
+                            ? me.getPhotoUrl().toString() : "";
                     Map<String, Object> entry = new HashMap<>();
-                    entry.put("text",     txt);
-                    entry.put("ts",       System.currentTimeMillis());
-                    entry.put("fromName", currentName);
-                    entry.put("fromUid",  currentUid);
+                    entry.put("text",      txt);
+                    entry.put("ts",        System.currentTimeMillis());
+                    entry.put("fromName",  currentName);
+                    entry.put("fromUid",   currentUid);
+                    entry.put("fromPhoto", myPhoto);
                     FirebaseUtils.db().getReference("specialRequests")
                             .child(partnerUid).child(currentUid).setValue(entry);
                     PushNotify.notifySpecialRequest(
-                            partnerUid, currentUid, currentName, txt);
+                            partnerUid, currentUid, currentName, myPhoto, txt);
                     Toast.makeText(this, "Request sent", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)

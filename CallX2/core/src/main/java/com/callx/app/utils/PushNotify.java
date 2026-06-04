@@ -121,14 +121,15 @@ public class PushNotify {
     // ── Special-request notify ────────────────────────────────────────────
 
     public static void notifySpecialRequest(String toUid, String fromUid,
-                                            String fromName, String text) {
+                                            String fromName, String fromPhoto, String text) {
         try {
             JSONObject body = new JSONObject()
-                .put("toUid",    toUid    == null ? "" : toUid)
-                .put("fromUid",  fromUid  == null ? "" : fromUid)
-                .put("fromName", fromName == null ? "" : fromName)
-                .put("text",     text     == null ? "" : text)
-                .put("type",     "special_request");
+                .put("toUid",     toUid     == null ? "" : toUid)
+                .put("fromUid",   fromUid   == null ? "" : fromUid)
+                .put("fromName",  fromName  == null ? "" : fromName)
+                .put("fromPhoto", fromPhoto == null ? "" : fromPhoto)
+                .put("text",      text      == null ? "" : text)
+                .put("type",      "special_request");
             postAsync(Constants.SERVER_URL + "/notify", body);
         } catch (Exception e) {
             Log.w("PushNotify", "notifySpecialRequest err: " + e.getMessage());
