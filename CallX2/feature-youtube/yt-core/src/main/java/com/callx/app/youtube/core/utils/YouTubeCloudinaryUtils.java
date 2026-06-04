@@ -297,7 +297,20 @@ public class YouTubeCloudinaryUtils {
         Log.d(TAG, "[IMG DIRECT] Bina compression ke upload kar raha hai...");
         new Thread(() -> {
             try {
-                File tmpFile = VideoCompressor.copyUriToFile(ctx, imageUri);
+                // Inline copyUriToFile (VideoCompressor.copyUriToFile is package-private)
+                File tmpFile;
+                try (java.io.InputStream in2 = ctx.getContentResolver().openInputStream(imageUri)) {
+                    tmpFile = File.createTempFile("yt_img_", ".jpg",
+                        ctx.getCacheDir());
+                    tmpFile.deleteOnExit();
+                    if (in2 != null) {
+                        try (java.io.OutputStream out2 = new java.io.FileOutputStream(tmpFile)) {
+                            byte[] buf = new byte[8192];
+                            int n2;
+                            while ((n2 = in2.read(buf)) != -1) out2.write(buf, 0, n2);
+                        }
+                    }
+                }
                 String ytFolder = "youtube/" + folder;
 
                 JSONObject signJson = getSignature(ctx, ytFolder, "image");
