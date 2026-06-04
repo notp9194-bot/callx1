@@ -291,8 +291,8 @@ public class YouTubeUploadActivity extends AppCompatActivity {
                         if (subUid == null) continue;
                         String nKey = YouTubeFirebaseUtils.notificationsRef(subUid).push().getKey();
                         if (nKey == null) continue;
-                        com.callx.app.models.YouTubeNotification n =
-                            new com.callx.app.models.YouTubeNotification(
+                        com.callx.app.youtube.core.models.YouTubeNotification n =
+                            new com.callx.app.youtube.core.models.YouTubeNotification(
                                 nKey, subUid, myUid, myName, myPhotoUrl,
                                 "new_video", videoId, videoTitle, uploadedThumbUrl);
                         YouTubeFirebaseUtils.notificationsRef(subUid).child(nKey).setValue(n);
