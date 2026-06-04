@@ -12,7 +12,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.callx.app.youtube.core.models.YouTubePlaylist;
-import com.callx.app.utils.YouTubeFirebaseUtils;
+import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.player.R;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.firebase.auth.FirebaseAuth;

@@ -13,12 +13,12 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.bumptech.glide.Glide;
-import com.callx.app.activities.YouTubeChannelActivity;
+// Opened via YTNavigatorProvider.get().openChannel() — no direct import
 import com.callx.app.youtube.core.models.YouTubeVideo;
-import com.callx.app.utils.YouTubeFirebaseUtils;
+import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.player.R;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
-import com.callx.app.utils.YouTubeDownloadManager;
+import com.callx.app.youtube.core.utils.YouTubeDownloadManager;
 import com.google.firebase.auth.FirebaseAuth;
 
 /**

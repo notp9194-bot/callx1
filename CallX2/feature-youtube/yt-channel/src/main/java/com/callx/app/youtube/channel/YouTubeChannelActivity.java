@@ -11,14 +11,14 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
-import com.callx.app.adapters.YouTubeVideoAdapter;
+import com.callx.app.youtube.core.adapters.YouTubeVideoAdapter;
 import com.callx.app.youtube.core.models.YouTubeVideo;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.channel.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
-import com.callx.app.activities.ReelUserProfileSheet;
+// Opened via reflection (cross-module boundary) — no direct import
 import java.util.ArrayList;
 import java.util.List;
 

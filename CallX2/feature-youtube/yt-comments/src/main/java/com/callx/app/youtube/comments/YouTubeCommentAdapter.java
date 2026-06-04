@@ -11,7 +11,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.youtube.core.models.YouTubeComment;
-import com.callx.app.sheets.YouTubeCommentOptionsSheet;
+// YouTubeCommentOptionsSheet is in the same package — no import needed
 import com.callx.app.youtube.comments.R;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.ArrayList;

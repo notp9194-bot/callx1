@@ -9,7 +9,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import com.callx.app.adapters.YouTubeCommentAdapter;
+// YouTubeCommentAdapter is in the same package — no import needed
 import com.callx.app.youtube.core.models.YouTubeComment;
 import com.callx.app.youtube.core.models.YouTubeNotification;
 import com.callx.app.utils.Constants;

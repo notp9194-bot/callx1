@@ -11,7 +11,7 @@ import android.widget.Toast;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import com.bumptech.glide.Glide;
-import com.callx.app.utils.YouTubeCloudinaryUtils;
+import com.callx.app.youtube.core.utils.YouTubeCloudinaryUtils;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.channel.R;
 import com.google.firebase.auth.FirebaseAuth;

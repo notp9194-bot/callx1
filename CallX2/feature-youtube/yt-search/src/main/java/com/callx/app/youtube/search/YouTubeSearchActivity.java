@@ -18,7 +18,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import com.callx.app.adapters.YouTubeVideoAdapter;
+import com.callx.app.youtube.core.adapters.YouTubeVideoAdapter;
 import com.callx.app.youtube.core.models.YouTubeVideo;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.search.R;

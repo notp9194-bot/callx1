@@ -15,7 +15,7 @@ import android.net.NetworkInfo;
 import android.telephony.TelephonyManager;
 import androidx.core.app.NotificationCompat;
 import com.callx.app.youtube.notifications.YouTubeNotificationsActivity; // use YTNavigatorProvider for cross-module nav
-import com.callx.app.activities.YouTubeChannelActivity;
+// Opened via YTNavigatorProvider.get().openChannel() — no direct import
 // Open via YTNavigatorProvider.get().openPlayer()
 import com.callx.app.youtube.notifications.R;
 
