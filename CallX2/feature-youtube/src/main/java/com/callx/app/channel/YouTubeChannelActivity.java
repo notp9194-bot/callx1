@@ -21,7 +21,7 @@ import com.callx.app.youtube.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
-import com.callx.app.activities.ReelUserProfileSheet;
+import com.callx.app.profile.ReelUserProfileSheet;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -94,7 +94,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
             cardReel.setOnClickListener(v -> {
                 Intent i = new Intent();
                 i.setClassName(getPackageName(),
-                    "com.callx.app.activities.UserReelsActivity");
+                    "com.callx.app.profile.UserReelsActivity");
                 i.putExtra("uid", channelUid);
                 i.putExtra("name", tvChannelName.getText() != null
                     ? tvChannelName.getText().toString() : "");

@@ -1143,7 +1143,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                                 sheet.dismiss();
                                 try {
                                     Intent i = new Intent(YouTubePlayerActivity.this,
-                                        Class.forName("com.callx.app.activities.UserReelsActivity"));
+                                        Class.forName("com.callx.app.profile.UserReelsActivity"));
                                     i.putExtra("uid", uploaderUid);
                                     startActivity(i);
                                 } catch (ClassNotFoundException ex) {
@@ -1529,7 +1529,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private void openReelUserProfileSheet(String uid, String name, String photo) {
         if (uid == null || uid.isEmpty()) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.ReelUserProfileSheet");
+            Class<?> cls = Class.forName("com.callx.app.profile.ReelUserProfileSheet");
             java.lang.reflect.Method m = cls.getMethod("show",
                 android.app.Activity.class, String.class, String.class, String.class, boolean.class);
             m.invoke(null, this, uid, name, photo, true); // hideYoutube=true (already on YouTube)
