@@ -121,36 +121,10 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE mediaLocalPath IS NOT NULL AND (mediaUrl IS NULL OR mediaUrl = '') AND status = 'pending' ORDER BY timestamp ASC")
     List<MessageEntity> getFailedMediaUploads();
 
-    /**
-     * Alias — messages with local file but no CDN URL (regardless of status).
-     * Used by SyncWorker to retry offline media uploads.
-     */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE mediaLocalPath IS NOT NULL AND (mediaUrl IS NULL OR mediaUrl = '') ORDER BY timestamp ASC")
-    List<MessageEntity> getPendingMediaUploads();
-
     /** v18: Saare pending messages across all chats — SyncWorker + NotificationActionReceiver retry ke liye. */
     @WorkerThread
     @Query("SELECT * FROM messages WHERE status = 'pending' ORDER BY timestamp ASC")
     List<MessageEntity> getAllPendingMessages();
-
-    /**
-     * Insert or update a single message — named insertOrReplace for call-site clarity.
-     * Same as insertMessage() but explicitly named for ChatViewModel usage.
-     */
-    @WorkerThread
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    void insertOrReplace(MessageEntity message);
-
-    /** Mark message as deleted (soft delete by id). */
-    @WorkerThread
-    @Query("UPDATE messages SET deleted = 1 WHERE id = :msgId")
-    void markDeleted(String msgId);
-
-    /** Get unread messages in a chat from a specific sender — for read receipts. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :senderUid AND (status IS NULL OR status != 'read')")
-    List<MessageEntity> getUnreadMessages(String chatId, String senderUid);
 
     @WorkerThread
     @Insert(onConflict = OnConflictStrategy.REPLACE)
