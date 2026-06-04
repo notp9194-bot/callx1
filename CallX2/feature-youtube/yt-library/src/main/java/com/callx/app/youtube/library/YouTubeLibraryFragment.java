@@ -8,10 +8,10 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import com.callx.app.activities.YouTubeDownloadsActivity;
-import com.callx.app.activities.YouTubeHistoryActivity;
-import com.callx.app.activities.YouTubeLikedVideosActivity;
-import com.callx.app.activities.YouTubeWatchLaterActivity;
+import com.callx.app.youtube.library.YouTubeDownloadsActivity;
+import com.callx.app.youtube.library.YouTubeHistoryActivity;
+import com.callx.app.youtube.library.YouTubeLikedVideosActivity;
+import com.callx.app.youtube.library.YouTubeWatchLaterActivity;
 import com.callx.app.youtube.library.R;
 
 /** Library tab: Watch Later, History, Liked Videos shortcuts. */

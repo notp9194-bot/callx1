@@ -15,7 +15,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
-import com.callx.app.utils.YouTubeDownloadManager;
+import com.callx.app.youtube.library.YouTubeDownloadManager;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.library.R;
 import com.google.firebase.auth.FirebaseAuth;
