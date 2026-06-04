@@ -768,6 +768,21 @@ public class ReelsFragment extends Fragment {
         if (next < adapter.getItemCount()) vpReels.setCurrentItem(next, true);
     }
 
+    /** Called by ReelPlayerFragment after user blocks a reel owner — remove their reels from feed */
+    public void onUserBlocked(String blockedUid) {
+        if (blockedUid == null) return;
+        blockedUids.add(blockedUid);
+        int before = vpReels != null ? vpReels.getCurrentItem() : 0;
+        allReels.removeIf(r -> blockedUid.equals(r.uid));
+        followingReels.removeIf(r -> blockedUid.equals(r.uid));
+        adapter.setReels(isFypMode ? allReels : followingReels);
+        // Stay at same position or clamp if at end
+        if (vpReels != null) {
+            int clamped = Math.min(before, adapter.getItemCount() - 1);
+            if (clamped >= 0) vpReels.setCurrentItem(clamped, false);
+        }
+    }
+
     public void onReelPlaybackStateChanged(boolean isPlaying) {
         if (reelBottomNav == null) return;
         // Don't animate nav when Home tab is showing

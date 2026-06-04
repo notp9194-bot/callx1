@@ -1821,28 +1821,27 @@ public class ReelPlayerFragment extends Fragment
     }
     // ── Block reel owner ──────────────────────────────────────────────────────
     private void blockReelOwner() {
-        if (currentReel == null || currentReel.uid == null) return;
+        if (reel == null || reel.uid == null) return;
         String myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
-        if (myUid == null || myUid.isEmpty() || myUid.equals(currentReel.uid)) return;
+        if (myUid == null || myUid.isEmpty() || myUid.equals(reel.uid)) return;
 
-        String ownerName = currentReel.ownerName != null ? currentReel.ownerName : "this user";
+        String ownerUid  = reel.uid;
+        String ownerName = reel.ownerName != null ? reel.ownerName : "this user";
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setTitle("Block " + ownerName + "?")
             .setMessage("They won't be able to see your reels or contact you. Their content will be hidden from your feed.")
             .setPositiveButton("Block", (d, w) -> {
                 com.callx.app.utils.FirebaseUtils.getBlocksRef(myUid)
-                    .child(currentReel.uid).setValue(true)
+                    .child(ownerUid).setValue(true)
                     .addOnSuccessListener(v -> {
                         if (getContext() != null)
                             android.widget.Toast.makeText(getContext(),
                                 ownerName + " blocked", android.widget.Toast.LENGTH_SHORT).show();
-                        // Remove this reel from feed
-                        blockedUids.add(currentReel.uid);
-                        List<com.callx.app.models.ReelModel> filtered = new java.util.ArrayList<>();
-                        for (com.callx.app.models.ReelModel r : allReels)
-                            if (!blockedUids.contains(r.uid)) filtered.add(r);
-                        allReels.clear(); allReels.addAll(filtered);
-                        if (adapter != null) adapter.setReels(allReels);
+                        blockedUids.add(ownerUid);
+                        // Notify parent ReelsFragment to remove this user's reels
+                        androidx.fragment.app.Fragment parent = getParentFragment();
+                        if (parent instanceof com.callx.app.fragments.ReelsFragment)
+                            ((com.callx.app.fragments.ReelsFragment) parent).onUserBlocked(ownerUid);
                     });
             })
             .setNegativeButton("Cancel", null)
