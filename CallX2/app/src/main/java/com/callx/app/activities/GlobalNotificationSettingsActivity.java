@@ -1,5 +1,6 @@
-import com.callx.app.settings.ReelNotificationSettingsActivity;
 package com.callx.app.activities;
+
+import com.callx.app.settings.ReelNotificationSettingsActivity;
 
   import android.app.NotificationManager;
   import android.app.TimePickerDialog;
