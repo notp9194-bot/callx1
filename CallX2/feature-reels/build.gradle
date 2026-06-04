@@ -39,7 +39,7 @@ dependencies {
     implementation 'androidx.fragment:fragment:1.6.2'
     implementation 'androidx.media:media:1.7.0'
     implementation 'androidx.work:work-runtime:2.9.0'
-    implementation 'com.google.guava:listenablefuture:1.0'
+
     implementation 'androidx.documentfile:documentfile:1.0.1'
 
     // ExoPlayer / Media3
