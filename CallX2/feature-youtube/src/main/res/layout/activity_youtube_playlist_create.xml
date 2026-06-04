@@ -148,7 +148,7 @@
         android:id="@+id/btn_yt_create_playlist"
         android:layout_width="match_parent"
         android:layout_height="52dp"
-        android:margin="16dp"
+        android:layout_margin="16dp"
         android:text="Playlist Banao"
         android:textColor="#FFFFFF"
         android:textSize="15sp"

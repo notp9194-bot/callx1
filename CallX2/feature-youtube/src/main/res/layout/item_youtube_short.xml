@@ -178,8 +178,8 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:src="@drawable/ic_person"
-                android:borderColor="#FFFFFF"
-                android:borderWidth="1.5dp"/>
+                app:civ_border_color="#FFFFFF"
+                app:civ_border_width="1.5dp"/>
 
             <TextView
                 android:id="@+id/tv_short_channel"
