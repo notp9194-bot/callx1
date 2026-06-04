@@ -399,6 +399,37 @@
             android:clipToPadding="false"
             android:visibility="gone"/>
 
+        <!-- FIX [P3-4]: Empty chat state — no messages yet (BUGFIX: was missing from app module, causing NPE crash) -->
+        <LinearLayout
+            android:id="@+id/ll_empty_chat"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="👋"
+                android:textSize="56sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Say hello!"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:layout_marginTop="8dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="No messages yet. Send the first one!"
+                android:textSize="14sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginTop="4dp"
+                android:gravity="center"/>
+        </LinearLayout>
+
         <!-- "Back to latest" FAB — shown when navigating to original message -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_back_to_latest"
