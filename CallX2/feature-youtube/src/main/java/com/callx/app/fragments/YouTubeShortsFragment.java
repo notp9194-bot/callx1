@@ -17,6 +17,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -800,8 +801,7 @@ public class YouTubeShortsFragment extends Fragment {
         class VH extends RecyclerView.ViewHolder {
             PlayerView      playerView;
             ImageView       ivThumb, ivHeartAnim, ivPauseIcon;
-            FrameLayout     flPauseOverlay; // referenced via View cast
-            View            flPauseOverlayView;
+            FrameLayout     flPauseOverlay;
             ProgressBar     pbBuffer, pbProgress;
             ImageButton     btnMute, btnLike, btnDislike, btnComment, btnShare,
                             btnSave, btnRemix, btnMore;
@@ -810,16 +810,13 @@ public class YouTubeShortsFragment extends Fragment {
             TextView        tvChannel, tvTitle, tvDescription, tvMoreDesc,
                             tvLikes, tvComments, tvViews, tvDuration, tvMusic;
             LinearLayout    llMusicStrip;
-            android.widget.FrameLayout flPause;
-
             VH(@NonNull View v) {
                 super(v);
                 playerView    = v.findViewById(R.id.pv_short_player);
                 ivThumb       = v.findViewById(R.id.iv_short_thumb);
                 ivHeartAnim   = v.findViewById(R.id.iv_short_heart_anim);
-                flPause       = v.findViewById(R.id.fl_short_pause_overlay);
+                flPauseOverlay = v.findViewById(R.id.fl_short_pause_overlay);
                 ivPauseIcon   = v.findViewById(R.id.iv_short_pause_icon);
-                flPauseOverlay = flPause;
                 pbBuffer      = v.findViewById(R.id.pb_short_buffer);
                 pbProgress    = v.findViewById(R.id.pb_short_progress);
                 btnMute       = v.findViewById(R.id.btn_short_mute);
@@ -844,8 +841,6 @@ public class YouTubeShortsFragment extends Fragment {
                 llMusicStrip  = v.findViewById(R.id.ll_short_music_strip);
             }
 
-            // Helper so inner adapter can access it
-            android.widget.FrameLayout getFlPauseOverlay() { return flPause; }
         }
     }
 
