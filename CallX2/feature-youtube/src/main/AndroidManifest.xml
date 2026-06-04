@@ -74,7 +74,7 @@
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
 
-        <activity android:name="com.callx.app.models.YouTubeNotificationsActivity"
+        <activity android:name="com.callx.app.notifications.YouTubeNotificationsActivity"
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
 
@@ -184,7 +184,7 @@
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
 
-        <receiver android:name="com.callx.app.models.YouTubeNotificationBootReceiver"
+        <receiver android:name="com.callx.app.notifications.YouTubeNotificationBootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
