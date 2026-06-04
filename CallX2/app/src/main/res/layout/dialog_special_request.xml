@@ -1,81 +1,179 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- SpecialRequest bottom sheet — Emotional / Dramatic design -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="20dp"
-    android:background="@color/surface_card">
-    <View
-        android:layout_width="40dp"
-        android:layout_height="4dp"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="12dp"
-        android:background="@color/text_muted"/>
+    android:layout_height="wrap_content">
+
+    <!-- Emoji Rain background canvas -->
+    <com.callx.app.views.EmojiRainView
+        android:id="@+id/emoji_rain"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.55"/>
+
+    <!-- Actual content on top -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/iv_sp_avatar"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:src="@drawable/ic_person"/>
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:background="#E8000000">
+
+        <!-- Drag handle -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="16dp"
+            android:background="#66FFFFFF"/>
+
+        <!-- Sad mood header label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="😭 Unblock Request"
+            android:textColor="#FFAAAAAA"
+            android:textSize="12sp"
+            android:letterSpacing="0.12"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Avatar row -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="14dp">
-            <TextView
-                android:id="@+id/tv_sp_name"
-                android:layout_width="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <!-- Avatar with shake — FrameLayout so we can overlay tear -->
+            <FrameLayout
+                android:layout_width="64dp"
+                android:layout_height="64dp">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_sp_avatar"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/ic_person"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="#99FF6B6B"/>
+
+                <!-- Tear drop emoji overlay — bottom right corner -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="😢"
+                    android:textSize="18sp"
+                    android:layout_gravity="bottom|end"
+                    android:translationX="4dp"
+                    android:translationY="4dp"/>
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:textStyle="bold"
-                android:textSize="17sp"
-                android:textColor="?android:attr/textColorPrimary"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Special unblock request"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:layout_marginTop="2dp"/>
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="14dp">
+
+                <TextView
+                    android:id="@+id/tv_sp_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textStyle="bold"
+                    android:textSize="17sp"
+                    android:textColor="#FFFFFFFF"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="is begging you to unblock them 🙏"
+                    android:textSize="12sp"
+                    android:textColor="#FFAAAAAA"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
-    <TextView
-        android:id="@+id/tv_sp_text"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textSize="15sp"
-        android:layout_marginBottom="16dp"
-        android:padding="12dp"
-        android:background="@drawable/file_card_bg"/>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_sp_later"
-            android:layout_width="0dp"
+
+        <!-- Message bubble — typewriter effect happens here -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            android:text="Later"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            app:cornerRadius="12dp"/>
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_sp_unblock"
-            android:layout_width="0dp"
+            android:orientation="vertical"
+            android:background="#22FFFFFF"
+            android:padding="14dp"
+            android:layout_marginBottom="20dp">
+
+            <!-- Typewriter text -->
+            <TextView
+                android:id="@+id/tv_sp_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FFEEEEEE"
+                android:textSize="15sp"
+                android:lineSpacingMultiplier="1.4"
+                android:minLines="2"/>
+
+            <!-- Blinking cursor -->
+            <TextView
+                android:id="@+id/tv_cursor"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="|"
+                android:textColor="#FFAAAAAA"
+                android:textSize="15sp"
+                android:layout_marginTop="2dp"/>
+
+            <!-- "Still waiting..." label -->
+            <TextView
+                android:id="@+id/tv_waiting"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="still waiting... 💔"
+                android:textColor="#88AAAAAA"
+                android:textSize="11sp"
+                android:layout_gravity="end"
+                android:layout_marginTop="8dp"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <!-- Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:text="Please unblock"
-            android:textColor="#FFFFFF"
-            app:cornerRadius="12dp"
-            android:backgroundTint="@color/action_call_accept"/>
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_sp_later"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:text="Not now"
+                android:textColor="#FFAAAAAA"
+                app:strokeColor="#44FFFFFF"
+                app:strokeWidth="1dp"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:cornerRadius="14dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_sp_unblock"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="Please... 🙏"
+                android:textColor="#FFFFFFFF"
+                android:backgroundTint="#FF4CAF50"
+                app:cornerRadius="14dp"/>
+
+        </LinearLayout>
+
+        <android.widget.Space
+            android:layout_width="match_parent"
+            android:layout_height="8dp"/>
+
     </LinearLayout>
-</LinearLayout>
+
+</FrameLayout>
