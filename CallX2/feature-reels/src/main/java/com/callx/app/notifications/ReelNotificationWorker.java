@@ -1,5 +1,7 @@
 package com.callx.app.notifications;
 
+import com.callx.app.analytics.ReelCreatorDashboardActivity;
+
 import com.callx.app.reels.R;
 
 import android.content.Context;
@@ -339,7 +341,7 @@ public class ReelNotificationWorker extends Worker {
               : "Your reel is scheduled to post at " + timeStr;
 
           android.content.Intent intent = new android.content.Intent(getApplicationContext(),
-              com.callx.app.activities.ReelCreatorDashboardActivity.class)
+              com.callx.app.analytics.ReelCreatorDashboardActivity.class)
               .putExtra("reel_id", reelId)
               .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
           android.app.PendingIntent pi = android.app.PendingIntent.getActivity(

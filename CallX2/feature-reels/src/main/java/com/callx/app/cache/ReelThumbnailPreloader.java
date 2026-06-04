@@ -1,5 +1,8 @@
 package com.callx.app.cache;
 
+import com.callx.app.feed.ReelsFragment;
+import com.callx.app.feed.ReelPlayerFragment;
+
 import android.content.Context;
 import android.util.Log;
 

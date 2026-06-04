@@ -1,5 +1,8 @@
 package com.callx.app.notifications;
 
+import com.callx.app.social.ReelRepostListActivity;
+import com.callx.app.workers.ReelRepostWorker;
+
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -11,8 +14,8 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 
 import com.callx.app.reels.R;
-import com.callx.app.activities.SingleReelPlayerActivity;
-import com.callx.app.activities.ReelNotificationsActivity;
+import com.callx.app.player.SingleReelPlayerActivity;
+import com.callx.app.notifications.ReelNotificationsActivity;
 
 /**
  * ReelRepostNotificationHelper
@@ -135,7 +138,7 @@ public class ReelRepostNotificationHelper {
                 ? "\u201c" + caption + "\u201d"
                 : "Tap to see who reposted it";
 
-        Intent tapIntent = new Intent(ctx, com.callx.app.activities.SingleReelPlayerActivity.class);
+        Intent tapIntent = new Intent(ctx, com.callx.app.player.SingleReelPlayerActivity.class);
         tapIntent.putExtra("reel_id", reelId);
         tapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         int reqCode = ("repost_notif_" + reelId + reposterUid).hashCode();
@@ -143,7 +146,7 @@ public class ReelRepostNotificationHelper {
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
         // Action: View all reposters
-        Intent listIntent = new Intent(ctx, com.callx.app.activities.ReelRepostListActivity.class);
+        Intent listIntent = new Intent(ctx, com.callx.app.social.ReelRepostListActivity.class);
         listIntent.putExtra("reel_id", reelId);
         listIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         android.app.PendingIntent listPi = android.app.PendingIntent.getActivity(ctx, reqCode + 1, listIntent,
@@ -185,7 +188,7 @@ public class ReelRepostNotificationHelper {
                 ? "\u201c" + quoteText + "\u201d"
                 : "Tap to see the quote repost";
 
-        Intent tapIntent = new Intent(ctx, com.callx.app.activities.SingleReelPlayerActivity.class);
+        Intent tapIntent = new Intent(ctx, com.callx.app.player.SingleReelPlayerActivity.class);
         tapIntent.putExtra("reel_id", reelId);
         tapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         int reqCode = ("quote_repost_notif_" + reelId + quoterUid).hashCode();

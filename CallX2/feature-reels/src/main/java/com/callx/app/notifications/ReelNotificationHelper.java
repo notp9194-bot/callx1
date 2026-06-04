@@ -1,5 +1,19 @@
 package com.callx.app.notifications;
 
+import com.callx.app.player.SingleReelPlayerActivity;
+import com.callx.app.camera.ReelCameraActivity;
+import com.callx.app.upload.ReelSchedulerActivity;
+import com.callx.app.music.ReelTrendingAudioActivity;
+import com.callx.app.social.ReelShareSheetActivity;
+import com.callx.app.explore.ReelChallengeActivity;
+import com.callx.app.analytics.ReelAnalyticsActivity;
+import com.callx.app.creator.ReelCreatorFundActivity;
+import com.callx.app.creator.ReelGiftingActivity;
+import com.callx.app.library.ReelDraftsActivity;
+import com.callx.app.live.ReelLiveActivity;
+import com.callx.app.followers.ReelCollabInboxActivity;
+import com.callx.app.services.ReelNotificationService;
+
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
@@ -264,7 +278,7 @@ public class ReelNotificationHelper {
             Bitmap avatar = (net >= 2) ? downloadCircle(partnerPhoto, 100) : null;
             String title  = partnerName + " accepted your collab invite!";
             NotificationCompat.Builder b = base(ctx, ReelNotificationChannelManager.CHANNEL_REEL_COLLAB_ACCEPTED, R.drawable.ic_reels, title, "Start recording your collab now", 0xFF34C759)
-                .setContentIntent(genericPi(ctx, com.callx.app.activities.ReelCollabInboxActivity.class));
+                .setContentIntent(genericPi(ctx, com.callx.app.followers.ReelCollabInboxActivity.class));
             if (avatar != null) b.setLargeIcon(avatar);
             show(ctx, b, notifId("collabac", collabId));
         });
