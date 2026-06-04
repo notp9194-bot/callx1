@@ -217,6 +217,7 @@ public class ChatActivity extends AppCompatActivity {
         watchPartnerPermaBlock();
         watchMyPermaBlock();
         checkAndShowPendingSpecialRequest();
+        checkAndShowUnblockJoy(); // Unblock ho gaya to khushi sheet dikhao
         watchPinnedMessage();
         markMessagesRead();
 
@@ -254,6 +255,16 @@ public class ChatActivity extends AppCompatActivity {
                 });
             }
         });
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // Notification se aaya — joy sheet check karo
+        if (intent.getBooleanExtra("show_unblock_joy", false)) {
+            binding.getRoot().postDelayed(this::checkAndShowUnblockJoy, 600);
+        }
     }
 
     @Override
@@ -1692,6 +1703,65 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // UNBLOCK JOY SHEET — blocked user ko dikhao jab unblock ho jaye
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void checkAndShowUnblockJoy() {
+        if (currentUid == null || partnerUid == null) return;
+        boolean fromNotif = getIntent().getBooleanExtra("show_unblock_joy", false);
+
+        FirebaseUtils.db().getReference("unblockEvents")
+                .child(currentUid).child(partnerUid)
+                .get().addOnSuccessListener(snap -> {
+                    if (!snap.exists()) return;
+                    String unblockName = snap.child("unblockedBy").getValue(String.class);
+                    if (unblockName == null) unblockName = partnerName;
+                    // Node delete karo — ek baar hi dikhana hai
+                    snap.getRef().removeValue();
+                    final String displayName = unblockName;
+                    binding.getRoot().postDelayed(
+                            () -> showUnblockJoySheet(displayName),
+                            fromNotif ? 400 : 800);
+                });
+    }
+
+    private void showUnblockJoySheet(String unblockerName) {
+        if (isFinishing() || isDestroyed()) return;
+        android.view.View sheet = LayoutInflater.from(this)
+                .inflate(R.layout.dialog_unblock_joy, null);
+
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+                sheet.findViewById(R.id.iv_joy_avatar);
+        android.widget.TextView tvName  = sheet.findViewById(R.id.tv_joy_name);
+        com.callx.app.views.EmojiRainView rain = sheet.findViewById(R.id.emoji_rain_joy);
+        com.google.android.material.button.MaterialButton btnOpen  = sheet.findViewById(R.id.btn_joy_open_chat);
+        com.google.android.material.button.MaterialButton btnLater = sheet.findViewById(R.id.btn_joy_later);
+
+        tvName.setText(unblockerName);
+
+        // Partner avatar load
+        if (partnerPhoto != null && !partnerPhoto.isEmpty()) {
+            com.bumptech.glide.Glide.with(this).load(partnerPhoto).into(ivAvatar);
+        } else if (partnerThumb != null && !partnerThumb.isEmpty()) {
+            com.bumptech.glide.Glide.with(this).load(partnerThumb).into(ivAvatar);
+        }
+
+        // Happy emoji mode — 🎉🎊✨
+        rain.setHappyMode(true);
+        rain.startRain();
+
+        final BottomSheetDialog dlg = new BottomSheetDialog(this,
+                com.google.android.material.R.style.Theme_Material3_Dark_BottomSheetDialog);
+        dlg.setContentView(sheet);
+        dlg.setCancelable(true);
+        dlg.setOnDismissListener(d -> rain.stopRain());
+
+        btnOpen.setOnClickListener(v -> dlg.dismiss());   // Already in chat — dismiss kafi hai
+        btnLater.setOnClickListener(v -> dlg.dismiss());
+        dlg.show();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // ─────────────────────────────────────────────────────────────────────
     // SPECIAL REQUEST — blocker ki chat open hone pe check karo
     // ─────────────────────────────────────────────────────────────────────
@@ -1790,13 +1860,11 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void openSpecialRequestDialog() {
-        // Pehle current attempt count + last send timestamp fetch karo
         FirebaseUtils.db().getReference("specialRequests")
                 .child(partnerUid).child(currentUid)
                 .get().addOnSuccessListener(snap -> {
-                    long count = 0L;
+                    long count  = 0L;
                     long lastTs = 0L;
-
                     if (snap.exists()) {
                         Long c = snap.child("attemptCount").getValue(Long.class);
                         Long t = snap.child("ts").getValue(Long.class);
@@ -1814,7 +1882,7 @@ public class ChatActivity extends AppCompatActivity {
                     }
 
                     // 24hr cooldown check
-                    long elapsed = System.currentTimeMillis() - lastTs;
+                    long elapsed    = System.currentTimeMillis() - lastTs;
                     long cooldownMs = 24L * 60 * 60 * 1000;
                     if (lastTs > 0 && elapsed < cooldownMs) {
                         long hoursLeft = (cooldownMs - elapsed) / (1000 * 60 * 60);
@@ -1825,57 +1893,98 @@ public class ChatActivity extends AppCompatActivity {
                         return;
                     }
 
-                    EditText et = new EditText(this);
-                    et.setHint("Write your message (e.g. Sorry, please unblock me)");
-                    et.setMinLines(2);
-                    et.setMaxLines(4);
-                    int p = dp(16);
-                    et.setPadding(p, p, p, p);
-
                     final long finalCount = count;
-                    new AlertDialog.Builder(this)
-                            .setTitle("Send special request")
-                            .setMessage("Attempt " + (finalCount + 1) + " of " + MAX_SPECIAL_REQUESTS
-                                    + ". After 3 failed attempts you will be permanently blocked.")
-                            .setView(et)
-                            .setPositiveButton("Send", (d, w) -> {
-                                String txt = et.getText().toString().trim();
-                                if (txt.isEmpty()) txt = "Please unblock me";
-                                com.google.firebase.auth.FirebaseUser me =
-                                        FirebaseAuth.getInstance().getCurrentUser();
-                                String myPhoto = (me != null && me.getPhotoUrl() != null)
-                                        ? me.getPhotoUrl().toString() : "";
-
-                                long newCount = finalCount + 1;
-                                Map<String, Object> entry = new HashMap<>();
-                                entry.put("text",         txt);
-                                entry.put("ts",           System.currentTimeMillis());
-                                entry.put("fromName",     currentName);
-                                entry.put("fromUid",      currentUid);
-                                entry.put("fromPhoto",    myPhoto);
-                                entry.put("attemptCount", newCount);
-
-                                FirebaseUtils.db().getReference("specialRequests")
-                                        .child(partnerUid).child(currentUid).setValue(entry);
-
-                                if (newCount >= MAX_SPECIAL_REQUESTS) {
-                                    FirebaseUtils.db().getReference("permaBlocked")
-                                            .child(partnerUid).child(currentUid).setValue(true);
-                                    Toast.makeText(this,
-                                            "Last attempt used. You are now permanently blocked.",
-                                            Toast.LENGTH_LONG).show();
-                                } else {
-                                    Toast.makeText(this, "Request sent ("
-                                            + newCount + "/" + MAX_SPECIAL_REQUESTS + ")",
-                                            Toast.LENGTH_SHORT).show();
-                                }
-
-                                PushNotify.notifySpecialRequest(
-                                        partnerUid, currentUid, currentName, myPhoto, txt);
-                            })
-                            .setNegativeButton("Cancel", null)
-                            .show();
+                    showSendRequestSheet(finalCount);
                 });
+    }
+
+    private void showSendRequestSheet(long currentAttemptCount) {
+        android.view.View sheet = LayoutInflater.from(this)
+                .inflate(R.layout.dialog_send_unblock_request, null);
+
+        de.hdodenhof.circleimageview.CircleImageView ivBlocker =
+                sheet.findViewById(R.id.iv_blocker_avatar);
+        android.widget.TextView tvBlockerName  = sheet.findViewById(R.id.tv_blocker_name);
+        android.widget.TextView tvAttemptsLeft = sheet.findViewById(R.id.tv_attempts_left);
+        android.widget.TextView tvAttemptInfo  = sheet.findViewById(R.id.tv_attempt_info);
+        android.widget.TextView tvCharCount    = sheet.findViewById(R.id.tv_char_count);
+        android.widget.EditText etMsg          = sheet.findViewById(R.id.et_request_message);
+        com.callx.app.views.EmojiRainView rain = sheet.findViewById(R.id.emoji_rain_send);
+        com.google.android.material.button.MaterialButton btnSend   = sheet.findViewById(R.id.btn_send_request);
+        com.google.android.material.button.MaterialButton btnCancel = sheet.findViewById(R.id.btn_cancel_request);
+
+        // Blocker info
+        tvBlockerName.setText(partnerName);
+        long remaining = MAX_SPECIAL_REQUESTS - currentAttemptCount;
+        tvAttemptsLeft.setText("has blocked you • " + remaining + " attempt(s) left");
+        tvAttemptInfo.setText("Attempt " + (currentAttemptCount + 1) + " of " + MAX_SPECIAL_REQUESTS);
+
+        // Blocker avatar load
+        FirebaseUtils.getUserRef(partnerUid).child("photoUrl").get()
+                .addOnSuccessListener(photoSnap -> {
+                    String url = photoSnap.exists() ? photoSnap.getValue(String.class) : null;
+                    if (url != null && !url.isEmpty()) {
+                        com.bumptech.glide.Glide.with(this).load(url).into(ivBlocker);
+                    }
+                });
+
+        // Char counter
+        etMsg.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
+                tvCharCount.setText(s.length() + " / 300");
+            }
+            @Override public void afterTextChanged(android.text.Editable s) {}
+        });
+
+        // Start emoji rain
+        rain.startRain();
+
+        final BottomSheetDialog dlg = new BottomSheetDialog(this,
+                com.google.android.material.R.style.Theme_Material3_Dark_BottomSheetDialog);
+        dlg.setContentView(sheet);
+        dlg.setCancelable(true);
+        dlg.setOnDismissListener(d -> rain.stopRain());
+
+        btnCancel.setOnClickListener(v -> dlg.dismiss());
+
+        btnSend.setOnClickListener(v -> {
+            String txt = etMsg.getText().toString().trim();
+            if (txt.isEmpty()) txt = "Please unblock me 🙏";
+
+            com.google.firebase.auth.FirebaseUser me = FirebaseAuth.getInstance().getCurrentUser();
+            String myPhoto = (me != null && me.getPhotoUrl() != null)
+                    ? me.getPhotoUrl().toString() : "";
+
+            long newCount = currentAttemptCount + 1;
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("text",         txt);
+            entry.put("ts",           System.currentTimeMillis());
+            entry.put("fromName",     currentName);
+            entry.put("fromUid",      currentUid);
+            entry.put("fromPhoto",    myPhoto);
+            entry.put("attemptCount", newCount);
+
+            FirebaseUtils.db().getReference("specialRequests")
+                    .child(partnerUid).child(currentUid).setValue(entry);
+
+            if (newCount >= MAX_SPECIAL_REQUESTS) {
+                FirebaseUtils.db().getReference("permaBlocked")
+                        .child(partnerUid).child(currentUid).setValue(true);
+                Toast.makeText(this,
+                        "Last attempt used. You are now permanently blocked.",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this,
+                        "Request sent (" + newCount + "/" + MAX_SPECIAL_REQUESTS + ")",
+                        Toast.LENGTH_SHORT).show();
+            }
+
+            PushNotify.notifySpecialRequest(partnerUid, currentUid, currentName, myPhoto, txt);
+            dlg.dismiss();
+        });
+
+        dlg.show();
     }
 
     // ─────────────────────────────────────────────────────────────────────

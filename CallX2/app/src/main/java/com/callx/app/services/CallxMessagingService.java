@@ -1089,8 +1089,9 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final int notifId = ("unblock_" + fromUid).hashCode();
 
         Intent open = new Intent(this, ChatActivity.class);
-        open.putExtra("partnerUid",  fromUid);
-        open.putExtra("partnerName", fromName);
+        open.putExtra("partnerUid",        fromUid);
+        open.putExtra("partnerName",       fromName);
+        open.putExtra("show_unblock_joy",  true);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPi = PendingIntent.getActivity(this, notifId, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

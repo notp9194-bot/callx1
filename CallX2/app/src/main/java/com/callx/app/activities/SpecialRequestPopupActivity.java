@@ -5,7 +5,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.animation.AnimationUtils;
 import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
@@ -87,26 +86,16 @@ public class SpecialRequestPopupActivity extends AppCompatActivity {
 
         tvName.setText(fromName);
 
-        // Avatar load
+        // Avatar load — CircleImageView khud clipping karta hai, circleCrop() nahi chahiye
         String popupAvatar = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : fromPhoto;
         if (popupAvatar != null && !popupAvatar.isEmpty()) {
-            Glide.with(this).load(popupAvatar).circleCrop().into(iv);
+            Glide.with(this).load(popupAvatar).into(iv);
         } else {
             iv.setImageResource(R.drawable.ic_person);
         }
 
         // ── 1. Start emoji rain ─────────────────────────────────────────
         rain.startRain();
-
-        // ── 2. Shake avatar — repeat every 3.5 seconds ─────────────────
-        Runnable shakeLoop = new Runnable() {
-            @Override public void run() {
-                iv.startAnimation(AnimationUtils.loadAnimation(
-                        SpecialRequestPopupActivity.this, R.anim.shake));
-                uiHandler.postDelayed(this, 3500);
-            }
-        };
-        uiHandler.postDelayed(shakeLoop, 600);
 
         // ── 3. Typewriter effect ────────────────────────────────────────
         typeIndex = 0;
@@ -161,6 +150,14 @@ public class SpecialRequestPopupActivity extends AppCompatActivity {
                 .child(myUid).child(fromUid).removeValue();
             FirebaseUtils.db().getReference("seenRequests")
                 .child(myUid).child(fromUid).removeValue();
+
+            // Blocked user ke liye joy event set karo — woh chat kholne pe sheet dekhega
+            java.util.Map<String, Object> joyEvent = new java.util.HashMap<>();
+            joyEvent.put("unblockedBy", myName);
+            joyEvent.put("unblockedByUid", myUid);
+            joyEvent.put("ts", System.currentTimeMillis());
+            FirebaseUtils.db().getReference("unblockEvents")
+                .child(fromUid).child(myUid).setValue(joyEvent);
 
             PushNotify.notifyUnblock(fromUid, myUid, myName);
             dlg.dismiss();
