@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.callx.app.youtube.search">
+    <application>
+        <activity
+            android:name=".YouTubeSearchActivity"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustResize"
+            android:exported="false" />
+    </application>
+</manifest>

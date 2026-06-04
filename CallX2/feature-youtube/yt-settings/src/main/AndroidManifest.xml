@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.callx.app.youtube.settings">
+    <application>
+        <activity android:name=".YouTubeSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeGeneralSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubePlaybackSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeVideoQualitySettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeDataSavingSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeDownloadSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeNotifSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeLiveChatSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubePrivacySettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeCaptionsSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeAccessibilitySettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeConnectedAppsActivity" android:exported="false" />
+        <activity android:name=".YouTubeFamilyCenterActivity" android:exported="false" />
+        <activity android:name=".YouTubeYourDataActivity" android:exported="false" />
+        <activity android:name=".YouTubeBillingActivity" android:exported="false" />
+        <activity android:name=".YouTubePurchasesActivity" android:exported="false" />
+        <activity android:name=".YouTubeDeveloperSettingsActivity" android:exported="false" />
+        <activity android:name=".YouTubeExperimentalActivity" android:exported="false" />
+        <activity android:name=".YouTubeFeedbackActivity" android:exported="false" />
+        <activity android:name=".YouTubeHelpActivity" android:exported="false" />
+        <activity android:name=".YouTubeTosActivity" android:exported="false" />
+        <activity android:name=".YouTubeSwitchAccountActivity" android:exported="false" />
+    </application>
+</manifest>

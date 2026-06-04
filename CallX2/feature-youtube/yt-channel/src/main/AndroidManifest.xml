@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.callx.app.youtube.channel">
+    <application>
+        <activity android:name=".YouTubeChannelActivity" android:exported="false" />
+        <activity android:name=".YouTubeEditChannelActivity" android:exported="false" />
+        <activity android:name=".YouTubeSubscribersActivity" android:exported="false" />
+        <activity android:name=".YouTubeAboutActivity" android:exported="false" />
+    </application>
+</manifest>

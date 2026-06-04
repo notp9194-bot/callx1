@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.callx.app.youtube.player">
+    <application>
+        <!-- Full-screen video player with ExoPlayer -->
+        <activity
+            android:name=".YouTubePlayerActivity"
+            android:screenOrientation="sensor"
+            android:supportsPictureInPicture="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:windowSoftInputMode="adjustPan"
+            android:exported="false" />
+
+        <!-- Speed &amp; Quality bottom sheet (SheetActivity wrapper not needed — it's a DialogFragment) -->
+    </application>
+</manifest>

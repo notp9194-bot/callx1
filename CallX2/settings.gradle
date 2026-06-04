@@ -15,17 +15,61 @@ dependencyResolutionManagement {
 }
 rootProject.name = "CallX"
 
-// ── Existing ──
+// ── Existing ──────────────────────────────────────────────────────────────
 include ':app'
 include ':patternlockview'
 
-// ── Modular Architecture ──
+// ── Core Modules ──────────────────────────────────────────────────────────
 include ':core'
 include ':feature-chat'
 include ':feature-reels'
 include ':feature-calls'
 include ':feature-status'
-
 include ':feature-x'
-include ':feature-youtube'
 include ':feature-games'
+
+// ── YouTube Sub-Modules ───────────────────────────────────────────────────
+// yt-core: Shared models, FirebaseUtils, Navigator interface, Prefs
+// All other yt-* modules depend on yt-core
+include ':yt-core'
+project(':yt-core').projectDir = new File('feature-youtube/yt-core')
+
+// yt-home: Main YouTubeActivity (bottom nav shell) + Home/Explore/Subscriptions
+include ':yt-home'
+project(':yt-home').projectDir = new File('feature-youtube/yt-home')
+
+// yt-player: ExoPlayer, MiniPlayer, SpeedQualitySheet, AddToPlaylist
+include ':yt-player'
+project(':yt-player').projectDir = new File('feature-youtube/yt-player')
+
+// yt-upload: Upload flow + Cloudinary utils
+include ':yt-upload'
+project(':yt-upload').projectDir = new File('feature-youtube/yt-upload')
+
+// yt-comments: Comments Activity + Adapter + Option sheets
+include ':yt-comments'
+project(':yt-comments').projectDir = new File('feature-youtube/yt-comments')
+
+// yt-channel: Channel profile, edit channel, subscribers, about
+include ':yt-channel'
+project(':yt-channel').projectDir = new File('feature-youtube/yt-channel')
+
+// yt-shorts: Full-screen vertical shorts player
+include ':yt-shorts'
+project(':yt-shorts').projectDir = new File('feature-youtube/yt-shorts')
+
+// yt-library: Library tab — playlists, history, downloads, liked, watch later
+include ':yt-library'
+project(':yt-library').projectDir = new File('feature-youtube/yt-library')
+
+// yt-search: Search with history & live suggestions
+include ':yt-search'
+project(':yt-search').projectDir = new File('feature-youtube/yt-search')
+
+// yt-notifs: Notifications activity, FCM handler, WorkManager worker
+include ':yt-notifs'
+project(':yt-notifs').projectDir = new File('feature-youtube/yt-notifs')
+
+// yt-settings: All settings screens (general, playback, quality, etc.)
+include ':yt-settings'
+project(':yt-settings').projectDir = new File('feature-youtube/yt-settings')
