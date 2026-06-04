@@ -47,6 +47,7 @@ public class YouTubeVideoAdapter
     private       List<YouTubeVideo>  data;
     private final OnVideoClickListener clickListener;
     private       OnMoreClickListener  moreListener;
+    private       boolean              feedAutoplay = false;
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -60,6 +61,15 @@ public class YouTubeVideoAdapter
 
     public void setMoreListener(OnMoreClickListener listener) {
         this.moreListener = listener;
+    }
+
+    /**
+     * Controls whether the feed should auto-play muted previews.
+     * Currently stored as a flag; actual playback logic can be wired in onBindViewHolder.
+     */
+    public void setFeedAutoplay(boolean autoplay) {
+        this.feedAutoplay = autoplay;
+        notifyDataSetChanged();
     }
 
     // ── Data helpers ──────────────────────────────────────────────────────────

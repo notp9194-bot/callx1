@@ -7,6 +7,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.youtube.core.models.YouTubeVideo;
 import com.callx.app.youtube.core.navigator.YTNavigatorProvider;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
+import com.callx.app.youtube.core.adapters.YouTubeVideoAdapter;
 import com.google.firebase.database.*;
 import java.util.ArrayList;
 import java.util.List;

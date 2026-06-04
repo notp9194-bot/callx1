@@ -10,11 +10,11 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-// Opened via YTNavigatorProvider.get().openPlayer() — no direct import
 import com.callx.app.youtube.core.adapters.YouTubeVideoAdapter;
 import com.callx.app.youtube.core.models.YouTubeVideo;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.home.R;
+import com.callx.app.youtube.player.YouTubePlayerActivity;
 import com.google.firebase.database.*;
 import java.util.ArrayList;
 import java.util.List;
