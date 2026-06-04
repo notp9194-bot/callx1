@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Active reaction chip background — brand tinted pill (current user reacted) -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="12dp"/>
+    <solid android:color="#1A6C63FF"/>
+    <stroke android:width="1.5dp" android:color="#6C63FF"/>
+</shape>

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  item_multi_image_thumb.xml
+  Single thumbnail in the horizontal strip.
+  - Square card with photo thumbnail
+  - Focused: colored border shown (brand_primary)
+  - Caption added: small dot indicator at bottom-right
+  - ✕ remove button top-right
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="64dp"
+    android:layout_height="64dp"
+    android:layout_marginEnd="6dp">
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/card_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="2dp"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+
+        <ImageView
+            android:id="@+id/iv_thumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"/>
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- Focus border (highlighted ring) -->
+    <View
+        android:id="@+id/border_highlight"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/border_focused_thumb"
+        android:visibility="gone"/>
+
+    <!-- Remove button (top-right) -->
+    <ImageButton
+        android:id="@+id/btn_remove"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="2dp"
+        android:src="@drawable/ic_close_circle"
+        android:padding="2dp"
+        android:background="@null"
+        android:contentDescription="Remove"/>
+
+    <!-- Caption dot indicator (bottom-right) -->
+    <View
+        android:id="@+id/dot_caption"
+        android:layout_width="8dp"
+        android:layout_height="8dp"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="4dp"
+        android:background="@drawable/circle_primary_small"
+        android:visibility="gone"/>
+
+</FrameLayout>

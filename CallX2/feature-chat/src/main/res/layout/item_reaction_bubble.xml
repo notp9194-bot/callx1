@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  item_reaction_bubble.xml
+  Reaction row shown below a message bubble.
+  Inflated dynamically and added below each message bubble in the adapter.
+
+  Layout:
+    Horizontal scroll of reaction chips:
+      [ 👍 2 ] [ ❤️ ] [ 😂 3 ]
+    Each chip: pill background, emoji + count, tinted if current user reacted
+
+  Usage in adapter:
+    binding.reactionRow.removeAllViews();
+    for (ReactionSummary r : summaries) {
+        View chip = inflater.inflate(R.layout.item_reaction_chip, reactionRow, false);
+        // bind emoji, count, highlight
+        binding.reactionRow.addView(chip);
+    }
+    binding.reactionRow.setVisibility(summaries.isEmpty() ? View.GONE : View.VISIBLE);
+
+  Note: Chips are added programmatically. This XML is just the container row.
+-->
+<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/reaction_scroll"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:scrollbars="none"
+    android:overScrollMode="never"
+    android:layout_marginTop="-4dp"
+    android:layout_marginBottom="2dp">
+
+    <LinearLayout
+        android:id="@+id/reaction_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"/>
+
+</HorizontalScrollView>
