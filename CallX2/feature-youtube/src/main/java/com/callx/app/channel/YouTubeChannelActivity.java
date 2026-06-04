@@ -1,5 +1,8 @@
 package com.callx.app.channel;
 
+import com.callx.app.player.YouTubePlayerActivity;
+import com.callx.app.settings.YouTubeSettingsActivity;
+
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;

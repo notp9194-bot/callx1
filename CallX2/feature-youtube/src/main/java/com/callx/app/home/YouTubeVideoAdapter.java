@@ -1,5 +1,7 @@
 package com.callx.app.home;
 
+import com.callx.app.channel.YouTubeChannelActivity;
+
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -105,7 +107,7 @@ public class YouTubeVideoAdapter
         // Avatar click → open YouTubeChannelActivity for the uploader (same module, direct ref ok)
         h.ivAvatar.setOnClickListener(v -> {
             android.content.Intent i = new android.content.Intent(ctx,
-                com.callx.app.activities.YouTubeChannelActivity.class);
+                com.callx.app.channel.YouTubeChannelActivity.class);
             i.putExtra("uid", video.uploaderUid != null ? video.uploaderUid : "");
             ctx.startActivity(i);
         });
