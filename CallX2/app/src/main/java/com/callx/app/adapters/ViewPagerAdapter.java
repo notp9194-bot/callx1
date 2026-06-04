@@ -6,7 +6,7 @@ import androidx.viewpager2.adapter.FragmentStateAdapter;
 import com.callx.app.fragments.CallsFragment;
 import com.callx.app.fragments.ChatsFragment;
 import com.callx.app.fragments.GroupsFragment;
-import com.callx.app.fragments.ReelsFragment;
+import com.callx.app.feed.ReelsFragment;
 import com.callx.app.fragments.StatusFragment;
 
 public class ViewPagerAdapter extends FragmentStateAdapter {
