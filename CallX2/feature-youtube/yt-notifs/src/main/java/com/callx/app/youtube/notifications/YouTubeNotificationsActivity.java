@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView;
 // YouTubeNotificationAdapter is in the same package — no import needed
 import com.callx.app.youtube.core.models.YouTubeNotification;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
+import com.callx.app.youtube.player.YouTubePlayerActivity;
 import com.callx.app.youtube.notifications.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;

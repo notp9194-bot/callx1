@@ -9,7 +9,8 @@ import android.graphics.BitmapFactory;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import com.callx.app.youtube.notifications.YouTubeNotificationsActivity; // use YTNavigatorProvider for cross-module nav
-// Open via YTNavigatorProvider.get().openPlayer()
+import com.callx.app.youtube.player.YouTubePlayerActivity;
+import com.callx.app.youtube.home.YouTubeActivity;
 import com.callx.app.youtube.notifications.R;
 import java.io.InputStream;
 import java.net.URL;

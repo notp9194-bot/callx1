@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.youtube.core.adapters.YouTubeVideoAdapter;
 import com.callx.app.youtube.core.models.YouTubeVideo;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
+import com.callx.app.youtube.player.YouTubePlayerActivity;
 import com.callx.app.youtube.search.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
