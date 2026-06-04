@@ -26,33 +26,6 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * SyncWorker — WorkManager Worker for retrying failed offline media uploads.
- *
- * WHY THIS EXISTS:
- *   When user sends image/video without internet:
- *   1. Message is saved locally in Room with mediaLocalPath + mediaUrl = null
- *   2. CloudinaryUploader fails silently
- *   3. Firebase push never happens
- *   → User thinks message sent, but partner never receives it
- *
- * HOW IT FIXES THIS:
- *   1. WorkManager schedules SyncWorker with NETWORK_CONNECTED constraint
- *   2. SyncWorker queries Room for messages where:
- *      - mediaLocalPath IS NOT NULL (has local file)
- *      - mediaUrl IS NULL (never successfully uploaded)
- *   3. For each pending message:
- *      a. Upload local file to Cloudinary → get CDN URL
- *      b. Update Room: set mediaUrl, clear mediaLocalPath
- *      c. Push message to Firebase RTDB
- *      d. Update chatList preview
- *   4. WorkManager handles retries with exponential backoff
- *
- * SCHEDULING:
- *   Call SyncWorker.schedule(context) from:
- *   - ChatActivity.sendMessage() when upload fails
- *   - ChatActivity.setupNetworkMonitor() when network comes back
- *   - Application.onCreate() for any pending on app start
- *
- * Work is enqueued with KEEP policy — won't duplicate if already pending.
  */
 public class SyncWorker extends Worker {
 
@@ -64,18 +37,9 @@ public class SyncWorker extends Worker {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // SCHEDULE — Call this to enqueue a sync job
+    // SCHEDULE
     // ─────────────────────────────────────────────────────────────────────
 
-    /**
-     * Enqueue a one-time sync job that runs when internet is available.
-     *
-     * Usage:
-     *   SyncWorker.schedule(context);  // from ChatActivity, Application, etc.
-     *
-     * Uses KEEP policy — calling multiple times is safe (won't duplicate).
-     * Exponential backoff: 30s → 60s → 120s ... up to 5 attempts.
-     */
     public static void schedule(@NonNull Context context) {
         Constraints constraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -93,15 +57,12 @@ public class SyncWorker extends Worker {
         Log.d(TAG, "SyncWorker scheduled");
     }
 
-    /**
-     * Cancel any pending sync job (e.g. on logout).
-     */
     public static void cancel(@NonNull Context context) {
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME);
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // DO WORK — runs on background thread
+    // DO WORK
     // ─────────────────────────────────────────────────────────────────────
 
     @NonNull
@@ -110,7 +71,8 @@ public class SyncWorker extends Worker {
         Log.d(TAG, "SyncWorker starting...");
 
         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
-        List<MessageEntity> pending = db.messageDao().getPendingMediaUploads();
+        // FIX 1: getPendingMediaUploads() → getFailedMediaUploads()
+        List<MessageEntity> pending = db.messageDao().getFailedMediaUploads();
 
         if (pending == null || pending.isEmpty()) {
             Log.d(TAG, "SyncWorker: No pending uploads found");
@@ -156,7 +118,8 @@ public class SyncWorker extends Worker {
             Log.w(TAG, "Local file gone: " + msg.mediaLocalPath + " — marking as failed");
             msg.mediaLocalPath    = null;
             msg.mediaResourceType = null;
-            db.messageDao().insertOrReplace(msg);
+            // FIX 2: insertOrReplace() → insertMessage() (already uses REPLACE strategy)
+            db.messageDao().insertMessage(msg);
             return true; // Don't retry a deleted file
         }
 
@@ -167,20 +130,27 @@ public class SyncWorker extends Worker {
         String[] resultUrl  = {null};
         Object   lock       = new Object();
 
+        // FIX 3: Use correct CloudinaryUploader.upload() signature with UploadCallback interface
         CloudinaryUploader.upload(
                 getApplicationContext(),
                 android.net.Uri.fromFile(localFile),
+                "callx",          // folder param (required)
                 resourceType,
-                url -> {
-                    synchronized (lock) {
-                        resultUrl[0] = url;
-                        lock.notifyAll();
+                new CloudinaryUploader.UploadCallback() {
+                    @Override
+                    public void onSuccess(CloudinaryUploader.Result result) {
+                        synchronized (lock) {
+                            resultUrl[0] = result.secureUrl != null ? result.secureUrl : "";
+                            lock.notifyAll();
+                        }
                     }
-                },
-                error -> {
-                    synchronized (lock) {
-                        resultUrl[0] = "";  // empty = failed
-                        lock.notifyAll();
+
+                    @Override
+                    public void onError(String message) {
+                        synchronized (lock) {
+                            resultUrl[0] = ""; // empty = failed
+                            lock.notifyAll();
+                        }
                     }
                 }
         );
@@ -202,10 +172,10 @@ public class SyncWorker extends Worker {
 
         // 3. Update Room DB
         msg.mediaUrl          = cdnUrl;
-        if ("image".equals(msg.type)) msg.mediaUrl = cdnUrl; // imageUrl alias
         msg.mediaLocalPath    = null; // cleared — won't be retried
         msg.mediaResourceType = null;
-        db.messageDao().insertOrReplace(msg);
+        // FIX 2: insertOrReplace() → insertMessage()
+        db.messageDao().insertMessage(msg);
 
         // 4. Push to Firebase RTDB
         pushToFirebase(msg, cdnUrl);
@@ -250,7 +220,6 @@ public class SyncWorker extends Worker {
     }
 
     private void updateChatListPreview(MessageEntity msg) {
-        // Determine both UIDs from chatId (format: uid1_uid2)
         if (msg.chatId == null || !msg.chatId.contains("_")) return;
         String[] parts = msg.chatId.split("_", 2);
         if (parts.length != 2) return;
