@@ -24,6 +24,7 @@
             android:hardwareAccelerated="true"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="sensor"
+            android:supportsPictureInPicture="true"
             android:parentActivityName="com.callx.app.activities.YouTubeActivity"/>
 
         <activity android:name="com.callx.app.activities.YouTubeChannelActivity"
@@ -44,6 +45,12 @@
 
         <activity android:name="com.callx.app.activities.YouTubePlaylistActivity"
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.activities.YouTubeActivity"/>
+
+        <!-- NEW: Playlist Create Activity -->
+        <activity android:name="com.callx.app.activities.YouTubePlaylistCreateActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:windowSoftInputMode="adjustResize"
             android:parentActivityName="com.callx.app.activities.YouTubeActivity"/>
 
         <activity android:name="com.callx.app.activities.YouTubeEditChannelActivity"
@@ -85,7 +92,6 @@
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.activities.YouTubeActivity"/>
 
-        <!-- Account settings -->
         <activity android:name="com.callx.app.activities.YouTubeGeneralSettingsActivity"
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.activities.YouTubeSettingsActivity"/>
@@ -130,7 +136,6 @@
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.activities.YouTubeSettingsActivity"/>
 
-        <!-- Video and audio preferences -->
         <activity android:name="com.callx.app.activities.YouTubeVideoQualitySettingsActivity"
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.activities.YouTubeSettingsActivity"/>
@@ -159,7 +164,6 @@
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.activities.YouTubeSettingsActivity"/>
 
-        <!-- Help and policy -->
         <activity android:name="com.callx.app.activities.YouTubeHelpActivity"
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.activities.YouTubeSettingsActivity"/>
@@ -176,7 +180,6 @@
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.activities.YouTubeSettingsActivity"/>
 
-        <!-- Developer preferences -->
         <activity android:name="com.callx.app.activities.YouTubeDeveloperSettingsActivity"
             android:theme="@style/YouTubeActivity.Theme" android:exported="false"
             android:parentActivityName="com.callx.app.activities.YouTubeSettingsActivity"/>
