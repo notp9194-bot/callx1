@@ -18,7 +18,7 @@ import com.callx.app.youtube.channel.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
-// Opened via reflection (cross-module boundary) — no direct import
+// Cross-module classes opened via reflection (no direct import)
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,11 +52,15 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         View btnBack = findViewById(R.id.btn_yt_channel_back);
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
-        // Settings button in profile header
+        // Settings button — cross-module: yt-settings opened via Intent class name
         View btnSettings = findViewById(R.id.btn_yt_profile_settings);
         if (btnSettings != null)
-            btnSettings.setOnClickListener(v ->
-                startActivityForResult(new Intent(this, YouTubeSettingsActivity.class), 1001));
+            btnSettings.setOnClickListener(v -> {
+                Intent i = new Intent();
+                i.setClassName(getPackageName(),
+                    "com.callx.app.youtube.settings.YouTubeSettingsActivity");
+                startActivityForResult(i, 1001);
+            });
 
         ivAvatar      = findViewById(R.id.iv_yt_channel_avatar);
         ivBanner      = findViewById(R.id.iv_yt_channel_banner);
@@ -99,7 +103,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
             });
         }
 
-        // Card 2: X profile — launched via XActivity (XProfileActivity replaced by XProfileSheet)
+        // Card 2: X profile — cross-module via className
         View cardX = findViewById(R.id.card_yt_profile_x);
         if (cardX != null && channelUid != null) {
             cardX.setOnClickListener(v -> {
@@ -110,18 +114,14 @@ public class YouTubeChannelActivity extends AppCompatActivity {
             });
         }
 
-        // Card 3: Chat — sirf doosre user ki profile mein dikhega (apni profile mein nahi)
-        // Click pe directly ChatActivity khulengi us user ke saath
+        // Card 3: Chat — sirf doosre user ki profile mein dikhega
         View cardChat = findViewById(R.id.card_yt_profile_chat);
         if (cardChat != null) {
             if (isMyChannel) {
-                // Apni profile mein chat card hide karo
                 cardChat.setVisibility(View.GONE);
             } else {
-                // Doosre user ki profile mein show karo
                 cardChat.setVisibility(View.VISIBLE);
                 cardChat.setOnClickListener(v -> {
-                    // Directly ChatActivity open karo us user ke saath
                     Intent i = new Intent();
                     i.setClassName(getPackageName(),
                         "com.callx.app.activities.ChatActivity");
@@ -135,9 +135,14 @@ public class YouTubeChannelActivity extends AppCompatActivity {
             }
         }
 
-        videoAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
-            startActivity(new Intent(this, YouTubePlayerActivity.class)
-                .putExtra("video_id", video.videoId)));
+        // VideoAdapter — cross-module: YouTubePlayerActivity via Intent className
+        videoAdapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video -> {
+            Intent i = new Intent();
+            i.setClassName(getPackageName(),
+                "com.callx.app.youtube.player.YouTubePlayerActivity");
+            i.putExtra("video_id", video.videoId);
+            startActivity(i);
+        });
         rvVideos.setLayoutManager(new GridLayoutManager(this, 2));
         rvVideos.setAdapter(videoAdapter);
 
@@ -147,14 +152,21 @@ public class YouTubeChannelActivity extends AppCompatActivity {
     }
 
     // ── SOCIAL PROFILE SHEET ────────────────────────────────────────────
-    // Reels following/followers/mutual me avatar click wali wahi sheet
+    // Cross-module: ReelUserProfileSheet opened via reflection
     // ────────────────────────────────────────────────────────────────────
     private void openSocialProfileSheet() {
         if (channelUid == null || channelUid.isEmpty()) return;
         String name  = tvChannelName != null && tvChannelName.getText() != null
             ? tvChannelName.getText().toString() : "";
         String photo = channelPhotoUrl != null ? channelPhotoUrl : "";
-        ReelUserProfileSheet.show(this, channelUid, name, photo, true);
+        try {
+            Class<?> cls = Class.forName("com.callx.app.sheets.ReelUserProfileSheet");
+            java.lang.reflect.Method m = cls.getMethod("show",
+                android.app.Activity.class, String.class, String.class, String.class, boolean.class);
+            m.invoke(null, this, channelUid, name, photo, true);
+        } catch (Exception e) {
+            // ReelUserProfileSheet not available in this build configuration
+        }
     }
 
     private void loadChannel() {
@@ -180,7 +192,6 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     Glide.with(YouTubeChannelActivity.this).load(banner)
                         .centerCrop().into(ivBanner);
 
-                // ── Har card ka apna profile source se avatar load karo ──────
                 loadReelCardAvatar();
                 loadXCardAvatar();
                 if (!isMyChannel) loadChatCardAvatar();
@@ -275,7 +286,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     if (url != null) {
                         Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().into(iv);
                     } else {
-                        iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);
+                        iv.setImageResource(com.callx.app.youtube.core.R.drawable.ic_person);
                     }
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -297,15 +308,14 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     if (url != null) {
                         Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().into(iv);
                     } else {
-                        iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);
+                        iv.setImageResource(com.callx.app.youtube.core.R.drawable.ic_person);
                     }
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
-    /** Chat Card avatar — Firebase: users/{uid} (main CallX profile) → thumbUrl / photoUrl
-     *  Sirf doosre user ki profile mein call hoga (isMyChannel check bahar hota hai) */
+    /** Chat Card avatar — Firebase: users/{uid} (main CallX profile) */
     private void loadChatCardAvatar() {
         com.google.firebase.database.FirebaseDatabase.getInstance()
             .getReference("users").child(channelUid)
@@ -315,14 +325,13 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     String photo = snap.child("photoUrl").getValue(String.class);
                     String url   = (thumb != null && !thumb.isEmpty()) ? thumb
                                  : (photo != null && !photo.isEmpty()) ? photo : null;
-                    // Chat intent ke liye full photo save karo
                     if (photo != null && !photo.isEmpty()) channelPhotoUrl = photo;
                     CircleImageView iv = findViewById(R.id.iv_card_chat_avatar);
                     if (iv == null) return;
                     if (url != null) {
                         Glide.with(YouTubeChannelActivity.this).load(url).circleCrop().into(iv);
                     } else {
-                        iv.setImageResource(com.callx.app.youtube.R.drawable.ic_person);
+                        iv.setImageResource(com.callx.app.youtube.core.R.drawable.ic_person);
                     }
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
