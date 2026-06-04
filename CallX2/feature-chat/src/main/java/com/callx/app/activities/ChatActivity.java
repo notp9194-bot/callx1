@@ -20,8 +20,6 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.Toast;
 
-import com.callx.app.activities.SpecialRequestPopupActivity;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
@@ -1661,7 +1659,9 @@ public class ChatActivity extends AppCompatActivity {
                     String fromPhoto = reqSnap.child("fromPhoto").getValue(String.class);
                     String text      = reqSnap.child("text").getValue(String.class);
 
-                    Intent popup = new Intent(this, SpecialRequestPopupActivity.class);
+                    Intent popup = new Intent();
+                    popup.setClassName(getPackageName(),
+                            "com.callx.app.activities.SpecialRequestPopupActivity");
                     popup.putExtra("fromUid",   partnerUid);
                     popup.putExtra("fromName",  fromName  != null ? fromName  : partnerName);
                     popup.putExtra("fromPhoto", fromPhoto != null ? fromPhoto : "");
