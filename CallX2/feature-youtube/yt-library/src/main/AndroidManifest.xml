@@ -4,13 +4,14 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
     <application>
-        <activity android:name=".YouTubeLibraryFragment" android:exported="false" />
-        <activity android:name=".YouTubeHistoryActivity"     android:exported="false" />
-        <activity android:name=".YouTubeManageHistoryActivity" android:exported="false" />
-        <activity android:name=".YouTubePlaylistActivity"    android:exported="false" />
+        <!-- Entry point Activity (opened by YTNavigatorImpl.openLibrary()) -->
+        <activity android:name=".YouTubeLibraryActivity" android:exported="false" />
+        <activity android:name=".YouTubeHistoryActivity"        android:exported="false" />
+        <activity android:name=".YouTubeManageHistoryActivity"  android:exported="false" />
+        <activity android:name=".YouTubePlaylistActivity"       android:exported="false" />
         <activity android:name=".YouTubePlaylistCreateActivity" android:exported="false" />
-        <activity android:name=".YouTubeDownloadsActivity"   android:exported="false" />
-        <activity android:name=".YouTubeLikedVideosActivity" android:exported="false" />
-        <activity android:name=".YouTubeWatchLaterActivity"  android:exported="false" />
+        <activity android:name=".YouTubeDownloadsActivity"      android:exported="false" />
+        <activity android:name=".YouTubeLikedVideosActivity"    android:exported="false" />
+        <activity android:name=".YouTubeWatchLaterActivity"     android:exported="false" />
     </application>
 </manifest>

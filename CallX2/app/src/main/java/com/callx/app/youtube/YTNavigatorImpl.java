@@ -12,17 +12,15 @@ import com.callx.app.youtube.channel.YouTubeChannelActivity;
 import com.callx.app.youtube.upload.YouTubeUploadActivity;
 import com.callx.app.youtube.search.YouTubeSearchActivity;
 import com.callx.app.youtube.settings.YouTubeSettingsActivity;
-import com.callx.app.youtube.shorts.YouTubeShortsFragment;
+import com.callx.app.youtube.library.YouTubeLibraryActivity;
 
 /**
- * YTNavigatorImpl — Concrete implementation of YTNavigator.
+ * YTNavigatorImpl — Concrete implementation living in :app.
+ * :app is the only module that knows ALL sub-modules, so it can safely
+ * reference every Activity class without creating cycles.
  *
- * Lives in the :app module — the only module that knows all sub-modules.
  * Register in CallxApp.onCreate():
  *   YTNavigatorProvider.set(new YTNavigatorImpl());
- *
- * Sub-modules call YTNavigatorProvider.get().openXxx() without importing
- * each other's Activity classes directly.
  */
 public class YTNavigatorImpl implements YTNavigator {
 
@@ -69,7 +67,7 @@ public class YTNavigatorImpl implements YTNavigator {
 
     @Override
     public void openLibrary(Context ctx) {
-        ctx.startActivity(new Intent(ctx, YouTubeActivity.class)
-            .putExtra("open_tab", "library"));
+        // Opens as a standalone Activity — avoids yt-home ↔ yt-library cycle
+        ctx.startActivity(new Intent(ctx, YouTubeLibraryActivity.class));
     }
 }
