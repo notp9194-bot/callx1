@@ -84,7 +84,7 @@ public class ChatViewModel extends AndroidViewModel {
     private final MutableLiveData<Boolean> networkStatus   = new MutableLiveData<>(true);
 
     // ── Paging LiveData (created once via initPaging) ──────────────────────
-    private LiveData<PagingData<Message>> pagedMessages;
+    private LiveData<PagingData<MessageEntity>> pagedMessages;
 
     // ── Firebase listeners (tracked for cleanup) ───────────────────────────
     private DatabaseReference  typingRef;
@@ -478,7 +478,7 @@ public class ChatViewModel extends AndroidViewModel {
     // PUBLIC LIVEDATA ACCESSORS
     // ─────────────────────────────────────────────────────────────────────
 
-    public LiveData<PagingData<Message>> getPagedMessages()  { return pagedMessages; }
+    public LiveData<PagingData<MessageEntity>> getPagedMessages()  { return pagedMessages; }
     public LiveData<String>  getTypingStatus()               { return typingStatus; }
     public LiveData<Boolean> getPartnerOnline()              { return partnerOnline; }
     public LiveData<String>  getPartnerLastSeen()            { return partnerLastSeen; }
