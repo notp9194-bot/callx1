@@ -7,7 +7,6 @@ import com.callx.app.notifications.YouTubeNotificationWorker;
 import com.callx.app.search.YouTubeSearchActivity;
 import com.callx.app.channel.YouTubeChannelActivity;
 import com.callx.app.upload.YouTubeUploadActivity;
-import com.callx.app.models.YouTubeNotificationsActivity;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -22,8 +21,6 @@ import com.callx.app.home.YouTubeHomeFragment;
 import com.callx.app.library.YouTubeLibraryFragment;
 import com.callx.app.player.YouTubeShortsFragment;
 import com.callx.app.channel.YouTubeSubscriptionsFragment;
-import com.callx.app.models.YouTubeNotificationChannelManager;
-import com.callx.app.models.YouTubeNotificationWorker;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.utils.YouTubePrefs;
 import com.callx.app.youtube.R;
