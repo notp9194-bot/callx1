@@ -157,23 +157,7 @@ public class ChatViewModel extends AndroidViewModel {
                 new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
                 () -> db.messageDao().getMessagesPagingSource(chatId)
         );
-        pagedMessages = androidx.paging.PagingLiveData.getLiveData(
-                PagingLiveData.cachedIn(
-                        pager.getLiveData(),
-                        getViewModelScope()
-                )
-        );
-    }
-
-    /**
-     * Returns the coroutine scope tied to this ViewModel's lifecycle.
-     * Used for PagingData caching.
-     */
-    private kotlinx.coroutines.CoroutineScope getViewModelScope() {
-        return androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-                .getCurrent() != null
-                ? androidx.lifecycle.ViewModelKt.getViewModelScope(this)
-                : null;
+        pagedMessages = PagingLiveData.getLiveData(pager);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -205,7 +189,7 @@ public class ChatViewModel extends AndroidViewModel {
                 Message msg = raw;
                 ioExecutor.execute(() -> {
                     MessageEntity entity = messageToEntity(msg);
-                    db.messageDao().insertOrReplace(entity);
+                    db.messageDao().insertMessage(entity);
                 });
             }
 
@@ -227,7 +211,7 @@ public class ChatViewModel extends AndroidViewModel {
                 Message msg = raw;
                 ioExecutor.execute(() -> {
                     MessageEntity entity = messageToEntity(msg);
-                    db.messageDao().insertOrReplace(entity);
+                    db.messageDao().insertMessage(entity);
                 });
             }
 
@@ -235,7 +219,7 @@ public class ChatViewModel extends AndroidViewModel {
             public void onChildRemoved(@NonNull DataSnapshot snap) {
                 String msgId = snap.getKey();
                 if (msgId != null) {
-                    ioExecutor.execute(() -> db.messageDao().markDeleted(msgId));
+                    ioExecutor.execute(() -> db.messageDao().softDelete(msgId));
                 }
             }
 
@@ -350,7 +334,7 @@ public class ChatViewModel extends AndroidViewModel {
 
             // Save locally first (optimistic update)
             MessageEntity local = messageToEntity(msg); // plain text in Room
-            db.messageDao().insertOrReplace(local);
+            db.messageDao().insertMessage(local);
 
             // Push to Firebase (encrypted)
             String key = FirebaseUtils.getMessagesRef(chatId).push().getKey();
@@ -472,7 +456,7 @@ public class ChatViewModel extends AndroidViewModel {
                 FirebaseUtils.getMessagesRef(chatId).child(e.id)
                         .child("status").setValue("read");
                 e.status = "read";
-                db.messageDao().insertOrReplace(e);
+                db.messageDao().insertMessage(e);
             }
         });
     }

@@ -63,6 +63,10 @@ public interface ChatDao {
     @Query("SELECT draft FROM chats WHERE chatId = :chatId LIMIT 1")
     String getDraft(String chatId);
 
+    /** Draft LiveData — observe karo for reactive UI updates. */
+    @Query("SELECT draft FROM chats WHERE chatId = :chatId LIMIT 1")
+    LiveData<String> getDraftLive(String chatId);
+
     // ── v18 IMPROVEMENT 4: Read receipt offline queue ─────────────────────
 
     /** Offline mein markRead fail hua — queue karo. */

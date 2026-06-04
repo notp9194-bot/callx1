@@ -126,6 +126,11 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE status = 'pending' ORDER BY timestamp ASC")
     List<MessageEntity> getAllPendingMessages();
 
+    /** Read receipts: messages from partnerUid in chatId that are not yet 'read'. */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :partnerUid AND (status IS NULL OR status != 'read') ORDER BY timestamp ASC")
+    List<MessageEntity> getUnreadMessages(String chatId, String partnerUid);
+
     @WorkerThread
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertMessages(List<MessageEntity> messages);
