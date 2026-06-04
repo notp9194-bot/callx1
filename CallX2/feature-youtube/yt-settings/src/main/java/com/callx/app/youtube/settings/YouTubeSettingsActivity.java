@@ -8,6 +8,8 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import com.callx.app.youtube.settings.R;
+import com.callx.app.youtube.library.YouTubeManageHistoryActivity;
+import com.callx.app.youtube.channel.YouTubeAboutActivity;
 
 /**
  * Main YouTube Settings screen — mirrors the real YouTube settings hierarchy.
