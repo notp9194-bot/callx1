@@ -89,6 +89,22 @@ public class FirebaseUtils {
         return db().getReference("statusHighlights").child(ownerUid);
     }
 
+    // ── Unified Block System ───────────────────────────────────────────────
+
+    /**
+     * Unified block list: blocks/{blockerUid}/{blockedUid} = true
+     * This single path is used across ALL modules (chat, reels, calls, status, X DM).
+     * Legacy paths ("blocked/" and "user_blocked/") should be migrated here.
+     */
+    public static DatabaseReference getBlocksRef(String uid) {
+        return db().getReference("blocks").child(uid);
+    }
+
+    /** Check if myUid has blocked targetUid */
+    public static DatabaseReference getBlockRef(String myUid, String targetUid) {
+        return db().getReference("blocks").child(myUid).child(targetUid);
+    }
+
     public static String getChatId(String uid1, String uid2) {
         String[] ids = {uid1, uid2};
         Arrays.sort(ids);

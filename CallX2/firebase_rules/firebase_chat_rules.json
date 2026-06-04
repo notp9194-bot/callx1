@@ -112,6 +112,16 @@
       }
     },
 
+    "blocks": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$blockedUid": {
+          ".validate": "newData.isBoolean() || !newData.exists()"
+        }
+      }
+    },
+
     "blocked": {
       "$uid": {
         ".read":  "auth != null && auth.uid === $uid",

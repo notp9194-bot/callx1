@@ -139,6 +139,7 @@ public class ReelPlayerFragment extends Fragment
     private boolean   isSaved      = false;
     private boolean   isFollowing  = false;
     private boolean   isReposted   = false;  // FIX #5
+    private final java.util.Set<String> blockedUids = new java.util.HashSet<>();
     private boolean   isVisible    = false;
     private boolean   reactionsVisible = false;
 
@@ -1336,6 +1337,9 @@ public class ReelPlayerFragment extends Fragment
                 openPinnedComments(); break;
             case com.callx.app.ui.ReelMoreBottomSheet.ACTION_QR_CODE:
                 openReelQRCode(); break;
+            case com.callx.app.ui.ReelMoreBottomSheet.ACTION_BLOCK:
+                blockReelOwner();
+                break;
             case com.callx.app.ui.ReelMoreBottomSheet.ACTION_DELETE:
                 confirmDeleteReel(); break;
         }
@@ -1815,4 +1819,34 @@ public class ReelPlayerFragment extends Fragment
             return false;
         }
     }
+    // ── Block reel owner ──────────────────────────────────────────────────────
+    private void blockReelOwner() {
+        if (currentReel == null || currentReel.uid == null) return;
+        String myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+        if (myUid == null || myUid.isEmpty() || myUid.equals(currentReel.uid)) return;
+
+        String ownerName = currentReel.ownerName != null ? currentReel.ownerName : "this user";
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("Block " + ownerName + "?")
+            .setMessage("They won't be able to see your reels or contact you. Their content will be hidden from your feed.")
+            .setPositiveButton("Block", (d, w) -> {
+                com.callx.app.utils.FirebaseUtils.getBlocksRef(myUid)
+                    .child(currentReel.uid).setValue(true)
+                    .addOnSuccessListener(v -> {
+                        if (getContext() != null)
+                            android.widget.Toast.makeText(getContext(),
+                                ownerName + " blocked", android.widget.Toast.LENGTH_SHORT).show();
+                        // Remove this reel from feed
+                        blockedUids.add(currentReel.uid);
+                        List<com.callx.app.models.ReelModel> filtered = new java.util.ArrayList<>();
+                        for (com.callx.app.models.ReelModel r : allReels)
+                            if (!blockedUids.contains(r.uid)) filtered.add(r);
+                        allReels.clear(); allReels.addAll(filtered);
+                        if (adapter != null) adapter.setReels(allReels);
+                    });
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
 }

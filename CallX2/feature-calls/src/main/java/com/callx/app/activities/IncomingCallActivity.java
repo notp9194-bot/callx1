@@ -27,7 +27,8 @@
   import com.google.firebase.database.ValueEventListener;
   import com.callx.app.db.AppDatabase;
   import com.callx.app.db.entity.CallLogEntity;
-  import com.callx.app.utils.FirebaseUtils;
+  import androidx.annotation.NonNull;
+import com.callx.app.utils.FirebaseUtils;
   import java.util.HashMap;
   import java.util.Map;
   import java.util.concurrent.Executors;
@@ -85,6 +86,33 @@
                   .into(binding.ivCallerAvatar);
           }
           acquireWakeLock();
+          // ── Block check: blocked user ki call silently reject karo ──────
+          checkBlockAndProceed();
+      }
+
+      private void checkBlockAndProceed() {
+          String myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+          if (myUid == null || myUid.isEmpty() || fromUid == null || fromUid.isEmpty()) {
+              proceedWithCall();
+              return;
+          }
+          com.callx.app.utils.FirebaseUtils.getBlocksRef(myUid).child(fromUid)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                      if (Boolean.TRUE.equals(snap.getValue(Boolean.class))) {
+                          // Caller blocked hai — silently reject
+                          if (!acted) { acted = true; reject(); }
+                      } else {
+                          proceedWithCall();
+                      }
+                  }
+                  @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                      proceedWithCall(); // Error pe proceed karo, block check fail nahi block kare
+                  }
+              });
+      }
+
+      private void proceedWithCall() {
           startVibration();
           startLoopingRingtone();
           startPulseAnimation();

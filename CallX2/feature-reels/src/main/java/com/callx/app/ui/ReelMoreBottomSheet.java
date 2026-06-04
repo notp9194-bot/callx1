@@ -55,6 +55,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_NOT_INTERESTED      = "not_interested";
     public static final String ACTION_COPY_LINK           = "copy_link";
     public static final String ACTION_REPORT              = "report";
+    public static final String ACTION_BLOCK               = "block_user";
     // Owner-only
     public static final String ACTION_EDIT                = "edit";
     public static final String ACTION_ANALYTICS           = "analytics";
@@ -246,6 +247,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_NOT_INTERESTED,       "Not Interested",      R.drawable.ic_eye_off,   CLR_GOLD,   false));
         list.add(new MenuItem(ACTION_COPY_LINK,            "Copy Link",           R.drawable.ic_link,      CLR_CYAN,   true));
         list.add(new MenuItem(ACTION_REPORT,               "Report",              R.drawable.ic_flag,      CLR_RED,    false));
+        list.add(new MenuItem(ACTION_BLOCK,                "Block User",          R.drawable.ic_phone_off, CLR_RED,    false));
         return list;
     }
 

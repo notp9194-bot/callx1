@@ -94,6 +94,46 @@ public class XDMConversationActivity extends AppCompatActivity {
         if (convId == null && otherUid != null)
             convId = XFirebaseUtils.dmConversationId(myUid, otherUid);
 
+        checkBlockThenSetup();
+    }
+
+    private void checkBlockThenSetup() {
+        if (myUid == null || myUid.isEmpty() || otherUid == null || otherUid.isEmpty()) {
+            setupAll(); return;
+        }
+        // Check if I blocked them or they blocked me
+        XFirebaseUtils.userBlockedRef(myUid).child(otherUid)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                    if (Boolean.TRUE.equals(snap.getValue(Boolean.class))) {
+                        showBlockedBanner(true); // I blocked them
+                    } else {
+                        // Also check if they blocked me
+                        XFirebaseUtils.userBlockedRef(otherUid).child(myUid)
+                            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                                @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot s2) {
+                                    if (Boolean.TRUE.equals(s2.getValue(Boolean.class)))
+                                        showBlockedBanner(false); // They blocked me
+                                    else
+                                        setupAll();
+                                }
+                                @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) { setupAll(); }
+                            });
+                    }
+                }
+                @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) { setupAll(); }
+            });
+    }
+
+    private void showBlockedBanner(boolean iBlockedThem) {
+        setupHeader(); // Header still loads
+        EditText et = findViewById(R.id.et_dm_message);
+        View btnSend = findViewById(R.id.btn_dm_send);
+        if (et != null) { et.setEnabled(false); et.setHint(iBlockedThem ? "You blocked this user" : "You can't reply"); }
+        if (btnSend != null) btnSend.setEnabled(false);
+    }
+
+    private void setupAll() {
         setupHeader();
         setupInput();
         setupMessages();

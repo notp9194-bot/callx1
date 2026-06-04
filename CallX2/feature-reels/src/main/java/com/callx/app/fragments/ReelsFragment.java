@@ -106,6 +106,7 @@ public class ReelsFragment extends Fragment {
     private boolean isFypMode = true;
 
     private final List<ReelModel> allReels       = new ArrayList<>();
+    private final Set<String>     blockedUids    = new HashSet<>();
     private final List<ReelModel> followingReels = new ArrayList<>();
     private ValueEventListener    reelsListener;
     private ValueEventListener    followListener;
@@ -472,6 +473,7 @@ public class ReelsFragment extends Fragment {
         // call hoga aur tab isTabActive = true hoga — tab fetch hoga.
         if (!isTabActive) return;
 
+        loadBlockedUids();
         if (allReels.isEmpty()) {
             loadFypReels();
         } else if (isFypMode) {
@@ -574,6 +576,9 @@ public class ReelsFragment extends Fragment {
                 }
                 Collections.sort(allReels, (a, b) ->
                     Float.compare(b.trendingScore(), a.trendingScore()));
+
+                // Remove blocked users from feed
+                allReels.removeIf(r -> r.uid != null && blockedUids.contains(r.uid));
 
                 showLoading(false);
                 loading = false;
@@ -852,4 +857,19 @@ public class ReelsFragment extends Fragment {
         if (getContext() == null) return dp * 3;
         return (int)(dp * getContext().getResources().getDisplayMetrics().density);
     }
+    // ── Blocked users ─────────────────────────────────────────────────────
+    private void loadBlockedUids() {
+        String myUid = safeMyUid();
+        if (myUid == null) return;
+        com.callx.app.utils.FirebaseUtils.getBlocksRef(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    blockedUids.clear();
+                    for (DataSnapshot ds : snap.getChildren())
+                        if (ds.getKey() != null) blockedUids.add(ds.getKey());
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
 }

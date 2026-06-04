@@ -296,7 +296,7 @@ public class ChatActivity extends AppCompatActivity {
         if (replyController != null) replyController.release();
         // Block/perma-block listeners cleanup
         if (blockListener != null && currentUid != null && partnerUid != null)
-            FirebaseUtils.db().getReference("blocked").child(currentUid).child(partnerUid)
+            FirebaseUtils.getBlocksRef(currentUid).child(partnerUid)
                     .removeEventListener(blockListener);
         if (permaBlockListener != null && partnerUid != null && currentUid != null)
             FirebaseUtils.db().getReference("permaBlocked").child(partnerUid).child(currentUid)
@@ -1621,8 +1621,8 @@ public class ChatActivity extends AppCompatActivity {
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
-        FirebaseUtils.db().getReference("blocked")
-                .child(currentUid).child(partnerUid)
+        FirebaseUtils.getBlocksRef(currentUid)
+                .child(partnerUid)
                 .addValueEventListener(blockListener);
     }
 
@@ -1671,8 +1671,8 @@ public class ChatActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle(label + " " + partnerName + "?")
                 .setPositiveButton(label, (d, w) -> {
-                    FirebaseUtils.db().getReference("blocked")
-                            .child(currentUid).child(partnerUid)
+                    FirebaseUtils.getBlocksRef(currentUid)
+                            .child(partnerUid)
                             .setValue(!isBlocked);
                 })
                 .setNegativeButton("Cancel", null)
@@ -1689,8 +1689,8 @@ public class ChatActivity extends AppCompatActivity {
                             .child(currentUid).child(partnerUid)
                             .setValue(true);
                     // Ensure normal block bhi set hai
-                    FirebaseUtils.db().getReference("blocked")
-                            .child(currentUid).child(partnerUid)
+                    FirebaseUtils.getBlocksRef(currentUid)
+                            .child(partnerUid)
                             .setValue(true);
                     Toast.makeText(this,
                             partnerName + " has been permanently blocked.",

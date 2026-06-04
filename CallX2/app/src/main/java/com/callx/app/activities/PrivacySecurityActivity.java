@@ -343,7 +343,7 @@ public class PrivacySecurityActivity extends AppCompatActivity {
         configRow(binding.rowBlocked.getRoot(), R.drawable.ic_phone_off,
             "Blocked Contacts", "Manage blocked users");
         binding.rowBlocked.getRoot().setOnClickListener(v ->
-            startActivity(new Intent(this, RequestsActivity.class)));
+            startActivity(new Intent(this, BlockedUsersActivity.class)));
     }
 
     private void showAutoDeleteChooser() {

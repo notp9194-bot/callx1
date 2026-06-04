@@ -148,8 +148,7 @@ public class UserProfileActivity extends AppCompatActivity {
     private void loadBlockState() {
         String myUid = FirebaseUtils.getCurrentUid();
         if (myUid == null || myUid.isEmpty()) return;
-        FirebaseUtils.db().getReference("blocked")
-            .child(myUid).child(partnerUid)
+        FirebaseUtils.getBlocksRef(myUid).child(partnerUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(DataSnapshot s) {
                     isBlocked = Boolean.TRUE.equals(s.getValue(Boolean.class));
@@ -334,8 +333,7 @@ public class UserProfileActivity extends AppCompatActivity {
     private void blockUser() {
         isBlocked = !isBlocked;
         String myUid = FirebaseUtils.getCurrentUid();
-        FirebaseUtils.db().getReference("blocked")
-            .child(myUid).child(partnerUid)
+        FirebaseUtils.getBlocksRef(myUid).child(partnerUid)
             .setValue(isBlocked ? true : null);
         if (isBlocked) {
             binding.tvBlockLabel.setText("🚫  Unblock");

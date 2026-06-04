@@ -44,7 +44,8 @@ public class XFirebaseUtils {
     public static DatabaseReference userFollowersRef(String uid)     { return root().child("user_followers").child(uid); }
     public static DatabaseReference userFollowingRef(String uid)     { return root().child("user_following").child(uid); }
     public static DatabaseReference userMutedRef(String uid)         { return root().child("user_muted").child(uid); }
-    public static DatabaseReference userBlockedRef(String uid)       { return root().child("user_blocked").child(uid); }
+    // Unified block path — same as FirebaseUtils.getBlocksRef()
+    public static DatabaseReference userBlockedRef(String uid)       { return root().child("blocks").child(uid); }
     public static DatabaseReference userProfileViewsRef(String uid)  { return xUserRef(uid).child("profileViews"); }
 
     // ── Notifications ────────────────────────────────────────────────────────

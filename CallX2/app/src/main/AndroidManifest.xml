@@ -91,6 +91,7 @@
             android:theme="@style/Theme.CallX.NoTransition"
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.RequestsActivity" android:exported="false"/>
+        <activity android:name=".activities.BlockedUsersActivity" android:exported="false"/>
         <activity android:name=".activities.RequestPopupActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Transparent"

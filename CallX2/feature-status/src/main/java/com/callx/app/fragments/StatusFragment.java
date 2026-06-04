@@ -50,6 +50,7 @@ public class StatusFragment extends Fragment {
     private ValueEventListener statusListener;
     private ValueEventListener seenListener;
     private String myUid;
+    private final java.util.Set<String> blockedUids = new java.util.HashSet<>();
 
     private StatusMediaPreloader mediaPreloader;
 
@@ -230,6 +231,21 @@ public class StatusFragment extends Fragment {
 
     private void loadStatuses() {
         if (myUid == null) return;
+        // Load blocked uids first, then load statuses
+        final String uid = myUid;
+        FirebaseUtils.getBlocksRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                blockedUids.clear();
+                for (DataSnapshot ds : snap.getChildren())
+                    if (ds.getKey() != null) blockedUids.add(ds.getKey());
+                loadStatusContacts();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { loadStatusContacts(); }
+        });
+    }
+
+    private void loadStatusContacts() {
+        if (myUid == null) return;
         FirebaseUtils.getContactsRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -264,7 +280,7 @@ public class StatusFragment extends Fragment {
                             a.timestamp == null ? 0 : a.timestamp,
                             b.timestamp == null ? 0 : b.timestamp));
                     if (uid.equals(myUid)) myStatuses.addAll(items2);
-                    else if (!items2.isEmpty()) statusMap.put(uid, items2);
+                    else if (!items2.isEmpty() && !blockedUids.contains(uid)) statusMap.put(uid, items2);
                 }
                 rebuildAdapter();
                 saveToRoom();
