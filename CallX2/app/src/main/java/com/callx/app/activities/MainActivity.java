@@ -40,7 +40,7 @@ import android.animation.ObjectAnimator;
   import com.callx.app.activities.XActivity;
   import com.callx.app.notifications.XNotificationWorker;
   import com.callx.app.utils.XFirebaseUtils;
-  import com.callx.app.activities.YouTubeActivity;
+  import com.callx.app.home.YouTubeActivity;
   import com.callx.app.notifications.YouTubeNotificationWorker;
   import com.callx.app.utils.YouTubeFirebaseUtils;
   import android.graphics.Bitmap;

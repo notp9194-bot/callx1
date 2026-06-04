@@ -54,8 +54,6 @@ plugins {
 
       // WorkManager
       implementation 'androidx.work:work-runtime:2.9.0'
-    implementation 'com.google.guava:guava:31.1-android'
-
 
       // Firebase
       implementation platform('com.google.firebase:firebase-bom:32.7.0')

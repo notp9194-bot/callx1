@@ -137,18 +137,7 @@ dependencies {
     implementation project(':feature-reels')
     implementation project(':feature-calls')
     implementation project(':feature-x')
-    // YouTube sub-modules (split from :feature-youtube)
-    implementation project(':yt-core')
-    implementation project(':yt-home')
-    implementation project(':yt-player')
-    implementation project(':yt-upload')
-    implementation project(':yt-comments')
-    implementation project(':yt-channel')
-    implementation project(':yt-shorts')
-    implementation project(':yt-library')
-    implementation project(':yt-search')
-    implementation project(':yt-notifs')
-    implementation project(':yt-settings')
+    implementation project(':feature-youtube')
     implementation project(':feature-status')
     implementation project(':feature-games')
     implementation project(':patternlockview')
@@ -164,7 +153,6 @@ dependencies {
     implementation 'androidx.fragment:fragment:1.6.2'
     implementation 'androidx.media:media:1.7.0'
     implementation 'androidx.work:work-runtime:2.9.0'
-
     implementation 'androidx.media3:media3-exoplayer:1.2.1'
     implementation 'androidx.media3:media3-ui:1.2.1'
     implementation 'androidx.media3:media3-datasource:1.2.1'

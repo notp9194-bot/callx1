@@ -1,0 +1,2 @@
+-keep class com.callx.app.models.YouTube** { *; }
+-keep class com.callx.app.activities.YouTube** { *; }

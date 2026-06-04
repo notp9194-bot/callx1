@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+
+    <application>
+
+        <activity android:name="com.callx.app.home.YouTubeActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name="com.callx.app.player.YouTubePlayerActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:hardwareAccelerated="true"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:screenOrientation="sensor"
+            android:supportsPictureInPicture="true"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.channel.YouTubeChannelActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.search.YouTubeSearchActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:windowSoftInputMode="adjustPan"/>
+
+        <activity android:name="com.callx.app.upload.YouTubeUploadActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name="com.callx.app.player.YouTubeCommentsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <activity android:name="com.callx.app.playlist.YouTubePlaylistActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <!-- NEW: Playlist Create Activity -->
+        <activity android:name="com.callx.app.playlist.YouTubePlaylistCreateActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.channel.YouTubeEditChannelActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName="com.callx.app.channel.YouTubeChannelActivity"/>
+
+        <activity android:name="com.callx.app.downloads.YouTubeDownloadsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.library.YouTubeHistoryActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.library.YouTubeLikedVideosActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.library.YouTubeWatchLaterActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.models.YouTubeNotificationsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.channel.YouTubeSubscribersActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.channel.YouTubeChannelActivity"/>
+
+        <activity android:name="com.callx.app.search.YouTubeTrendingActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <!-- ══ YouTube Settings Activities ════════════════════════════════════ -->
+
+        <activity android:name="com.callx.app.settings.YouTubeSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.home.YouTubeActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeGeneralSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeSwitchAccountActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeFamilyCenterActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeNotifSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubePurchasesActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeBillingActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.library.YouTubeManageHistoryActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeYourDataActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubePrivacySettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeConnectedAppsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeExperimentalActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeVideoQualitySettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubePlaybackSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeCaptionsSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeDataSavingSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeDownloadSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeLiveChatSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeAccessibilitySettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeHelpActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeTosActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeFeedbackActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeAboutActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <activity android:name="com.callx.app.settings.YouTubeDeveloperSettingsActivity"
+            android:theme="@style/YouTubeActivity.Theme" android:exported="false"
+            android:parentActivityName="com.callx.app.settings.YouTubeSettingsActivity"/>
+
+        <receiver android:name="com.callx.app.models.YouTubeNotificationBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

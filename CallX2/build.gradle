@@ -1,17 +1,4 @@
 buildscript {
     dependencies { classpath 'com.google.gms:google-services:4.4.0' }
 }
-plugins {
-    id 'com.android.application' version '8.2.2' apply false
-    id 'com.android.library' version '8.2.2' apply false
-}
-
-subprojects {
-    configurations.configureEach {
-        resolutionStrategy {
-            force 'com.google.guava:guava:31.1-android'
-            // Exclude the stub listenablefuture to prevent classpath conflict
-            exclude group: 'com.google.guava', module: 'listenablefuture'
-        }
-    }
-}
+plugins { id 'com.android.application' version '8.2.2' apply false }

@@ -47,8 +47,6 @@ dependencies {
 
     // WorkManager — NotificationActionReceiver reply/group-reply ke liye
     implementation 'androidx.work:work-runtime:2.9.0'
-    implementation 'com.google.guava:guava:31.1-android'
-
 
     // Full-screen avatar zoom (pinch-to-zoom)
     implementation 'com.github.chrisbanes:PhotoView:2.3.0'
