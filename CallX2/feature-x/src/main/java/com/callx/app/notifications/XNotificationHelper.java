@@ -7,9 +7,9 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
-import com.callx.app.feed.XActivity;
-import com.callx.app.messages.XDMConversationActivity;
-import com.callx.app.tweet.XTweetDetailActivity;
+import com.callx.app.activities.XActivity;
+import com.callx.app.activities.XDMConversationActivity;
+import com.callx.app.activities.XTweetDetailActivity;
 import com.callx.app.x.R;
 import java.util.concurrent.Executors;
 
