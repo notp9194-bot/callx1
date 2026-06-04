@@ -33,7 +33,7 @@ public class YouTubeWatchLaterActivity extends AppCompatActivity {
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
         adapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
-            startActivity(new Intent(this, YouTubePlayerActivity.class)
+            startActivity(new Intent().setClassName(this, "com.callx.app.youtube.player.YouTubePlayerActivity")
                 .putExtra("video_id", video.videoId)));
         rvWatchLater = findViewById(R.id.rv_yt_watch_later);
         rvWatchLater.setLayoutManager(new LinearLayoutManager(this));

@@ -37,7 +37,7 @@ public class YouTubePlaylistActivity extends AppCompatActivity {
         rvVideos = findViewById(R.id.rv_yt_playlist_videos);
 
         adapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
-            startActivity(new Intent(this, YouTubePlayerActivity.class)
+            startActivity(new Intent().setClassName(this, "com.callx.app.youtube.player.YouTubePlayerActivity")
                 .putExtra("video_id", video.videoId)));
         rvVideos.setLayoutManager(new LinearLayoutManager(this));
         rvVideos.setAdapter(adapter);

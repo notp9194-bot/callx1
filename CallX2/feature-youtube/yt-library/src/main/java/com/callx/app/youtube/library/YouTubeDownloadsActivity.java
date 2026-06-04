@@ -190,8 +190,8 @@ public class YouTubeDownloadsActivity extends AppCompatActivity {
 
             // Play offline
             h.itemView.setOnClickListener(v -> {
-                Intent i = new Intent(YouTubeDownloadsActivity.this,
-                    YouTubePlayerActivity.class);
+                Intent i = new Intent().setClassName(YouTubeDownloadsActivity.this,
+                    "com.callx.app.youtube.player.YouTubePlayerActivity");
                 i.putExtra("video_id",    item.videoId);
                 i.putExtra("local_path",  item.localPath); // offline ke liye
                 startActivity(i);

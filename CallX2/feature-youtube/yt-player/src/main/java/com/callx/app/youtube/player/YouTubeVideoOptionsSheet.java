@@ -14,6 +14,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.bumptech.glide.Glide;
 // Opened via YTNavigatorProvider.get().openChannel() — no direct import
+import com.callx.app.youtube.channel.YouTubeChannelActivity;
 import com.callx.app.youtube.core.models.YouTubeVideo;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.player.R;
@@ -249,7 +250,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
 
     private void downloadVideo() {
         if (getContext() == null) return;
-        com.callx.app.models.YouTubeVideo v = new com.callx.app.models.YouTubeVideo();
+        com.callx.app.youtube.core.models.YouTubeVideo v = new com.callx.app.youtube.core.models.YouTubeVideo();
         v.videoId     = videoId;
         v.title       = title;
         v.videoUrl    = videoUrl;
@@ -268,7 +269,7 @@ public class YouTubeVideoOptionsSheet extends BottomSheetDialogFragment {
 
     private void downloadToGallery() {
         if (getContext() == null) return;
-        com.callx.app.models.YouTubeVideo v = new com.callx.app.models.YouTubeVideo();
+        com.callx.app.youtube.core.models.YouTubeVideo v = new com.callx.app.youtube.core.models.YouTubeVideo();
         v.videoId      = videoId;
         v.title        = title;
         v.videoUrl     = videoUrl;

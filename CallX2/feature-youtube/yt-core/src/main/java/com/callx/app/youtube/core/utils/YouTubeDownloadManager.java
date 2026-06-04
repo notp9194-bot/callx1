@@ -151,6 +151,45 @@ public class YouTubeDownloadManager {
         return name.replaceAll("[^a-zA-Z0-9_\\-]", "_").substring(0, Math.min(name.length(), 60));
     }
 
+    // ── Utility methods (used by yt-library) ─────────────────────────────────
+
+    /**
+     * App-private download directory mein video ka local File return karo.
+     * File exist kare ya na kare — bas path return karta hai.
+     */
+    public static File getLocalFile(Context ctx, String videoId) {
+        File dir = new File(ctx.getExternalFilesDir(Environment.DIRECTORY_MOVIES), "CallX_YT");
+        return new File(dir, sanitize(videoId) + ".mp4");
+    }
+
+    /**
+     * Download directory mein jo .mp4 files hain unka videoId list return karo.
+     * File name se videoId reverse-derive karta hai (sanitize ek-taraf function hai,
+     * isliye original videoId nahi milta — sirf filename ke bina extension return hota hai).
+     */
+    public static java.util.List<String> getLocalDownloadedIds(Context ctx) {
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        File dir = new File(ctx.getExternalFilesDir(Environment.DIRECTORY_MOVIES), "CallX_YT");
+        if (!dir.exists()) return ids;
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".mp4"));
+        if (files == null) return ids;
+        for (File f : files) {
+            if (f.length() >= 1024) { // 1KB se chota skip — incomplete download
+                String name = f.getName();
+                ids.add(name.substring(0, name.length() - 4)); // remove ".mp4"
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Local file delete karo.
+     */
+    public static void deleteDownload(Context ctx, String videoId) {
+        File f = getLocalFile(ctx, videoId);
+        if (f.exists()) f.delete();
+    }
+
     private interface ProgressListener {
         void onProgress(int percent);
     }

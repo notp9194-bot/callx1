@@ -33,7 +33,7 @@ public class YouTubeLikedVideosActivity extends AppCompatActivity {
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
         adapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
-            startActivity(new Intent(this, YouTubePlayerActivity.class)
+            startActivity(new Intent().setClassName(this, "com.callx.app.youtube.player.YouTubePlayerActivity")
                 .putExtra("video_id", video.videoId)));
         rvLiked = findViewById(R.id.rv_yt_liked);
         rvLiked.setLayoutManager(new LinearLayoutManager(this));

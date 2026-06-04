@@ -64,7 +64,9 @@ public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
         View btnNew = view.findViewById(R.id.btn_atpl_new_playlist);
         if (btnNew != null) btnNew.setOnClickListener(v -> {
             dismiss();
-            startActivity(new Intent(requireContext(), YouTubePlaylistCreateActivity.class)
+            startActivity(new Intent()
+                .setClassName(requireContext(),
+                    "com.callx.app.youtube.library.YouTubePlaylistCreateActivity")
                 .putExtra("video_id", videoId));
         });
 

@@ -38,7 +38,7 @@ public class YouTubeHistoryActivity extends AppCompatActivity {
                 YouTubeFirebaseUtils.watchHistoryRef(myUid).removeValue());
 
         adapter = new YouTubeVideoAdapter(this, new ArrayList<>(), video ->
-            startActivity(new Intent(this, YouTubePlayerActivity.class)
+            startActivity(new Intent().setClassName(this, "com.callx.app.youtube.player.YouTubePlayerActivity")
                 .putExtra("video_id", video.videoId)));
         rvHistory = findViewById(R.id.rv_yt_history);
         rvHistory.setLayoutManager(new LinearLayoutManager(this));
