@@ -12,7 +12,8 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-// Player opened via YTNavigatorProvider.get().openPlayer()
+import android.content.Intent;
+import com.callx.app.youtube.player.YouTubePlayerActivity;
 import com.callx.app.youtube.core.adapters.YouTubeVideoAdapter;
 import com.callx.app.youtube.core.models.YouTubeVideo;
 import com.callx.app.youtube.core.utils.YouTubeFirebaseUtils;
@@ -52,7 +53,8 @@ public class YouTubeHomeFragment extends Fragment {
         llEmpty      = view.findViewById(R.id.ll_yt_empty);
 
         adapter = new YouTubeVideoAdapter(requireActivity(), new ArrayList<>(), video ->
-            startActivity(// YTNavigatorProvider.get().openPlayer(requireContext(), video.videoId); return;));
+            startActivity(new Intent(requireContext(), YouTubePlayerActivity.class)
+                .putExtra("video_id", video.videoId)));
         rvFeed.setLayoutManager(new LinearLayoutManager(requireContext()));
         rvFeed.setAdapter(adapter);
         applyPlaybackInFeeds();
