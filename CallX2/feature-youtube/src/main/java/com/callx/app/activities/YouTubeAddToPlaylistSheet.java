@@ -21,18 +21,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * YouTubeAddToPlaylistSheet
- * Video ko playlist mein add karne ka bottom sheet.
- * - Apni saari playlists list hoti hain checkboxes ke saath
+ * YouTubeAddToPlaylistSheet — video ko playlist mein add karna
+ * - Existing playlists checkbox list
  * - "+ Nayi Playlist Banao" button
- * - Save button — selected playlists mein video add ho jaata hai
  */
 public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
 
     private static final String ARG_VIDEO_ID = "video_id";
 
-    private String videoId;
-    private String myUid;
+    private String videoId, myUid;
     private LinearLayout llPlaylists;
     private final List<String> selectedPlaylistIds = new ArrayList<>();
 
@@ -46,7 +43,7 @@ public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
 
     @Override public void onCreate(@Nullable Bundle s) {
         super.onCreate(s);
-        videoId = getArguments() != null ? getArguments().getString(ARG_VIDEO_ID) : "";
+        videoId = getArguments() != null ? getArguments().getString(ARG_VIDEO_ID, "") : "";
         myUid   = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
     }
@@ -59,14 +56,13 @@ public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         super.onViewCreated(view, state);
-
         llPlaylists = view.findViewById(R.id.ll_yt_playlist_list);
 
         View btnClose = view.findViewById(R.id.btn_atpl_close);
         if (btnClose != null) btnClose.setOnClickListener(v -> dismiss());
 
-        View btnNewPlaylist = view.findViewById(R.id.btn_atpl_new_playlist);
-        if (btnNewPlaylist != null) btnNewPlaylist.setOnClickListener(v -> {
+        View btnNew = view.findViewById(R.id.btn_atpl_new_playlist);
+        if (btnNew != null) btnNew.setOnClickListener(v -> {
             dismiss();
             startActivity(new Intent(requireContext(), YouTubePlaylistCreateActivity.class)
                 .putExtra("video_id", videoId));
@@ -80,15 +76,16 @@ public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
 
     private void loadPlaylists() {
         if (myUid.isEmpty()) return;
-        FirebaseDatabase.getInstance(YouTubeFirebaseUtils.DB_URL)
-            .getReference("youtube/playlists").child(myUid)
+        // Use YouTubeFirebaseUtils.playlistsRef — no DB_URL needed
+        YouTubeFirebaseUtils.playlistsRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (llPlaylists == null || !isAdded()) return;
                     llPlaylists.removeAllViews();
                     for (DataSnapshot ds : snap.getChildren()) {
                         YouTubePlaylist pl = ds.getValue(YouTubePlaylist.class);
-                        if (pl == null) continue;
+                        if (pl == null || pl.playlistId == null) continue;
+                        String plId = pl.playlistId;
 
                         View item = LayoutInflater.from(requireContext())
                             .inflate(R.layout.item_yt_playlist_select, llPlaylists, false);
@@ -96,15 +93,14 @@ public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
                         CheckBox cb      = item.findViewById(R.id.cb_playlist_select);
                         if (tvTitle != null) tvTitle.setText(pl.title);
 
-                        // Pre-check if video already in this playlist
-                        String plId = pl.playlistId;
-                        FirebaseDatabase.getInstance(YouTubeFirebaseUtils.DB_URL)
-                            .getReference("youtube/playlist_videos").child(plId).child(videoId)
+                        // Pre-check if video already in playlist
+                        YouTubeFirebaseUtils.playlistVideosRef(myUid, plId).child(videoId)
                             .addListenerForSingleValueEvent(new ValueEventListener() {
                                 @Override public void onDataChange(@NonNull DataSnapshot s) {
                                     if (s.exists() && cb != null) {
                                         cb.setChecked(true);
-                                        selectedPlaylistIds.add(plId);
+                                        if (!selectedPlaylistIds.contains(plId))
+                                            selectedPlaylistIds.add(plId);
                                     }
                                 }
                                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -114,7 +110,6 @@ public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
                             if (checked) { if (!selectedPlaylistIds.contains(plId)) selectedPlaylistIds.add(plId); }
                             else selectedPlaylistIds.remove(plId);
                         });
-
                         item.setOnClickListener(v -> { if (cb != null) cb.setChecked(!cb.isChecked()); });
                         llPlaylists.addView(item);
                     }
@@ -125,11 +120,10 @@ public class YouTubeAddToPlaylistSheet extends BottomSheetDialogFragment {
 
     private void saveToPlaylists() {
         if (selectedPlaylistIds.isEmpty()) { dismiss(); return; }
-        DatabaseReference db = FirebaseDatabase.getInstance(YouTubeFirebaseUtils.DB_URL).getReference();
         for (String plId : selectedPlaylistIds) {
-            db.child("youtube/playlist_videos").child(plId).child(videoId)
-                .setValue(System.currentTimeMillis());
-            db.child("youtube/playlists").child(myUid).child(plId).child("videoCount")
+            YouTubeFirebaseUtils.playlistVideosRef(myUid, plId)
+                .child(videoId).setValue(System.currentTimeMillis());
+            YouTubeFirebaseUtils.playlistRef(myUid, plId).child("videoCount")
                 .runTransaction(new Transaction.Handler() {
                     @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
                         Long c = d.getValue(Long.class); d.setValue(c == null ? 1 : c + 1); return Transaction.success(d);

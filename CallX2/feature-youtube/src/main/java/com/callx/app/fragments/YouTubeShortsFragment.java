@@ -33,13 +33,7 @@ import java.util.List;
 
 /**
  * YouTubeShortsFragment — Real YouTube Shorts experience
- *
- * Full-screen vertical swipe player with:
- * - ExoPlayer per item (current item auto-plays, others pause)
- * - Right-side action buttons: Like, Dislike, Comment, Share, More
- * - Channel avatar + follow button overlay
- * - Title + description overlay at bottom
- * - Smooth PagerSnapHelper vertical swipe
+ * Full-screen vertical swipe, ExoPlayer per item, like/comment/share overlay
  */
 public class YouTubeShortsFragment extends Fragment {
 
@@ -57,7 +51,6 @@ public class YouTubeShortsFragment extends Fragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         super.onViewCreated(view, state);
-
         rvShorts = view.findViewById(R.id.rv_yt_shorts);
         llm = new LinearLayoutManager(requireContext());
         rvShorts.setLayoutManager(llm);
@@ -68,7 +61,6 @@ public class YouTubeShortsFragment extends Fragment {
         adapter = new ShortsAdapter(requireActivity());
         rvShorts.setAdapter(adapter);
 
-        // Jab scroll ruk jaye tab current item play karo, baaki pause karo
         rvShorts.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int state) {
                 if (state == RecyclerView.SCROLL_STATE_IDLE) {
@@ -82,7 +74,6 @@ public class YouTubeShortsFragment extends Fragment {
                 }
             }
         });
-
         loadShorts();
     }
 
@@ -97,10 +88,7 @@ public class YouTubeShortsFragment extends Fragment {
                         list.add(0, v);
                 }
                 adapter.setData(list);
-                if (!list.isEmpty()) {
-                    adapter.playPlayer(0);
-                    currentPlayingPos = 0;
-                }
+                if (!list.isEmpty()) { adapter.playPlayer(0); currentPlayingPos = 0; }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -109,15 +97,8 @@ public class YouTubeShortsFragment extends Fragment {
             .addValueEventListener(shortsListener);
     }
 
-    @Override public void onPause() {
-        super.onPause();
-        adapter.pausePlayer(currentPlayingPos);
-    }
-
-    @Override public void onResume() {
-        super.onResume();
-        adapter.playPlayer(currentPlayingPos);
-    }
+    @Override public void onPause()  { super.onPause();  adapter.pausePlayer(currentPlayingPos); }
+    @Override public void onResume() { super.onResume(); adapter.playPlayer(currentPlayingPos); }
 
     @Override public void onDestroyView() {
         super.onDestroyView();
@@ -127,7 +108,6 @@ public class YouTubeShortsFragment extends Fragment {
     }
 
     // ── Shorts Adapter ────────────────────────────────────────────────────────
-
     static class ShortsAdapter extends RecyclerView.Adapter<ShortsAdapter.VH> {
 
         private final androidx.fragment.app.FragmentActivity ctx;
@@ -136,26 +116,10 @@ public class YouTubeShortsFragment extends Fragment {
 
         ShortsAdapter(androidx.fragment.app.FragmentActivity ctx) { this.ctx = ctx; }
 
-        void setData(List<YouTubeVideo> d) {
-            releaseAll();
-            data = d;
-            notifyDataSetChanged();
-        }
-
-        void playPlayer(int pos) {
-            ExoPlayer p = players.get(pos);
-            if (p != null) p.play();
-        }
-
-        void pausePlayer(int pos) {
-            ExoPlayer p = players.get(pos);
-            if (p != null) p.pause();
-        }
-
-        void releaseAll() {
-            for (int i = 0; i < players.size(); i++) players.valueAt(i).release();
-            players.clear();
-        }
+        void setData(List<YouTubeVideo> d) { releaseAll(); data = d; notifyDataSetChanged(); }
+        void playPlayer(int pos)  { ExoPlayer p = players.get(pos); if (p != null) p.play(); }
+        void pausePlayer(int pos) { ExoPlayer p = players.get(pos); if (p != null) p.pause(); }
+        void releaseAll() { for (int i = 0; i < players.size(); i++) players.valueAt(i).release(); players.clear(); }
 
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -166,25 +130,21 @@ public class YouTubeShortsFragment extends Fragment {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             YouTubeVideo video = data.get(pos);
 
-            // Release old player at this position
             ExoPlayer old = players.get(pos);
             if (old != null) { old.release(); players.remove(pos); }
 
-            // Create new ExoPlayer
             ExoPlayer player = new ExoPlayer.Builder(ctx).build();
             players.put(pos, player);
             h.playerView.setPlayer(player);
-            h.playerView.setUseController(false); // controls hidden — gesture based
+            h.playerView.setUseController(false);
 
             String url = video.videoUrl != null ? video.videoUrl : "";
-            // Cloudinary f_mp4 fix
             if (url.contains("cloudinary.com") && !url.contains("f_mp4"))
                 url = url.replaceFirst("/upload/", "/upload/f_mp4/");
             player.setMediaItem(MediaItem.fromUri(url));
-            player.setRepeatMode(Player.REPEAT_MODE_ONE); // loop
+            player.setRepeatMode(Player.REPEAT_MODE_ONE);
             player.prepare();
 
-            // Thumbnail while loading
             if (video.thumbnailUrl != null)
                 Glide.with(ctx).load(video.thumbnailUrl).centerCrop().into(h.ivThumbnail);
 
@@ -194,41 +154,33 @@ public class YouTubeShortsFragment extends Fragment {
                 }
             });
 
-            // Title & channel
             h.tvTitle.setText(video.title != null ? video.title : "");
             h.tvChannel.setText("@" + (video.uploaderName != null ? video.uploaderName : ""));
+            h.tvLikes.setText(formatCount(video.likeCount));
 
-            // Avatar
             if (video.uploaderPhotoUrl != null && !video.uploaderPhotoUrl.isEmpty())
                 Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().into(h.ivAvatar);
 
-            // Like count
-            h.tvLikes.setText(formatCount(video.likeCount));
-
-            // Subscribe/Follow button
             String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
                 ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
             String uploaderUid = video.uploaderUid != null ? video.uploaderUid : "";
 
+            // Subscription state
             if (!uploaderUid.isEmpty() && !myUid.isEmpty()) {
                 YouTubeFirebaseUtils.subscriptionsRef(myUid).child(uploaderUid)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                            boolean subscribed = snap.exists();
-                            h.btnFollow.setText(subscribed ? "Subscribed" : "Subscribe");
-                            h.btnFollow.setBackgroundTintList(
-                                android.content.res.ColorStateList.valueOf(
-                                    subscribed ? 0xFF606060 : 0xFFFF0000));
+                            boolean sub = snap.exists();
+                            updateFollowBtn(h.btnFollow, sub);
                         }
                         @Override public void onCancelled(@NonNull DatabaseError e) {}
                     });
             }
 
-            // Like button
+            // Like state — use YouTubeFirebaseUtils.likedVideosRef (no DB_URL needed)
             boolean[] liked = {false};
-            if (!myUid.isEmpty() && !video.videoId.isEmpty()) {
-                FirebaseDatabase.getInstance(YouTubeFirebaseUtils.DB_URL)
-                    .getReference("youtube/liked_videos").child(myUid).child(video.videoId)
+            if (!myUid.isEmpty() && video.videoId != null && !video.videoId.isEmpty()) {
+                YouTubeFirebaseUtils.likedVideosRef(myUid).child(video.videoId)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot s) {
                             liked[0] = s.exists();
@@ -241,12 +193,11 @@ public class YouTubeShortsFragment extends Fragment {
 
             h.btnLike.setOnClickListener(v -> {
                 if (myUid.isEmpty()) { Toast.makeText(ctx, "Login karo", Toast.LENGTH_SHORT).show(); return; }
+                if (video.videoId == null) return;
                 liked[0] = !liked[0];
                 h.btnLike.setImageResource(liked[0] ? R.drawable.ic_yt_like_filled : R.drawable.ic_yt_like);
-                DatabaseReference likeRef = FirebaseDatabase.getInstance(YouTubeFirebaseUtils.DB_URL)
-                    .getReference("youtube/liked_videos").child(myUid).child(video.videoId);
-                DatabaseReference countRef = FirebaseDatabase.getInstance(YouTubeFirebaseUtils.DB_URL)
-                    .getReference("youtube/videos").child(video.videoId).child("likeCount");
+                DatabaseReference likeRef  = YouTubeFirebaseUtils.likedVideosRef(myUid).child(video.videoId);
+                DatabaseReference countRef = YouTubeFirebaseUtils.videoRef(video.videoId).child("likeCount");
                 if (liked[0]) {
                     likeRef.setValue(true);
                     countRef.runTransaction(new Transaction.Handler() {
@@ -269,12 +220,10 @@ public class YouTubeShortsFragment extends Fragment {
                 h.tvLikes.setText(formatCount(video.likeCount));
             });
 
-            // Comment button
             h.btnComment.setOnClickListener(v ->
                 ctx.startActivity(new Intent(ctx, YouTubeCommentsActivity.class)
                     .putExtra("video_id", video.videoId)));
 
-            // Share button
             h.btnShare.setOnClickListener(v -> {
                 android.content.Intent share = new android.content.Intent(Intent.ACTION_SEND);
                 share.setType("text/plain");
@@ -282,54 +231,40 @@ public class YouTubeShortsFragment extends Fragment {
                 ctx.startActivity(Intent.createChooser(share, "Share karo"));
             });
 
-            // Avatar + channel tap → channel page
             h.ivAvatar.setOnClickListener(v ->
-                ctx.startActivity(new Intent(ctx, YouTubeChannelActivity.class)
-                    .putExtra("uid", uploaderUid)));
+                ctx.startActivity(new Intent(ctx, YouTubeChannelActivity.class).putExtra("uid", uploaderUid)));
             h.tvChannel.setOnClickListener(v ->
-                ctx.startActivity(new Intent(ctx, YouTubeChannelActivity.class)
-                    .putExtra("uid", uploaderUid)));
+                ctx.startActivity(new Intent(ctx, YouTubeChannelActivity.class).putExtra("uid", uploaderUid)));
 
-            // Follow button
             boolean[] subbed = {false};
             h.btnFollow.setOnClickListener(v -> {
                 if (myUid.isEmpty()) return;
                 subbed[0] = !subbed[0];
+                updateFollowBtn(h.btnFollow, subbed[0]);
                 if (subbed[0]) {
                     YouTubeFirebaseUtils.subscriptionsRef(myUid).child(uploaderUid).setValue(true);
                     YouTubeFirebaseUtils.subscribersRef(uploaderUid).child(myUid).setValue(true);
-                    h.btnFollow.setText("Subscribed");
-                    h.btnFollow.setBackgroundTintList(
-                        android.content.res.ColorStateList.valueOf(0xFF606060));
                 } else {
                     YouTubeFirebaseUtils.subscriptionsRef(myUid).child(uploaderUid).removeValue();
                     YouTubeFirebaseUtils.subscribersRef(uploaderUid).child(myUid).removeValue();
-                    h.btnFollow.setText("Subscribe");
-                    h.btnFollow.setBackgroundTintList(
-                        android.content.res.ColorStateList.valueOf(0xFFFF0000));
                 }
             });
 
-            // Double-tap to like
-            h.playerView.setOnClickListener(null);
-            h.playerView.setOnTouchListener(new android.view.View.OnTouchListener() {
+            // Double-tap to like / single-tap pause-play
+            h.playerView.setOnTouchListener(new View.OnTouchListener() {
                 private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
-                private boolean isDoubleClick = false;
+                private boolean pending = false;
                 @Override public boolean onTouch(View view, android.view.MotionEvent e) {
                     if (e.getAction() == android.view.MotionEvent.ACTION_UP) {
-                        if (isDoubleClick) {
-                            isDoubleClick = false;
+                        if (pending) {
+                            pending = false;
                             handler.removeCallbacksAndMessages(null);
-                            // Double tap — like
                             if (!liked[0]) h.btnLike.performClick();
-                            showHeartAnimation(h);
+                            showHeartAnim(h);
                         } else {
-                            isDoubleClick = true;
-                            handler.postDelayed(() -> {
-                                isDoubleClick = false;
-                                // Single tap — pause/play
-                                if (player.isPlaying()) player.pause();
-                                else player.play();
+                            pending = true;
+                            handler.postDelayed(() -> { pending = false;
+                                if (player.isPlaying()) player.pause(); else player.play();
                             }, 250);
                         }
                     }
@@ -338,33 +273,32 @@ public class YouTubeShortsFragment extends Fragment {
             });
         }
 
-        private void showHeartAnimation(VH h) {
+        private void updateFollowBtn(android.widget.Button btn, boolean subscribed) {
+            btn.setText(subscribed ? "Subscribed" : "Subscribe");
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                subscribed ? 0xFF606060 : 0xFFFF0000));
+        }
+
+        private void showHeartAnim(VH h) {
             h.ivHeartAnim.setVisibility(View.VISIBLE);
-            h.ivHeartAnim.setScaleX(0f);
-            h.ivHeartAnim.setScaleY(0f);
-            h.ivHeartAnim.setAlpha(1f);
-            h.ivHeartAnim.animate().scaleX(1.3f).scaleY(1.3f).setDuration(200)
-                .withEndAction(() ->
-                    h.ivHeartAnim.animate().scaleX(1f).scaleY(1f).setDuration(100)
-                        .withEndAction(() ->
-                            h.ivHeartAnim.animate().alpha(0f).setDuration(400)
-                                .withEndAction(() ->
-                                    h.ivHeartAnim.setVisibility(View.GONE)).start()).start()).start();
+            h.ivHeartAnim.setScaleX(0f); h.ivHeartAnim.setScaleY(0f); h.ivHeartAnim.setAlpha(1f);
+            h.ivHeartAnim.animate().scaleX(1.3f).scaleY(1.3f).setDuration(200).withEndAction(() ->
+                h.ivHeartAnim.animate().scaleX(1f).scaleY(1f).setDuration(100).withEndAction(() ->
+                    h.ivHeartAnim.animate().alpha(0f).setDuration(400).withEndAction(() ->
+                        h.ivHeartAnim.setVisibility(View.GONE)).start()).start()).start();
         }
 
         @Override public void onViewRecycled(@NonNull VH h) {
             super.onViewRecycled(h);
-            ExoPlayer p = players.get(h.getAdapterPosition());
-            if (p != null) p.pause();
+            int pos = h.getAdapterPosition();
+            if (pos != RecyclerView.NO_ID) { ExoPlayer p = players.get(pos); if (p != null) p.pause(); }
         }
 
         @Override public int getItemCount() { return data == null ? 0 : data.size(); }
 
         static class VH extends RecyclerView.ViewHolder {
-            PlayerView playerView;
-            ImageView ivThumbnail, ivHeartAnim;
-            CircleImageView ivAvatar;
-            TextView tvTitle, tvChannel, tvLikes, tvComments;
+            PlayerView playerView; ImageView ivThumbnail, ivHeartAnim;
+            CircleImageView ivAvatar; TextView tvTitle, tvChannel, tvLikes, tvComments;
             ImageButton btnLike, btnDislike, btnComment, btnShare, btnMore;
             android.widget.Button btnFollow;
 
