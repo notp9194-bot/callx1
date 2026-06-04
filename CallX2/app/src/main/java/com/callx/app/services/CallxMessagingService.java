@@ -52,6 +52,7 @@ import java.util.concurrent.Executors;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.telephony.TelephonyManager;
+import com.callx.app.notifications.ReelFCMNotificationHandler;
 public class CallxMessagingService extends FirebaseMessagingService {
     @Override public void onNewToken(String token) {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;

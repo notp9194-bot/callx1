@@ -29,6 +29,8 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
 
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.profile.ReelUserProfileSheet;
+import com.callx.app.profile.UserReelsActivity;
 
 /**
  * UserProfileActivity — Chat header avatar click ya 3-dot "View Profile" se open hoti hai.

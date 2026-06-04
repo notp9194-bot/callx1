@@ -9,6 +9,10 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
+import com.callx.app.player.SingleReelPlayerActivity;
+import com.callx.app.profile.UserReelsActivity;
+import com.callx.app.explore.HashtagReelsActivity;
+import com.callx.app.music.SoundDetailActivity;
 
 /**
  * DeepLinkRouterActivity — Handles ALL deep links for CallX app.
