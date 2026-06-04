@@ -133,6 +133,7 @@ public class ChatActivity extends AppCompatActivity {
     private boolean isBlocked            = false;
     private boolean isRecording          = false;
     private boolean partnerPermaBlockedMe = false;
+    private boolean iPermaBlockedPartner  = false; // Maine partner ko permanently block kiya hai
 
     // ── Paging 3 (core fix) ───────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
@@ -146,6 +147,7 @@ public class ChatActivity extends AppCompatActivity {
     private ValueEventListener onlineListener;
     private ValueEventListener blockListener;
     private ValueEventListener permaBlockListener;
+    private ValueEventListener myPermaBlockListener; // Maine partner ko perma-block kiya check
 
     // ── Reply state ────────────────────────────────────────────────────────
     private Message replyingTo = null;
@@ -213,6 +215,7 @@ public class ChatActivity extends AppCompatActivity {
         watchMute();
         watchBlock();
         watchPartnerPermaBlock();
+        watchMyPermaBlock();
         checkAndShowPendingSpecialRequest();
         watchPinnedMessage();
         markMessagesRead();
@@ -280,6 +283,16 @@ public class ChatActivity extends AppCompatActivity {
             try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
         }
         if (replyController != null) replyController.release();
+        // Block/perma-block listeners cleanup
+        if (blockListener != null && currentUid != null && partnerUid != null)
+            FirebaseUtils.db().getReference("blocked").child(currentUid).child(partnerUid)
+                    .removeEventListener(blockListener);
+        if (permaBlockListener != null && partnerUid != null && currentUid != null)
+            FirebaseUtils.db().getReference("permaBlocked").child(partnerUid).child(currentUid)
+                    .removeEventListener(permaBlockListener);
+        if (myPermaBlockListener != null && currentUid != null && partnerUid != null)
+            FirebaseUtils.db().getReference("permaBlocked").child(currentUid).child(partnerUid)
+                    .removeEventListener(myPermaBlockListener);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1602,47 +1615,44 @@ public class ChatActivity extends AppCompatActivity {
                 .addValueEventListener(blockListener);
     }
 
+    // Watch if I have already permanently blocked this partner
+    private void watchMyPermaBlock() {
+        if (currentUid == null || currentUid.isEmpty() || partnerUid == null || partnerUid.isEmpty()) return;
+        myPermaBlockListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                iPermaBlockedPartner = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                // Re-apply block UI so button shows/hides correctly
+                applyBlockUi();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.db().getReference("permaBlocked")
+                .child(currentUid).child(partnerUid)
+                .addValueEventListener(myPermaBlockListener);
+    }
+
     private void applyBlockUi() {
         binding.etMessage.setEnabled(!isBlocked);
         if (isBlocked) {
             binding.etMessage.setHint("You have blocked " + partnerName);
             binding.btnSend.setVisibility(View.GONE);
             binding.btnMic.setVisibility(View.GONE);
-            // Block banner dikhao
-            if (binding.llBlockBanner != null) {
-                binding.llBlockBanner.setVisibility(View.VISIBLE);
-                if (binding.tvBlockBanner != null)
-                    binding.tvBlockBanner.setText("You have blocked " + partnerName);
-                if (binding.btnPermaBlock != null)
-                    binding.btnPermaBlock.setOnClickListener(v -> confirmPermaBlock());
+            // Show block banner with Permanent Block button
+            binding.llBlockBanner.setVisibility(View.VISIBLE);
+            binding.tvBlockBannerText.setText("You have blocked " + partnerName);
+            // Agar already permanently blocked hai to button mat dikhao
+            if (iPermaBlockedPartner) {
+                binding.btnPermanentBlock.setVisibility(View.GONE);
+                binding.tvBlockBannerText.setText("You have permanently blocked " + partnerName);
+            } else {
+                binding.btnPermanentBlock.setVisibility(View.VISIBLE);
+                binding.btnPermanentBlock.setOnClickListener(v -> confirmPermanentBlock());
             }
         } else {
             binding.etMessage.setHint(getString(R.string.hint_message));
             binding.btnMic.setVisibility(View.VISIBLE);
-            if (binding.llBlockBanner != null)
-                binding.llBlockBanner.setVisibility(View.GONE);
+            binding.llBlockBanner.setVisibility(View.GONE);
         }
-    }
-
-    private void confirmPermaBlock() {
-        new AlertDialog.Builder(this)
-                .setTitle("Permanently block " + partnerName + "?")
-                .setMessage(partnerName + " will never be able to message you again. "
-                        + "They can send up to 3 special unblock requests.")
-                .setPositiveButton("Permanent Block", (d, w) -> {
-                    FirebaseUtils.db().getReference("permaBlocked")
-                            .child(currentUid).child(partnerUid).setValue(true);
-                    // Normal block bhi ensure karo
-                    FirebaseUtils.db().getReference("blocked")
-                            .child(currentUid).child(partnerUid).setValue(true);
-                    // Blocked user ko notify karo
-                    PushNotify.notifyPermaBlock(partnerUid, currentUid, currentName);
-                    Toast.makeText(this,
-                            partnerName + " has been permanently blocked.",
-                            Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
     }
 
     private void confirmBlockUser() {
@@ -1653,6 +1663,29 @@ public class ChatActivity extends AppCompatActivity {
                     FirebaseUtils.db().getReference("blocked")
                             .child(currentUid).child(partnerUid)
                             .setValue(!isBlocked);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void confirmPermanentBlock() {
+        new AlertDialog.Builder(this)
+                .setTitle("⛔ Permanently Block " + partnerName + "?")
+                .setMessage(partnerName + " will be permanently blocked. They will NOT be able to send you any requests or contact you ever again.\n\nThis action cannot be undone.")
+                .setPositiveButton("Permanent Block", (d, w) -> {
+                    // Set permaBlocked node — yeh partner pe apply hota hai (watchPartnerPermaBlock)
+                    FirebaseUtils.db().getReference("permaBlocked")
+                            .child(currentUid).child(partnerUid)
+                            .setValue(true);
+                    // Ensure normal block bhi set hai
+                    FirebaseUtils.db().getReference("blocked")
+                            .child(currentUid).child(partnerUid)
+                            .setValue(true);
+                    Toast.makeText(this,
+                            partnerName + " has been permanently blocked.",
+                            Toast.LENGTH_LONG).show();
+                    // Banner hide karo — permaBlock state se UI alag handle hogi
+                    binding.llBlockBanner.setVisibility(View.GONE);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();

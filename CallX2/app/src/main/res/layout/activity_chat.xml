@@ -527,6 +527,46 @@
             android:contentDescription="Cancel reply"/>
     </LinearLayout>
 
+    <!-- Block banner — shown when YOU have blocked this person -->
+    <LinearLayout
+        android:id="@+id/ll_block_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#1AFF3B30"
+        android:paddingStart="16dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:gravity="center_vertical"
+        android:visibility="gone"
+        android:elevation="2dp">
+
+        <TextView
+            android:id="@+id/tv_block_banner_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFF3B30"
+            android:textSize="13sp"
+            android:drawablePadding="8dp"
+            android:text="You have blocked this person"/>
+
+        <Button
+            android:id="@+id/btn_permanent_block"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Permanent Block"
+            android:textSize="12sp"
+            android:textColor="#FFFFFFFF"
+            android:backgroundTint="#FFFF3B30"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:layout_marginStart="8dp"
+            style="@style/Widget.MaterialComponents.Button"/>
+
+    </LinearLayout>
+
     <!-- Input row -->
     <LinearLayout
         android:id="@+id/ll_input_row"
