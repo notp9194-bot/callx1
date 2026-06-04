@@ -3,6 +3,13 @@ package com.callx.app.utils;
 public class Constants {
     public static final String DB_URL =
         "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+    // FIX [P4-3]: SERVER_URL / DEEP_LINK_BASE_URL / CLOUDINARY_* have been
+    // duplicated into app/src/main/res/values/strings.xml as R.string.*
+    // Use ctx.getString(R.string.server_base_url) in any Context-aware code.
+    // These constants remain here for non-Context code (e.g. Repository, Services).
+    // NOTE: Java static final Strings are inlined in DEX; strings.xml values
+    // live in resources.arsc which is harder to grep automatically.
     public static final String SERVER_URL =
         "https://callx-server.onrender.com";
 
@@ -10,6 +17,11 @@ public class Constants {
     // HTTPS use karo — WhatsApp/SMS mein clickable hota hai
     // Server pe ye link callx:// pe redirect karta hai → seedha app mein khulta hai
     public static final String DEEP_LINK_BASE_URL = "https://callx-server.onrender.com";
+
+    // SECURITY: cloud_name alone cannot perform privileged actions — all uploads
+    // go through server-signed requests (CloudinaryUploader step-1 = /sign endpoint).
+    // Unsigned preset 'callx_upload' MUST have upload size & format restrictions
+    // set in the Cloudinary dashboard (Media Library → Settings → Upload Presets).
     public static final String CLOUDINARY_CLOUD_NAME = "dvqqgqdls";
     public static final String CLOUDINARY_PRESET     = "callx_upload";
 

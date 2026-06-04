@@ -37,6 +37,12 @@
 -keep class com.google.crypto.tink.** { *; }
 -dontwarn com.google.crypto.tink.**
 
+# FIX [P4-4]: Do NOT add a blanket -keep for com.callx.app.utils.** here.
+# Constants.java contains hardcoded config strings. Letting R8 rename the class
+# in release builds adds an extra obscurity layer — reverse-engineers must find
+# the renamed class before they can locate the strings.
+# Only SecurityManager and AppLockManager need to be kept (they use reflection).
+
 # ── Firebase ────────────────────────────────────────────────────
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }

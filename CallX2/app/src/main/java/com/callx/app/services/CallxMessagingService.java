@@ -515,6 +515,32 @@ public class CallxMessagingService extends FirebaseMessagingService {
         saveMessageToDb(msgId, chatId, fromUid, fromName, rawText, type, mediaUrl,
             data.getOrDefault("fileName", null), false);
 
+        // FIX [P2-3]: "Delivered" status — FCM notification hamare device pe pahuncha matlab
+        // message deliver ho gaya. Sender ko ✓✓ (gray) dikhao, chahe chat khuli ho ya na ho.
+        // Ye Firebase ChildEventListener se back-propagate hoga → sender ki Room DB update → UI refresh.
+        if (msgId != null && !msgId.isEmpty() && chatId != null && !chatId.isEmpty()) {
+            final String currentUid = FirebaseAuth.getInstance().getCurrentUser() != null
+                    ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            if (!currentUid.isEmpty() && !currentUid.equals(fromUid)) {
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    try {
+                        // Sirf "sent" → "delivered" upgrade karo; "read" downgrade nahi hona chahiye
+                        com.google.firebase.database.DatabaseReference msgRef =
+                                FirebaseUtils.db().getReference("chats")
+                                        .child(chatId).child("messages").child(msgId);
+                        msgRef.child("status").addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot s) {
+                                String cur = s.getValue(String.class);
+                                if ("read".equals(cur)) return; // already better, skip
+                                msgRef.child("status").setValue("delivered");
+                            }
+                            @Override public void onCancelled(DatabaseError e) {}
+                        });
+                    } catch (Exception ignored) {}
+                });
+            }
+        }
+
         // ── v18: Read all flags from FCM payload (server sends these now) ──
         final boolean serverHasBlockFlags = data.containsKey("permaBlocked") || data.containsKey("blocked");
         final boolean serverHasLastMsg    = data.containsKey("history") || data.containsKey("lastMsg"); // history = new, lastMsg = legacy

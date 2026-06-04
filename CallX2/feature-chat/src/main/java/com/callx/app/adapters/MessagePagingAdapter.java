@@ -89,6 +89,9 @@ public class MessagePagingAdapter
     private ActionListener actionListener;
     private MediaPlayer player;
     private int playingPos = -1;
+    // FIX [P3-1]: Track the ViewHolder that is currently playing so we can
+    // reset its UI (icon + seekbar) when a different message starts playing.
+    private VH playingVH = null;
     // FIX: SeekBar progress update via Handler — 250ms interval during playback
     private final android.os.Handler seekHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable seekUpdater;
@@ -922,8 +925,16 @@ public class MessagePagingAdapter
 
     private void playAudioFromPath(@NonNull VH h, String path, int position) {
         try {
+            // FIX [P3-1]: Reset previous VH UI so two bubbles don't show "pause" at the same time
+            if (playingVH != null && playingVH != h) {
+                seekHandler.removeCallbacks(seekUpdater);
+                if (playingVH.btnPlayPause != null)
+                    playingVH.btnPlayPause.setImageResource(R.drawable.ic_play);
+                if (playingVH.seekAudio != null) playingVH.seekAudio.setProgress(0);
+            }
             if (player != null) { try { player.release(); } catch (Exception ignored) {} }
             player = new MediaPlayer();
+            playingVH = h;
             
             // Agar local file hai to FileDescriptor se set karo (cache files ke liye)
             // Agar URL hai to directly
@@ -1032,6 +1043,19 @@ public class MessagePagingAdapter
             emojiRow.addView(tv);
         }
 
+        // FIX [P3-3]: "+" button → full emoji picker dialog (was dead/missing before)
+        android.widget.TextView btnMore = new android.widget.TextView(ctx);
+        btnMore.setText("+");
+        btnMore.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22);
+        btnMore.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        int morePad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
+        btnMore.setPadding(morePad, morePad / 2, morePad, morePad / 2);
+        btnMore.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            showFullEmojiPicker(ctx, m);
+        });
+        emojiRow.addView(btnMore);
+
         // ── Step 2: Build action items list ───────────────────────────
         boolean isOwnMsg     = currentUid != null && currentUid.equals(m.senderId);
         boolean isTextMsg    = m.text != null && !m.text.trim().isEmpty()
@@ -1069,6 +1093,45 @@ public class MessagePagingAdapter
                         }
                     });
         holder[0] = builder.show();
+    }
+
+    // FIX [P3-3]: Full emoji picker — 8-column scrollable grid of common emojis
+    private void showFullEmojiPicker(Context ctx, Message m) {
+        if (actionListener == null) return;
+        final String[] ALL_EMOJIS = {
+            "❤️","👍","😂","😮","😢","😡","🙏","🔥","✅","💯",
+            "👏","🤣","😍","😎","🤔","😴","🥳","😅","🤩","🥰",
+            "💀","🤯","😱","🤗","😇","🙄","😑","🤐","🫡","💪",
+            "👀","✌️","🤞","🫶","❤️‍🔥","💔","💕","💖","💘","🫂",
+            "🎉","🎊","🎈","🏆","⭐","🌟","💫","✨","🌈","☀️",
+            "😁","😆","🤭","😜","😝","🥹","🥺","😭","😤","😠",
+            "👋","🤙","🖐️","✋","👊","🫸","💅","🫰","👌","🤌",
+            "🙌","🤜","🤛","🫵","☝️","👈","👉","👆","👇","🤷"
+        };
+        android.widget.GridView grid = new android.widget.GridView(ctx);
+        grid.setNumColumns(8);
+        grid.setPadding(12, 12, 12, 12);
+        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(
+                ctx, android.R.layout.simple_list_item_1, ALL_EMOJIS) {
+            @Override public android.view.View getView(int pos, android.view.View cv, android.view.ViewGroup parent) {
+                android.widget.TextView tv = (android.widget.TextView)
+                        super.getView(pos, cv, parent);
+                tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 26);
+                tv.setGravity(android.view.Gravity.CENTER);
+                tv.setPadding(4, 8, 4, 8);
+                return tv;
+            }
+        };
+        grid.setAdapter(adapter);
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
+                .setTitle("Pick an emoji")
+                .setView(grid)
+                .create();
+        grid.setOnItemClickListener((parent, v, pos, id) -> {
+            actionListener.onReact(m, ALL_EMOJIS[pos]);
+            dialog.dismiss();
+        });
+        dialog.show();
     }
 
     @Override

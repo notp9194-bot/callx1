@@ -266,6 +266,13 @@ public class ChatActivity extends AppCompatActivity {
         saveDraft();
         if (messagesRef != null && messageListener != null)
             messagesRef.removeEventListener(messageListener);
+        // FIX [P2-1]: typingListener leak — activity destroy ke baad Firebase keeps calling back
+        if (typingListener != null && chatId != null)
+            FirebaseUtils.db().getReference("typing").child(chatId)
+                    .removeEventListener(typingListener);
+        // FIX [P2-1]: onlineListener leak — partner profile listener bhi detach karo
+        if (onlineListener != null && partnerUid != null)
+            FirebaseUtils.getUserRef(partnerUid).removeEventListener(onlineListener);
         typingHandler.removeCallbacks(stopTypingRunnable);
         clearOurTypingStatus();
         if (connMgr != null && netCallback != null) {
@@ -298,6 +305,9 @@ public class ChatActivity extends AppCompatActivity {
                     // v15 FIX 3: online hone par send button enable + pending retry
                     updateSendButtonState(true);
                     retryPendingMessages();
+                    // FIX [P2-2]: Reconnect par missed messages sync karo —
+                    // background mein network drop hua toh new messages miss ho jaate the
+                    ChatRepository.getInstance(getApplicationContext()).syncMessagesDelta(chatId);
                 });
             }
             @Override public void onLost(Network n) {
@@ -606,10 +616,11 @@ public class ChatActivity extends AppCompatActivity {
                     binding.shimmerContainer.startShimmer();
                     binding.shimmerContainer.setVisibility(View.VISIBLE);
                 }
+                // FIX [P3-4]: Hide empty state while loading
+                binding.llEmptyChat.setVisibility(View.GONE);
             } else {
                 binding.shimmerContainer.stopShimmer();
                 binding.shimmerContainer.setVisibility(View.GONE);
-                binding.rvMessages.setVisibility(View.VISIBLE);
                 if (refresh instanceof androidx.paging.LoadState.Error) {
                     String msg = ((androidx.paging.LoadState.Error) refresh)
                             .getError().getMessage();
@@ -617,6 +628,10 @@ public class ChatActivity extends AppCompatActivity {
                             "Failed to load messages: " + msg,
                             Toast.LENGTH_SHORT).show();
                 }
+                // FIX [P3-4]: Empty state — chat khali ho toh friendly message dikhao
+                boolean isEmpty = pagingAdapter.getItemCount() == 0;
+                binding.rvMessages.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
+                binding.llEmptyChat.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
             }
             return null;
         });
@@ -2085,6 +2100,30 @@ public class ChatActivity extends AppCompatActivity {
 
     private void doUpload(Uri uri, String msgType, String resourceType, String fileName) {
         long size = FileUtils.fileSize(this, uri);
+
+        // FIX [P3-2]: File size validation — upload shuru karne se pehle limit check karo
+        long limitBytes;
+        String limitLabel;
+        switch (msgType) {
+            case "image": limitBytes = 10L  * 1024 * 1024; limitLabel = "10 MB"; break;
+            case "video": limitBytes = 100L * 1024 * 1024; limitLabel = "100 MB"; break;
+            case "audio": limitBytes = 25L  * 1024 * 1024; limitLabel = "25 MB"; break;
+            default:      limitBytes = 50L  * 1024 * 1024; limitLabel = "50 MB"; break;
+        }
+        if (size > limitBytes) {
+            String typeName;
+            switch (msgType) {
+                case "image": typeName = "Image"; break;
+                case "video": typeName = "Video"; break;
+                case "audio": typeName = "Audio"; break;
+                default:      typeName = "File";  break;
+            }
+            Toast.makeText(this,
+                typeName + " too large — max " + limitLabel + " allowed",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
         CloudinaryUploader.upload(this, uri, "callx/" + msgType, resourceType,
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onSuccess(CloudinaryUploader.Result r) {
