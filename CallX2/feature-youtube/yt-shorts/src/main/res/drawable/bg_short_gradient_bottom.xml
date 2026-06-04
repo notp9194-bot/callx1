@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  bg_short_gradient_bottom — gradient overlay for YouTube Shorts bottom overlay panel.
+  Fades from transparent (top) to semi-transparent black (bottom) so text/actions
+  remain readable over the video.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="270"
+        android:startColor="#00000000"
+        android:endColor="#CC000000"/>
+</shape>
