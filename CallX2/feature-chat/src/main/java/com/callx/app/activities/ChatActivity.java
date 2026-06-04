@@ -1608,10 +1608,41 @@ public class ChatActivity extends AppCompatActivity {
             binding.etMessage.setHint("You have blocked " + partnerName);
             binding.btnSend.setVisibility(View.GONE);
             binding.btnMic.setVisibility(View.GONE);
+            // Block banner dikhao
+            if (binding.llBlockBanner != null) {
+                binding.llBlockBanner.setVisibility(View.VISIBLE);
+                if (binding.tvBlockBanner != null)
+                    binding.tvBlockBanner.setText("You have blocked " + partnerName);
+                if (binding.btnPermaBlock != null)
+                    binding.btnPermaBlock.setOnClickListener(v -> confirmPermaBlock());
+            }
         } else {
             binding.etMessage.setHint(getString(R.string.hint_message));
             binding.btnMic.setVisibility(View.VISIBLE);
+            if (binding.llBlockBanner != null)
+                binding.llBlockBanner.setVisibility(View.GONE);
         }
+    }
+
+    private void confirmPermaBlock() {
+        new AlertDialog.Builder(this)
+                .setTitle("Permanently block " + partnerName + "?")
+                .setMessage(partnerName + " will never be able to message you again. "
+                        + "They can send up to 3 special unblock requests.")
+                .setPositiveButton("Permanent Block", (d, w) -> {
+                    FirebaseUtils.db().getReference("permaBlocked")
+                            .child(currentUid).child(partnerUid).setValue(true);
+                    // Normal block bhi ensure karo
+                    FirebaseUtils.db().getReference("blocked")
+                            .child(currentUid).child(partnerUid).setValue(true);
+                    // Blocked user ko notify karo
+                    PushNotify.notifyPermaBlock(partnerUid, currentUid, currentName);
+                    Toast.makeText(this,
+                            partnerName + " has been permanently blocked.",
+                            Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void confirmBlockUser() {
