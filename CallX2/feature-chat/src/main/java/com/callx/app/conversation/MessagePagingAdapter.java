@@ -534,6 +534,19 @@ public class MessagePagingAdapter
                 com.callx.app.utils.ChatThemeManager
                         .get(ctx)
                         .applyBubble(llBubble, sent, bType, hasReply);
+
+                // ── MEDIA BUBBLE FIX: image/video/gif should fill the bubble edge-to-edge ──
+                // Remove bubble padding so media touches the rounded corners,
+                // then enable clipToOutline so the image/video is clipped to the bubble shape.
+                boolean isMedia = "image".equals(bType) || "video".equals(bType) || "gif".equals(bType);
+                if (isMedia) {
+                    llBubble.setPadding(0, 0, 0, 0);
+                    llBubble.setClipToOutline(true);
+                } else {
+                    // Restore default padding for text/audio/file bubbles
+                    llBubble.setPadding(0, 0, 0, 0);
+                    llBubble.setClipToOutline(false);
+                }
             }
         } catch (Exception ignored) {}
 
@@ -634,6 +647,18 @@ public class MessagePagingAdapter
             case "gif":
                 if (h.ivImage != null) {
                     h.ivImage.setVisibility(View.VISIBLE);
+
+                    // ── MEDIA BUBBLE FIX: make image fill the bubble edge-to-edge ──
+                    // Width = match_parent (fills ll_bubble), height = fixed 220dp (WhatsApp style)
+                    // centerCrop ensures no empty sides — image always covers the full area
+                    android.view.ViewGroup.LayoutParams ivLp = h.ivImage.getLayoutParams();
+                    ivLp.width  = android.view.ViewGroup.LayoutParams.MATCH_PARENT;
+                    ivLp.height = (int)(220 * ctx.getResources().getDisplayMetrics().density);
+                    h.ivImage.setLayoutParams(ivLp);
+                    h.ivImage.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                    h.ivImage.setAdjustViewBounds(false);
+                    // ── END FIX ──
+
                     String fullUrl  = m.mediaUrl != null ? m.mediaUrl : m.text;
                     String thumbUrl = m.thumbnailUrl;
 
@@ -698,6 +723,14 @@ public class MessagePagingAdapter
                 if (h.flVideo != null && h.ivVideoThumb != null) {
                     h.flVideo.setVisibility(View.VISIBLE);
                     if (h.ivImage != null) h.ivImage.setVisibility(View.GONE);
+
+                    // ── MEDIA BUBBLE FIX: video fills bubble edge-to-edge ──
+                    android.view.ViewGroup.LayoutParams flLp = h.flVideo.getLayoutParams();
+                    flLp.width  = android.view.ViewGroup.LayoutParams.MATCH_PARENT;
+                    flLp.height = (int)(200 * ctx.getResources().getDisplayMetrics().density);
+                    h.flVideo.setLayoutParams(flLp);
+                    // ── END FIX ──
+
                     String vUrl   = m.mediaUrl != null ? m.mediaUrl : m.text;
                     // POLISH FIX: use Cloudinary thumbnail for preview image, not the raw video URL
                     String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
