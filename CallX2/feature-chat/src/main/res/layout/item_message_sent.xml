@@ -213,6 +213,19 @@
                     android:ellipsize="end"
                     android:layout_marginTop="2dp"/>
 
+                <!-- Page description -->
+                <TextView
+                    android:id="@+id/tv_link_description"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/bubble_sent_text"
+                    android:textSize="11sp"
+                    android:alpha="0.7"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:layout_marginTop="2dp"
+                    android:visibility="gone"/>
+
             </LinearLayout>
         </LinearLayout>
 
