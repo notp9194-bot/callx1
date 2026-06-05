@@ -39,7 +39,7 @@ import com.callx.app.profile.UserReelsActivity;
   import android.widget.TextView;
   import com.bumptech.glide.Glide;
   import de.hdodenhof.circleimageview.CircleImageView;
-  import com.callx.app.activities.XActivity;
+  import com.callx.app.feed.XActivity;
   import com.callx.app.notifications.XNotificationWorker;
   import com.callx.app.utils.XFirebaseUtils;
   import com.callx.app.home.YouTubeActivity;
