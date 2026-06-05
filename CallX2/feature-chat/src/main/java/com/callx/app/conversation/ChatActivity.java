@@ -281,7 +281,6 @@ public class ChatActivity extends AppCompatActivity {
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
 
-    @Override
     private void startEmptyStateAnimation() {
         android.widget.TextView tvEmoji = findViewById(com.callx.app.chat.R.id.tv_empty_emoji);
         android.widget.TextView tvTitle = findViewById(com.callx.app.chat.R.id.tv_empty_title);
