@@ -313,7 +313,7 @@ public class GroupChatActivity extends AppCompatActivity {
 
     private void startGroupCall(boolean isVideo) {
         String callId = "gcall_" + groupId + "_" + System.currentTimeMillis();
-        Intent i = new Intent().setClassName(this, "com.callx.app.activities.GroupCallActivity");
+        Intent i = new Intent().setClassName(this, "com.callx.app.group.GroupCallActivity");
         i.putExtra("gcall_group_id",   groupId);
         i.putExtra("gcall_group_name", groupName);
         i.putExtra("gcall_group_icon", groupPhoto != null ? groupPhoto : "");

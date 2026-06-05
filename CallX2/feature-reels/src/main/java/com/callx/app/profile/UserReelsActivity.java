@@ -1027,13 +1027,13 @@ public class UserReelsActivity extends AppCompatActivity
 
         if (btnAudioCall != null) btnAudioCall.setOnClickListener(v -> {
             String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
-            launchActivity("com.callx.app.activities.CallActivity",
+            launchActivity("com.callx.app.call.CallActivity",
                 new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
                 new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, false, orEmpty(cid)});
         });
         if (btnVideoCall != null) btnVideoCall.setOnClickListener(v -> {
             String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
-            launchActivity("com.callx.app.activities.CallActivity",
+            launchActivity("com.callx.app.call.CallActivity",
                 new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
                 new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, true, orEmpty(cid)});
         });

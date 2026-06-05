@@ -443,7 +443,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 sheet.dismiss();
                 if (user.uid == null || getContext() == null) return;
                 Intent i = new Intent().setClassName(getContext().getPackageName(),
-                    "com.callx.app.activities.CallActivity");
+                    "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid",  user.uid);
                 i.putExtra("partnerName", user.name != null ? user.name : "");
                 i.putExtra("isCaller", true);
@@ -458,7 +458,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 sheet.dismiss();
                 if (user.uid == null || getContext() == null) return;
                 Intent i = new Intent().setClassName(getContext().getPackageName(),
-                    "com.callx.app.activities.CallActivity");
+                    "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid",  user.uid);
                 i.putExtra("partnerName", user.name != null ? user.name : "");
                 i.putExtra("isCaller", true);
@@ -918,7 +918,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             h.ivQuickCall.setOnClickListener(v -> {
                 if (l.partnerUid == null) return;
                 android.content.Intent i = new android.content.Intent()
-                    .setClassName(ctx.getPackageName(), "com.callx.app.activities.CallActivity");
+                    .setClassName(ctx.getPackageName(), "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid",  l.partnerUid);
                 i.putExtra("partnerName", l.partnerName != null ? l.partnerName : "");
                 i.putExtra("isCaller", true);

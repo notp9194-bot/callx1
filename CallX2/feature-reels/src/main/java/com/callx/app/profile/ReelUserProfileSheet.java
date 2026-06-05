@@ -299,7 +299,7 @@ public class ReelUserProfileSheet {
             btnVoice.setOnClickListener(x -> {
                 sheet.dismiss();
                 Intent i = new Intent()
-                    .setClassName(activity.getPackageName(), "com.callx.app.activities.CallActivity");
+                    .setClassName(activity.getPackageName(), "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid",  uid);
                 i.putExtra("partnerName", name != null ? name : "");
                 i.putExtra("isCaller", true);
@@ -313,7 +313,7 @@ public class ReelUserProfileSheet {
             btnVideo.setOnClickListener(x -> {
                 sheet.dismiss();
                 Intent i = new Intent()
-                    .setClassName(activity.getPackageName(), "com.callx.app.activities.CallActivity");
+                    .setClassName(activity.getPackageName(), "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid",  uid);
                 i.putExtra("partnerName", name != null ? name : "");
                 i.putExtra("isCaller", true);

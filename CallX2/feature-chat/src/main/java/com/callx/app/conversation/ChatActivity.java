@@ -564,7 +564,7 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void startCall(boolean isVideo) {
-        Intent i = new Intent().setClassName(this, "com.callx.app.activities.CallActivity");
+        Intent i = new Intent().setClassName(this, "com.callx.app.call.CallActivity");
         i.putExtra("partnerUid",   partnerUid);
         i.putExtra("partnerName",  partnerName);
         i.putExtra("partnerPhoto", partnerPhoto);

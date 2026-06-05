@@ -1176,7 +1176,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             btnVoice.setOnClickListener(v -> {
                 sheet.dismiss();
                 Intent i = new Intent()
-                    .setClassName(getPackageName(), "com.callx.app.activities.CallActivity");
+                    .setClassName(getPackageName(), "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid",  uploaderUid);
                 i.putExtra("partnerName", currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
                 i.putExtra("isCaller", true);
@@ -1191,7 +1191,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             btnVidCall.setOnClickListener(v -> {
                 sheet.dismiss();
                 Intent i = new Intent()
-                    .setClassName(getPackageName(), "com.callx.app.activities.CallActivity");
+                    .setClassName(getPackageName(), "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid",  uploaderUid);
                 i.putExtra("partnerName", currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
                 i.putExtra("isCaller", true);

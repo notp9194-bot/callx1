@@ -167,7 +167,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         h.btnCall.setOnClickListener(v -> {
             if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-            Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.CallActivity");
+            Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.call.CallActivity");
             i.putExtra("partnerUid", u.uid);
             i.putExtra("partnerName", u.name);
             i.putExtra("isCaller", true);
@@ -178,7 +178,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         if (h.btnVideoCall != null) {
             h.btnVideoCall.setOnClickListener(v -> {
                 if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-                Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.CallActivity");
+                Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid", u.uid);
                 i.putExtra("partnerName", u.name);
                 i.putExtra("isCaller", true);
