@@ -143,7 +143,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         if (h.llAudio  != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile   != null) h.llFile.setVisibility(View.GONE);
         if (h.tvEdited != null) h.tvEdited.setVisibility(View.GONE);
-        if (h.llYoutubeBubble != null) h.llYoutubeBubble.setVisibility(View.GONE);
 
         // Feature 8: Pinned label
         if (h.tvPinnedLabel != null)
@@ -452,43 +451,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     h.tvEdited.setVisibility(View.VISIBLE);
                 // ── Clickable links: URLs, phone numbers, emails ────────────
                 String rawText = m.text != null ? m.text : "";
-
-                // ── YouTube preview bubble ─────────────────────────────────
-                String ytUrl = extractYouTubeUrl(rawText);
-                if (ytUrl != null && h.llYoutubeBubble != null) {
-                    String videoId = extractYouTubeVideoId(ytUrl);
-                    if (videoId != null) {
-                        h.llYoutubeBubble.setVisibility(View.VISIBLE);
-                        // Thumbnail via YouTube img CDN (no API key needed)
-                        String thumbUrl = "https://img.youtube.com/vi/" + videoId + "/hqdefault.jpg";
-                        if (h.ivYtThumb != null) {
-                            Glide.with(ctx)
-                                .load(thumbUrl)
-                                .centerCrop()
-                                .placeholder(com.callx.app.chat.R.drawable.bg_skeleton_rect)
-                                .into(h.ivYtThumb);
-                        }
-                        // Fetch title via LinkPreviewFetcher
-                        if (h.tvYtTitle != null) h.tvYtTitle.setText("YouTube Video");
-                        if (h.tvYtChannel != null) h.tvYtChannel.setText("youtube.com");
-                        com.callx.app.utils.LinkPreviewFetcher.fetch(ytUrl,
-                            new com.callx.app.utils.LinkPreviewFetcher.Callback() {
-                                @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
-                                    if (h.tvYtTitle  != null) h.tvYtTitle.setText(r.title);
-                                    if (h.tvYtChannel!= null) h.tvYtChannel.setText(r.domain);
-                                }
-                                @Override public void onError(String url) {}
-                            });
-                        // Open in browser on tap
-                        final String finalYtUrl = ytUrl;
-                        h.llYoutubeBubble.setOnClickListener(v -> {
-                            try {
-                                ctx.startActivity(new Intent(Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(finalYtUrl)));
-                            } catch (Exception ignored) {}
-                        });
-                    }
-                }
                 android.text.SpannableString spanned = new android.text.SpannableString(rawText);
                 android.text.util.Linkify.addLinks(spanned,
                     android.text.util.Linkify.WEB_URLS |
@@ -504,8 +466,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
         }
 
-        // Feature 3: Reactions — floating chip (outside bubble, corner-anchored)
-        if (h.tvReactionChip != null) {
+        // Feature 3: Reactions
+        if (h.llReactions != null && h.tvReactions != null) {
             if (m.reactions != null && !m.reactions.isEmpty()) {
                 Map<String, Integer> counts = new LinkedHashMap<>();
                 for (String emoji : m.reactions.values())
@@ -516,17 +478,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     if (e.getValue() > 1) sb.append(" ").append(e.getValue());
                     sb.append("  ");
                 }
-                h.tvReactionChip.setText(sb.toString().trim());
-                h.tvReactionChip.setVisibility(View.VISIBLE);
-                h.tvReactionChip.setOnClickListener(v -> {
+                h.tvReactions.setText(sb.toString().trim());
+                h.llReactions.setVisibility(View.VISIBLE);
+                h.llReactions.setOnClickListener(v -> {
                     if (actionListener != null) actionListener.onReactionTap(m);
                 });
             } else {
-                h.tvReactionChip.setVisibility(View.GONE);
+                h.llReactions.setVisibility(View.GONE);
             }
         }
-        // Hide old in-bubble reaction row (replaced by floating chip)
-        if (h.llReactions != null) h.llReactions.setVisibility(View.GONE);
 
         bindFooter(h, m, sent);
         applySelectionHighlight(h, m);
@@ -781,8 +741,12 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
     private void setupLongPress(VH h, Message m, boolean sent, Context ctx) {
         h.itemView.setOnLongClickListener(v -> {
-            // Long press = action sheet seedha (emoji react, reply, copy, etc.)
-            showActionSheet(ctx, m, sent);
+            if (!multiSelectMode) {
+                // Long press pe multi-select mode start karo
+                enterMultiSelectMode(m);
+            } else {
+                showActionSheet(ctx, m, sent);
+            }
             return true;
         });
         h.itemView.setOnClickListener(v -> {
@@ -1092,28 +1056,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  YouTube URL helpers
-    // ══════════════════════════════════════════════════════════════════════════
-    private static final java.util.regex.Pattern YT_URL_PATTERN =
-        java.util.regex.Pattern.compile(
-            "https?://(?:www\\.|m\\.)?(?:youtube\\.com/watch[^\\s]*[?&]v=|youtu\\.be/)([\\w-]{11})[^\\s]*",
-            java.util.regex.Pattern.CASE_INSENSITIVE);
-
-    /** Returns first YouTube URL found in text, or null. */
-    private static String extractYouTubeUrl(String text) {
-        if (text == null) return null;
-        java.util.regex.Matcher m = YT_URL_PATTERN.matcher(text);
-        return m.find() ? m.group() : null;
-    }
-
-    /** Extracts 11-char video ID from a YouTube URL, or null. */
-    private static String extractYouTubeVideoId(String url) {
-        if (url == null) return null;
-        java.util.regex.Matcher m = YT_URL_PATTERN.matcher(url);
-        return m.find() ? m.group(1) : null;
-    }
-
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName;
         ImageView    ivImage, ivVideoThumb;
@@ -1136,14 +1078,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         TextView     tvForwarded;
         TextView     tvStarredIcon;
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
-
-        // YouTube bubble
-        LinearLayout llYoutubeBubble;
-        ImageView    ivYtThumb;
-        TextView     tvYtTitle, tvYtChannel, tvYtDuration;
-
-        // Floating reaction chip
-        TextView     tvReactionChip;
 
         VH(View v) {
             super(v);
@@ -1173,14 +1107,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvForwarded  = v.findViewById(R.id.tv_forwarded);
             tvStarredIcon = v.findViewById(R.id.tv_starred_icon);
             ivSenderAvatar = v.findViewById(R.id.iv_sender_avatar);
-            // YouTube bubble
-            llYoutubeBubble = v.findViewById(R.id.ll_youtube_bubble);
-            ivYtThumb       = v.findViewById(R.id.iv_yt_thumb);
-            tvYtTitle       = v.findViewById(R.id.tv_yt_title);
-            tvYtChannel     = v.findViewById(R.id.tv_yt_channel);
-            tvYtDuration    = v.findViewById(R.id.tv_yt_duration);
-            // Floating reaction chip
-            tvReactionChip  = v.findViewById(R.id.tv_reaction_chip);
         }
     }
 }

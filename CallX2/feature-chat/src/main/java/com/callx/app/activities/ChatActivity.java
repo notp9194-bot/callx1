@@ -801,19 +801,6 @@ public class ChatActivity extends AppCompatActivity {
         m.reelId                = e.reelId;       // FIX: reel_seen bubble
         m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
         m.fontStyle             = e.fontStyle;    // FIX: typing style — Room se load hone par preserve karo
-        // Reactions: deserialize JSON string back to Map
-        if (e.reactionsJson != null && !e.reactionsJson.isEmpty()) {
-            try {
-                org.json.JSONObject obj = new org.json.JSONObject(e.reactionsJson);
-                java.util.Map<String, String> reactionMap = new java.util.HashMap<>();
-                java.util.Iterator<String> keys = obj.keys();
-                while (keys.hasNext()) {
-                    String k = keys.next();
-                    reactionMap.put(k, obj.getString(k));
-                }
-                m.reactions = reactionMap;
-            } catch (Exception ignored) {}
-        }
         return m;
     }
 
@@ -846,18 +833,6 @@ public class ChatActivity extends AppCompatActivity {
         e.reelId                  = m.reelId;           // FIX: reel_seen bubble
         e.reelThumbUrl            = m.reelThumbUrl;      // FIX: reel_seen bubble thumbnail
         e.fontStyle               = m.fontStyle;         // FIX: typing style preserve
-        // Reactions: serialize Map to JSON string for Room storage
-        if (m.reactions != null && !m.reactions.isEmpty()) {
-            try {
-                org.json.JSONObject obj = new org.json.JSONObject();
-                for (java.util.Map.Entry<String, String> entry : m.reactions.entrySet()) {
-                    obj.put(entry.getKey(), entry.getValue());
-                }
-                e.reactionsJson = obj.toString();
-            } catch (Exception ignored) {}
-        } else {
-            e.reactionsJson = null;
-        }
         e.syncedAt                = System.currentTimeMillis();
         return e;
     }

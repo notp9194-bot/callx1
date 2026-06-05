@@ -10,9 +10,9 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.telephony.TelephonyManager;
 import androidx.core.app.NotificationCompat;
-import com.callx.app.activities.XActivity;
-import com.callx.app.activities.XDMConversationActivity;
-import com.callx.app.activities.XTweetDetailActivity;
+import com.callx.app.feed.XActivity;
+import com.callx.app.messages.XDMConversationActivity;
+import com.callx.app.tweet.XTweetDetailActivity;
 import com.callx.app.x.R;
 
 import java.io.InputStream;
