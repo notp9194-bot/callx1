@@ -132,6 +132,7 @@ public class GroupChatActivity extends AppCompatActivity {
 
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker;
+    private ActivityResultLauncher<String> wallpaperPicker;
     private final AudioRecorderHelper recorder = new AudioRecorderHelper();
 
     // ── Network monitoring (Task 5) ────────────────────────────────────────
@@ -1090,6 +1091,16 @@ public class GroupChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     private void setupPickers() {
+        wallpaperPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> {
+                    if (uri == null) return;
+                    try {
+                        getContentResolver().takePersistableUriPermission(
+                            uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    } catch (SecurityException ignored) {}
+                    showWallpaperScopeDialog(uri);
+                });
         imagePicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "image", "image", null); });
         videoPicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
@@ -1292,6 +1303,7 @@ public class GroupChatActivity extends AppCompatActivity {
         }
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
+        if (id == R.id.action_set_wallpaper) { showWallpaperPicker();    return true; }
         if (id == R.id.action_chat_theme)   { showThemePicker();      return true; }
         if (id == R.id.action_typing_style) { showTypingStylePicker(); return true; }
         return super.onOptionsItemSelected(item);
@@ -1321,6 +1333,43 @@ public class GroupChatActivity extends AppCompatActivity {
                 replyAccent);
 
         com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage);
+
+        // Apply wallpaper
+        applyWallpaper();
+    }
+
+    // ── Wallpaper apply ───────────────────────────────────────────────────
+    private void applyWallpaper() {
+        android.widget.ImageView ivWall = binding.ivChatWallpaper;
+        com.callx.app.utils.ChatWallpaperManager.get(this).applyWallpaper(ivWall, groupId);
+    }
+
+    // ── Wallpaper Picker ──────────────────────────────────────────────────
+    private void showWallpaperPicker() {
+        wallpaperPicker.launch("image/*");
+    }
+
+    private void showWallpaperScopeDialog(android.net.Uri uri) {
+        com.callx.app.utils.ChatWallpaperManager wm =
+                com.callx.app.utils.ChatWallpaperManager.get(this);
+        String[] options = {"🙋 This group only", "🌐 All chats (Global)", "❌ Remove wallpaper"};
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("🖼️ Set Wallpaper")
+            .setItems(options, (d, which) -> {
+                if (which == 0) {
+                    wm.setWallpaper(groupId, uri);
+                    applyWallpaper();
+                } else if (which == 1) {
+                    wm.setGlobalWallpaper(uri);
+                    applyWallpaper();
+                } else {
+                    wm.clearWallpaper(groupId);
+                    wm.clearGlobalWallpaper();
+                    applyWallpaper();
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     // ── Chat Bubble Theme Picker ──────────────────────────────────────────

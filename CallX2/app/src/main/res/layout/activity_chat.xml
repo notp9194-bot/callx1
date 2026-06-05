@@ -381,6 +381,15 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
+        <!-- Chat Wallpaper Background Image -->
+        <ImageView
+            android:id="@+id/iv_chat_wallpaper"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            android:contentDescription="Chat wallpaper"/>
+
         <!-- Shimmer skeleton -->
         <com.facebook.shimmer.ShimmerFrameLayout
             android:id="@+id/shimmer_container"

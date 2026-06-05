@@ -1,9 +1,5 @@
 package com.callx.app.conversation;
 
-import android.animation.AnimatorSet;
-import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
-import android.view.animation.OvershootInterpolator;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.content.ClipData;
@@ -127,7 +123,6 @@ public class ChatActivity extends AppCompatActivity {
     // ── Chat identifiers ───────────────────────────────────────────────────
     private String chatId;
     private String partnerUid;
-    private ValueAnimator idleAnimator;
     private String partnerName;
     private String partnerPhoto;
     private String partnerThumb;   // 100×100 WebP — header avatar fast load
@@ -168,6 +163,7 @@ public class ChatActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> audioPicker;
     private ActivityResultLauncher<String> filePicker;
     private ActivityResultLauncher<Uri>    cameraCapturer;
+    private ActivityResultLauncher<String> wallpaperPicker;
     private Uri cameraOutputUri;
 
     // ── Voice recorder ─────────────────────────────────────────────────────
@@ -281,73 +277,9 @@ public class ChatActivity extends AppCompatActivity {
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
 
-    private void startEmptyStateAnimation() {
-        android.widget.TextView tvEmoji = findViewById(com.callx.app.chat.R.id.tv_empty_emoji);
-        android.widget.TextView tvTitle = findViewById(com.callx.app.chat.R.id.tv_empty_title);
-        android.widget.TextView tvSub   = findViewById(com.callx.app.chat.R.id.tv_empty_sub);
-        if (tvEmoji == null) return;
-
-        // Reset
-        tvEmoji.setTranslationY(300f * getResources().getDisplayMetrics().density);
-        tvEmoji.setScaleX(1f); tvEmoji.setScaleY(1f); tvEmoji.setAlpha(1f);
-        if (tvTitle != null) tvTitle.setAlpha(0f);
-        if (tvSub   != null) tvSub.setAlpha(0f);
-
-        // Phase 1: slide up (300ms)
-        tvEmoji.animate()
-            .translationY(0f)
-            .setDuration(300)
-            .setInterpolator(new android.view.animation.DecelerateInterpolator(1.8f))
-            .withEndAction(() -> {
-                // Phase 2: squish (200ms) then bounce (250ms)
-                AnimatorSet squish = new AnimatorSet();
-                ObjectAnimator sx = ObjectAnimator.ofFloat(tvEmoji, "scaleX", 1f, 1.22f, 1f);
-                ObjectAnimator sy = ObjectAnimator.ofFloat(tvEmoji, "scaleY", 1f, 0.75f, 1f);
-                sx.setDuration(200); sy.setDuration(200);
-                squish.playTogether(sx, sy);
-                squish.addListener(new android.animation.AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(android.animation.Animator a) {
-                        // Phase 3: overshoot bounce
-                        tvEmoji.animate()
-                            .translationY(-18f * getResources().getDisplayMetrics().density)
-                            .setDuration(150)
-                            .withEndAction(() ->
-                                tvEmoji.animate()
-                                    .translationY(0f)
-                                    .setInterpolator(new OvershootInterpolator(3f))
-                                    .setDuration(250)
-                                    .withEndAction(() -> startIdleFloat(tvEmoji))
-                                    .start())
-                            .start();
-                        // Fade in text
-                        if (tvTitle != null) tvTitle.animate().alpha(1f).setDuration(300).start();
-                        if (tvSub   != null) tvSub.animate().alpha(1f).setDuration(300).setStartDelay(100).start();
-                    }
-                });
-                squish.start();
-            }).start();
-    }
-
-    private void startIdleFloat(android.widget.TextView tvEmoji) {
-        if (idleAnimator != null) idleAnimator.cancel();
-        float dp = getResources().getDisplayMetrics().density;
-        idleAnimator = ValueAnimator.ofFloat(0f, -10f * dp, 0f, 4f * dp, 0f);
-        idleAnimator.setDuration(3000);
-        idleAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        idleAnimator.setRepeatMode(ValueAnimator.RESTART);
-        idleAnimator.addUpdateListener(a ->
-            tvEmoji.setTranslationY((float) a.getAnimatedValue()));
-        idleAnimator.start();
-    }
-
-    private void stopEmptyStateAnimation() {
-        if (idleAnimator != null) { idleAnimator.cancel(); idleAnimator = null; }
-    }
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        stopEmptyStateAnimation();
         saveDraft();
         if (messagesRef != null && messageListener != null)
             messagesRef.removeEventListener(messageListener);
@@ -726,13 +658,7 @@ public class ChatActivity extends AppCompatActivity {
                 // FIX [P3-4]: Empty state — chat khali ho toh friendly message dikhao
                 boolean isEmpty = pagingAdapter.getItemCount() == 0;
                 binding.rvMessages.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
-                if (isEmpty) {
-                    binding.llEmptyChat.setVisibility(View.VISIBLE);
-                    startEmptyStateAnimation();
-                } else {
-                    binding.llEmptyChat.setVisibility(View.GONE);
-                    stopEmptyStateAnimation();
-                }
+                binding.llEmptyChat.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
             }
             return null;
         });
@@ -2550,6 +2476,17 @@ public class ChatActivity extends AppCompatActivity {
                     if (uri == null) return;
                     uploadAndSend(uri, "file", "raw", FileUtils.fileName(this, uri));
                 });
+        wallpaperPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> {
+                    if (uri == null) return;
+                    // Take persistable permission so URI survives reboots
+                    try {
+                        getContentResolver().takePersistableUriPermission(
+                            uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    } catch (SecurityException ignored) {}
+                    showWallpaperScopeDialog(uri);
+                });
         cameraCapturer = registerForActivityResult(
                 new ActivityResultContracts.TakePicture(),
                 success -> {
@@ -2653,6 +2590,45 @@ public class ChatActivity extends AppCompatActivity {
 
         // Apply saved typing style to input box
         com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage);
+
+        // Apply wallpaper
+        applyWallpaper();
+    }
+
+    // ── Wallpaper apply ───────────────────────────────────────────────────
+    private void applyWallpaper() {
+        android.widget.ImageView ivWall = binding.ivChatWallpaper;
+        com.callx.app.utils.ChatWallpaperManager.get(this).applyWallpaper(ivWall, chatId);
+    }
+
+    // ── Wallpaper Picker ──────────────────────────────────────────────────
+    private void showWallpaperPicker() {
+        wallpaperPicker.launch("image/*");
+    }
+
+    /** After picking image — ask: This chat only OR All chats (global) */
+    private void showWallpaperScopeDialog(android.net.Uri uri) {
+        com.callx.app.utils.ChatWallpaperManager wm =
+                com.callx.app.utils.ChatWallpaperManager.get(this);
+        String[] options = {"🙋 This chat only", "🌐 All chats (Global)", "❌ Remove wallpaper"};
+        new AlertDialog.Builder(this)
+            .setTitle("🖼️ Set Wallpaper")
+            .setItems(options, (d, which) -> {
+                if (which == 0) {
+                    wm.setWallpaper(chatId, uri);
+                    applyWallpaper();
+                } else if (which == 1) {
+                    wm.setGlobalWallpaper(uri);
+                    applyWallpaper();
+                } else {
+                    // Remove both per-chat and global
+                    wm.clearWallpaper(chatId);
+                    wm.clearGlobalWallpaper();
+                    applyWallpaper();
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     // ── Typing Style Picker (10 styles for message input box) ─────────────
@@ -2761,6 +2737,7 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_mute)        { toggleMute();          return true; }
         if (id == R.id.action_block)       { confirmBlockUser();    return true; }
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
+        if (id == R.id.action_set_wallpaper) { showWallpaperPicker();     return true; }
         if (id == R.id.action_chat_theme)   { showThemePicker();        return true; }
         if (id == R.id.action_typing_style) { showTypingStylePicker();   return true; }
         if (id == R.id.action_media_links_docs) { openAllMediaLinksDocs(); return true; }

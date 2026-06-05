@@ -19,6 +19,12 @@
         android:title="⭐ Starred Messages"
         app:showAsAction="never"/>
 
+
+    <!-- Wallpaper Picker -->
+    <item android:id="@+id/action_set_wallpaper"
+        android:title="🖼️ Set Wallpaper"
+        app:showAsAction="never"/>
+
     <!-- Chat Bubble Theme Picker -->
     <item android:id="@+id/action_chat_theme"
         android:title="🎨 Chat Theme"

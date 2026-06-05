@@ -381,6 +381,15 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
+        <!-- Chat Wallpaper Background Image -->
+        <ImageView
+            android:id="@+id/iv_chat_wallpaper"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            android:contentDescription="Chat wallpaper"/>
+
         <!-- Shimmer skeleton -->
         <com.facebook.shimmer.ShimmerFrameLayout
             android:id="@+id/shimmer_container"
@@ -399,7 +408,7 @@
             android:clipToPadding="false"
             android:visibility="gone"/>
 
-        <!-- Empty chat state — animated emoji -->
+        <!-- FIX [P3-4]: Empty chat state — no messages yet -->
         <LinearLayout
             android:id="@+id/ll_empty_chat"
             android:layout_width="match_parent"
@@ -407,37 +416,27 @@
             android:orientation="vertical"
             android:gravity="center"
             android:visibility="gone">
-
             <TextView
-                android:id="@+id/tv_empty_emoji"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🤔"
-                android:textSize="72sp"
-                android:translationY="300dp"/>
-
+                android:text="👋"
+                android:textSize="56sp"/>
             <TextView
-                android:id="@+id/tv_empty_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Say hello! 👋"
-                android:textSize="20sp"
+                android:text="Say hello!"
+                android:textSize="18sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
-                android:layout_marginTop="16dp"
-                android:alpha="0"/>
-
+                android:layout_marginTop="8dp"/>
             <TextView
-                android:id="@+id/tv_empty_sub"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Pehla message bhejo!"
+                android:text="No messages yet. Send the first one!"
                 android:textSize="14sp"
                 android:textColor="@color/text_secondary"
-                android:layout_marginTop="6dp"
-                android:gravity="center"
-                android:alpha="0"/>
-
+                android:layout_marginTop="4dp"
+                android:gravity="center"/>
         </LinearLayout>
 
         <!-- "Back to latest" FAB — shown when navigating to original message -->
