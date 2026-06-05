@@ -504,8 +504,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
         }
 
-        // Feature 3: Reactions
-        if (h.llReactions != null && h.tvReactions != null) {
+        // Feature 3: Reactions — floating chip (outside bubble, corner-anchored)
+        if (h.tvReactionChip != null) {
             if (m.reactions != null && !m.reactions.isEmpty()) {
                 Map<String, Integer> counts = new LinkedHashMap<>();
                 for (String emoji : m.reactions.values())
@@ -516,15 +516,17 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     if (e.getValue() > 1) sb.append(" ").append(e.getValue());
                     sb.append("  ");
                 }
-                h.tvReactions.setText(sb.toString().trim());
-                h.llReactions.setVisibility(View.VISIBLE);
-                h.llReactions.setOnClickListener(v -> {
+                h.tvReactionChip.setText(sb.toString().trim());
+                h.tvReactionChip.setVisibility(View.VISIBLE);
+                h.tvReactionChip.setOnClickListener(v -> {
                     if (actionListener != null) actionListener.onReactionTap(m);
                 });
             } else {
-                h.llReactions.setVisibility(View.GONE);
+                h.tvReactionChip.setVisibility(View.GONE);
             }
         }
+        // Hide old in-bubble reaction row (replaced by floating chip)
+        if (h.llReactions != null) h.llReactions.setVisibility(View.GONE);
 
         bindFooter(h, m, sent);
         applySelectionHighlight(h, m);
@@ -1144,6 +1146,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         ImageView    ivYtThumb;
         TextView     tvYtTitle, tvYtChannel, tvYtDuration;
 
+        // Floating reaction chip
+        TextView     tvReactionChip;
+
         VH(View v) {
             super(v);
             tvMessage    = v.findViewById(R.id.tv_message);
@@ -1178,6 +1183,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvYtTitle       = v.findViewById(R.id.tv_yt_title);
             tvYtChannel     = v.findViewById(R.id.tv_yt_channel);
             tvYtDuration    = v.findViewById(R.id.tv_yt_duration);
+            // Floating reaction chip
+            tvReactionChip  = v.findViewById(R.id.tv_reaction_chip);
         }
     }
 }
