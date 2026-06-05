@@ -53,4 +53,10 @@ dependencies {
 
     // Chrome Custom Tabs — in-app browser
     implementation 'androidx.browser:browser:1.8.0'
+
+    // WorkManager — DisappearingMessageWorker
+    implementation 'androidx.work:work-runtime:2.9.0'
+
+    // Google Play Services Location — LocationMessageHelper
+    implementation 'com.google.android.gms:play-services-location:21.2.0'
 }
