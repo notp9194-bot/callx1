@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="@color/surface_card"
+      android:paddingBottom="24dp">
+
+      <View android:layout_width="40dp" android:layout_height="4dp"
+          android:layout_gravity="center_horizontal" android:layout_marginTop="12dp"
+          android:layout_marginBottom="16dp" android:background="@drawable/bg_drag_handle"/>
+
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:text="Slow Mode" android:textSize="18sp" android:textStyle="bold"
+          android:textColor="?android:attr/textColorPrimary"
+          android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingBottom="4dp"/>
+
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:text="Members ke beech kitne time ka gap hoga"
+          android:textSize="13sp" android:textColor="?android:attr/textColorSecondary"
+          android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingBottom="16dp"/>
+
+      <RadioGroup android:id="@+id/rg_slow_mode"
+          android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:paddingStart="20dp" android:paddingEnd="20dp">
+
+          <RadioButton android:id="@+id/rb_off" android:layout_width="match_parent"
+              android:layout_height="48dp" android:text="Off" android:textSize="15sp"/>
+          <RadioButton android:id="@+id/rb_30s" android:layout_width="match_parent"
+              android:layout_height="48dp" android:text="30 seconds" android:textSize="15sp"/>
+          <RadioButton android:id="@+id/rb_1m" android:layout_width="match_parent"
+              android:layout_height="48dp" android:text="1 minute" android:textSize="15sp"/>
+          <RadioButton android:id="@+id/rb_5m" android:layout_width="match_parent"
+              android:layout_height="48dp" android:text="5 minutes" android:textSize="15sp"/>
+          <RadioButton android:id="@+id/rb_1h" android:layout_width="match_parent"
+              android:layout_height="48dp" android:text="1 hour" android:textSize="15sp"/>
+      </RadioGroup>
+
+      <Button android:id="@+id/btn_apply_slow"
+          android:layout_width="match_parent" android:layout_height="48dp"
+          android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+          android:layout_marginTop="12dp"
+          android:text="Apply" android:textColor="#FFFFFF"
+          android:background="@drawable/bg_action_btn_circle"/>
+  </LinearLayout>

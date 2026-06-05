@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="@color/surface_card"
+      android:paddingBottom="32dp">
+
+      <View android:layout_width="40dp" android:layout_height="4dp"
+          android:layout_gravity="center_horizontal" android:layout_marginTop="12dp"
+          android:layout_marginBottom="16dp" android:background="@drawable/bg_drag_handle"/>
+
+      <ImageView android:layout_width="56dp" android:layout_height="56dp"
+          android:layout_gravity="center_horizontal"
+          android:src="@drawable/ic_info" android:tint="#1976D2"
+          android:layout_marginBottom="12dp"/>
+
+      <TextView android:id="@+id/tv_lock_title"
+          android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:text="Lock This Chat" android:textSize="18sp" android:textStyle="bold"
+          android:textColor="?android:attr/textColorPrimary"
+          android:gravity="center" android:paddingBottom="6dp"/>
+
+      <TextView android:id="@+id/tv_lock_desc"
+          android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:text="Is chat ko lock karne ke baad kholu baar biometric ya PIN zaroori hoga"
+          android:textSize="13sp" android:textColor="?android:attr/textColorSecondary"
+          android:gravity="center" android:paddingStart="24dp" android:paddingEnd="24dp"
+          android:paddingBottom="24dp"/>
+
+      <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingBottom="12dp">
+          <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+              android:layout_weight="1" android:text="Lock Chat"
+              android:textSize="15sp" android:textColor="?android:attr/textColorPrimary"/>
+          <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_lock"
+              android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+      </LinearLayout>
+  </LinearLayout>

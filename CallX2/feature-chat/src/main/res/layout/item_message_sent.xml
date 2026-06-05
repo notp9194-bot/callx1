@@ -230,21 +230,22 @@
         </LinearLayout>
 
         <!-- Image -->
-        <!-- FIX: match_parent width + fixed 220dp height + centerCrop fills bubble edge-to-edge.
-             clipToOutline (set in Java) clips rounded corners onto the image. -->
+        <!-- FIX: was hardcoded 240×220dp — portrait photos cropped, landscape squeezed.
+             adjustViewBounds + wrap_content lets the image keep its natural aspect ratio. -->
         <ImageView
             android:id="@+id/iv_image"
-            android:layout_width="match_parent"
-            android:layout_height="220dp"
-            android:scaleType="centerCrop"
-            android:adjustViewBounds="false"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content"
+            android:maxHeight="320dp"
+            android:adjustViewBounds="true"
+            android:scaleType="fitCenter"
             android:visibility="gone"/>
 
         <!-- Video -->
         <FrameLayout
             android:id="@+id/fl_video"
-            android:layout_width="match_parent"
-            android:layout_height="200dp"
+            android:layout_width="240dp"
+            android:layout_height="160dp"
             android:visibility="gone">
             <ImageView
                 android:id="@+id/iv_video_thumb"

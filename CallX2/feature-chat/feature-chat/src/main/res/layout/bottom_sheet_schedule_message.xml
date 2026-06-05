@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="@color/surface_card"
+      android:paddingBottom="32dp">
+
+      <View android:layout_width="40dp" android:layout_height="4dp"
+          android:layout_gravity="center_horizontal" android:layout_marginTop="12dp"
+          android:layout_marginBottom="16dp" android:background="@drawable/bg_drag_handle"/>
+
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:text="Schedule Message" android:textSize="18sp" android:textStyle="bold"
+          android:textColor="?android:attr/textColorPrimary"
+          android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingBottom="12dp"/>
+
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:text="Select Date &amp; Time" android:textSize="13sp"
+          android:textColor="?android:attr/textColorSecondary"
+          android:paddingStart="20dp" android:paddingBottom="8dp"/>
+
+      <!-- Date picker button -->
+      <Button android:id="@+id/btn_pick_date"
+          android:layout_width="match_parent" android:layout_height="48dp"
+          android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+          android:layout_marginBottom="8dp"
+          android:text="Pick Date" android:backgroundTint="#E3F2FD"
+          android:textColor="#1565C0"/>
+
+      <!-- Time picker button -->
+      <Button android:id="@+id/btn_pick_time"
+          android:layout_width="match_parent" android:layout_height="48dp"
+          android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+          android:layout_marginBottom="16dp"
+          android:text="Pick Time" android:backgroundTint="#E8F5E9"
+          android:textColor="#2E7D32"/>
+
+      <!-- Selected datetime display -->
+      <TextView android:id="@+id/tv_selected_time"
+          android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:gravity="center" android:text="Koi time select nahi hua"
+          android:textSize="14sp" android:textColor="?android:attr/textColorSecondary"
+          android:paddingBottom="16dp"/>
+
+      <Button android:id="@+id/btn_schedule"
+          android:layout_width="match_parent" android:layout_height="48dp"
+          android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+          android:text="Schedule Message" android:textColor="#FFFFFF"
+          android:background="@drawable/bg_action_btn_circle_purple"/>
+  </LinearLayout>

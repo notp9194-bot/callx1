@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="230dp" android:layout_height="wrap_content"
+      android:orientation="vertical" android:background="@drawable/bubble_sent"
+      android:clipToOutline="true">
+      <!-- Static Map Image -->
+      <ImageView android:id="@+id/iv_map" android:layout_width="match_parent"
+          android:layout_height="140dp" android:scaleType="centerCrop"
+          android:src="@drawable/ic_person"/>
+      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:padding="10dp">
+          <ImageView android:layout_width="16dp" android:layout_height="16dp"
+              android:src="@drawable/ic_person" android:tint="#FFFFFF" android:layout_marginEnd="6dp"/>
+          <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+              android:layout_weight="1" android:orientation="vertical">
+              <TextView android:id="@+id/tv_location_name" android:layout_width="wrap_content"
+                  android:layout_height="wrap_content" android:text="Current Location"
+                  android:textSize="13sp" android:textColor="#FFFFFF" android:textStyle="bold"/>
+              <TextView android:id="@+id/tv_tap_open" android:layout_width="wrap_content"
+                  android:layout_height="wrap_content" android:text="Tap to open in Maps"
+                  android:textSize="11sp" android:textColor="#CCFFFFFF"/>
+          </LinearLayout>
+          <TextView android:id="@+id/tv_time" android:layout_width="wrap_content"
+              android:layout_height="wrap_content" android:textSize="11sp"
+              android:textColor="#CCFFFFFF" android:gravity="bottom"/>
+      </LinearLayout>
+  </LinearLayout>

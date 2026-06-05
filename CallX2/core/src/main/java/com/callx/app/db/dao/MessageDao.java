@@ -1,198 +1,142 @@
 package com.callx.app.db.dao;
 
-import androidx.annotation.WorkerThread;
-import androidx.lifecycle.LiveData;
-import androidx.paging.PagingSource;
-import androidx.room.Dao;
-import androidx.room.Insert;
-import androidx.room.OnConflictStrategy;
-import androidx.room.Query;
-import androidx.room.Update;
+  import androidx.annotation.WorkerThread;
+  import androidx.lifecycle.LiveData;
+  import androidx.paging.PagingSource;
+  import androidx.room.Dao;
+  import androidx.room.Insert;
+  import androidx.room.OnConflictStrategy;
+  import androidx.room.Query;
+  import androidx.room.Update;
 
-import com.callx.app.db.entity.MessageEntity;
+  import com.callx.app.db.entity.MessageEntity;
 
-import java.util.List;
+  import java.util.List;
 
-/**
- * Message DAO — all queries for the messages table.
- *
- * FIX #3 (MEDIUM): Ordering inconsistency fixed.
- *
- *   Old:
- *     getMessagesPagingSource() → ORDER BY timestamp ASC  (oldest → newest)
- *     getMessagesPaged()        → ORDER BY timestamp DESC (newest → oldest)
- *
- *   → CacheManager.preloadTopChats() filled MemoryCache with DESC-ordered lists.
- *     Any code path that consumed this cache and displayed it directly showed
- *     messages in REVERSE order (newest at top, oldest at bottom).
- *
- *   Fix: ALL queries that return messages for display use ASC order.
- *     getMessagesPaged() is now ASC to match getMessagesPagingSource().
- *     getLastMessage() still uses DESC LIMIT 1 — correct (it fetches one row).
- *     getStarredMessages() remains DESC — correct (newest starred first in list).
- */
-@Dao
-public interface MessageDao {
+  /**
+   * MessageDao — all Room queries for messages table.
+   *
+   * v6: Added searchMessages, getExpiredMessages, deleteById
+   *     for in-chat search, disappearing messages, and chat lock.
+   */
+  @Dao
+  public interface MessageDao {
 
-    // ─────────────────────────────────────────────────────────────
-    // LIVE / REACTIVE QUERIES
-    // ─────────────────────────────────────────────────────────────
+      // ── Live / reactive ───────────────────────────────────
+      @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC")
+      LiveData<List<MessageEntity>> getMessages(String chatId);
 
-    /** LiveData stream — UI auto-updates when DB changes. ASC = oldest → newest. */
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC")
-    LiveData<List<MessageEntity>> getMessages(String chatId);
+      @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC")
+      PagingSource<Integer, MessageEntity> getMessagesPagingSource(String chatId);
 
-    /**
-     * Paging 3 — Room native PagingSource for smooth infinite scroll.
-     * ASC order: messages load oldest → newest (standard chat layout).
-     * PagingSource auto-invalidates when Room detects DB changes.
-     */
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC")
-    PagingSource<Integer, MessageEntity> getMessagesPagingSource(String chatId);
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC LIMIT :limit OFFSET :offset")
+      List<MessageEntity> getMessagesPaged(String chatId, int limit, int offset);
 
-    /**
-     * Manual offset-based page — used by CacheManager.preloadTopChats().
-     *
-     * FIX #3: Changed from DESC to ASC.
-     * Old: ORDER BY timestamp DESC → MemoryCache had reversed-order list.
-     * New: ORDER BY timestamp ASC  → consistent with PagingSource order.
-     * Result: preloaded cache matches what the pager shows → no reorder surprise.
-     */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC LIMIT :limit OFFSET :offset")
-    List<MessageEntity> getMessagesPaged(String chatId, int limit, int offset);
+      // ── Delta sync ────────────────────────────────────────
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp > :lastTimestamp ORDER BY timestamp ASC")
+      List<MessageEntity> getMessagesSince(String chatId, long lastTimestamp);
 
-    // ─────────────────────────────────────────────────────────────
-    // DELTA SYNC
-    // ─────────────────────────────────────────────────────────────
+      @WorkerThread
+      @Query("SELECT MAX(timestamp) FROM messages WHERE chatId = :chatId")
+      Long getLastTimestamp(String chatId);
 
-    /** Delta sync: only messages newer than lastTimestamp. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp > :lastTimestamp ORDER BY timestamp ASC")
-    List<MessageEntity> getMessagesSince(String chatId, long lastTimestamp);
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT 1")
+      MessageEntity getLastMessage(String chatId);
 
-    /** Most recent message timestamp per chat — used for delta sync range. */
-    @WorkerThread
-    @Query("SELECT MAX(timestamp) FROM messages WHERE chatId = :chatId")
-    Long getLastTimestamp(String chatId);
+      // ── Insert / upsert ───────────────────────────────────
+      @Insert(onConflict = OnConflictStrategy.REPLACE)
+      void insert(MessageEntity msg);
 
-    /** Last message row — used for chat list preview. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT 1")
-    MessageEntity getLastMessage(String chatId);
+      @Insert(onConflict = OnConflictStrategy.REPLACE)
+      void insertAll(List<MessageEntity> msgs);
 
-    // ─────────────────────────────────────────────────────────────
-    // STARRED MESSAGES
-    // ─────────────────────────────────────────────────────────────
+      // ── Update ops ────────────────────────────────────────
+      @Update
+      void update(MessageEntity msg);
 
-    /** Starred messages — newest first (correct for starred list screen). */
-    @Query("SELECT * FROM messages WHERE starred = 1 ORDER BY timestamp DESC")
-    LiveData<List<MessageEntity>> getStarredMessages();
+      @WorkerThread
+      @Query("UPDATE messages SET status = :status WHERE id = :msgId")
+      void updateStatus(String msgId, String status);
 
-    /** Starred messages sync version — for offline background thread use. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE starred = 1 ORDER BY timestamp ASC")
-    List<MessageEntity> getStarredMessagesSync();
+      @WorkerThread
+      @Query("UPDATE messages SET deleted = 1, text = '', mediaUrl = NULL WHERE id = :msgId")
+      void markDeleted(String msgId);
 
-    // ─────────────────────────────────────────────────────────────
-    // WRITE OPERATIONS
-    // ─────────────────────────────────────────────────────────────
+      @WorkerThread
+      @Query("UPDATE messages SET starred = :starred WHERE id = :msgId")
+      void setStarred(String msgId, boolean starred);
 
-    /** v15: Pending messages jo offline the — retry ke liye (specific chat). */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND status = 'pending' ORDER BY timestamp ASC")
-    List<MessageEntity> getPendingMessages(String chatId);
+      @WorkerThread
+      @Query("UPDATE messages SET pinned = :pinned WHERE id = :msgId")
+      void setPinned(String msgId, boolean pinned);
 
-    /** v18 IMPROVEMENT 5: Single message by id — media upload retry ke liye. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
-    MessageEntity getMessageById(String messageId);
+      @WorkerThread
+      @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
+      void updateText(String messageId, String newText, long editedAt);
 
-    /**
-     * POLISH: Reply scroll — count messages newer than a given timestamp in this chat.
-     * Used by navigateToOriginal() to calculate approximate adapter position.
-     */
-    @WorkerThread
-    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND timestamp > :timestamp")
-    int countMessagesAfterTimestamp(String chatId, long timestamp);
+      // ── Starred ───────────────────────────────────────────
+      @Query("SELECT * FROM messages WHERE chatId = :chatId AND starred = 1 ORDER BY timestamp DESC")
+      LiveData<List<MessageEntity>> getStarredMessages(String chatId);
 
-    /** v18 IMPROVEMENT 5: Failed media uploads — SyncWorker retry karega. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE mediaLocalPath IS NOT NULL AND (mediaUrl IS NULL OR mediaUrl = '') AND status = 'pending' ORDER BY timestamp ASC")
-    List<MessageEntity> getFailedMediaUploads();
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE starred = 1 ORDER BY timestamp DESC")
+      List<MessageEntity> getAllStarredMessages();
 
-    /** v18: Saare pending messages across all chats — SyncWorker + NotificationActionReceiver retry ke liye. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE status = 'pending' ORDER BY timestamp ASC")
-    List<MessageEntity> getAllPendingMessages();
+      // ── v6: In-chat search ────────────────────────────────
+      /**
+       * Full-text search within a chat.
+       * Called from ChatSearchActivity (background thread).
+       * Returns newest matches first, limit 200.
+       */
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE chatId = :chatId AND text LIKE :query AND (deleted IS NULL OR deleted = 0) ORDER BY timestamp DESC LIMIT 200")
+      List<MessageEntity> searchMessages(String chatId, String query);
 
-    /** Read receipts: messages from partnerUid in chatId that are not yet 'read'. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :partnerUid AND (status IS NULL OR status != 'read') ORDER BY timestamp ASC")
-    List<MessageEntity> getUnreadMessages(String chatId, String partnerUid);
+      // ── v6: Disappearing messages ─────────────────────────
+      /**
+       * Returns all messages whose expiresAt is set and has passed.
+       * Called by DisappearingMessageWorker every hour.
+       */
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE expiresAt > 0 AND expiresAt <= :now")
+      List<MessageEntity> getExpiredMessages(long now);
 
-    @WorkerThread
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    void insertMessages(List<MessageEntity> messages);
+      /** Delete a single message by ID (used by DisappearingMessageWorker). */
+      @WorkerThread
+      @Query("DELETE FROM messages WHERE id = :id")
+      void deleteById(String id);
 
-    @WorkerThread
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    void insertMessage(MessageEntity message);
+      // ── v6: Broadcast / bulk ops ──────────────────────────
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE chatId IN (:chatIds) ORDER BY timestamp DESC LIMIT :limit")
+      List<MessageEntity> getRecentFromChats(List<String> chatIds, int limit);
 
-    @WorkerThread
-    @Update
-    void updateMessage(MessageEntity message);
+      // ── Pruning / cleanup ─────────────────────────────────
+      @WorkerThread
+      @Query("DELETE FROM messages WHERE chatId = :chatId AND timestamp < (SELECT timestamp FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT 1 OFFSET :keepCount)")
+      void pruneOldMessages(String chatId, int keepCount);
 
-    @WorkerThread
-    @Query("UPDATE messages SET deleted = 1, text = '' WHERE id = :messageId")
-    void softDelete(String messageId);
+      @WorkerThread
+      @Query("DELETE FROM messages WHERE timestamp < :cutoffTimestamp AND deleted != 1")
+      int deleteMessagesOlderThan(long cutoffTimestamp);
 
-    @WorkerThread
-    @Query("UPDATE messages SET status = :status WHERE id = :messageId")
-    void updateStatus(String messageId, String status);
+      @WorkerThread
+      @Query("DELETE FROM messages WHERE chatId = :chatId")
+      void deleteAllForChat(String chatId);
 
-    @WorkerThread
-    @Query("UPDATE messages SET starred = :starred WHERE id = :messageId")
-    void updateStarred(String messageId, boolean starred);
+      // ── Stats ─────────────────────────────────────────────
+      @WorkerThread
+      @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId")
+      int getMessageCount(String chatId);
 
-    /** Edit message text — marks as edited with a timestamp. */
-    @WorkerThread
-    @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
-    void updateText(String messageId, String newText, long editedAt);
+      @WorkerThread
+      @Query("SELECT COUNT(*) FROM messages")
+      long getTotalMessageCount();
 
-    // ─────────────────────────────────────────────────────────────
-    // PRUNING / CLEANUP
-    // ─────────────────────────────────────────────────────────────
-
-    /** Prune old messages — keep last N per chat. Storage management. */
-    @WorkerThread
-    @Query("DELETE FROM messages WHERE chatId = :chatId AND timestamp < " +
-           "(SELECT timestamp FROM messages WHERE chatId = :chatId " +
-           "ORDER BY timestamp DESC LIMIT 1 OFFSET :keepCount)")
-    void pruneOldMessages(String chatId, int keepCount);
-
-    /** Auto-delete: delete all messages older than cutoffTimestamp (across all chats). */
-    @WorkerThread
-    @Query("DELETE FROM messages WHERE timestamp < :cutoffTimestamp AND deleted != 1")
-    int deleteMessagesOlderThan(long cutoffTimestamp);
-
-    @WorkerThread
-    @Query("DELETE FROM messages WHERE chatId = :chatId")
-    void deleteAllForChat(String chatId);
-
-    // ─────────────────────────────────────────────────────────────
-    // STATS (used by CacheStatsActivity)
-    // ─────────────────────────────────────────────────────────────
-
-    @WorkerThread
-    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId")
-    int getMessageCount(String chatId);
-
-    @WorkerThread
-    @Query("SELECT COUNT(*) FROM messages")
-    long getTotalMessageCount();
-
-    @WorkerThread
-    @Query("DELETE FROM messages")
-    void deleteAll();
-}
+      @WorkerThread
+      @Query("DELETE FROM messages")
+      void deleteAll();
+  }

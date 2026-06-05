@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="@color/surface_card"
+      android:paddingBottom="24dp">
+
+      <View android:layout_width="40dp" android:layout_height="4dp"
+          android:layout_gravity="center_horizontal" android:layout_marginTop="12dp"
+          android:layout_marginBottom="16dp" android:background="@drawable/bg_drag_handle"/>
+
+      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingBottom="12dp">
+          <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+              android:layout_weight="1" android:text="Seen By"
+              android:textSize="18sp" android:textStyle="bold"
+              android:textColor="?android:attr/textColorPrimary"/>
+          <TextView android:id="@+id/tv_seen_count"
+              android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:text="0" android:textSize="15sp"
+              android:textColor="?android:attr/textColorSecondary"/>
+      </LinearLayout>
+
+      <androidx.recyclerview.widget.RecyclerView
+          android:id="@+id/rv_seen_by"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:maxHeight="320dp"/>
+
+      <!-- Empty state -->
+      <TextView android:id="@+id/tv_empty"
+          android:layout_width="match_parent" android:layout_height="60dp"
+          android:gravity="center" android:text="Abhi kisi ne nahi dekha"
+          android:textSize="14sp" android:textColor="?android:attr/textColorSecondary"
+          android:visibility="gone"/>
+  </LinearLayout>

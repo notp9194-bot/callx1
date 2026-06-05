@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:background="@color/surface_card">
+
+      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:orientation="vertical" android:paddingBottom="32dp">
+
+          <View android:layout_width="40dp" android:layout_height="4dp"
+              android:layout_gravity="center_horizontal" android:layout_marginTop="12dp"
+              android:layout_marginBottom="16dp" android:background="@drawable/bg_drag_handle"/>
+
+          <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+              android:text="Create Poll" android:textSize="18sp" android:textStyle="bold"
+              android:textColor="?android:attr/textColorPrimary"
+              android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingBottom="12dp"/>
+
+          <!-- Question -->
+          <EditText android:id="@+id/et_question"
+              android:layout_width="match_parent" android:layout_height="56dp"
+              android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+              android:layout_marginBottom="12dp"
+              android:hint="Sawaal likhein..." android:textSize="15sp"
+              android:background="@drawable/bg_search_bar" android:paddingStart="12dp"/>
+
+          <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+              android:text="Options" android:textSize="13sp" android:textStyle="bold"
+              android:textColor="?android:attr/textColorSecondary"
+              android:paddingStart="20dp" android:paddingBottom="6dp"/>
+
+          <!-- Option 1 -->
+          <EditText android:id="@+id/et_opt1"
+              android:layout_width="match_parent" android:layout_height="48dp"
+              android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+              android:layout_marginBottom="8dp" android:hint="Option 1"
+              android:background="@drawable/bg_search_bar" android:paddingStart="12dp"/>
+
+          <!-- Option 2 -->
+          <EditText android:id="@+id/et_opt2"
+              android:layout_width="match_parent" android:layout_height="48dp"
+              android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+              android:layout_marginBottom="8dp" android:hint="Option 2"
+              android:background="@drawable/bg_search_bar" android:paddingStart="12dp"/>
+
+          <!-- Option 3 (optional) -->
+          <EditText android:id="@+id/et_opt3"
+              android:layout_width="match_parent" android:layout_height="48dp"
+              android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+              android:layout_marginBottom="8dp" android:hint="Option 3 (optional)"
+              android:background="@drawable/bg_search_bar" android:paddingStart="12dp"/>
+
+          <!-- Option 4 (optional) -->
+          <EditText android:id="@+id/et_opt4"
+              android:layout_width="match_parent" android:layout_height="48dp"
+              android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+              android:layout_marginBottom="12dp" android:hint="Option 4 (optional)"
+              android:background="@drawable/bg_search_bar" android:paddingStart="12dp"/>
+
+          <!-- Multiple choice toggle -->
+          <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
+              android:orientation="horizontal" android:gravity="center_vertical"
+              android:paddingStart="20dp" android:paddingEnd="20dp">
+              <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                  android:layout_weight="1" android:text="Multiple choice allowed"
+                  android:textSize="14sp" android:textColor="?android:attr/textColorPrimary"/>
+              <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_multiple"
+                  android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+          </LinearLayout>
+
+          <!-- Anonymous toggle -->
+          <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
+              android:orientation="horizontal" android:gravity="center_vertical"
+              android:paddingStart="20dp" android:paddingEnd="20dp">
+              <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                  android:layout_weight="1" android:text="Anonymous voting"
+                  android:textSize="14sp" android:textColor="?android:attr/textColorPrimary"/>
+              <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_anonymous"
+                  android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+          </LinearLayout>
+
+          <Button android:id="@+id/btn_create_poll"
+              android:layout_width="match_parent" android:layout_height="48dp"
+              android:layout_marginStart="16dp" android:layout_marginEnd="16dp"
+              android:layout_marginTop="16dp"
+              android:text="Create Poll" android:textColor="#FFFFFF"
+              android:background="@drawable/bg_action_btn_circle_purple"/>
+      </LinearLayout>
+  </ScrollView>

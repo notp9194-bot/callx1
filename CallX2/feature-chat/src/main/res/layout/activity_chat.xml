@@ -30,7 +30,18 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"/>
 
-        <!-- Avatar (clickable to open profile) -->
+        <!-- Search icon (v6) -->
+          <ImageButton
+              android:id="@+id/btn_search_messages"
+              android:layout_width="36dp"
+              android:layout_height="36dp"
+              android:src="@drawable/ic_search"
+              android:tint="@color/white"
+              android:background="?attr/selectableItemBackgroundBorderless"
+              android:contentDescription="Search Messages"
+              android:layout_marginEnd="2dp"/>
+
+          <!-- Avatar (clickable to open profile) -->
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_partner_avatar"
             android:layout_width="40dp"

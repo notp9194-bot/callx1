@@ -1,0 +1,122 @@
+{
+  "_version": "production-v2",
+  "_new_features": [
+    "disappearing_messages",
+    "typing_indicator",
+    "polls",
+    "location",
+    "broadcast",
+    "scheduled"
+  ],
+  "rules": {
+    "chats": {
+      "$chatId": {
+        ".read": "auth != null && $chatId.contains(auth.uid)",
+        ".write": "auth != null && $chatId.contains(auth.uid)",
+        "disappearTimer": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "messages": {
+          "$msgId": {
+            ".validate": "newData.hasChildren(['senderId','timestamp']) && newData.child('timestamp').val() <= now + 5000",
+            "senderId": {
+              ".validate": "newData.val() === auth.uid"
+            },
+            "timestamp": {
+              ".validate": "newData.isNumber() && newData.val() <= now + 5000"
+            },
+            "expiresAt": {
+              ".validate": "!newData.exists() || newData.isNumber()"
+            },
+            "type": {
+              ".validate": "newData.isString() && newData.val().length <= 50"
+            },
+            "text": {
+              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 20000)"
+            },
+            "mediaUrl": {
+              ".validate": "!newData.exists() || newData.isString()"
+            },
+            "locationLat": {
+              ".validate": "!newData.exists() || newData.isNumber()"
+            },
+            "locationLng": {
+              ".validate": "!newData.exists() || newData.isNumber()"
+            },
+            "locationName": {
+              ".validate": "!newData.exists() || newData.isString()"
+            },
+            "pollQuestion": {
+              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 500)"
+            },
+            "pollMultiple": {
+              ".validate": "!newData.exists() || newData.isBoolean()"
+            },
+            "pollAnonymous": {
+              ".validate": "!newData.exists() || newData.isBoolean()"
+            },
+            "scheduled": {
+              ".validate": "!newData.exists() || newData.isBoolean()"
+            },
+            "status": {
+              ".write": "auth != null && $chatId.contains(auth.uid)"
+            },
+            "reactions": {
+              "$uid": {
+                ".write": "auth != null && $uid === auth.uid"
+              }
+            },
+            "pollOptions": {
+              "$optId": {
+                "votes": {
+                  "$uid": {
+                    ".write": "auth != null && $uid === auth.uid"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "typing": {
+      "$chatId": {
+        "$uid": {
+          ".read": "auth != null && $chatId.contains(auth.uid)",
+          ".write": "auth != null && $uid === auth.uid"
+        }
+      }
+    },
+    "groupTyping": {
+      "$groupId": {
+        "$uid": {
+          ".read": "auth != null",
+          ".write": "auth != null && $uid === auth.uid"
+        }
+      }
+    },
+    "groups": {
+      "$groupId": {
+        ".read": "auth != null",
+        "messages": {
+          "$msgId": {
+            "seenBy": {
+              "$uid": {
+                ".write": "auth != null && $uid === auth.uid"
+              }
+            }
+          }
+        },
+        "slowModeSeconds": {
+          ".write": "auth != null"
+        }
+      }
+    },
+    "broadcasts": {
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    }
+  }
+}

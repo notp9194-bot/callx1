@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent" android:layout_height="64dp"
+      android:orientation="horizontal" android:gravity="center_vertical"
+      android:paddingStart="16dp" android:paddingEnd="16dp"
+      android:background="?attr/selectableItemBackground">
+      <FrameLayout android:layout_width="44dp" android:layout_height="44dp"
+          android:background="@drawable/bg_action_btn_circle_green">
+          <ImageView android:layout_width="22dp" android:layout_height="22dp"
+              android:layout_gravity="center" android:src="@drawable/ic_person"
+              android:tint="#FFFFFF"/>
+      </FrameLayout>
+      <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+          android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="14dp">
+          <TextView android:id="@+id/tv_name" android:layout_width="wrap_content"
+              android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold"
+              android:textColor="?android:attr/textColorPrimary"/>
+          <TextView android:id="@+id/tv_count" android:layout_width="wrap_content"
+              android:layout_height="wrap_content" android:textSize="12sp"
+              android:textColor="?android:attr/textColorSecondary"/>
+      </LinearLayout>
+      <ImageView android:layout_width="20dp" android:layout_height="20dp"
+          android:src="@drawable/ic_arrow_right" android:tint="#BDBDBD"/>
+  </LinearLayout>

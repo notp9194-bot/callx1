@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent" android:layout_height="40dp"
+      android:layout_marginBottom="6dp">
+      <!-- Progress bar background -->
+      <ProgressBar android:id="@+id/pb_vote"
+          style="?android:attr/progressBarStyleHorizontal"
+          android:layout_width="match_parent" android:layout_height="match_parent"
+          android:max="100" android:progress="0"
+          android:progressDrawable="@drawable/bg_drag_handle"
+          android:background="@drawable/bg_rounded_outline"/>
+      <!-- Option text -->
+      <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingStart="10dp" android:paddingEnd="10dp">
+          <TextView android:id="@+id/tv_option_text" android:layout_width="0dp"
+              android:layout_height="wrap_content" android:layout_weight="1"
+              android:textSize="13sp" android:textColor="#FFFFFF"/>
+          <TextView android:id="@+id/tv_percent" android:layout_width="wrap_content"
+              android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#CCFFFFFF"/>
+      </LinearLayout>
+  </FrameLayout>

@@ -1,54 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
-<menu xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
+  <menu xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <!-- Overflow menu items only -->
-    <item android:id="@+id/action_view_profile"
-        android:title="👤 View Profile"
-        app:showAsAction="never"/>
+      <!-- Search icon always visible in toolbar -->
+      <item android:id="@+id/action_search_messages"
+          android:title="Search"
+          android:icon="@drawable/ic_search"
+          app:showAsAction="always"/>
 
-    <item android:id="@+id/action_edit_profile"
-        android:title="✏️ Edit Profile"
-        app:showAsAction="never"/>
+      <!-- Overflow items -->
+      <item android:id="@+id/action_view_profile"
+          android:title="👤 View Profile"
+          app:showAsAction="never"/>
 
-    <item android:id="@+id/action_search"
-        android:title="🔍 Search"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_starred"
+          android:title="⭐ Starred Messages"
+          app:showAsAction="never"/>
 
-    <item android:id="@+id/action_starred"
-        android:title="⭐ Starred Messages"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_disappearing"
+          android:title="⏱️ Disappearing Messages"
+          app:showAsAction="never"/>
 
+      <item android:id="@+id/action_lock_chat"
+          android:title="🔒 Lock This Chat"
+          app:showAsAction="never"/>
 
-    <!-- Wallpaper Picker -->
-    <item android:id="@+id/action_set_wallpaper"
-        android:title="🖼️ Set Wallpaper"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_broadcast"
+          android:title="📢 Broadcast Lists"
+          app:showAsAction="never"/>
 
-    <!-- Chat Bubble Theme Picker -->
-    <item android:id="@+id/action_chat_theme"
-        android:title="🎨 Chat Theme"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_set_wallpaper"
+          android:title="🖼️ Set Wallpaper"
+          app:showAsAction="never"/>
 
-    <!-- Typing Style Picker -->
-    <item android:id="@+id/action_typing_style"
-        android:title="✍️ Typing Style"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_chat_theme"
+          android:title="🎨 Chat Theme"
+          app:showAsAction="never"/>
 
-    <item android:id="@+id/action_mute"
-        android:title="🔔 Mute"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_typing_style"
+          android:title="✍️ Typing Style"
+          app:showAsAction="never"/>
 
-    <item android:id="@+id/action_block"
-        android:title="🚫 Block"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_media_links_docs"
+          android:title="📁 Media, Links &amp; Docs"
+          app:showAsAction="never"/>
 
-    <item android:id="@+id/action_clear_chat"
-        android:title="🗑 Clear Chat"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_mute"
+          android:title="🔔 Mute"
+          app:showAsAction="never"/>
 
-    <item android:id="@+id/action_media_links_docs"
-        android:title="📁 Media, Links &amp; Docs"
-        app:showAsAction="never"/>
+      <item android:id="@+id/action_block"
+          android:title="🚫 Block"
+          app:showAsAction="never"/>
 
-</menu>
+      <item android:id="@+id/action_clear_chat"
+          android:title="🗑 Clear Chat"
+          app:showAsAction="never"/>
+  </menu>

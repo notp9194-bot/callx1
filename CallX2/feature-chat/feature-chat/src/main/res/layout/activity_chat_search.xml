@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent" android:layout_height="match_parent"
+      android:orientation="vertical" android:background="?android:attr/windowBackground">
+
+      <!-- Search Toolbar -->
+      <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:background="@drawable/gradient_brand"
+          android:paddingStart="4dp" android:paddingEnd="8dp" android:elevation="4dp">
+          <ImageButton android:id="@+id/btn_back"
+              android:layout_width="44dp" android:layout_height="44dp"
+              android:src="@drawable/ic_back" android:tint="#FFFFFF"
+              android:background="?attr/selectableItemBackgroundBorderless"/>
+          <EditText android:id="@+id/et_search"
+              android:layout_width="0dp" android:layout_height="38dp"
+              android:layout_weight="1" android:layout_marginEnd="8dp"
+              android:background="@drawable/bg_search_bar"
+              android:hint="Messages search karein..." android:textSize="14sp"
+              android:paddingStart="12dp" android:inputType="text"
+              android:imeOptions="actionSearch" android:singleLine="true"/>
+      </LinearLayout>
+
+      <!-- Results count -->
+      <TextView android:id="@+id/tv_results_count"
+          android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:padding="12dp" android:textSize="12sp"
+          android:textColor="?android:attr/textColorSecondary"/>
+
+      <!-- Results list -->
+      <androidx.recyclerview.widget.RecyclerView
+          android:id="@+id/rv_results"
+          android:layout_width="match_parent" android:layout_height="0dp"
+          android:layout_weight="1"/>
+  </LinearLayout>

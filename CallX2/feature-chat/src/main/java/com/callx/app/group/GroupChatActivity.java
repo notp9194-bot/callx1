@@ -54,6 +54,11 @@ import com.callx.app.conversation.ChatActivity;
 import com.callx.app.starred.StarredMessagesActivity;
 import com.callx.app.conversation.MessageAdapter;
 import com.callx.app.chat.ui.MessageHighlightAnimator;
+import com.callx.app.chat.typing.GroupTypingIndicatorManager;
+  import com.callx.app.chat.mention.MentionController;
+  import com.callx.app.chat.seenby.SeenByManager;
+  import com.callx.app.chat.slowmode.SlowModeManager;
+  import com.callx.app.chat.poll.ChatPollManager;
 
 /**
  * GroupChatActivity — Production-grade group chat screen.
@@ -76,6 +81,14 @@ import com.callx.app.chat.ui.MessageHighlightAnimator;
  *   + Typing indicator, online member count, voice/media messages
  */
 public class GroupChatActivity extends AppCompatActivity {
+
+      // ── v6 Group Feature Managers ───────────────────────────────────────────
+      private GroupTypingIndicatorManager groupTypingManager;
+      private MentionController           mentionController;
+      private SeenByManager               seenByManager;
+      private SlowModeManager             slowModeManager;
+      private ChatPollManager             groupPollManager;
+  
 
     private static final String TAG           = "GroupChatActivity";
     private static final int    PAGE_SIZE     = 20;
@@ -146,7 +159,22 @@ public class GroupChatActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        binding = ActivityChatBinding.inflate(getLayoutInflater());
+
+          // ── v6: Group chat managers ────────────────────────────
+          groupTypingManager = new GroupTypingIndicatorManager(groupId, currentUid, this);
+          groupTypingManager.attachView(binding.tvTyping, binding.llTypingIndicator);
+
+          mentionController = new MentionController(this, groupId, binding.etMessage,
+                  binding.rvMentionSuggestions, members -> {
+                      // members list loaded — controller handles filter + click
+                  });
+
+          seenByManager = new SeenByManager(this, groupId, currentUid);
+          slowModeManager = new SlowModeManager(this, groupId, currentUid);
+          slowModeManager.attachSendButton(binding.btnSend);
+
+          groupPollManager = new ChatPollManager(this, groupId, currentUid, currentName);
+          binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         applyScreenTheme();
 
@@ -195,6 +223,8 @@ public class GroupChatActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (groupTypingManager != null) groupTypingManager.detach();
+        if (slowModeManager != null) slowModeManager.detach();
         subtitleHandler.removeCallbacks(subtitleTick);
         typingHandler.removeCallbacks(stopTyping);
         setMyTyping(false);
@@ -532,6 +562,8 @@ public class GroupChatActivity extends AppCompatActivity {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                groupTypingManager.onUserTyping();
+                mentionController.onTextChanged(s);
                 boolean has = s.toString().trim().length() > 0;
                 binding.btnSend.setVisibility(has ? View.VISIBLE : View.GONE);
                 binding.btnMic.setVisibility(has ? View.GONE : View.VISIBLE);
@@ -1121,6 +1153,13 @@ public class GroupChatActivity extends AppCompatActivity {
         v.findViewById(R.id.opt_file).setOnClickListener(x   -> { sheet.dismiss(); filePicker.launch("*/*"); });
         sheet.setContentView(v); sheet.show();
     }
+
+        // v6: Poll in group
+        sheet.findViewById(R.id.opt_poll).setOnClickListener(v -> {
+            bottomSheet.dismiss();
+            groupPollManager.showCreatePollDialog();
+        });
+
 
     private void uploadAndSend(Uri uri, String msgType, String resourceType, String fileName) {
         // OFFLINE FIX: Media upload needs internet — check before starting
