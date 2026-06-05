@@ -1,0 +1,45 @@
+{
+  "_comment": "Merge these into your Firebase Realtime Database rules.",
+  "_instructions": [
+    "1. Open Firebase Console \u2192 Realtime Database \u2192 Rules tab",
+    "2. Merge the 'rules' object below into your existing rules JSON"
+  ],
+  "rules": {
+    "reelReposts": {
+      "$reelId": {
+        ".read": "auth != null",
+        "$reposterId": {
+          ".write": "auth != null && auth.uid === $reposterId",
+          ".validate": "newData.isNumber() || !newData.exists()"
+        }
+      }
+    },
+    "userReposts": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$reelId": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isNumber() || !newData.exists()"
+        }
+      }
+    },
+    "repostCaptions": {
+      "$reelId": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['caption','uid','name','timestamp'])"
+        }
+      }
+    },
+    "reel_notifications": {
+      "$ownerUid": {
+        ".read": "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null",
+        "$notifId": {
+          ".validate": "newData.hasChildren(['type','senderUid','reel_id','timestamp'])"
+        }
+      }
+    }
+  }
+}
