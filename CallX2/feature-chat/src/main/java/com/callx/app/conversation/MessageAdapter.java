@@ -951,13 +951,20 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         sheet.show();
     }
 
-    // ── Chrome Custom Tabs: open URL inside app, no external browser ──────────
+    // ── Chrome Custom Tabs: force browser, block native app deep links ────────
     private void openInCustomTab(Context ctx, String url) {
         if (url == null || url.isEmpty()) return;
         try {
+            android.net.Uri uri = android.net.Uri.parse(url);
+
+            // Find the best browser package that supports Custom Tabs.
+            // We do this manually so we can set the package explicitly —
+            // that forces Chrome/browser to open instead of native apps (YouTube, Instagram etc.)
+            String browserPkg = getBrowserPackage(ctx);
+
             androidx.browser.customtabs.CustomTabColorSchemeParams colorParams =
                 new androidx.browser.customtabs.CustomTabColorSchemeParams.Builder()
-                    .setToolbarColor(0xFF1565C0) // match app primary color
+                    .setToolbarColor(0xFF1565C0)
                     .build();
             androidx.browser.customtabs.CustomTabsIntent customTab =
                 new androidx.browser.customtabs.CustomTabsIntent.Builder()
@@ -966,15 +973,48 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     .setShareState(androidx.browser.customtabs.CustomTabsIntent.SHARE_STATE_ON)
                     .setCloseButtonPosition(androidx.browser.customtabs.CustomTabsIntent.CLOSE_BUTTON_POSITION_START)
                     .build();
-            customTab.launchUrl(ctx, android.net.Uri.parse(url));
+
+            // Explicitly set browser package → Android won't redirect to native apps
+            if (browserPkg != null) {
+                customTab.intent.setPackage(browserPkg);
+            }
+
+            customTab.launchUrl(ctx, uri);
         } catch (Exception e) {
-            // Fallback: if Custom Tabs not available, open in external browser
+            // Last-resort fallback
             try {
                 Intent fallback = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
                 fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 ctx.startActivity(fallback);
             } catch (Exception ignored) {}
         }
+    }
+
+    // Returns package name of a browser that supports Custom Tabs, preferring Chrome.
+    private String getBrowserPackage(Context ctx) {
+        // Preferred browsers in order
+        String[] preferred = {
+            "com.android.chrome",
+            "com.chrome.beta",
+            "com.chrome.dev",
+            "org.mozilla.firefox",
+            "com.microsoft.emmx",
+            "com.brave.browser"
+        };
+        android.content.pm.PackageManager pm = ctx.getPackageManager();
+        for (String pkg : preferred) {
+            try {
+                pm.getPackageInfo(pkg, 0);
+                return pkg; // installed → use it
+            } catch (android.content.pm.PackageManager.NameNotFoundException ignored) {}
+        }
+        // Fallback: find any browser that handles http
+        Intent browserIntent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("http://"));
+        android.content.pm.ResolveInfo info = pm.resolveActivity(browserIntent, 0);
+        if (info != null && info.activityInfo != null) {
+            return info.activityInfo.packageName;
+        }
+        return null; // no browser found — Custom Tabs will pick default
     }
 
     private void openMedia(Context ctx, String url, String type) {
