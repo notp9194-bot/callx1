@@ -80,5 +80,11 @@ public class MessageEntity {
      */
     public int fontStyle;
 
+    /**
+     * Reactions stored as JSON string: {"uid":"emoji", ...}
+     * Serialized from Message.reactions Map for Room storage.
+     */
+    public String reactionsJson;
+
     public MessageEntity() {}
 }
