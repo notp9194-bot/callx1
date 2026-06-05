@@ -1,40 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-  <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:tools="http://schemas.android.com/tools">
+
       <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
       <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
       <application>
-          <!-- Existing activities -->
           <activity android:name="com.callx.app.conversation.ChatActivity"
-              android:exported="false" android:windowSoftInputMode="adjustResize"/>
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.group.GroupChatActivity"
-              android:exported="false" android:windowSoftInputMode="adjustResize"/>
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.group.GroupInfoActivity"
-              android:exported="false" android:windowSoftInputMode="adjustResize"/>
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.group.GroupSettingsActivity"
-              android:exported="false" android:windowSoftInputMode="adjustResize"/>
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.group.NewGroupActivity"
               android:exported="false"/>
           <activity android:name="com.callx.app.starred.StarredMessagesActivity"
               android:exported="false"
               android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
           <activity android:name="com.callx.app.settings.MutedChatsActivity"
-              android:exported="false" android:screenOrientation="portrait"/>
+              android:exported="false"
+              android:screenOrientation="portrait"/>
 
           <!-- v6 NEW activities -->
           <activity android:name="com.callx.app.chat.search.ChatSearchActivity"
-              android:exported="false" android:windowSoftInputMode="adjustResize"/>
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.broadcast.BroadcastListActivity"
               android:exported="false"/>
           <activity android:name="com.callx.app.broadcast.NewBroadcastActivity"
-              android:exported="false" android:windowSoftInputMode="adjustResize"/>
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.broadcast.SendBroadcastActivity"
-              android:exported="false" android:windowSoftInputMode="adjustResize"/>
-
-          <!-- WorkManager workers declared for API 31+ -->
-          <service android:name="androidx.work.impl.background.systemjob.SystemJobService"
-              android:exported="true"
-              android:permission="android.permission.BIND_JOB_SERVICE"
-              android:directBootAware="false"
-              tools:targetApi="n"/>
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
       </application>
   </manifest>

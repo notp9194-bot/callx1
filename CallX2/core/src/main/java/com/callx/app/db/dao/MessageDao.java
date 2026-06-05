@@ -14,10 +14,11 @@ package com.callx.app.db.dao;
   import java.util.List;
 
   /**
-   * MessageDao — all Room queries for messages table.
+   * Message DAO — all Room queries for messages table.
    *
-   * v6: Added searchMessages, getExpiredMessages, deleteById
-   *     for in-chat search, disappearing messages, and chat lock.
+   * v7 FIX: Restored original method names (insertMessage, insertMessages,
+   * getMessageById, updateMessage, getFailedMediaUploads, getAllPendingMessages)
+   * alongside v6 new methods (searchMessages, getExpiredMessages, deleteById).
    */
   @Dao
   public interface MessageDao {
@@ -46,7 +47,22 @@ package com.callx.app.db.dao;
       @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT 1")
       MessageEntity getLastMessage(String chatId);
 
+      // ── Single message lookup ─────────────────────────────
+      /** Used by SyncWorker and NotificationReplyWorker */
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
+      MessageEntity getMessageById(String id);
+
       // ── Insert / upsert ───────────────────────────────────
+      /** Single insert — used by NotificationReplyWorker, SyncWorker */
+      @Insert(onConflict = OnConflictStrategy.REPLACE)
+      void insertMessage(MessageEntity msg);
+
+      /** Batch insert — used by ChatRepository, CacheManager */
+      @Insert(onConflict = OnConflictStrategy.REPLACE)
+      void insertMessages(List<MessageEntity> msgs);
+
+      /** Alias — also available as insert() for adapters that prefer it */
       @Insert(onConflict = OnConflictStrategy.REPLACE)
       void insert(MessageEntity msg);
 
@@ -54,6 +70,10 @@ package com.callx.app.db.dao;
       void insertAll(List<MessageEntity> msgs);
 
       // ── Update ops ────────────────────────────────────────
+      /** Full entity update — used by SyncWorker (media upload completion) */
+      @Update
+      void updateMessage(MessageEntity msg);
+
       @Update
       void update(MessageEntity msg);
 
@@ -77,6 +97,23 @@ package com.callx.app.db.dao;
       @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
       void updateText(String messageId, String newText, long editedAt);
 
+      // ── Pending / failed media uploads ────────────────────
+      /**
+       * Messages with local media path but no uploaded URL yet.
+       * Used by SyncWorker to retry offline-queued uploads.
+       */
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE mediaLocalPath IS NOT NULL AND mediaUrl IS NULL ORDER BY timestamp ASC LIMIT 50")
+      List<MessageEntity> getFailedMediaUploads();
+
+      /**
+       * All messages with status 'sending' (not yet confirmed by Firebase).
+       * Used by SyncWorker on reconnect.
+       */
+      @WorkerThread
+      @Query("SELECT * FROM messages WHERE status = 'sending' ORDER BY timestamp ASC LIMIT 100")
+      List<MessageEntity> getAllPendingMessages();
+
       // ── Starred ───────────────────────────────────────────
       @Query("SELECT * FROM messages WHERE chatId = :chatId AND starred = 1 ORDER BY timestamp DESC")
       LiveData<List<MessageEntity>> getStarredMessages(String chatId);
@@ -86,25 +123,15 @@ package com.callx.app.db.dao;
       List<MessageEntity> getAllStarredMessages();
 
       // ── v6: In-chat search ────────────────────────────────
-      /**
-       * Full-text search within a chat.
-       * Called from ChatSearchActivity (background thread).
-       * Returns newest matches first, limit 200.
-       */
       @WorkerThread
       @Query("SELECT * FROM messages WHERE chatId = :chatId AND text LIKE :query AND (deleted IS NULL OR deleted = 0) ORDER BY timestamp DESC LIMIT 200")
       List<MessageEntity> searchMessages(String chatId, String query);
 
       // ── v6: Disappearing messages ─────────────────────────
-      /**
-       * Returns all messages whose expiresAt is set and has passed.
-       * Called by DisappearingMessageWorker every hour.
-       */
       @WorkerThread
       @Query("SELECT * FROM messages WHERE expiresAt > 0 AND expiresAt <= :now")
       List<MessageEntity> getExpiredMessages(long now);
 
-      /** Delete a single message by ID (used by DisappearingMessageWorker). */
       @WorkerThread
       @Query("DELETE FROM messages WHERE id = :id")
       void deleteById(String id);
