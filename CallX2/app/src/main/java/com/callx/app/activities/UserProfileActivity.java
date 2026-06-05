@@ -32,7 +32,6 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.conversation.ChatActivity;
-import com.callx.app.call.CallActivity;
 
 /**
  * UserProfileActivity — Chat header avatar click ya 3-dot "View Profile" se open hoti hai.

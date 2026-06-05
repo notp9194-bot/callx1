@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
-import com.callx.app.call.CallActivity;
 
 /**
  * v18: Search by CallX ID  -or-  name.
@@ -316,7 +315,7 @@ public class SearchActivity extends AppCompatActivity {
     private void startCall(boolean video) {
         if (foundUid == null) return;
         if (isOnline()) linkContacts();
-        Intent i = new Intent(this, CallActivity.class);
+        Intent i = new Intent().setClassName(this, "com.callx.app.call.CallActivity");
         i.putExtra("partnerUid",  foundUid);
         i.putExtra("partnerName", foundName);
         i.putExtra("isCaller",    true);

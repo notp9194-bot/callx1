@@ -55,7 +55,6 @@ import com.callx.app.profile.UserReelsActivity;
   import com.bumptech.glide.request.transition.Transition;
   import androidx.annotation.Nullable;
 import com.callx.app.group.NewGroupActivity;
-import com.callx.app.call.CallActivity;
 import com.callx.app.services.CallForegroundService;
 import com.callx.app.compose.NewStatusActivity;
 import com.callx.app.hub.GamesHubActivity;

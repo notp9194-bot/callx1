@@ -12,7 +12,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.R;
-import com.callx.app.call.CallActivity;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.models.User;
@@ -74,7 +73,7 @@ public class AllContactsActivity extends AppCompatActivity {
     @Override public boolean onSupportNavigateUp() { finish(); return true; }
 
     private void onVoiceCall(User u) {
-        Intent i = new Intent(this, CallActivity.class);
+        Intent i = new Intent().setClassName(this, "com.callx.app.call.CallActivity");
         i.putExtra("partnerUid",  u.uid);
         i.putExtra("partnerName", u.name != null ? u.name : "");
         i.putExtra("isCaller",    true);
@@ -83,7 +82,7 @@ public class AllContactsActivity extends AppCompatActivity {
     }
 
     private void onVideoCall(User u) {
-        Intent i = new Intent(this, CallActivity.class);
+        Intent i = new Intent().setClassName(this, "com.callx.app.call.CallActivity");
         i.putExtra("partnerUid",  u.uid);
         i.putExtra("partnerName", u.name != null ? u.name : "");
         i.putExtra("isCaller",    true);

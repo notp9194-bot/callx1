@@ -142,38 +142,7 @@
                       android:pathPrefix="/join"/>
             </intent-filter>
         </activity>
-        <activity android:name=".activities.CallActivity"
-            android:exported="false"
-            android:supportsPictureInPicture="true"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"/>
-        <activity android:name=".activities.IncomingCallActivity"
-            android:exported="false"
-            android:launchMode="singleInstance"
-            android:screenOrientation="portrait"
-            android:excludeFromRecents="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"/>
-
-        <!-- ── Group Call Activities ── -->
-        <activity android:name=".activities.GroupCallActivity"
-            android:exported="false"
-            android:launchMode="singleTask"
-            android:supportsPictureInPicture="true"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"/>
-        <activity android:name=".activities.IncomingGroupCallActivity"
-            android:exported="false"
-            android:launchMode="singleInstance"
-            android:screenOrientation="portrait"
-            android:excludeFromRecents="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"/>
-        <activity android:name=".activities.GroupCallSettingsActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+        <!-- Call activities moved to feature-calls module (manifest merger handles them) -->
 
         <service android:name=".services.CallxMessagingService"
             android:exported="false">
@@ -181,9 +150,7 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT"/>
             </intent-filter>
         </service>
-        <service android:name=".services.CallForegroundService"
-            android:exported="false"
-            android:foregroundServiceType="phoneCall"/>
+        <!-- CallForegroundService moved to feature-calls module -->
 
         <activity android:name=".activities.SpecialRequestPopupActivity"
             android:exported="false"
@@ -207,11 +174,7 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="callx_calls"/>
 
-      <service
-          android:name=".services.IncomingRingService"
-          android:exported="false"
-          android:foregroundServiceType="phoneCall"
-          android:stopWithTask="false"/>
+      <!-- Call services and receivers moved to feature-calls module (manifest merger handles them) -->
 
       <!-- ReelNotificationService: stub only (v15). Notifications are now shown
            directly from ReelFCMNotificationHandler using an Executor, same as
@@ -221,36 +184,7 @@
           android:exported="false"
           android:stopWithTask="false"/>
 
-      <receiver
-          android:name=".services.NotificationActionReceiver"
-          android:exported="false">
-          <intent-filter>
-              <action android:name="com.callx.app.ACCEPT_CALL"/>
-              <action android:name="com.callx.app.DECLINE_CALL"/>
-              <action android:name="com.callx.app.END_CALL"/>
-          </intent-filter>
-      </receiver>
-
-      <service
-          android:name=".services.GroupCallRingService"
-          android:exported="false"
-          android:foregroundServiceType="phoneCall"
-          android:stopWithTask="false"/>
-
-      <service
-          android:name=".services.GroupCallForegroundService"
-          android:exported="false"
-          android:foregroundServiceType="phoneCall"/>
-
-      <receiver
-          android:name=".services.GroupCallActionReceiver"
-          android:exported="false">
-          <intent-filter>
-              <action android:name="com.callx.app.ACTION_GROUP_DECLINE_CALL"/>
-              <action android:name="com.callx.app.ACTION_GROUP_END_CALL"/>
-              <action android:name="com.callx.app.ACTION_GROUP_JOIN_CALL"/>
-          </intent-filter>
-      </receiver>
+      <!-- NotificationActionReceiver and group call services moved to feature-calls module -->
 
         <activity android:name=".activities.AccountMenuActivity" android:exported="false"
             android:theme="@style/Theme.CallX.NoTransition"/>
