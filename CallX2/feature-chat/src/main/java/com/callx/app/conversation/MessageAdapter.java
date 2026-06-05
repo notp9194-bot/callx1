@@ -142,7 +142,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         if (h.flVideo  != null) h.flVideo.setVisibility(View.GONE);
         if (h.llAudio  != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile   != null) h.llFile.setVisibility(View.GONE);
-        if (h.tvEdited != null) h.tvEdited.setVisibility(View.GONE);
+        if (h.tvEdited     != null) h.tvEdited.setVisibility(View.GONE);
+        if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
 
         // Feature 8: Pinned label
         if (h.tvPinnedLabel != null)
@@ -462,6 +463,48 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 h.tvMessage.setLinkTextColor(linkColor);
                 h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                 h.tvMessage.setHighlightColor(0x33FFFFFF);
+
+                // ── Link Preview Card ────────────────────────────────────
+                if (h.llLinkPreview != null) {
+                    String previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(rawText);
+                    if (previewUrl != null) {
+                        h.llLinkPreview.setTag(previewUrl);
+                        h.llLinkPreview.setVisibility(View.INVISIBLE);
+                        com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
+                                new com.callx.app.utils.LinkPreviewFetcher.Callback() {
+                            @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
+                                if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
+                                h.llLinkPreview.setVisibility(View.VISIBLE);
+                                if (h.tvLinkDomain != null) h.tvLinkDomain.setText(r.domain);
+                                if (h.tvLinkTitle  != null) h.tvLinkTitle.setText(r.title);
+                                if (h.ivLinkThumb  != null) {
+                                    if (r.imageUrl != null && !r.imageUrl.isEmpty()) {
+                                        h.ivLinkThumb.setVisibility(View.VISIBLE);
+                                        Glide.with(ctx)
+                                            .load(r.imageUrl)
+                                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                            .centerCrop()
+                                            .into(h.ivLinkThumb);
+                                    } else {
+                                        h.ivLinkThumb.setVisibility(View.GONE);
+                                    }
+                                }
+                                h.llLinkPreview.setOnClickListener(v -> {
+                                    Intent i = new Intent(Intent.ACTION_VIEW,
+                                            android.net.Uri.parse(r.url));
+                                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    ctx.startActivity(i);
+                                });
+                            }
+                            @Override public void onError(String url) {
+                                if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
+                                h.llLinkPreview.setVisibility(View.GONE);
+                            }
+                        });
+                    } else {
+                        h.llLinkPreview.setVisibility(View.GONE);
+                    }
+                }
                 break;
             }
         }
@@ -1078,6 +1121,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         TextView     tvForwarded;
         TextView     tvStarredIcon;
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
+        LinearLayout llLinkPreview;
+        TextView     tvLinkTitle, tvLinkDomain;
+        ImageView    ivLinkThumb;
 
         VH(View v) {
             super(v);
@@ -1107,6 +1153,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvForwarded  = v.findViewById(R.id.tv_forwarded);
             tvStarredIcon = v.findViewById(R.id.tv_starred_icon);
             ivSenderAvatar = v.findViewById(R.id.iv_sender_avatar);
+            llLinkPreview  = v.findViewById(R.id.ll_link_preview);
+            tvLinkTitle    = v.findViewById(R.id.tv_link_title);
+            tvLinkDomain   = v.findViewById(R.id.tv_link_domain);
+            ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
         }
     }
 }
