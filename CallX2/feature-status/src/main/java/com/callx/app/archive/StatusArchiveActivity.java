@@ -1,5 +1,4 @@
-package com.callx.app.activities;
-
+package com.callx.app.archive;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.*;
@@ -15,7 +14,7 @@ import com.callx.app.utils.StatusHighlightManager;
 import com.google.firebase.database.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
-
+import com.callx.app.viewer.StatusViewerActivity;
 /**
  * StatusArchiveActivity — View and manage archived statuses.
  * NEW: Archived statuses listed with thumbnail, text, timestamp.
@@ -23,42 +22,35 @@ import java.util.*;
  * NEW: Swipe to delete from archive.
  */
 public class StatusArchiveActivity extends AppCompatActivity {
-
     private RecyclerView rv;
     private TextView     tvEmpty;
     private ProgressBar  progress;
     private final List<StatusItem> items = new ArrayList<>();
     private ArchiveAdapter adapter;
     private String myUid;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-
         androidx.appcompat.widget.Toolbar toolbar = new androidx.appcompat.widget.Toolbar(this);
         toolbar.setTitle("Status Archive");
         toolbar.setNavigationIcon(android.R.drawable.ic_menu_revert);
         toolbar.setNavigationOnClickListener(v -> finish());
         root.addView(toolbar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
         progress = new ProgressBar(this);
         root.addView(progress);
-
         tvEmpty = new TextView(this);
         tvEmpty.setText("No archived statuses");
         tvEmpty.setGravity(android.view.Gravity.CENTER);
         tvEmpty.setPadding(0, 64, 0, 0);
         tvEmpty.setVisibility(View.GONE);
         root.addView(tvEmpty);
-
         rv = new RecyclerView(this);
         rv.setLayoutManager(new GridLayoutManager(this, 3));
         adapter = new ArchiveAdapter();
         rv.setAdapter(adapter);
-
         // Swipe to delete
         new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
             @Override public boolean onMove(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder h,
@@ -71,15 +63,12 @@ public class StatusArchiveActivity extends AppCompatActivity {
                 StatusHighlightManager.unarchiveStatus(myUid, removed.id);
             }
         }).attachToRecyclerView(rv);
-
         root.addView(rv, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
-
         try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { finish(); return; }
         loadArchive();
     }
-
     private void loadArchive() {
         StatusHighlightManager.getArchiveRef(myUid)
             .orderByChild("archivedAt")
@@ -99,7 +88,6 @@ public class StatusArchiveActivity extends AppCompatActivity {
                 }
             });
     }
-
     class ArchiveAdapter extends RecyclerView.Adapter<ArchiveAdapter.VH> {
         SimpleDateFormat fmt = new SimpleDateFormat("dd MMM", Locale.getDefault());
         @NonNull @Override
@@ -114,7 +102,6 @@ public class StatusArchiveActivity extends AppCompatActivity {
             h.bind(item);
         }
         @Override public int getItemCount() { return items.size(); }
-
         class VH extends RecyclerView.ViewHolder {
             ImageView iv; TextView tvOverlay;
             VH(FrameLayout fl) {
@@ -161,7 +148,6 @@ public class StatusArchiveActivity extends AppCompatActivity {
             }
         }
     }
-
     private void showAddToHighlightDialog(StatusItem item) {
         new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Add to Highlights")

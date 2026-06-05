@@ -1,5 +1,4 @@
-package com.callx.app.activities;
-
+package com.callx.app.game;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -21,14 +20,11 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
-
 import com.callx.app.games.R;
 import com.google.android.material.snackbar.Snackbar;
-
 /**
  * GameActivity
  *
@@ -51,13 +47,10 @@ import com.google.android.material.snackbar.Snackbar;
  *   startActivity(i);
  */
 public class GameActivity extends AppCompatActivity {
-
     private static final String TAG = "GameActivity";
-
     // ── Intent extras ─────────────────────────────────────────────────────────
     public static final String EXTRA_URL   = "url";
     public static final String EXTRA_TITLE = "title";
-
     // ── Views ──────────────────────────────────────────────────────────────────
     private WebView          webView;
     private ProgressBar      pbTop;
@@ -68,16 +61,13 @@ public class GameActivity extends AppCompatActivity {
     private Button           btnRetry;
     private TextView         btnBackError;
     private CoordinatorLayout rootLayout;
-
     private String gameUrl   = "";
     private String gameTitle = "Game";
     private boolean errorShown = false;
-
     // ─────────────────────────────────────────────────────────────────────────
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         // Full-screen flags — no status bar, no nav bar
         getWindow().setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
@@ -86,9 +76,7 @@ public class GameActivity extends AppCompatActivity {
             getWindow().getAttributes().layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
-
         setContentView(R.layout.activity_game);
-
         // ── View bindings ──────────────────────────────────────────────────
         webView      = findViewById(R.id.webview_game);
         pbTop        = findViewById(R.id.pb_game_top);
@@ -99,7 +87,6 @@ public class GameActivity extends AppCompatActivity {
         btnRetry     = findViewById(R.id.btn_game_retry);
         btnBackError = findViewById(R.id.btn_game_back_error);
         rootLayout   = (CoordinatorLayout) webView.getParent();
-
         // ── Intent data ───────────────────────────────────────────────────
         gameUrl   = getIntent().getStringExtra(EXTRA_URL);
         gameTitle = getIntent().getStringExtra(EXTRA_TITLE);
@@ -107,47 +94,35 @@ public class GameActivity extends AppCompatActivity {
             gameUrl = "https://callx-server.onrender.com/bubble-pop-game.html";
         if (gameTitle == null || gameTitle.isEmpty())
             gameTitle = "Game";
-
         setupWebView();
         setupButtons();
         loadGame();
     }
-
     // ── WebView setup ─────────────────────────────────────────────────────────
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
         WebSettings s = webView.getSettings();
-
         // JavaScript — required for HTML5 games
         s.setJavaScriptEnabled(true);
-
         // DOM storage — many games use localStorage for scores
         s.setDomStorageEnabled(true);
-
         // Zoom controls off — game controls karte hain touch events
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setSupportZoom(false);
-
         // Fit screen exactly — no extra whitespace
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
-
         // Media auto-play (game sounds)
         s.setMediaPlaybackRequiresUserGesture(false);
-
         // Cache — game assets faster laod honge
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-
         // Mixed content — HTTP resources over HTTPS (game assets)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
             s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-
         // Hardware acceleration already on at Activity level (manifest)
-
         // ── WebViewClient — page events ─────────────────────────────────
         webView.setWebViewClient(new WebViewClient() {
-
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 errorShown = false;
@@ -155,14 +130,12 @@ public class GameActivity extends AppCompatActivity {
                 pbTop.setVisibility(View.VISIBLE);
                 pbTop.setProgress(10);
             }
-
             @Override
             public void onPageFinished(WebView view, String url) {
                 showLoading(false);
                 pbTop.setVisibility(View.GONE);
                 if (!errorShown) showError(false);
             }
-
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request,
                                         WebResourceError error) {
@@ -178,7 +151,6 @@ public class GameActivity extends AppCompatActivity {
                 }
             }
         });
-
         // ── WebChromeClient — progress updates ──────────────────────────
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -190,13 +162,11 @@ public class GameActivity extends AppCompatActivity {
             }
         });
     }
-
     // ── Button listeners ──────────────────────────────────────────────────────
     private void setupButtons() {
         btnRetry.setOnClickListener(v -> loadGame());
         btnBackError.setOnClickListener(v -> finish());
     }
-
     // ── Load game ─────────────────────────────────────────────────────────────
     private void loadGame() {
         showError(false);
@@ -211,22 +181,18 @@ public class GameActivity extends AppCompatActivity {
         showLoading(true);
         webView.loadUrl(gameUrl);
     }
-
     // ── Visibility helpers ────────────────────────────────────────────────────
     private void showLoading(boolean show) {
         llLoading.setVisibility(show ? View.VISIBLE : View.GONE);
     }
-
     private void showError(boolean show) {
         llError.setVisibility(show ? View.VISIBLE : View.GONE);
     }
-
     private void showErrorState(String title, String msg) {
         tvErrorTitle.setText(title);
         tvErrorMsg.setText(msg);
         showError(true);
     }
-
     private void showNoInternetSnackbar() {
         Snackbar.make(rootLayout, "🌐  Internet nahi hai!", Snackbar.LENGTH_LONG)
             .setBackgroundTint(0xFF6C3CF7)
@@ -235,7 +201,6 @@ public class GameActivity extends AppCompatActivity {
             .setActionTextColor(0xFFFF6B6B)
             .show();
     }
-
     // ── Internet check ────────────────────────────────────────────────────────
     private boolean isInternetAvailable() {
         ConnectivityManager cm =
@@ -254,7 +219,6 @@ public class GameActivity extends AppCompatActivity {
             return info != null && info.isConnected();
         }
     }
-
     // ── Back press — WebView history first ───────────────────────────────────
     @Override
     public void onBackPressed() {
@@ -269,7 +233,6 @@ public class GameActivity extends AppCompatActivity {
             finish();
         }
     }
-
     // ── Key events (hardware back key support) ────────────────────────────────
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -279,7 +242,6 @@ public class GameActivity extends AppCompatActivity {
         }
         return super.onKeyDown(keyCode, event);
     }
-
     // ── Lifecycle — pause/resume WebView & audio ──────────────────────────────
     @Override
     protected void onResume() {
@@ -288,13 +250,11 @@ public class GameActivity extends AppCompatActivity {
         // Hide system UI again when returning to game
         hideSystemUI();
     }
-
     @Override
     protected void onPause() {
         super.onPause();
         webView.onPause();
     }
-
     @Override
     protected void onDestroy() {
         if (webView != null) {
@@ -303,7 +263,6 @@ public class GameActivity extends AppCompatActivity {
         }
         super.onDestroy();
     }
-
     // ── Immersive fullscreen ───────────────────────────────────────────────────
     private void hideSystemUI() {
         View decorView = getWindow().getDecorView();
@@ -315,7 +274,6 @@ public class GameActivity extends AppCompatActivity {
             | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
             | View.SYSTEM_UI_FLAG_FULLSCREEN);
     }
-
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);

@@ -8,7 +8,7 @@
 
         <!-- Games Hub — list of all games -->
         <activity
-            android:name="com.callx.app.activities.GamesHubActivity"
+            android:name="com.callx.app.hub.GamesHubActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:hardwareAccelerated="true"
@@ -17,7 +17,7 @@
 
         <!-- Single game WebView player -->
         <activity
-            android:name="com.callx.app.activities.GameActivity"
+            android:name="com.callx.app.game.GameActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:hardwareAccelerated="true"

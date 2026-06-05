@@ -1,9 +1,7 @@
 package com.callx.app.utils;
-
 import com.google.firebase.database.ServerValue;
 import java.util.HashMap;
 import java.util.Map;
-
 /**
  * StatusSeenTracker v25 — Comprehensive seen/reaction tracking.
  * - markSeen / markSeenBatch: seenBy records + chat bubble (deduped 24h)
@@ -13,13 +11,9 @@ import java.util.Map;
  * - forwardStatus: increment forwardCount
  */
 public final class StatusSeenTracker {
-
     private static final long DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000L;
-
     private StatusSeenTracker() {}
-
     // ── Seen tracking ─────────────────────────────────────────────────────
-
     public static void markSeen(String ownerUid, String statusId) {
         if (ownerUid == null || statusId == null) return;
         String myUid = safeUid();
@@ -31,13 +25,11 @@ public final class StatusSeenTracker {
             .child(myUid).child(ownerUid).child(statusId)
             .setValue(ServerValue.TIMESTAMP);
     }
-
     public static void markSeenBatch(String ownerUid, Iterable<String> statusIds,
                                      String ownerName, String statusThumbUrl) {
         if (ownerUid == null || statusIds == null) return;
         String myUid = safeUid();
         if (myUid == null || myUid.equals(ownerUid)) return;
-
         Map<String, Object> updates = new HashMap<>();
         for (String id : statusIds) {
             if (id != null) {
@@ -45,18 +37,14 @@ public final class StatusSeenTracker {
             }
         }
         if (!updates.isEmpty()) FirebaseUtils.getStatusRef().updateChildren(updates);
-
         String safeOwnerName = ownerName != null ? ownerName : "";
         String safeThumb     = statusThumbUrl != null ? statusThumbUrl : "";
         writeStatusSeenToChat(myUid, ownerUid, safeOwnerName, safeThumb);
     }
-
     public static void markSeenBatch(String ownerUid, Iterable<String> statusIds) {
         markSeenBatch(ownerUid, statusIds, "", "");
     }
-
     // ── View duration (analytics) ─────────────────────────────────────────
-
     public static void recordViewDuration(String ownerUid, String statusId, long durationMs) {
         if (ownerUid == null || statusId == null || durationMs < 200) return;
         String myUid = safeUid();
@@ -65,9 +53,7 @@ public final class StatusSeenTracker {
             .child(ownerUid).child(statusId).child("viewDurations").child(myUid)
             .setValue(durationMs);
     }
-
     // ── Reactions ─────────────────────────────────────────────────────────
-
     /**
      * React to a status — if same emoji already set, removes it (toggle).
      * If different emoji, replaces it. Returns the new emoji or null if removed.
@@ -77,10 +63,8 @@ public final class StatusSeenTracker {
         if (ownerUid == null || statusId == null || emoji == null) return;
         String myUid = safeUid();
         if (myUid == null) return;
-
         com.google.firebase.database.DatabaseReference ref = FirebaseUtils.getStatusRef()
             .child(ownerUid).child(statusId).child("reactions").child(myUid);
-
         if (emoji.equals(currentReaction)) {
             // Toggle off — remove reaction
             ref.removeValue().addOnSuccessListener(u -> { if (cb != null) cb.onReaction(null); });
@@ -91,11 +75,9 @@ public final class StatusSeenTracker {
             notifyReaction(ownerUid, statusId, emoji, myUid);
         }
     }
-
     public static void reactTo(String ownerUid, String statusId, String emoji) {
         reactTo(ownerUid, statusId, emoji, null, null);
     }
-
     public static void removeReaction(String ownerUid, String statusId) {
         if (ownerUid == null || statusId == null) return;
         String myUid = safeUid();
@@ -103,13 +85,10 @@ public final class StatusSeenTracker {
         FirebaseUtils.getStatusRef()
             .child(ownerUid).child(statusId).child("reactions").child(myUid).removeValue();
     }
-
     public interface OnReactionCallback {
         void onReaction(String newEmoji); // null = removed
     }
-
     // ── Delete (soft) ─────────────────────────────────────────────────────
-
     public static void deleteStatus(String ownerUid, String statusId) {
         if (ownerUid == null || statusId == null) return;
         String myUid = safeUid();
@@ -117,9 +96,7 @@ public final class StatusSeenTracker {
         FirebaseUtils.getStatusRef()
             .child(ownerUid).child(statusId).child("deleted").setValue(true);
     }
-
     // ── Forward tracking ──────────────────────────────────────────────────
-
     public static void incrementForwardCount(String ownerUid, String statusId) {
         if (ownerUid == null || statusId == null) return;
         FirebaseUtils.getStatusRef()
@@ -138,17 +115,13 @@ public final class StatusSeenTracker {
                                        boolean committed, com.google.firebase.database.DataSnapshot s) {}
             });
     }
-
     // ── Internal: chat bubble ─────────────────────────────────────────────
-
     private static void writeStatusSeenToChat(String viewerUid, String ownerUid,
                                                String ownerName, String statusThumbUrl) {
         String chatId = viewerUid.compareTo(ownerUid) < 0
                 ? viewerUid + "_" + ownerUid : ownerUid + "_" + viewerUid;
-
         com.google.firebase.database.DatabaseReference messagesRef =
                 FirebaseUtils.db().getReference("messages").child(chatId);
-
         messagesRef.orderByChild("timestamp").limitToLast(1)
             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
                 @Override
@@ -187,7 +160,6 @@ public final class StatusSeenTracker {
                 }
             });
     }
-
     private static void doWriteSeenBubble(
             com.google.firebase.database.DatabaseReference ref,
             String viewerUid, String viewerName, String viewerPhoto,
@@ -208,7 +180,6 @@ public final class StatusSeenTracker {
         msg.put("statusThumbUrl",  statusThumbUrl);
         ref.child(msgId).setValue(msg);
     }
-
     private static void notifyReaction(String ownerUid, String statusId,
                                         String emoji, String reactorUid) {
         Map<String, Object> n = new HashMap<>();
@@ -220,7 +191,6 @@ public final class StatusSeenTracker {
         FirebaseUtils.db().getReference("notifications")
             .child(ownerUid).push().setValue(n);
     }
-
     private static String safeUid() {
         try { return FirebaseUtils.getCurrentUid(); } catch (Exception e) { return null; }
     }

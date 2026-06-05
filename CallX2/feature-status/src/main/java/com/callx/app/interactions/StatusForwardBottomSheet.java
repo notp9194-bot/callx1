@@ -1,5 +1,4 @@
-package com.callx.app.bottomsheet;
-
+package com.callx.app.interactions;
 import android.content.Context;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -12,7 +11,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.StatusSeenTracker;
 import com.google.firebase.database.*;
 import java.util.*;
-
+import com.callx.app.viewer.StatusViewerActivity;
 /**
  * StatusForwardBottomSheet v26 — Forward a status to one or more contacts.
  * NEW: Multi-select contacts, search bar, send as chat message.
@@ -20,12 +19,10 @@ import java.util.*;
  * FIX v26: Contact photos try thumbUrl first, then photoUrl fallback.
  */
 public class StatusForwardBottomSheet {
-
     /** Legacy overload — no dismiss callback. */
     public static void show(Context ctx, StatusItem item, String myUid) {
         show(ctx, item, myUid, null);
     }
-
     public static void show(Context ctx, StatusItem item, String myUid, Runnable onDismiss) {
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = new LinearLayout(ctx);
@@ -33,7 +30,6 @@ public class StatusForwardBottomSheet {
         root.setPadding(dp(ctx,16), dp(ctx,8), dp(ctx,16), dp(ctx,24));
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx,560)));
-
         // Title
         TextView title = new TextView(ctx);
         title.setText("Forward status");
@@ -41,13 +37,11 @@ public class StatusForwardBottomSheet {
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         title.setPadding(0, dp(ctx,8), 0, dp(ctx,12));
         root.addView(title);
-
         // Search
         EditText search = new EditText(ctx);
         search.setHint("Search contacts…");
         search.setSingleLine(true);
         root.addView(search);
-
         // Contact list
         LinearLayout listContainer = new LinearLayout(ctx);
         listContainer.setOrientation(LinearLayout.VERTICAL);
@@ -56,25 +50,19 @@ public class StatusForwardBottomSheet {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         sv.addView(listContainer);
         root.addView(sv);
-
         // Send button
         Button sendBtn = new Button(ctx);
         sendBtn.setText("Send");
         sendBtn.setEnabled(false);
         root.addView(sendBtn);
-
         sheet.setContentView(root);
-
         // FIX v26: proper dismiss callback — resume status progress in StatusViewerActivity
         if (onDismiss != null) {
             sheet.setOnDismissListener(d -> onDismiss.run());
         }
-
         sheet.show();
-
         Set<String> selected = new HashSet<>();
         List<String[]> allContacts = new ArrayList<>(); // [uid, name, photo]
-
         // Load contacts
         FirebaseUtils.getContactsRef(myUid).get().addOnSuccessListener(snap -> {
             for (DataSnapshot c : snap.getChildren()) {
@@ -87,7 +75,6 @@ public class StatusForwardBottomSheet {
             }
             renderContacts(ctx, listContainer, allContacts, selected, sendBtn,
                     () -> {}, item, myUid, sheet);
-
             search.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
                 @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
@@ -102,7 +89,6 @@ public class StatusForwardBottomSheet {
                 }
                 @Override public void afterTextChanged(Editable s) {}
             });
-
             sendBtn.setOnClickListener(v -> {
                 for (String uid : selected) {
                     sendForwardMessage(myUid, uid, item);
@@ -114,7 +100,6 @@ public class StatusForwardBottomSheet {
             });
         });
     }
-
     private static void renderContacts(Context ctx, LinearLayout container,
                                         List<String[]> contacts, Set<String> selected,
                                         Button sendBtn, Runnable onToggle,
@@ -126,17 +111,14 @@ public class StatusForwardBottomSheet {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
             row.setPadding(0, dp(ctx,10), 0, dp(ctx,10));
-
             CheckBox cb = new CheckBox(ctx);
             cb.setChecked(selected.contains(uid));
-
             de.hdodenhof.circleimageview.CircleImageView av =
                 new de.hdodenhof.circleimageview.CircleImageView(ctx);
             int sz = dp(ctx,40);
             av.setLayoutParams(new LinearLayout.LayoutParams(sz, sz));
             if (photo != null && !photo.isEmpty()) Glide.with(ctx).load(photo).into(av);
             else av.setImageResource(android.R.drawable.ic_menu_my_calendar);
-
             TextView tv = new TextView(ctx);
             tv.setText(name);
             tv.setTextSize(15);
@@ -144,11 +126,9 @@ public class StatusForwardBottomSheet {
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             tvlp.setMarginStart(dp(ctx,12));
             tv.setLayoutParams(tvlp);
-
             row.addView(cb);
             row.addView(av);
             row.addView(tv);
-
             String fuid = uid;
             row.setOnClickListener(v -> {
                 if (selected.contains(fuid)) selected.remove(fuid);
@@ -159,7 +139,6 @@ public class StatusForwardBottomSheet {
             container.addView(row);
         }
     }
-
     private static void sendForwardMessage(String myUid, String toUid, StatusItem item) {
         String chatId = myUid.compareTo(toUid) < 0
                 ? myUid + "_" + toUid : toUid + "_" + myUid;
@@ -178,7 +157,6 @@ public class StatusForwardBottomSheet {
         msg.put("seen",      false);
         ref.child(msgId).setValue(msg);
     }
-
     private static int dp(Context ctx, int v) {
         return Math.round(v * ctx.getResources().getDisplayMetrics().density);
     }

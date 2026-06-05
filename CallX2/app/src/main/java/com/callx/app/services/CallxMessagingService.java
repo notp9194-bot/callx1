@@ -57,6 +57,8 @@ import com.callx.app.group.GroupChatActivity;
 import com.callx.app.services.GroupCallRingService;
 import com.callx.app.services.IncomingRingService;
 import com.callx.app.services.NotificationActionReceiver;
+import com.callx.app.viewer.StatusViewerActivity;
+import com.callx.app.utils.StatusNotificationHelper;
 public class CallxMessagingService extends FirebaseMessagingService {
     @Override public void onNewToken(String token) {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
@@ -1661,9 +1663,9 @@ public class CallxMessagingService extends FirebaseMessagingService {
         // ── Show system notification ───────────────────────────────────────
         // Deep-link directly to StatusViewerActivity so the status opens on tap,
         // even when app is killed. EXTRA_OWNER_UID + NAME are required by StatusViewerActivity.
-        Intent i = new Intent(this, com.callx.app.activities.StatusViewerActivity.class);
-        i.putExtra(com.callx.app.activities.StatusViewerActivity.EXTRA_OWNER_UID,  fromUid);
-        i.putExtra(com.callx.app.activities.StatusViewerActivity.EXTRA_OWNER_NAME, name);
+        Intent i = new Intent(this, com.callx.app.viewer.StatusViewerActivity.class);
+        i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_UID,  fromUid);
+        i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_NAME, name);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(this,
             fromUid.hashCode(),

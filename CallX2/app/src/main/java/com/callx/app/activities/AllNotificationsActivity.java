@@ -1,7 +1,7 @@
 package com.callx.app.activities;
 
 import android.content.Intent;
-import com.callx.app.activities.StatusViewerActivity;
+import com.callx.app.viewer.StatusViewerActivity;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.*;

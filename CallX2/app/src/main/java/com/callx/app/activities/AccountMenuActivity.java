@@ -21,6 +21,7 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.*;
 import com.callx.app.profile.UserReelsActivity;
+import com.callx.app.hub.GamesHubActivity;
 
 public class AccountMenuActivity extends AppCompatActivity {
 
@@ -136,7 +137,7 @@ public class AccountMenuActivity extends AppCompatActivity {
 
     private void openGamesHub() {
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.GamesHubActivity");
+            Class<?> cls = Class.forName("com.callx.app.hub.GamesHubActivity");
             startActivity(new Intent(this, cls));
         } catch (ClassNotFoundException e) {
             Toast.makeText(this, "Games coming soon!", Toast.LENGTH_SHORT).show();

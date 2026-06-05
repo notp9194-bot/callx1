@@ -1,25 +1,20 @@
 package com.callx.app.utils;
-
 import android.util.Log;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 /**
  * StatusLinkPreviewHelper — Fetch Open Graph metadata for link statuses.
  * Runs entirely on a background thread; delivers result via callback on caller thread.
  */
 public final class StatusLinkPreviewHelper {
-
     private static final String TAG = "LinkPreview";
-
     public interface Callback {
         void onResult(LinkPreview preview);
         void onError(String error);
     }
-
     public static class LinkPreview {
         public String url;
         public String title;
@@ -27,12 +22,10 @@ public final class StatusLinkPreviewHelper {
         public String imageUrl;
         public String domain;
         public String faviconUrl;
-
         public boolean isValid() {
             return title != null && !title.isEmpty();
         }
     }
-
     /** Detect if a string contains a URL. */
     public static String extractUrl(String text) {
         if (text == null) return null;
@@ -40,9 +33,7 @@ public final class StatusLinkPreviewHelper {
         Matcher m = p.matcher(text);
         return m.find() ? m.group() : null;
     }
-
     public static boolean containsUrl(String text) { return extractUrl(text) != null; }
-
     /** Fetch OG metadata asynchronously. */
     public static void fetch(String urlStr, Callback cb) {
         Executors.newSingleThreadExecutor().execute(() -> {
@@ -54,13 +45,11 @@ public final class StatusLinkPreviewHelper {
                 conn.setReadTimeout(5000);
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android)");
                 conn.connect();
-
                 java.io.InputStream is = conn.getInputStream();
                 byte[] buf = new byte[32768];
                 int n = is.read(buf);
                 String html = n > 0 ? new String(buf, 0, n, "UTF-8") : "";
                 conn.disconnect();
-
                 LinkPreview preview = parse(urlStr, html);
                 cb.onResult(preview);
             } catch (Exception e) {
@@ -69,7 +58,6 @@ public final class StatusLinkPreviewHelper {
             }
         });
     }
-
     private static LinkPreview parse(String urlStr, String html) {
         LinkPreview p = new LinkPreview();
         p.url    = urlStr;
@@ -82,7 +70,6 @@ public final class StatusLinkPreviewHelper {
         if (p.description == null) p.description = meta(html, "description");
         return p;
     }
-
     private static String og(String html, String prop) {
         Pattern pat = Pattern.compile(
             "<meta[^>]+property=[\"']" + Pattern.quote(prop) + "[\"'][^>]+content=[\"']([^\"']+)[\"']",
@@ -95,13 +82,11 @@ public final class StatusLinkPreviewHelper {
         m = pat.matcher(html);
         return m.find() ? m.group(1).trim() : null;
     }
-
     private static String tag(String html, String tagName) {
         Pattern pat = Pattern.compile("<" + tagName + "[^>]*>([^<]+)</" + tagName + ">", Pattern.CASE_INSENSITIVE);
         Matcher m = pat.matcher(html);
         return m.find() ? m.group(1).trim() : null;
     }
-
     private static String meta(String html, String name) {
         Pattern pat = Pattern.compile(
             "<meta[^>]+name=[\"']" + name + "[\"'][^>]+content=[\"']([^\"']+)[\"']",
@@ -109,7 +94,6 @@ public final class StatusLinkPreviewHelper {
         Matcher m = pat.matcher(html);
         return m.find() ? m.group(1).trim() : null;
     }
-
     private static String extractDomain(String url) {
         try {
             URL u = new URL(url);

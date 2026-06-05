@@ -1,5 +1,4 @@
-package com.callx.app.activities;
-
+package com.callx.app.highlights;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
@@ -11,34 +10,31 @@ import com.callx.app.models.StatusItem;
 import com.callx.app.utils.*;
 import com.google.firebase.database.*;
 import java.util.*;
-
+import com.callx.app.viewer.StatusViewerActivity;
+import com.callx.app.utils.StatusHighlightManager;
 /**
  * StatusHighlightsActivity — Browse highlights albums.
  * Shows album list; tap album → view statuses in that album.
  * Long-press album → delete/rename.
  */
 public class StatusHighlightsActivity extends AppCompatActivity {
-
     private RecyclerView rv;
     private TextView tvEmpty;
     private ProgressBar progress;
     private final Map<String, List<StatusItem>> albumMap = new LinkedHashMap<>();
     private AlbumAdapter adapter;
     private String ownerUid;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-
         androidx.appcompat.widget.Toolbar toolbar = new androidx.appcompat.widget.Toolbar(this);
         toolbar.setTitle("Highlights");
         toolbar.setNavigationIcon(android.R.drawable.ic_menu_revert);
         toolbar.setNavigationOnClickListener(v -> finish());
         root.addView(toolbar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
         progress = new ProgressBar(this);
         root.addView(progress);
         tvEmpty = new TextView(this);
@@ -54,14 +50,12 @@ public class StatusHighlightsActivity extends AppCompatActivity {
         root.addView(rv, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
-
         ownerUid = getIntent().getStringExtra("ownerUid");
         if (ownerUid == null) {
             try { ownerUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { finish(); return; }
         }
         loadHighlights();
     }
-
     private void loadHighlights() {
         StatusHighlightManager.getHighlightsRef(ownerUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -86,7 +80,6 @@ public class StatusHighlightsActivity extends AppCompatActivity {
                 }
             });
     }
-
     class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.VH> {
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int vt) {

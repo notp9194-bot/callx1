@@ -1,5 +1,4 @@
 package com.callx.app.utils;
-
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -14,11 +13,10 @@ import androidx.core.app.NotificationManagerCompat;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.Target;
 import com.callx.app.status.R;
-import com.callx.app.activities.StatusViewerActivity;
+import com.callx.app.viewer.StatusViewerActivity;
 import com.callx.app.services.StatusExpiryReceiver;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
 /**
  * Builds and posts rich status notifications.
  *
@@ -31,17 +29,12 @@ import java.util.concurrent.Executors;
  *  - Heads-up / high-priority delivery
  */
 public final class StatusNotificationHelper {
-
     public static final String CHANNEL_ID   = "callx_status";
     public static final String CHANNEL_NAME = "Status Updates";
     private static final String GROUP_KEY   = "callx_status_group";
-
     private static final ExecutorService BG = Executors.newCachedThreadPool();
-
     private StatusNotificationHelper() {}
-
     // ── Channel bootstrap (call once from Application.onCreate) ──────────
-
     public static void createChannel(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationChannel ch = new NotificationChannel(
@@ -53,9 +46,7 @@ public final class StatusNotificationHelper {
                 ctx.getSystemService(NotificationManager.class);
         if (nm != null) nm.createNotificationChannel(ch);
     }
-
     // ── Post a status notification ────────────────────────────────────────
-
     /**
      * Post a rich status notification. Runs Glide image fetch on a background
      * thread so it is safe to call from a BroadcastReceiver or Service.
@@ -90,7 +81,6 @@ public final class StatusNotificationHelper {
                                 .get();
                     } catch (Exception ignored) {}
                 }
-
                 Bitmap mediaBmp = null;
                 if ("image".equals(statusType) && mediaUrl != null && !mediaUrl.isEmpty()) {
                     try {
@@ -101,7 +91,6 @@ public final class StatusNotificationHelper {
                                 .get();
                     } catch (Exception ignored) {}
                 }
-
                 // Deep-link intent → StatusViewerActivity
                 Intent open = new Intent(ctx, StatusViewerActivity.class);
                 open.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  fromUid);
@@ -110,13 +99,11 @@ public final class StatusNotificationHelper {
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                 PendingIntent openPi = PendingIntent.getActivity(ctx, notifId, open,
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
                 // Body text
                 String body;
                 if ("image".equals(statusType))  body = "Posted a photo status";
                 else if ("video".equals(statusType)) body = "Posted a video status";
                 else body = (text != null && !text.isEmpty()) ? text : "Posted a new status";
-
                 NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                         .setSmallIcon(R.drawable.ic_status_notification)
                         .setContentTitle(fromName != null ? fromName : "New Status")
@@ -126,11 +113,9 @@ public final class StatusNotificationHelper {
                         .setContentIntent(openPi)
                         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                         .setCategory(NotificationCompat.CATEGORY_SOCIAL);
-
                 if (avatarBmp != null) {
                     b.setLargeIcon(avatarBmp);
                 }
-
                 if (mediaBmp != null) {
                     // BigPicture style shows image preview in notification
                     b.setStyle(new NotificationCompat.BigPictureStyle()
@@ -140,10 +125,8 @@ public final class StatusNotificationHelper {
                     b.setStyle(new NotificationCompat.BigTextStyle()
                             .bigText(body));
                 }
-
                 NotificationManagerCompat nm = NotificationManagerCompat.from(ctx);
                 nm.notify(notifId, b.build());
-
                 // Summary notification for grouping
                 Notification summary = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                         .setSmallIcon(R.drawable.ic_status_notification)
@@ -152,13 +135,11 @@ public final class StatusNotificationHelper {
                         .setAutoCancel(true)
                         .build();
                 nm.notify(Integer.MAX_VALUE - 1, summary);
-
             } catch (Exception e) {
                 android.util.Log.w("StatusNotifHelper", "Failed to post: " + e.getMessage());
             }
         });
     }
-
       // ─────────────────────────────────────────────────────────────────────
       // STATUS REACTION NOTIFICATION
       // ─────────────────────────────────────────────────────────────────────
@@ -179,12 +160,11 @@ public final class StatusNotificationHelper {
           String body  = "Tap to view your status";
           android.app.PendingIntent pi = android.app.PendingIntent.getActivity(ctx,
               ("react_" + reactorUid).hashCode(),
-              new android.content.Intent(ctx, com.callx.app.activities.StatusViewerActivity.class)
+              new android.content.Intent(ctx, com.callx.app.viewer.StatusViewerActivity.class)
                   .putExtra("owner_uid", statusOwnerUid)
                   .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
               android.app.PendingIntent.FLAG_UPDATE_CURRENT |
               android.app.PendingIntent.FLAG_IMMUTABLE);
-
           androidx.core.app.NotificationCompat.Builder b =
               new androidx.core.app.NotificationCompat.Builder(ctx, CH_REACTION)
                   .setSmallIcon(R.drawable.ic_status_notification)
@@ -193,7 +173,6 @@ public final class StatusNotificationHelper {
                   .setAutoCancel(true)
                   .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
                   .setContentIntent(pi);
-
           new Thread(() -> {
               try {
                   android.graphics.Bitmap bm = downloadBitmap(ctx, reactorPhoto);
@@ -203,32 +182,27 @@ public final class StatusNotificationHelper {
               if (nm3 != null) nm3.notify(("react_" + reactorUid).hashCode(), b.build());
           }).start();
       }
-
       // ─────────────────────────────────────────────────────────────────────
       // STATUS EXPIRY REMINDER (fires 2h before status expires)
       // ─────────────────────────────────────────────────────────────────────
       public static void scheduleStatusExpiryReminder(Context ctx, String statusId, long expiresAt) {
           long reminderAt = expiresAt - (2 * 60 * 60 * 1000L); // 2h before
           if (reminderAt <= System.currentTimeMillis()) return;
-
           android.app.AlarmManager am =
               (android.app.AlarmManager) ctx.getSystemService(android.content.Context.ALARM_SERVICE);
           if (am == null) return;
-
           android.content.Intent intent = new android.content.Intent(ctx, com.callx.app.services.StatusExpiryReceiver.class)
               .putExtra("status_id", statusId);
           android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(ctx,
               statusId.hashCode(), intent,
               android.app.PendingIntent.FLAG_UPDATE_CURRENT |
               android.app.PendingIntent.FLAG_IMMUTABLE);
-
           if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
               am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, reminderAt, pi);
           } else {
               am.setExact(android.app.AlarmManager.RTC_WAKEUP, reminderAt, pi);
           }
       }
-
       // ─────────────────────────────────────────────────────────────────────
       // STATUS VIEWED NOTIFICATION (optional, user-controlled)
       // ─────────────────────────────────────────────────────────────────────
@@ -248,7 +222,6 @@ public final class StatusNotificationHelper {
           String title = viewerCount == 1
               ? viewerName + " viewed your status"
               : viewerName + " and " + (viewerCount - 1) + " others viewed your status";
-
           androidx.core.app.NotificationCompat.Builder b =
               new androidx.core.app.NotificationCompat.Builder(ctx, CH)
                   .setSmallIcon(R.drawable.ic_status_notification)
@@ -256,11 +229,9 @@ public final class StatusNotificationHelper {
                   .setContentText("Tap to see who viewed your status")
                   .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
                   .setAutoCancel(true);
-
           NotificationManager nm = ctx.getSystemService(NotificationManager.class);
           if (nm != null) nm.notify(("viewed_" + ownerUid).hashCode(), b.build());
       }
-
       // ─────────────────────────────────────────────────────────────────────
       // Bitmap helpers (package-private reuse)
       // ─────────────────────────────────────────────────────────────────────
@@ -273,7 +244,6 @@ public final class StatusNotificationHelper {
               return android.graphics.BitmapFactory.decodeStream(c.getInputStream());
           } catch (Exception e) { return null; }
       }
-
       public static android.graphics.Bitmap circle(android.graphics.Bitmap src) {
           if (src == null) return null;
           int size = Math.min(src.getWidth(), src.getHeight());

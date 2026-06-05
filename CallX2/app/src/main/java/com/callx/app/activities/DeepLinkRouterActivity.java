@@ -15,6 +15,7 @@ import com.callx.app.explore.HashtagReelsActivity;
 import com.callx.app.music.SoundDetailActivity;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.group.GroupChatActivity;
+import com.callx.app.viewer.StatusViewerActivity;
 
 /**
  * DeepLinkRouterActivity — Handles ALL deep links for CallX app.

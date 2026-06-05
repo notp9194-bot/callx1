@@ -1,5 +1,4 @@
-package com.callx.app.bottomsheet;
-
+package com.callx.app.interactions;
 import android.content.Context;
 import android.graphics.Color;
 import android.view.*;
@@ -11,7 +10,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
-
+import com.callx.app.viewer.StatusViewerActivity;
 /**
  * StatusSeenByBottomSheet v26 — Full seen-by list with avatars + timestamps.
  * FIX v26: show() now accepts optional Runnable onDismiss — called via setOnDismissListener,
@@ -20,25 +19,21 @@ import java.util.*;
  *           with SeenBy's own Firebase read logic).
  */
 public class StatusSeenByBottomSheet {
-
     /** Legacy overload — no dismiss callback (used when caller doesn't need resume). */
     public static void show(Context ctx, StatusItem item) {
         show(ctx, item, null);
     }
-
     public static void show(Context ctx, StatusItem item, Runnable onDismiss) {
         if (item.seenBy == null || item.seenBy.isEmpty()) {
             Toast.makeText(ctx, "No viewers yet", Toast.LENGTH_SHORT).show();
             if (onDismiss != null) onDismiss.run();
             return;
         }
-
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         ScrollView scroll = new ScrollView(ctx);
         LinearLayout root  = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(ctx,16), dp(ctx,8), dp(ctx,16), dp(ctx,24));
-
         // Header
         TextView header = new TextView(ctx);
         header.setText("Seen by " + item.seenBy.size());
@@ -46,7 +41,6 @@ public class StatusSeenByBottomSheet {
         header.setTypeface(null, android.graphics.Typeface.BOLD);
         header.setPadding(0, dp(ctx,8), 0, dp(ctx,8));
         root.addView(header);
-
         // Reaction summary strip
         if (item.reactions != null && !item.reactions.isEmpty()) {
             Map<String, Integer> counts = new LinkedHashMap<>();
@@ -72,22 +66,17 @@ public class StatusSeenByBottomSheet {
             }
             root.addView(reactionStrip);
         }
-
         // Progress indicator
         ProgressBar progress = new ProgressBar(ctx);
         progress.setVisibility(View.VISIBLE);
         root.addView(progress);
-
         scroll.addView(root);
         sheet.setContentView(scroll);
-
         // FIX v26: proper dismiss listener instead of Handler delay
         if (onDismiss != null) {
             sheet.setOnDismissListener(d -> onDismiss.run());
         }
-
         sheet.show();
-
         // Resolve UIDs → user profiles from Firebase
         List<String> uids = new ArrayList<>(item.seenBy.keySet());
         SimpleDateFormat fmt = new SimpleDateFormat("hh:mm a", Locale.getDefault());
@@ -112,7 +101,6 @@ public class StatusSeenByBottomSheet {
                 });
         }
     }
-
     private static void addViewerRow(Context ctx, LinearLayout parent, String uid,
                                       String name, String photoUrl,
                                       String time, String reaction) {
@@ -120,7 +108,6 @@ public class StatusSeenByBottomSheet {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(ctx,10), 0, dp(ctx,10));
-
         // Avatar
         de.hdodenhof.circleimageview.CircleImageView avatar =
             new de.hdodenhof.circleimageview.CircleImageView(ctx);
@@ -132,7 +119,6 @@ public class StatusSeenByBottomSheet {
             avatar.setImageResource(android.R.drawable.ic_menu_my_calendar);
         }
         row.addView(avatar);
-
         // Name + time
         LinearLayout info = new LinearLayout(ctx);
         info.setOrientation(LinearLayout.VERTICAL);
@@ -140,13 +126,11 @@ public class StatusSeenByBottomSheet {
         LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         info.setLayoutParams(infoLp);
-
         TextView tvName = new TextView(ctx);
         tvName.setText(name);
         tvName.setTextSize(15);
         tvName.setTypeface(null, android.graphics.Typeface.BOLD);
         info.addView(tvName);
-
         if (!time.isEmpty()) {
             TextView tvTime = new TextView(ctx);
             tvTime.setText("Seen " + time);
@@ -155,7 +139,6 @@ public class StatusSeenByBottomSheet {
             info.addView(tvTime);
         }
         row.addView(info);
-
         // Reaction emoji (if reacted)
         if (reaction != null) {
             TextView tvReact = new TextView(ctx);
@@ -164,9 +147,7 @@ public class StatusSeenByBottomSheet {
             tvReact.setPadding(dp(ctx,8), 0, 0, 0);
             row.addView(tvReact);
         }
-
         parent.addView(row);
-
         // Divider
         View divider = new View(ctx);
         divider.setLayoutParams(new LinearLayout.LayoutParams(
@@ -174,7 +155,6 @@ public class StatusSeenByBottomSheet {
         divider.setBackgroundColor(Color.parseColor("#11000000"));
         parent.addView(divider);
     }
-
     private static int dp(Context ctx, int v) {
         return Math.round(v * ctx.getResources().getDisplayMetrics().density);
     }

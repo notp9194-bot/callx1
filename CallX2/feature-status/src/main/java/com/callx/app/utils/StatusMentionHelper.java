@@ -1,5 +1,4 @@
 package com.callx.app.utils;
-
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -10,24 +9,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 /**
  * StatusMentionHelper — @mention parsing and highlighting for status text.
  * Detects @username patterns, resolves UIDs, and highlights in text.
  */
 public final class StatusMentionHelper {
-
     private static final Pattern MENTION_PATTERN = Pattern.compile("@([\\w.]+)");
     private static final int MENTION_COLOR = Color.parseColor("#1DA1F2");
-
     private StatusMentionHelper() {}
-
     public static class MentionResult {
         public List<String> mentionedNames = new ArrayList<>();
         public Map<String, String> mentionNames = new HashMap<>(); // uid → name (filled after resolution)
         public String cleanText;
     }
-
     /** Extract @mention names from text. */
     public static MentionResult extract(String text) {
         MentionResult r = new MentionResult();
@@ -42,12 +36,10 @@ public final class StatusMentionHelper {
         }
         return r;
     }
-
     public static boolean hasMention(String text) {
         if (text == null) return false;
         return MENTION_PATTERN.matcher(text).find();
     }
-
     /** Highlight @mentions in a SpannableString with blue color. */
     public static SpannableString highlight(String text) {
         if (text == null) return new SpannableString("");
@@ -59,7 +51,6 @@ public final class StatusMentionHelper {
         }
         return ss;
     }
-
     /** Notify mentioned users via Firebase (fire-and-forget). */
     public static void notifyMentions(String ownerUid, String ownerName,
                                        String statusId, List<String> mentionedUids) {

@@ -1,5 +1,4 @@
-package com.callx.app.activities;
-
+package com.callx.app.compose;
 import android.Manifest;
 import android.content.*;
 import android.content.pm.PackageManager;
@@ -18,12 +17,16 @@ import com.bumptech.glide.Glide;
 import com.callx.app.status.databinding.ActivityNewStatusBinding;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.*;
-import com.callx.app.bottomsheet.*;
 import androidx.annotation.NonNull;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import java.util.*;
-
+import com.callx.app.privacy.StatusPrivacyBottomSheet;
+import com.callx.app.utils.StatusCustomExpiryHelper;
+import com.callx.app.utils.StatusLinkPreviewHelper;
+import com.callx.app.utils.StatusMentionHelper;
+import com.callx.app.utils.StatusNotificationHelper;
+import com.callx.app.utils.StatusPrivacyManager;
 /**
  * NewStatusActivity v25 — Fully comprehensive status creation.
  *
@@ -50,10 +53,8 @@ import java.util.*;
  *   ✅ Character counter (700 max)
  */
 public class NewStatusActivity extends AppCompatActivity {
-
     private static final String PREFS_DRAFT = "status_draft";
     private static final String KEY_DRAFT   = "draft_text";
-
     private static final int[] BG_COLORS = {
         0xFF6200EE, 0xFF03DAC5, 0xFFE53935, 0xFF43A047,
         0xFF1E88E5, 0xFFFF6F00, 0xFF8E24AA, 0xFF00ACC1,
@@ -64,7 +65,6 @@ public class NewStatusActivity extends AppCompatActivity {
         0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
         0xFFFFFFFF, 0xFFFFFFFF
     };
-
     private ActivityNewStatusBinding binding;
     private Uri    pickedImage, pickedVideo, cameraImageUri;
     private int    selectedBgColor   = BG_COLORS[0];
@@ -75,22 +75,18 @@ public class NewStatusActivity extends AppCompatActivity {
     private int    selectedExpiryHours = 24;
     private boolean isCloseFriends    = false;
     private String  selectedTextAlign  = "center";
-
     // Link preview state
     private String detectedLinkUrl;
     private StatusLinkPreviewHelper.LinkPreview fetchedPreview;
-
     private ActivityResultLauncher<String>  imagePicker;
     private ActivityResultLauncher<String>  videoPicker;
     private ActivityResultLauncher<Uri>     cameraCapture;
     private ActivityResultLauncher<String>  cameraVideoCapture;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = ActivityNewStatusBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
-
         setupToolbar();
         setupMediaPickers();
         setupCameraCapture();
@@ -102,28 +98,21 @@ public class NewStatusActivity extends AppCompatActivity {
         setupTextAlignButtons();
         setupTextInput();
         restoreDraft();
-
         binding.btnPickImage.setOnClickListener(v -> showMediaSourceDialog("image"));
         binding.btnPickVideo.setOnClickListener(v -> showMediaSourceDialog("video"));
         binding.btnPost.setOnClickListener(v -> post());
         binding.btnDiscardMedia.setOnClickListener(v -> discardMedia());
-
         // GIF / Sticker button
         View btnGif = binding.getRoot().findViewWithTag("btn_gif");
         if (btnGif != null) btnGif.setOnClickListener(v -> showGifInputDialog());
     }
-
     @Override protected void onPause() { super.onPause(); saveDraft(); }
-
     // ── Toolbar ───────────────────────────────────────────────────────────
-
     private void setupToolbar() {
         setSupportActionBar(binding.toolbar);
         binding.toolbar.setNavigationOnClickListener(v -> finish());
     }
-
     // ── Media source dialog (gallery or camera) ───────────────────────────
-
     private void showMediaSourceDialog(String type) {
         String[] options = {"Camera", "Gallery", "Cancel"};
         new androidx.appcompat.app.AlertDialog.Builder(this)
@@ -138,9 +127,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 }
             }).show();
     }
-
     // ── Media pickers (gallery) ───────────────────────────────────────────
-
     private void setupMediaPickers() {
         imagePicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri == null) return;
@@ -153,9 +140,7 @@ public class NewStatusActivity extends AppCompatActivity {
             showVideoPreview(uri);
         });
     }
-
     // ── Camera capture (NEW) ──────────────────────────────────────────────
-
     private void setupCameraCapture() {
         cameraCapture = registerForActivityResult(
             new ActivityResultContracts.TakePicture(), success -> {
@@ -172,7 +157,6 @@ public class NewStatusActivity extends AppCompatActivity {
                 showVideoPreview(uri);
             });
     }
-
     private void captureFromCamera() {
         if (!hasCameraPermission()) { requestCameraPermission(); return; }
         try {
@@ -186,7 +170,6 @@ public class NewStatusActivity extends AppCompatActivity {
             toast("Camera error: " + e.getMessage());
         }
     }
-
     private void captureVideoFromCamera() {
         if (!hasCameraPermission()) { requestCameraPermission(); return; }
         Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
@@ -196,7 +179,6 @@ public class NewStatusActivity extends AppCompatActivity {
             startActivityForResult(intent, 9021);
         }
     }
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -205,20 +187,16 @@ public class NewStatusActivity extends AppCompatActivity {
             if (videoUri != null) { pickedVideo = videoUri; pickedImage = null; showVideoPreview(videoUri); }
         }
     }
-
     private boolean hasCameraPermission() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
     }
-
     private void requestCameraPermission() {
         registerForActivityResult(new ActivityResultContracts.RequestPermission(),
             granted -> { if (!granted) toast("Camera permission denied"); })
             .launch(Manifest.permission.CAMERA);
     }
-
     // ── GIF / Sticker input (NEW) ─────────────────────────────────────────
-
     private void showGifInputDialog() {
         EditText et = new EditText(this);
         et.setHint("Paste GIF or sticker URL…");
@@ -237,9 +215,7 @@ public class NewStatusActivity extends AppCompatActivity {
             .setNegativeButton("Cancel", null)
             .show();
     }
-
     // ── Privacy button (NEW bottom sheet) ────────────────────────────────
-
     private void setupPrivacyButton() {
         selectedPrivacy = StatusPrivacyManager.getPrivacyMode(this);
         updatePrivacyLabel();
@@ -254,7 +230,6 @@ public class NewStatusActivity extends AppCompatActivity {
             });
         });
     }
-
     private void updatePrivacyLabel() {
         String label;
         switch (selectedPrivacy) {
@@ -267,9 +242,7 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         binding.btnPrivacy.setText(label);
     }
-
     // ── Expiry button (NEW) ───────────────────────────────────────────────
-
     private void setupExpiryButton() {
         updateExpiryLabel();
         View btnExpiry = binding.getRoot().findViewWithTag("btn_expiry");
@@ -277,7 +250,6 @@ public class NewStatusActivity extends AppCompatActivity {
             ((Button) btnExpiry).setOnClickListener(v -> showExpiryPicker());
         }
     }
-
     private void showExpiryPicker() {
         String[] labels = StatusCustomExpiryHelper.getLabelOptions();
         int[] hours     = StatusCustomExpiryHelper.getHoursOptions();
@@ -288,15 +260,12 @@ public class NewStatusActivity extends AppCompatActivity {
                 updateExpiryLabel();
             }).show();
     }
-
     private void updateExpiryLabel() {
         View btn = binding.getRoot().findViewWithTag("btn_expiry");
         if (btn instanceof Button)
             ((Button) btn).setText("⏱ " + StatusCustomExpiryHelper.labelFor(selectedExpiryHours));
     }
-
     // ── Close friends toggle (NEW) ────────────────────────────────────────
-
     private void setupCloseFriendsToggle() {
         View toggle = binding.getRoot().findViewWithTag("toggle_close_friends");
         if (toggle instanceof CompoundButton) {
@@ -309,9 +278,7 @@ public class NewStatusActivity extends AppCompatActivity {
             });
         }
     }
-
     // ── Text align buttons (NEW) ──────────────────────────────────────────
-
     private void setupTextAlignButtons() {
         View btnLeft   = binding.getRoot().findViewWithTag("btn_align_left");
         View btnCenter = binding.getRoot().findViewWithTag("btn_align_center");
@@ -320,7 +287,6 @@ public class NewStatusActivity extends AppCompatActivity {
         if (btnCenter != null) btnCenter.setOnClickListener(v -> setTextAlign("center"));
         if (btnRight  != null) btnRight.setOnClickListener(v -> setTextAlign("right"));
     }
-
     private void setTextAlign(String align) {
         selectedTextAlign = align;
         int gravity;
@@ -331,9 +297,7 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         binding.tvTextPreview.setGravity(gravity);
     }
-
     // ── Bg color picker ───────────────────────────────────────────────────
-
     private void setupBgColorPicker() {
         for (int i = 0; i < BG_COLORS.length; i++) {
             final int idx = i;
@@ -347,26 +311,21 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         highlightSwatch(0);
     }
-
     private View getBgSwatch(int idx) {
         try {
             int id = getResources().getIdentifier("color_swatch_" + idx, "id", getPackageName());
             return id != 0 ? findViewById(id) : null;
         } catch (Exception e) { return null; }
     }
-
     private void highlightSwatch(int sel) {
         for (int i = 0; i < BG_COLORS.length; i++) {
             View v = getBgSwatch(i);
             if (v != null) { v.setScaleX(i == sel ? 1.3f : 1f); v.setScaleY(i == sel ? 1.3f : 1f); }
         }
     }
-
     private void hideBgColorPicker() { binding.bgColorPickerRow.setVisibility(View.GONE); }
     private void showBgColorPicker()  { binding.bgColorPickerRow.setVisibility(View.VISIBLE); updateTextStatusPreview(); }
-
     // ── Font style picker ─────────────────────────────────────────────────
-
     private void setupFontStylePicker() {
         binding.btnFontDefault.setOnClickListener(v     -> setFont("default"));
         binding.btnFontBold.setOnClickListener(v        -> setFont("bold"));
@@ -377,7 +336,6 @@ public class NewStatusActivity extends AppCompatActivity {
         View btnSerif = binding.getRoot().findViewWithTag("btn_font_serif");
         if (btnSerif != null) btnSerif.setOnClickListener(v -> setFont("serif"));
     }
-
     private void setFont(String style) {
         selectedFontStyle = style;
         binding.btnFontDefault.setSelected("default".equals(style));
@@ -386,9 +344,7 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.btnFontHandwriting.setSelected("handwriting".equals(style));
         updateTextStatusPreview();
     }
-
     // ── Text input + link detection + mention ────────────────────────────
-
     private void setupTextInput() {
         binding.etText.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -403,9 +359,7 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         });
     }
-
     // ── Link preview (NEW) ────────────────────────────────────────────────
-
     private void detectAndFetchLinkPreview(String text) {
         String url = StatusLinkPreviewHelper.extractUrl(text);
         if (url == null) {
@@ -430,7 +384,6 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         });
     }
-
     private void showLinkPreviewLoading() {
         View card = binding.getRoot().findViewWithTag("link_preview_card");
         if (card != null) card.setVisibility(View.VISIBLE);
@@ -439,7 +392,6 @@ public class NewStatusActivity extends AppCompatActivity {
         View content = binding.getRoot().findViewWithTag("link_preview_content");
         if (content != null) content.setVisibility(View.GONE);
     }
-
     private void showLinkPreview(StatusLinkPreviewHelper.LinkPreview preview) {
         View card = binding.getRoot().findViewWithTag("link_preview_card");
         if (card == null) return;
@@ -458,14 +410,11 @@ public class NewStatusActivity extends AppCompatActivity {
         if (ivImage != null && preview.imageUrl != null)
             Glide.with(this).load(preview.imageUrl).into(ivImage);
     }
-
     private void hideLinkPreview() {
         View card = binding.getRoot().findViewWithTag("link_preview_card");
         if (card != null) card.setVisibility(View.GONE);
     }
-
     // ── Preview card ──────────────────────────────────────────────────────
-
     private void updateTextStatusPreview() {
         if (pickedImage != null || pickedVideo != null) return;
         String text = binding.etText.getText().toString().trim();
@@ -476,7 +425,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.tvTextPreview.setTextColor(selectedTextColor);
         applyFontStyle(binding.tvTextPreview, selectedFontStyle);
     }
-
     private void applyFontStyle(android.widget.TextView tv, String style) {
         if (style == null) return;
         switch (style) {
@@ -488,25 +436,19 @@ public class NewStatusActivity extends AppCompatActivity {
             default:            tv.setTypeface(null, android.graphics.Typeface.NORMAL);
         }
     }
-
     // ── Draft save/restore ────────────────────────────────────────────────
-
     private void saveDraft() {
         getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE)
             .edit().putString(KEY_DRAFT, binding.etText.getText().toString()).apply();
     }
-
     private void restoreDraft() {
         String draft = getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE).getString(KEY_DRAFT, "");
         if (draft != null && !draft.isEmpty()) binding.etText.setText(draft);
     }
-
     private void clearDraft() {
         getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE).edit().remove(KEY_DRAFT).apply();
     }
-
     // ── Media preview helpers ─────────────────────────────────────────────
-
     private void showImagePreview(Uri uri) {
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.GONE);
@@ -515,7 +457,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
     }
-
     private void showVideoPreview(Uri uri) {
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.VISIBLE);
@@ -524,7 +465,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
     }
-
     private void discardMedia() {
         pickedImage = null; pickedVideo = null; cameraImageUri = null;
         binding.ivPreview.setVisibility(View.GONE);
@@ -533,23 +473,18 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.captionGroup.setVisibility(View.GONE);
         showBgColorPicker();
     }
-
     // ── Post ──────────────────────────────────────────────────────────────
-
     private void post() {
         String txt     = binding.etText.getText().toString().trim();
         String caption = binding.etCaption != null ? binding.etCaption.getText().toString().trim() : "";
         boolean isGif  = "gif".equals(binding.btnPickImage.getTag());
-
         if (pickedImage == null && pickedVideo == null && txt.isEmpty() && fetchedPreview == null) {
             toast("Kuch text ya media add karo"); return;
         }
         if (txt.length() > 700) { toast("Text 700 characters se zyada nahi"); return; }
-
         setPosting(true);
         String uid  = FirebaseAuth.getInstance().getCurrentUser().getUid();
         String name = FirebaseUtils.getCurrentName();
-
         FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 String thumb = snap.child("thumbUrl").getValue(String.class);
@@ -562,7 +497,6 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         });
     }
-
     private void dispatchPost(String txt, String caption, String uid, String name, String photo, boolean isGif) {
         if (fetchedPreview != null && pickedImage == null && pickedVideo == null) {
             // Link status
@@ -578,7 +512,6 @@ public class NewStatusActivity extends AppCompatActivity {
             saveStatus("text", null, null, txt, caption, uid, name, photo);
         }
     }
-
     private void compressAndUploadImage(Uri uri, String caption, String txt, String uid, String name, String photo) {
         runOnUiThread(() -> setHint("Compressing image…"));
         ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
@@ -592,7 +525,6 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         });
     }
-
     private void compressAndUploadVideo(Uri uri, String caption, String txt, String uid, String name, String photo) {
         runOnUiThread(() -> setHint("Compressing video… 0%"));
         VideoQualityPreferences.Quality quality = new VideoQualityPreferences(this).getGlobalQuality();
@@ -608,7 +540,6 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         });
     }
-
     private void uploadAndSave(Uri uri, String type, String caption, String txt,
                                 String uid, String name, String photo, java.io.File thumbFile) {
         String rt = "video".equals(type) ? "video" : "image";
@@ -631,7 +562,6 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         });
     }
-
     private void uploadThumbAndPatch(java.io.File thumbFile, String uid, String mediaUrl) {
         Uri thumbUri = Uri.fromFile(thumbFile);
         CloudinaryUploader.upload(this, thumbUri, "callx/status/thumb", "image",
@@ -652,12 +582,10 @@ public class NewStatusActivity extends AppCompatActivity {
                 @Override public void onError(String err) { VideoCompressor.safeDelete(thumbFile); }
             });
     }
-
     private void saveStatus(String type, String mediaUrl, String thumbUrl,
                             String txt, String caption, String uid, String name, String photo) {
         long now = System.currentTimeMillis();
         DatabaseReference ref = FirebaseUtils.getStatusRef().child(uid).push();
-
         StatusItem item       = new StatusItem();
         item.id               = ref.getKey();
         item.ownerUid         = uid;
@@ -679,7 +607,6 @@ public class NewStatusActivity extends AppCompatActivity {
         item.timestamp        = now;
         item.expiresAt        = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
         item.deleted          = false;
-
         // Mentions
         if (txt != null && !txt.isEmpty()) {
             StatusMentionHelper.MentionResult mentions = StatusMentionHelper.extract(txt);
@@ -689,7 +616,6 @@ public class NewStatusActivity extends AppCompatActivity {
                 for (String n : mentions.mentionedNames) item.mentionNames.put(n, "@" + n);
             }
         }
-
         // Link metadata
         if ("link".equals(type) && fetchedPreview != null) {
             item.linkUrl         = fetchedPreview.url;
@@ -698,7 +624,6 @@ public class NewStatusActivity extends AppCompatActivity {
             item.linkImageUrl    = fetchedPreview.imageUrl;
             item.linkDomain      = fetchedPreview.domain;
         }
-
         ref.setValue(item.toMap())
             .addOnSuccessListener(u -> {
                 clearDraft();
@@ -711,27 +636,21 @@ public class NewStatusActivity extends AppCompatActivity {
                 toast("Failed to post: " + e.getMessage());
             });
     }
-
     // ── UI helpers ────────────────────────────────────────────────────────
-
     private void setPosting(boolean posting) {
         binding.btnPost.setEnabled(!posting);
         binding.btnPost.setText(posting ? "Posting…" : "Post");
         if (binding.uploadProgress != null)
             binding.uploadProgress.setVisibility(posting ? View.VISIBLE : View.GONE);
     }
-
     private void setHint(String hint) {
         if (binding.tvUploadHint != null) binding.tvUploadHint.setText(hint);
     }
-
     private String safePhoto() {
         try { com.google.firebase.auth.FirebaseUser u = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser(); if (u != null && u.getPhotoUrl() != null) return u.getPhotoUrl().toString(); return ""; } catch (Exception e) { return ""; }
     }
-
     private String safeUid() {
         try { return FirebaseUtils.getCurrentUid(); } catch (Exception e) { return null; }
     }
-
     private void toast(String msg) { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show(); }
 }

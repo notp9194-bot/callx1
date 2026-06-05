@@ -1,5 +1,4 @@
-package com.callx.app.bottomsheet;
-
+package com.callx.app.highlights;
 import android.content.Context;
 import android.graphics.Color;
 import android.view.*;
@@ -12,7 +11,6 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
 import java.util.*;
-
 /**
  * StatusAddToHighlightBottomSheet v25 — Proper highlight album picker.
  * FIX: Was a plain AlertDialog with only a text input — no existing albums shown.
@@ -21,20 +19,16 @@ import java.util.*;
  * NEW: Loads albums from Firebase statusHighlights/{ownerUid}.
  */
 public class StatusAddToHighlightBottomSheet {
-
     public interface OnAddedListener {
         void onAdded(String albumName);
     }
-
     public static void show(Context ctx, String ownerUid, StatusItem item,
                             OnAddedListener listener) {
         if (item == null || ownerUid == null) return;
-
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(ctx, 20), dp(ctx, 16), dp(ctx, 20), dp(ctx, 32));
-
         // Title
         TextView title = new TextView(ctx);
         title.setText("Add to Highlights");
@@ -42,14 +36,12 @@ public class StatusAddToHighlightBottomSheet {
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         title.setPadding(0, 0, 0, dp(ctx, 4));
         root.addView(title);
-
         TextView sub = new TextView(ctx);
         sub.setText("Choose an existing album or create new");
         sub.setTextSize(13);
         sub.setTextColor(Color.GRAY);
         sub.setPadding(0, 0, 0, dp(ctx, 16));
         root.addView(sub);
-
         // Existing albums section
         TextView albumsLabel = new TextView(ctx);
         albumsLabel.setText("Existing albums");
@@ -57,14 +49,11 @@ public class StatusAddToHighlightBottomSheet {
         albumsLabel.setTypeface(null, android.graphics.Typeface.BOLD);
         albumsLabel.setPadding(0, 0, 0, dp(ctx, 8));
         root.addView(albumsLabel);
-
         LinearLayout albumList = new LinearLayout(ctx);
         albumList.setOrientation(LinearLayout.VERTICAL);
-
         ProgressBar progress = new ProgressBar(ctx);
         albumList.addView(progress);
         root.addView(albumList);
-
         // Divider
         View divider = new View(ctx);
         divider.setLayoutParams(new LinearLayout.LayoutParams(
@@ -76,7 +65,6 @@ public class StatusAddToHighlightBottomSheet {
         divLp.bottomMargin = dp(ctx, 16);
         divider.setLayoutParams(divLp);
         root.addView(divider);
-
         // New album input
         TextView newLabel = new TextView(ctx);
         newLabel.setText("Create new album");
@@ -84,18 +72,15 @@ public class StatusAddToHighlightBottomSheet {
         newLabel.setTypeface(null, android.graphics.Typeface.BOLD);
         newLabel.setPadding(0, 0, 0, dp(ctx, 8));
         root.addView(newLabel);
-
         LinearLayout newRow = new LinearLayout(ctx);
         newRow.setOrientation(LinearLayout.HORIZONTAL);
         newRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
         EditText etName = new EditText(ctx);
         etName.setHint("Album name (e.g. Vacation 2024)");
         LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         etName.setLayoutParams(etLp);
         newRow.addView(etName);
-
         Button addBtn = new Button(ctx);
         addBtn.setText("Add");
         LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(
@@ -116,12 +101,10 @@ public class StatusAddToHighlightBottomSheet {
         });
         newRow.addView(addBtn);
         root.addView(newRow);
-
         ScrollView scroll = new ScrollView(ctx);
         scroll.addView(root);
         sheet.setContentView(scroll);
         sheet.show();
-
         // Load existing albums from Firebase
         StatusHighlightManager.getHighlightsRef(ownerUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -150,12 +133,10 @@ public class StatusAddToHighlightBottomSheet {
                         }
                         final String fAlbumId = albumId;
                         final String fAlbumName = albumName;
-
                         LinearLayout row = new LinearLayout(ctx);
                         row.setOrientation(LinearLayout.HORIZONTAL);
                         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
                         row.setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12));
-
                         android.graphics.drawable.GradientDrawable rowBg =
                             new android.graphics.drawable.GradientDrawable();
                         rowBg.setCornerRadius(dp(ctx, 10));
@@ -166,14 +147,12 @@ public class StatusAddToHighlightBottomSheet {
                                 LinearLayout.LayoutParams.WRAP_CONTENT);
                         rowLp.bottomMargin = dp(ctx, 8);
                         row.setLayoutParams(rowLp);
-
                         // Album icon
                         TextView icon = new TextView(ctx);
                         icon.setText("⭐");
                         icon.setTextSize(22);
                         icon.setPadding(0, 0, dp(ctx, 12), 0);
                         row.addView(icon);
-
                         // Album name + count
                         LinearLayout info = new LinearLayout(ctx);
                         info.setOrientation(LinearLayout.VERTICAL);
@@ -190,7 +169,6 @@ public class StatusAddToHighlightBottomSheet {
                         info.addView(tvName);
                         info.addView(tvCount);
                         row.addView(info);
-
                         // Add button
                         TextView addToExisting = new TextView(ctx);
                         addToExisting.setText("+ Add");
@@ -198,14 +176,12 @@ public class StatusAddToHighlightBottomSheet {
                         addToExisting.setTextColor(Color.parseColor("#6200EE"));
                         addToExisting.setTypeface(null, android.graphics.Typeface.BOLD);
                         row.addView(addToExisting);
-
                         row.setOnClickListener(v -> {
                             StatusHighlightManager.addToHighlight(
                                     ownerUid, item, fAlbumId, fAlbumName);
                             if (listener != null) listener.onAdded(fAlbumName);
                             sheet.dismiss();
                         });
-
                         albumList.addView(row);
                     }
                 }
@@ -218,7 +194,6 @@ public class StatusAddToHighlightBottomSheet {
                 }
             });
     }
-
     private static int dp(Context ctx, int v) {
         return Math.round(v * ctx.getResources().getDisplayMetrics().density);
     }

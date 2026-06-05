@@ -1,5 +1,4 @@
-package com.callx.app.bottomsheet;
-
+package com.callx.app.interactions;
 import android.content.Context;
 import android.graphics.Color;
 import android.view.*;
@@ -13,7 +12,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import java.util.HashMap;
 import java.util.Map;
-
+import com.callx.app.viewer.StatusViewerActivity;
 /**
  * StatusReplyBottomSheet v25 — Full reply sheet with status preview thumbnail.
  * FIX: Was missing entirely — only inline EditText existed in StatusViewerActivity.
@@ -24,22 +23,18 @@ import java.util.Map;
  * NEW: Sends push notification to status owner.
  */
 public class StatusReplyBottomSheet {
-
     public interface OnReplySentListener {
         void onSent(String message);
     }
-
     public static void show(Context ctx, StatusItem item, String ownerName,
                             String myUid, String ownerUid,
                             OnReplySentListener listener) {
         if (item == null || myUid == null || ownerUid == null) return;
         if (myUid.equals(ownerUid)) return; // Owner cannot reply to own status
-
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(ctx, 16), dp(ctx, 16), dp(ctx, 16), dp(ctx, 24));
-
         // Status preview card
         LinearLayout preview = new LinearLayout(ctx);
         preview.setOrientation(LinearLayout.HORIZONTAL);
@@ -53,7 +48,6 @@ public class StatusReplyBottomSheet {
         previewBg.setCornerRadius(dp(ctx, 12));
         previewBg.setColor(Color.parseColor("#F5F5F5"));
         preview.setBackground(previewBg);
-
         // Thumbnail or type icon
         if (("image".equals(item.type) || "video".equals(item.type))
                 && (item.thumbnailUrl != null || item.mediaUrl != null)) {
@@ -83,7 +77,6 @@ public class StatusReplyBottomSheet {
             typeIcon.setBackground(tbg);
             preview.addView(typeIcon);
         }
-
         // Preview text
         LinearLayout previewInfo = new LinearLayout(ctx);
         previewInfo.setOrientation(LinearLayout.VERTICAL);
@@ -91,14 +84,12 @@ public class StatusReplyBottomSheet {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         infoLp.setMarginStart(dp(ctx, 12));
         previewInfo.setLayoutParams(infoLp);
-
         TextView tvTo = new TextView(ctx);
         tvTo.setText("Replying to " + (ownerName != null ? ownerName : "status"));
         tvTo.setTextSize(12);
         tvTo.setTextColor(Color.parseColor("#6200EE"));
         tvTo.setTypeface(null, android.graphics.Typeface.BOLD);
         previewInfo.addView(tvTo);
-
         TextView tvPreview = new TextView(ctx);
         String previewText = getPreviewText(item);
         tvPreview.setText(previewText);
@@ -107,7 +98,6 @@ public class StatusReplyBottomSheet {
         tvPreview.setMaxLines(2);
         tvPreview.setEllipsize(android.text.TextUtils.TruncateAt.END);
         previewInfo.addView(tvPreview);
-
         preview.addView(previewInfo);
         LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -115,12 +105,10 @@ public class StatusReplyBottomSheet {
         previewLp.bottomMargin = dp(ctx, 16);
         preview.setLayoutParams(previewLp);
         root.addView(preview);
-
         // Reply input row
         LinearLayout inputRow = new LinearLayout(ctx);
         inputRow.setOrientation(LinearLayout.HORIZONTAL);
         inputRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
         EditText et = new EditText(ctx);
         et.setHint("Write a reply…");
         et.setMaxLines(3);
@@ -131,7 +119,6 @@ public class StatusReplyBottomSheet {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         et.setLayoutParams(etLp);
         inputRow.addView(et);
-
         ImageButton sendBtn = new ImageButton(ctx);
         sendBtn.setImageResource(android.R.drawable.ic_menu_send);
         int btnSz = dp(ctx, 48);
@@ -149,7 +136,6 @@ public class StatusReplyBottomSheet {
         });
         inputRow.addView(sendBtn);
         root.addView(inputRow);
-
         sheet.setContentView(root);
         // Expand fully and show keyboard
         sheet.setOnShowListener(d -> {
@@ -164,7 +150,6 @@ public class StatusReplyBottomSheet {
         });
         sheet.show();
     }
-
     private static String getPreviewText(StatusItem item) {
         if (item == null) return "Status";
         if ("image".equals(item.type))  return "📷 Photo status";
@@ -175,14 +160,12 @@ public class StatusReplyBottomSheet {
         if (item.text    != null && !item.text.isEmpty())    return item.text;
         return "Status";
     }
-
     private static void sendReply(String myUid, String ownerUid, String ownerName,
                                    StatusItem item, String message) {
         String chatId = myUid.compareTo(ownerUid) < 0
                 ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
         String msgId = FirebaseUtils.db().getReference().push().getKey();
         if (msgId == null) return;
-
         Map<String, Object> msg = new HashMap<>();
         msg.put("id",                  msgId);
         msg.put("senderId",            myUid);
@@ -198,7 +181,6 @@ public class StatusReplyBottomSheet {
             msg.put("replyToMediaUrl", item.thumbnailUrl);
         else if ("image".equals(item.type) && item.mediaUrl != null)
             msg.put("replyToMediaUrl", item.mediaUrl);
-
         FirebaseUtils.db()
             .getReference("chats").child(chatId).child("messages").child(msgId)
             .setValue(msg)
@@ -220,7 +202,6 @@ public class StatusReplyBottomSheet {
                         @Override public void onCancelled(DatabaseError e) {}
                     }));
     }
-
     private static int dp(Context ctx, int v) {
         return Math.round(v * ctx.getResources().getDisplayMetrics().density);
     }

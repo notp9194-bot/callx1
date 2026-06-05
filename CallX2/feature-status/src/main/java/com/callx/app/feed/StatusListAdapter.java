@@ -1,5 +1,4 @@
-package com.callx.app.adapters;
-
+package com.callx.app.feed;
 import android.content.Context;
 import android.view.*;
 import android.widget.ImageView;
@@ -14,7 +13,6 @@ import com.callx.app.utils.StatusMuteManager;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.text.SimpleDateFormat;
 import java.util.*;
-
 /**
  * StatusListAdapter v25 — Production-grade, section-aware status list.
  *
@@ -32,13 +30,11 @@ import java.util.*;
  *   ✅ DiffUtil smooth animated updates
  */
 public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
-
     public static final int TYPE_MY_STATUS      = 0;
     public static final int TYPE_SECTION_HEADER = 1;
     public static final int TYPE_CONTACT        = 2;
     public static final int TYPE_MUTED_HEADER   = 3;
     public static final int TYPE_MUTED_CONTACT  = 4;
-
     // ── Entry model ───────────────────────────────────────────────────────
     public static class Entry {
         public final String     ownerUid;
@@ -50,7 +46,6 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         public final StatusItem latestItem;
         public final boolean    isMuted;
         public final String     latestReaction;
-
         public Entry(String ownerUid, String ownerName, String ownerPhoto,
                      Long latestTimestamp, int totalCount, int unseenCount,
                      StatusItem latestItem, boolean isMuted, String latestReaction) {
@@ -65,21 +60,18 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             this.latestReaction = latestReaction;
         }
     }
-
     // ── Internal flat list ────────────────────────────────────────────────
     private static final int ITEM_MY      = 0;
     private static final int ITEM_HDR     = 1;
     private static final int ITEM_ROW     = 2;
     private static final int ITEM_MUT_HDR = 3;
     private static final int ITEM_MUT_ROW = 4;
-
     private static class FlatItem {
         int    kind;
         String header;
         Entry  entry;
         FlatItem(int k, String h, Entry e) { kind = k; header = h; entry = e; }
     }
-
     // ── State ─────────────────────────────────────────────────────────────
     private final String           myUid;
     private List<StatusItem>       myStatuses;
@@ -87,20 +79,16 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
     private final Runnable         onAddStatusClick;
     private final ContactClickListener onContactClick;
     private final LongPressListener    onLongPress;
-
     private List<FlatItem> items = new ArrayList<>();
     private int myStatusCount = 0; // FIX: track count for DiffUtil
-
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("HH:mm", Locale.getDefault());
-
     public interface ContactClickListener {
         void onClick(String ownerUid, String ownerName);
     }
     public interface LongPressListener {
         void onLongPress(String ownerUid, String ownerName, boolean isMuted);
     }
-
     public StatusListAdapter(String myUid, List<StatusItem> myStatuses,
                              Runnable onMyStatusClick, Runnable onAddStatusClick,
                              ContactClickListener onContactClick,
@@ -113,27 +101,21 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         this.onLongPress      = onLongPress;
         setHasStableIds(false);
     }
-
     // Backward-compat constructor (no longPress)
     public StatusListAdapter(String myUid, List<StatusItem> myStatuses,
                              Runnable onMyStatusClick, Runnable onAddStatusClick,
                              ContactClickListener onContactClick) {
         this(myUid, myStatuses, onMyStatusClick, onAddStatusClick, onContactClick, null);
     }
-
     // ── Data update ───────────────────────────────────────────────────────
-
     public void update(List<Entry> unseen, List<Entry> seen) {
         update(unseen, seen, new ArrayList<>());
     }
-
     public void update(List<Entry> unseen, List<Entry> seen, List<Entry> muted) {
         final int prevMyCount = myStatusCount;
         myStatusCount = myStatuses.size();
-
         List<FlatItem> next = new ArrayList<>();
         next.add(new FlatItem(ITEM_MY, null, null));
-
         if (!unseen.isEmpty()) {
             next.add(new FlatItem(ITEM_HDR, "Recent updates", null));
             for (Entry e : unseen) next.add(new FlatItem(ITEM_ROW, null, e));
@@ -146,7 +128,6 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             next.add(new FlatItem(ITEM_MUT_HDR, "Muted", null));
             for (Entry e : muted) next.add(new FlatItem(ITEM_MUT_ROW, null, e));
         }
-
         final List<FlatItem> old = items;
         final int finalPrevMyCount = prevMyCount;
         DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new DiffUtil.Callback() {
@@ -182,9 +163,7 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         items = next;
         diff.dispatchUpdatesTo(this);
     }
-
     // ── Adapter ───────────────────────────────────────────────────────────
-
     @Override public int getItemViewType(int pos) {
         switch (items.get(pos).kind) {
             case ITEM_MY:      return TYPE_MY_STATUS;
@@ -194,9 +173,7 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             default:           return TYPE_CONTACT;
         }
     }
-
     @Override public int getItemCount() { return items.size(); }
-
     @NonNull
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
@@ -211,7 +188,6 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 return new ContactVH(li.inflate(R.layout.item_status, parent, false));
         }
     }
-
     @Override
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int pos) {
         FlatItem fi = items.get(pos);
@@ -222,9 +198,7 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             ((HeaderVH) holder).tvHeader.setText(label);
         } else bindContact((ContactVH) holder, fi.entry, ctx, fi.kind == ITEM_MUT_ROW);
     }
-
     // ── My-Status ─────────────────────────────────────────────────────────
-
     private void bindMyStatus(MyStatusVH h, Context ctx) {
         if (myStatuses.isEmpty()) {
             h.ring.setVisibility(View.GONE);
@@ -259,25 +233,20 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             h.itemView.setOnClickListener(v -> { if (onMyStatusClick != null) onMyStatusClick.run(); });
         }
     }
-
     // ── Contact row ───────────────────────────────────────────────────────
-
     private void bindContact(ContactVH h, Entry e, Context ctx, boolean isMuted) {
         if (e == null) return;
         h.tvName.setText(e.ownerName != null ? e.ownerName : "");
         h.tvTime.setText(e.latestTimestamp != null
                 ? timeFmt.format(new Date(e.latestTimestamp)) : "");
-
         if (e.ownerPhoto != null && !e.ownerPhoto.isEmpty()) {
             Glide.with(ctx).load(e.ownerPhoto).placeholder(R.drawable.ic_person).into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
-
         h.ring.setBackgroundResource(isMuted ? R.drawable.circle_status_seen
                 : e.unseenCount > 0 ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
         h.ring.setAlpha(isMuted ? 0.4f : 1f);
-
         if (h.tvBadge != null) {
             if (!isMuted && e.unseenCount > 1) {
                 h.tvBadge.setVisibility(View.VISIBLE);
@@ -286,7 +255,6 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 h.tvBadge.setVisibility(View.GONE);
             }
         }
-
         if (h.tvSub != null) {
             StatusItem latest = e.latestItem;
             String sub = "";
@@ -301,7 +269,6 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             }
             h.tvSub.setText(sub);
         }
-
         if (h.ivThumb != null) {
             StatusItem latest = e.latestItem;
             String url = latest != null ? (latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl) : null;
@@ -312,7 +279,6 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 h.ivThumb.setVisibility(View.GONE);
             }
         }
-
         if (h.tvReaction != null) {
             if (e.latestReaction != null) {
                 h.tvReaction.setVisibility(View.VISIBLE);
@@ -321,7 +287,6 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 h.tvReaction.setVisibility(View.GONE);
             }
         }
-
         h.itemView.setOnClickListener(v -> {
             if (!isMuted && onContactClick != null)
                 onContactClick.onClick(e.ownerUid, e.ownerName);
@@ -329,15 +294,12 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 android.widget.Toast.makeText(ctx, e.ownerName + " is muted. Long press to unmute.",
                         android.widget.Toast.LENGTH_SHORT).show();
         });
-
         h.itemView.setOnLongClickListener(v -> {
             if (onLongPress != null) onLongPress.onLongPress(e.ownerUid, e.ownerName, isMuted);
             return true;
         });
     }
-
     // ── ViewHolders ───────────────────────────────────────────────────────
-
     static class MyStatusVH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;
         ImageView ivAdd, ring, ivThumb;
@@ -352,12 +314,10 @@ public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             ivThumb  = v.findViewById(R.id.iv_thumb);
         }
     }
-
     static class HeaderVH extends RecyclerView.ViewHolder {
         TextView tvHeader;
         HeaderVH(View v) { super(v); tvHeader = v.findViewById(R.id.tv_header); }
     }
-
     static class ContactVH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;
         ImageView ring, ivThumb;

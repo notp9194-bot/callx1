@@ -1,5 +1,4 @@
-package com.callx.app.activities;
-
+package com.callx.app.viewer;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
@@ -20,7 +19,6 @@ import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import com.bumptech.glide.Glide;
-import com.callx.app.bottomsheet.*;
 import com.callx.app.cache.StatusVideoCacheManager;
 import com.callx.app.status.R;
 import com.callx.app.status.databinding.ActivityStatusViewerBinding;
@@ -29,7 +27,19 @@ import com.callx.app.utils.*;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
 import java.util.*;
-
+import com.callx.app.highlights.StatusAddToHighlightBottomSheet;
+import com.callx.app.analytics.StatusAnalyticsBottomSheet;
+import com.callx.app.interactions.StatusDeleteConfirmBottomSheet;
+import com.callx.app.interactions.StatusForwardBottomSheet;
+import com.callx.app.interactions.StatusReactionBottomSheet;
+import com.callx.app.interactions.StatusReplyBottomSheet;
+import com.callx.app.interactions.StatusSeenByBottomSheet;
+import com.callx.app.utils.StatusCloseFriendsManager;
+import com.callx.app.utils.StatusDownloadHelper;
+import com.callx.app.utils.StatusHighlightManager;
+import com.callx.app.utils.StatusMentionHelper;
+import com.callx.app.utils.StatusMuteManager;
+import com.callx.app.utils.StatusSeenTracker;
 /**
  * StatusViewerActivity v25 — Fully comprehensive story/status viewer.
  *
@@ -75,12 +85,9 @@ import java.util.*;
  *   ✅ View duration analytics recording
  */
 public class StatusViewerActivity extends AppCompatActivity {
-
     public static final String EXTRA_OWNER_UID  = "ownerUid";
     public static final String EXTRA_OWNER_NAME = "ownerName";
-
     private ActivityStatusViewerBinding binding;
-
     private final List<StatusItem> items         = new ArrayList<>();
     private final List<String>     seenInSession  = new ArrayList<>();
     private int     idx         = 0;
@@ -91,30 +98,23 @@ public class StatusViewerActivity extends AppCompatActivity {
     private long           remainingMs  = 0;
     private boolean        isMuted      = false;
     private long           viewStartTime = 0; // analytics
-
     private String myUid, ownerUid, ownerName;
     private final List<ProgressBar> segmentBars = new ArrayList<>();
     private GestureDetector swipeDetector;
-
     // ── Lifecycle ─────────────────────────────────────────────────────────
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = ActivityStatusViewerBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
-
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-
         ownerUid  = getIntent().getStringExtra(EXTRA_OWNER_UID);
         ownerName = getIntent().getStringExtra(EXTRA_OWNER_NAME);
         if (ownerUid == null) { finish(); return; }
-
         try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
-
         setupSwipeDownGesture();
         setupTouchZones();
         setupCloseButton();
@@ -124,27 +124,21 @@ public class StatusViewerActivity extends AppCompatActivity {
         setupMuteButton();
         setupDownloadButton();
         setupForwardButton();
-
         binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
-
         // Close Friends badge
         if (StatusCloseFriendsManager.isCloseFriend(this, ownerUid)) {
             binding.tvOwner.setText("⭐ " + (ownerName != null ? ownerName : "Status"));
         }
-
         load(ownerUid);
     }
-
     @Override protected void onPause()  { super.onPause();  pauseProgress(); }
     @Override protected void onResume() { super.onResume(); if (paused) resumeProgress(); }
-
     @Override
     protected void onDestroy() {
         releasePlayer();
         stopProgress();
         handler.removeCallbacksAndMessages(null);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
         // Batch mark seen
         if (!seenInSession.isEmpty() && ownerUid != null) {
             String thumbForBubble = "";
@@ -167,9 +161,7 @@ public class StatusViewerActivity extends AppCompatActivity {
         }
         super.onDestroy();
     }
-
     // ── Load ──────────────────────────────────────────────────────────────
-
     private void load(String uid) {
         FirebaseUtils.getStatusRef().child(uid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -195,9 +187,7 @@ public class StatusViewerActivity extends AppCompatActivity {
                 @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
             });
     }
-
     // ── Segment bar ───────────────────────────────────────────────────────
-
     private void buildSegmentBars() {
         binding.segmentsContainer.removeAllViews();
         segmentBars.clear();
@@ -214,18 +204,14 @@ public class StatusViewerActivity extends AppCompatActivity {
             segmentBars.add(pb);
         }
     }
-
     private void fillSegmentsBefore(int currentIdx) {
         for (int i = 0; i < segmentBars.size(); i++)
             segmentBars.get(i).setProgress(i < currentIdx ? 1000 : 0);
     }
-
     // ── Show current item ─────────────────────────────────────────────────
-
     private void showCurrent() {
         if (idx >= items.size()) { finish(); return; }
         StatusItem s = items.get(idx);
-
         // Analytics: record duration of previous item
         if (viewStartTime > 0 && idx > 0) {
             StatusItem prev = items.get(idx - 1);
@@ -234,20 +220,16 @@ public class StatusViewerActivity extends AppCompatActivity {
                         System.currentTimeMillis() - viewStartTime);
         }
         viewStartTime = System.currentTimeMillis();
-
         fillSegmentsBefore(idx);
         updateHeaderTimestamp(s);
         updateSeenByInfo(s);
         updateExpiryLabel(s);
         crossFadeIn();
-
         if (s.id != null && !s.id.isEmpty() && myUid != null && !myUid.equals(ownerUid)) {
             if (!seenInSession.contains(s.id)) seenInSession.add(s.id);
         }
-
         binding.btnMute.setVisibility(View.GONE);
         hideAllContent();
-
         switch (s.type != null ? s.type : "") {
             case "text":
                 showTextStatus(s); break;
@@ -268,9 +250,7 @@ public class StatusViewerActivity extends AppCompatActivity {
                 next();
         }
     }
-
     // ── Content renderers ─────────────────────────────────────────────────
-
     private void showTextStatus(StatusItem s) {
         binding.flTextStatus.setVisibility(View.VISIBLE);
         binding.tvTextStatus.setText(StatusMentionHelper.highlight(s.text != null ? s.text : ""));
@@ -297,7 +277,6 @@ public class StatusViewerActivity extends AppCompatActivity {
         showCaption(s.caption);
         startProgress(5_000L);
     }
-
     private void showImageStatusFromUrl(String url, String caption) {
         binding.ivStatus.setVisibility(View.VISIBLE);
         Glide.with(this).load(url)
@@ -307,7 +286,6 @@ public class StatusViewerActivity extends AppCompatActivity {
         showCaption(caption);
         startProgress(5_000L);
     }
-
     private void showLinkStatus(StatusItem s) {
         // Show as image if linkImageUrl available, else text card
         if (s.linkImageUrl != null && !s.linkImageUrl.isEmpty()) {
@@ -324,7 +302,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             });
         }
     }
-
     private void showGifStatus(StatusItem s) {
         binding.ivStatus.setVisibility(View.VISIBLE);
         String url = s.gifUrl != null ? s.gifUrl : s.stickerUrl != null ? s.stickerUrl : s.mediaUrl;
@@ -337,13 +314,11 @@ public class StatusViewerActivity extends AppCompatActivity {
         showCaption(s.caption);
         startProgress(4_000L);
     }
-
     @OptIn(markerClass = UnstableApi.class)
     private void showVideoStatus(StatusItem s) {
         binding.playerView.setVisibility(View.VISIBLE);
         binding.btnMute.setVisibility(View.VISIBLE);
         releasePlayer();
-
         ExoPlayer.Builder builder = new ExoPlayer.Builder(this);
         if (StatusVideoCacheManager.isInitialized()) {
             CacheDataSource.Factory cf = StatusVideoCacheManager.getCacheDataSourceFactory();
@@ -373,7 +348,6 @@ public class StatusViewerActivity extends AppCompatActivity {
         startProgress(estimated);
         showCaption(s.caption);
     }
-
     private void hideAllContent() {
         binding.flTextStatus.setVisibility(View.GONE);
         binding.ivStatus.setVisibility(View.GONE);
@@ -382,14 +356,12 @@ public class StatusViewerActivity extends AppCompatActivity {
         View locTag = binding.getRoot().findViewWithTag("tv_location_tag");
         if (locTag != null) locTag.setVisibility(View.GONE);
     }
-
     private void showCaption(String caption) {
         if (!TextUtils.isEmpty(caption)) {
             binding.tvCaption.setVisibility(View.VISIBLE);
             binding.tvCaption.setText(StatusMentionHelper.highlight(caption));
         }
     }
-
     private void showLocationTag(String location) {
         View tag = binding.getRoot().findViewWithTag("tv_location_tag");
         if (tag instanceof TextView) {
@@ -397,14 +369,11 @@ public class StatusViewerActivity extends AppCompatActivity {
             tag.setVisibility(View.VISIBLE);
         }
     }
-
     // ── Progress ──────────────────────────────────────────────────────────
-
     private void startProgress(long durationMs) {
         stopProgress(); paused = false; remainingMs = durationMs;
         runProgressTick(durationMs, durationMs);
     }
-
     private void runProgressTick(final long totalMs, final long remaining) {
         final long STEP = 50L;
         progressRunner = new Runnable() {
@@ -420,17 +389,14 @@ public class StatusViewerActivity extends AppCompatActivity {
         };
         handler.postDelayed(progressRunner, STEP);
     }
-
     private void stopProgress() {
         if (progressRunner != null) { handler.removeCallbacks(progressRunner); progressRunner = null; }
     }
-
     private void pauseProgress() {
         if (paused) return; paused = true;
         if (player != null) player.setPlayWhenReady(false);
         stopProgress();
     }
-
     private void resumeProgress() {
         if (!paused) return; paused = false;
         if (player != null) player.setPlayWhenReady(true);
@@ -445,14 +411,10 @@ public class StatusViewerActivity extends AppCompatActivity {
             runProgressTick(total, remainingMs);
         }
     }
-
     // ── Navigation ────────────────────────────────────────────────────────
-
     private void next()     { releasePlayer(); stopProgress(); idx++; showCurrent(); }
     private void previous() { releasePlayer(); stopProgress(); idx = Math.max(0, idx - 1); showCurrent(); }
-
     // ── Swipe down ────────────────────────────────────────────────────────
-
     private void setupSwipeDownGesture() {
         swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             private static final int SWIPE_THRESHOLD = 120, SWIPE_VELOCITY = 100;
@@ -465,7 +427,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             }
         });
     }
-
     private void finishWithAnimation() {
         AlphaAnimation fade = new AlphaAnimation(1f, 0f);
         fade.setDuration(200);
@@ -476,9 +437,7 @@ public class StatusViewerActivity extends AppCompatActivity {
         });
         binding.getRoot().startAnimation(fade);
     }
-
     // ── Touch zones ───────────────────────────────────────────────────────
-
     private void setupTouchZones() {
         binding.touchLayer.setOnTouchListener((v, e) -> {
             swipeDetector.onTouchEvent(e);
@@ -496,13 +455,10 @@ public class StatusViewerActivity extends AppCompatActivity {
             return true;
         });
     }
-
     // ── Buttons ───────────────────────────────────────────────────────────
-
     private void setupCloseButton() {
         binding.btnCloseStatus.setOnClickListener(v -> finishWithAnimation());
     }
-
     /** FIX v25: Full reaction sheet with selected state, count, remove option */
     private void setupReactionButton() {
         binding.btnReact.setOnClickListener(v -> {
@@ -523,7 +479,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             });
         });
     }
-
     private void setupReplyButton() {
         if (myUid != null && myUid.equals(ownerUid)) {
             binding.etReply.setVisibility(View.GONE);
@@ -554,7 +509,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             Toast.makeText(this, "Reply sent", Toast.LENGTH_SHORT).show();
         });
     }
-
     /** NEW v25: Download button */
     private void setupDownloadButton() {
         View btnDownload = binding.getRoot().findViewWithTag("btn_download");
@@ -570,7 +524,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             });
         }
     }
-
     /** NEW v25: Forward button */
     private void setupForwardButton() {
         View btnFwd = binding.getRoot().findViewWithTag("btn_forward");
@@ -583,7 +536,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             });
         }
     }
-
     /** FIX v25: Mute now persisted; owner sees Analytics + Archive; viewer sees proper Mute */
     private void setupMoreButton() {
         binding.btnMore.setOnClickListener(v -> {
@@ -593,7 +545,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             else         showViewerMoreMenu();
         });
     }
-
     private void showOwnerMoreMenu() {
         StatusItem current = idx < items.size() ? items.get(idx) : null;
         String[] opts = {"Delete this status", "Archive status", "Add to Highlights", "Analytics", "Cancel"};
@@ -627,7 +578,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             .setOnCancelListener(d -> resumeProgress())
             .show();
     }
-
     private void showViewerMoreMenu() {
         String muteLabel = StatusMuteManager.isMuted(this, ownerUid)
                 ? "Unmute " + ownerName : "Mute " + ownerName;
@@ -654,7 +604,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             .setOnCancelListener(d -> resumeProgress())
             .show();
     }
-
     /** FIX v25: Replaced AlertDialog — now uses StatusAddToHighlightBottomSheet with album list */
     private void showAddToHighlightBottomSheet(StatusItem item) {
         pauseProgress();
@@ -663,13 +612,11 @@ public class StatusViewerActivity extends AppCompatActivity {
             resumeProgress();
         });
     }
-
     /** FIX v25: Replaced AlertDialog — now uses StatusAnalyticsBottomSheet with stat cards */
     private void showAnalyticsBottomSheet(StatusItem item) {
         pauseProgress();
         StatusAnalyticsBottomSheet.show(this, item, this::resumeProgress);
     }
-
     /** FIX v25: Mute button for video */
     private void setupMuteButton() {
         binding.btnMute.setOnClickListener(v -> {
@@ -678,9 +625,7 @@ public class StatusViewerActivity extends AppCompatActivity {
             binding.btnMute.setImageResource(isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
         });
     }
-
     // ── Seen-by info ──────────────────────────────────────────────────────
-
     private void updateSeenByInfo(StatusItem s) {
         if (myUid != null && myUid.equals(ownerUid)) {
             int count = s.getViewCount();
@@ -701,7 +646,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             }
         }
     }
-
     private String buildReactionSummary(StatusItem s) {
         if (s.reactions == null || s.reactions.isEmpty()) return "";
         Map<String, Integer> counts = new LinkedHashMap<>();
@@ -711,15 +655,12 @@ public class StatusViewerActivity extends AppCompatActivity {
             sb.append(e.getKey()).append(e.getValue() > 1 ? "×" + e.getValue() : "").append(" ");
         return sb.toString().trim();
     }
-
     // ── Header helpers ────────────────────────────────────────────────────
-
     private void updateHeaderTimestamp(StatusItem s) {
         if (s.timestamp != null)
             binding.tvTimestamp.setText(formatAgo(System.currentTimeMillis() - s.timestamp));
         else binding.tvTimestamp.setText("");
     }
-
     private void updateExpiryLabel(StatusItem s) {
         View expiryView = binding.getRoot().findViewWithTag("tv_expiry_label");
         if (expiryView instanceof TextView) {
@@ -731,7 +672,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             }
         }
     }
-
     private String formatAgo(long ms) {
         long sec = ms / 1000;
         if (sec < 60)  return "just now";
@@ -741,23 +681,18 @@ public class StatusViewerActivity extends AppCompatActivity {
         if (hr < 24)   return hr + "h ago";
         return (hr / 24) + "d ago";
     }
-
     // ── Cross-fade ────────────────────────────────────────────────────────
-
     private void crossFadeIn() {
         AlphaAnimation fade = new AlphaAnimation(0f, 1f);
         fade.setDuration(200);
         binding.getRoot().startAnimation(fade);
     }
-
     // ── Reply to chat ─────────────────────────────────────────────────────
-
     private void sendReplyToChat(String toUid, String message) {
         if (myUid == null) return;
         String chatId = myUid.compareTo(toUid) < 0 ? myUid + "_" + toUid : toUid + "_" + myUid;
         String msgId  = FirebaseUtils.db().getReference().push().getKey();
         if (msgId == null) return;
-
         StatusItem cur = (idx >= 0 && idx < items.size()) ? items.get(idx) : null;
         String quoteText = "Status", quoteType = "text";
         String quoteMediaUrl = null;
@@ -767,7 +702,6 @@ public class StatusViewerActivity extends AppCompatActivity {
             else if ("link".equals(cur.type))  { quoteText = "🔗 " + (cur.linkTitle != null ? cur.linkTitle : cur.linkUrl); }
             else { quoteText = cur.text != null && !cur.text.isEmpty() ? cur.text : cur.caption != null ? cur.caption : "Status"; }
         }
-
         Map<String, Object> msg = new HashMap<>();
         msg.put("id", msgId); msg.put("senderId", myUid); msg.put("text", message);
         msg.put("type", "text"); msg.put("timestamp", com.google.firebase.database.ServerValue.TIMESTAMP);
@@ -775,7 +709,6 @@ public class StatusViewerActivity extends AppCompatActivity {
         msg.put("replyToSenderName", ownerName != null ? ownerName : "Status");
         msg.put("replyToId", "status_" + (cur != null && cur.id != null ? cur.id : "unknown"));
         if (quoteMediaUrl != null) msg.put("replyToMediaUrl", quoteMediaUrl);
-
         final String fChatId = chatId, fMsg = message;
         FirebaseUtils.db().getReference("chats").child(chatId).child("messages").child(msgId)
             .setValue(msg).addOnSuccessListener(u -> {
@@ -794,17 +727,13 @@ public class StatusViewerActivity extends AppCompatActivity {
                     });
             });
     }
-
     // ── Helpers ───────────────────────────────────────────────────────────
-
     private void releasePlayer() {
         if (player != null) { player.release(); player = null; }
     }
-
     private int dpToPx(int dp) {
         return Math.round(dp * getResources().getDisplayMetrics().density);
     }
-
     private void applyFontStyle(TextView tv, String style) {
         if (style == null) return;
         switch (style) {

@@ -1,5 +1,4 @@
-package com.callx.app.fragments;
-
+package com.callx.app.feed;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.Editable;
@@ -12,8 +11,7 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.status.R;
-import com.callx.app.activities.*;
-import com.callx.app.adapters.StatusListAdapter;
+import com.callx.app.feed.StatusListAdapter;
 import com.callx.app.cache.StatusCacheManager;
 import com.callx.app.cache.StatusMediaPreloader;
 import com.callx.app.db.AppDatabase;
@@ -24,7 +22,11 @@ import com.google.android.material.floatingactionbutton.ExtendedFloatingActionBu
 import com.google.firebase.database.*;
 import java.util.*;
 import java.util.concurrent.Executors;
-
+import com.callx.app.compose.NewStatusActivity;
+import com.callx.app.archive.StatusArchiveActivity;
+import com.callx.app.viewer.StatusViewerActivity;
+import com.callx.app.utils.StatusCloseFriendsManager;
+import com.callx.app.utils.StatusMuteManager;
 /**
  * StatusFragment v25 — Comprehensive status feed.
  *
@@ -41,34 +43,26 @@ import java.util.concurrent.Executors;
  *   ✅ Media preloader (Reels pattern)
  */
 public class StatusFragment extends Fragment {
-
     private StatusListAdapter adapter;
     private final Map<String, List<StatusItem>> statusMap = new LinkedHashMap<>();
     private final Map<String, Set<String>>      seenMap   = new HashMap<>();
     private final List<StatusItem>              myStatuses = new ArrayList<>();
-
     private ValueEventListener statusListener;
     private ValueEventListener seenListener;
     private String myUid;
     private final java.util.Set<String> blockedUids = new java.util.HashSet<>();
-
     private StatusMediaPreloader mediaPreloader;
-
     // Search
     private EditText etSearch;
     private String   searchQuery = "";
-
     // ── Lifecycle ─────────────────────────────────────────────────────────
-
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup parent,
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_status, parent, false);
-
         try { myUid = FirebaseUtils.getCurrentUid(); }
         catch (Exception e) { return v; }
-
         // Search bar
         etSearch = v.findViewById(R.id.et_status_search);
         if (etSearch != null) {
@@ -81,11 +75,9 @@ public class StatusFragment extends Fragment {
                 @Override public void afterTextChanged(Editable s) {}
             });
         }
-
         RecyclerView rv = v.findViewById(R.id.rv_status);
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
         rv.setItemAnimator(null);
-
         adapter = new StatusListAdapter(
             myUid, myStatuses,
             () -> {
@@ -109,7 +101,6 @@ public class StatusFragment extends Fragment {
             (ownerUid, ownerName, isMuted) -> showContactContextMenu(ownerUid, ownerName, isMuted)
         );
         rv.setAdapter(adapter);
-
         ExtendedFloatingActionButton fab = v.findViewById(R.id.fab_new_status);
         if (fab != null) {
             fab.setOnClickListener(x -> startActivity(new Intent(requireContext(), NewStatusActivity.class)));
@@ -120,17 +111,14 @@ public class StatusFragment extends Fragment {
                 }
             });
         }
-
         // Archive shortcut
         View btnArchive = v.findViewById(R.id.btn_status_archive);
         if (btnArchive != null) {
             btnArchive.setOnClickListener(x ->
                 startActivity(new Intent(requireContext(), StatusArchiveActivity.class)));
         }
-
         return v;
     }
-
     @Override
     public void onStart() {
         super.onStart();
@@ -141,7 +129,6 @@ public class StatusFragment extends Fragment {
         loadStatuses();
         StatusCacheManager.getInstance(requireContext()).addObserver(statusCacheObserver);
     }
-
     @Override
     public void onStop() {
         removeListeners();
@@ -150,16 +137,13 @@ public class StatusFragment extends Fragment {
         if (mediaPreloader != null) { mediaPreloader.shutdown(); mediaPreloader = null; }
         super.onStop();
     }
-
     // ── Long-press context menu ───────────────────────────────────────────
-
     private void showContactContextMenu(String ownerUid, String ownerName, boolean isMuted) {
         if (getContext() == null) return;
         boolean isCF = StatusCloseFriendsManager.isCloseFriend(getContext(), ownerUid);
         String muteLabel    = isMuted ? "Unmute " + ownerName : "Mute " + ownerName;
         String cfLabel      = isCF   ? "Remove from Close Friends" : "Add to Close Friends ⭐";
         String[] options    = {muteLabel, cfLabel, "Cancel"};
-
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setItems(options, (d, which) -> {
                 if (which == 0) {
@@ -177,13 +161,10 @@ public class StatusFragment extends Fragment {
                 }
             }).show();
     }
-
     // ── StatusCacheManager observer ───────────────────────────────────────
-
     private final StatusCacheManager.StatusDataObserver statusCacheObserver = () -> {
         if (getActivity() != null) getActivity().runOnUiThread(this::seedFromStatusCache);
     };
-
     private void seedFromStatusCache() {
         if (myUid == null || getContext() == null) return;
         StatusCacheManager scm = StatusCacheManager.getInstance(getContext());
@@ -197,9 +178,7 @@ public class StatusFragment extends Fragment {
         }
         rebuildAdapter();
     }
-
     // ── Room offline-first ────────────────────────────────────────────────
-
     private void loadFromRoom() {
         if (getContext() == null || myUid == null) return;
         AppDatabase db = AppDatabase.getInstance(getContext());
@@ -226,9 +205,7 @@ public class StatusFragment extends Fragment {
             }
         });
     }
-
     // ── Firebase live ─────────────────────────────────────────────────────
-
     private void loadStatuses() {
         if (myUid == null) return;
         // Load blocked uids first, then load statuses
@@ -243,7 +220,6 @@ public class StatusFragment extends Fragment {
             @Override public void onCancelled(@NonNull DatabaseError e) { loadStatusContacts(); }
         });
     }
-
     private void loadStatusContacts() {
         if (myUid == null) return;
         FirebaseUtils.getContactsRef(myUid)
@@ -260,7 +236,6 @@ public class StatusFragment extends Fragment {
                 }
             });
     }
-
     private void attachStatusListener(Set<String> watchedUids) {
         statusListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -289,7 +264,6 @@ public class StatusFragment extends Fragment {
         };
         FirebaseUtils.getStatusRef().addValueEventListener(statusListener);
     }
-
     private void attachSeenListener() {
         seenListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -308,7 +282,6 @@ public class StatusFragment extends Fragment {
         };
         FirebaseUtils.db().getReference("statusSeen").child(myUid).addValueEventListener(seenListener);
     }
-
     private void removeListeners() {
         if (statusListener != null) { FirebaseUtils.getStatusRef().removeEventListener(statusListener); statusListener = null; }
         if (seenListener != null && myUid != null) {
@@ -316,57 +289,45 @@ public class StatusFragment extends Fragment {
             seenListener = null;
         }
     }
-
     // ── Adapter rebuild with search + mute ───────────────────────────────
-
     private void rebuildAdapter() {
         if (getContext() == null) return;
         Set<String> mutedSet = StatusMuteManager.getMutedSet(getContext());
-
         List<StatusListAdapter.Entry> unseen = new ArrayList<>();
         List<StatusListAdapter.Entry> seen   = new ArrayList<>();
         List<StatusListAdapter.Entry> muted  = new ArrayList<>();
-
         for (Map.Entry<String, List<StatusItem>> e : statusMap.entrySet()) {
             String uid = e.getKey();
             List<StatusItem> items2 = e.getValue();
             if (items2.isEmpty()) continue;
-
             // Search filter
             StatusItem latest = items2.get(items2.size() - 1);
             if (!searchQuery.isEmpty()) {
                 String name = latest.ownerName != null ? latest.ownerName.toLowerCase() : "";
                 if (!name.contains(searchQuery)) continue;
             }
-
             Set<String> seenIds = seenMap.getOrDefault(uid, Collections.emptySet());
             int unseenCount = 0;
             for (StatusItem item : items2) if (!seenIds.contains(item.id)) unseenCount++;
-
             // Compute latest reaction across all viewers
             String latestReaction = null;
             if (latest.reactions != null && !latest.reactions.isEmpty()) {
                 latestReaction = latest.reactions.values().iterator().next();
             }
-
             boolean isMuted = mutedSet.contains(uid);
             StatusListAdapter.Entry entry = new StatusListAdapter.Entry(
                     uid, latest.ownerName, latest.ownerPhoto,
                     latest.timestamp, items2.size(), unseenCount,
                     latest, isMuted, latestReaction);
-
             if (isMuted)           muted.add(entry);
             else if (unseenCount > 0) unseen.add(entry);
             else                   seen.add(entry);
         }
-
         Comparator<StatusListAdapter.Entry> byTime = (a, b) -> Long.compare(
                 b.latestTimestamp == null ? 0 : b.latestTimestamp,
                 a.latestTimestamp == null ? 0 : a.latestTimestamp);
         unseen.sort(byTime); seen.sort(byTime); muted.sort(byTime);
-
         adapter.update(unseen, seen, muted);
-
         // Media preload (unseen first)
         if (mediaPreloader != null) {
             for (StatusListAdapter.Entry en : unseen) {
@@ -379,9 +340,7 @@ public class StatusFragment extends Fragment {
             }
         }
     }
-
     // ── Room save ─────────────────────────────────────────────────────────
-
     private void saveToRoom() {
         if (getContext() == null) return;
         List<StatusEntity> toSave = new ArrayList<>();
@@ -392,9 +351,7 @@ public class StatusFragment extends Fragment {
             Executors.newSingleThreadExecutor().execute(() -> db.statusDao().insertStatuses(toSave));
         }
     }
-
     // ── Converters ────────────────────────────────────────────────────────
-
     private StatusEntity itemToEntity(StatusItem si) {
         StatusEntity e = new StatusEntity();
         e.id = si.id != null ? si.id : ""; e.ownerUid = si.ownerUid; e.ownerName = si.ownerName;
@@ -404,7 +361,6 @@ public class StatusFragment extends Fragment {
         e.timestamp = si.timestamp; e.expiresAt = si.expiresAt; e.deleted = si.deleted;
         return e;
     }
-
     private StatusItem entityToItem(StatusEntity e) {
         StatusItem item = new StatusItem();
         item.id = e.id; item.ownerUid = e.ownerUid; item.ownerName = e.ownerName;

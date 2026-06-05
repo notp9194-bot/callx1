@@ -1,5 +1,4 @@
 package com.callx.app.utils;
-
 import android.Manifest;
 import android.app.Activity;
 import android.content.ContentValues;
@@ -20,18 +19,14 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.Executors;
-
 /**
  * StatusDownloadHelper — Download status images and videos to gallery.
  * Android 10+: uses MediaStore (no WRITE_EXTERNAL_STORAGE needed).
  * Android 9-: saves to Pictures/CallX-Status and triggers MediaScanner.
  */
 public final class StatusDownloadHelper {
-
     public static final int REQUEST_WRITE = 9011;
-
     private StatusDownloadHelper() {}
-
     /** Check and request storage permission if needed (Android 9 and below). */
     public static boolean hasPermission(Context ctx) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return true;
@@ -39,13 +34,11 @@ public final class StatusDownloadHelper {
                 Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 == PackageManager.PERMISSION_GRANTED;
     }
-
     public static void requestPermission(Activity act) {
         ActivityCompat.requestPermissions(act,
                 new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
                 REQUEST_WRITE);
     }
-
     /** Download image status to gallery. */
     public static void downloadImage(Context ctx, StatusItem item) {
         if (item == null || item.mediaUrl == null) {
@@ -53,7 +46,6 @@ public final class StatusDownloadHelper {
         }
         download(ctx, item.mediaUrl, "image", item.ownerName);
     }
-
     /** Download video status to gallery. */
     public static void downloadVideo(Context ctx, StatusItem item) {
         if (item == null || item.mediaUrl == null) {
@@ -61,14 +53,12 @@ public final class StatusDownloadHelper {
         }
         download(ctx, item.mediaUrl, "video", item.ownerName);
     }
-
     public static void downloadStatus(Context ctx, StatusItem item) {
         if (item == null) return;
         if ("video".equals(item.type)) downloadVideo(ctx, item);
         else if ("image".equals(item.type)) downloadImage(ctx, item);
         else toast(ctx, "Only image and video statuses can be downloaded");
     }
-
     private static void download(Context ctx, String urlStr, String mediaType, String ownerName) {
         if (!hasPermission(ctx)) {
             toast(ctx, "Storage permission required"); return;
@@ -81,10 +71,8 @@ public final class StatusDownloadHelper {
                 conn.connect();
                 byte[] data = readBytes(conn.getInputStream());
                 conn.disconnect();
-
                 String name = "CallX_Status_" + System.currentTimeMillis();
                 boolean isVideo = "video".equals(mediaType);
-
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     ContentValues cv = new ContentValues();
                     cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name + (isVideo ? ".mp4" : ".jpg"));
@@ -111,7 +99,6 @@ public final class StatusDownloadHelper {
                     MediaScannerConnection.scanFile(ctx, new String[]{file.getAbsolutePath()},
                             null, null);
                 }
-
                 if (ctx instanceof Activity) {
                     ((Activity) ctx).runOnUiThread(() ->
                             toast(ctx, "Saved to gallery ✓"));
@@ -124,7 +111,6 @@ public final class StatusDownloadHelper {
             }
         });
     }
-
     private static byte[] readBytes(InputStream is) throws Exception {
         byte[] buf = new byte[4096];
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
@@ -132,7 +118,6 @@ public final class StatusDownloadHelper {
         while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
         return baos.toByteArray();
     }
-
     private static void toast(Context ctx, String msg) {
         Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show();
     }

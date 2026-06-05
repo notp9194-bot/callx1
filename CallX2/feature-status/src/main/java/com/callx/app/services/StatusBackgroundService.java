@@ -1,5 +1,4 @@
 package com.callx.app.services;
-
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -24,7 +23,6 @@ import com.google.firebase.database.ValueEventListener;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
 /**
  * StatusBackgroundService — Foreground service (DATA_SYNC type).
  *
@@ -47,25 +45,18 @@ import java.util.concurrent.ConcurrentHashMap;
  *    Android does not kill the process.
  */
 public class StatusBackgroundService extends Service {
-
     private static final String TAG             = "StatusBgSvc";
     private static final String FOREGROUND_CH   = "callx_status_fg";
     private static final int    FOREGROUND_ID   = 8001;
-
     // Map: contactUid → ChildEventListener (so we can clean up)
     private final Map<String, ChildEventListener> contactListeners =
             new ConcurrentHashMap<>();
-
     // Map: ownerUid → last notified timestamp (dedup)
     private final Map<String, Long> lastNotifiedAt = new ConcurrentHashMap<>();
-
     private DatabaseReference contactsRef;
     private ValueEventListener contactsListener;
-
     private String myUid;
-
     // ── Service entry points ──────────────────────────────────────────────
-
     @Override
     public void onCreate() {
         super.onCreate();
@@ -81,7 +72,6 @@ public class StatusBackgroundService extends Service {
         }
         attachContactsListener();
     }
-
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         // If FCM delivers a direct status payload (app was killed), post
@@ -101,7 +91,6 @@ public class StatusBackgroundService extends Service {
         }
         return START_STICKY;
     }
-
     @Override
     public void onDestroy() {
         Log.d(TAG, "onDestroy — cleaning up listeners");
@@ -111,13 +100,10 @@ public class StatusBackgroundService extends Service {
         }
         super.onDestroy();
     }
-
     @Nullable
     @Override
     public IBinder onBind(Intent intent) { return null; }
-
     // ── Firebase wiring ───────────────────────────────────────────────────
-
     /**
      * Watch the contacts list; for each contact attach a status child listener.
      */
@@ -142,7 +128,6 @@ public class StatusBackgroundService extends Service {
         };
         contactsRef.addValueEventListener(contactsListener);
     }
-
     /**
      * For a single contact, attach a ChildEventListener on their status node.
      * Only onChildAdded fires for new statuses (both realtime and on re-attach).
@@ -150,10 +135,8 @@ public class StatusBackgroundService extends Service {
      */
     private void watchContactStatus(String contactUid) {
         if (contactListeners.containsKey(contactUid)) return;
-
         DatabaseReference statusRef =
                 FirebaseUtils.getStatusRef().child(contactUid);
-
         ChildEventListener listener = new ChildEventListener() {
             @Override
             public void onChildAdded(DataSnapshot snap, String prev) {
@@ -161,14 +144,11 @@ public class StatusBackgroundService extends Service {
                     StatusItem item = snap.getValue(StatusItem.class);
                     if (item == null || item.deleted || (item.expiresAt != null && item.expiresAt < System.currentTimeMillis())) return;
                     if (item.timestamp == null) return;
-
                     // Avoid notifying for items posted > 30 s ago (reconnect flush)
                     long age = System.currentTimeMillis() - item.timestamp;
                     if (age > 30_000L) return;
-
                     // Don't notify for own statuses
                     if (myUid.equals(item.ownerUid)) return;
-
                     postNotificationIfNew(
                             item.ownerUid, item.ownerName, item.ownerPhoto,
                             item.type, item.text, item.mediaUrl, item.timestamp);
@@ -176,7 +156,6 @@ public class StatusBackgroundService extends Service {
                     Log.w(TAG, "onChildAdded error: " + e.getMessage());
                 }
             }
-
             @Override public void onChildChanged(DataSnapshot s, String p) {}
             @Override public void onChildRemoved(DataSnapshot s) {}
             @Override public void onChildMoved(DataSnapshot s, String p) {}
@@ -184,11 +163,9 @@ public class StatusBackgroundService extends Service {
                 Log.w(TAG, "status listener cancelled for " + contactUid);
             }
         };
-
         statusRef.addChildEventListener(listener);
         contactListeners.put(contactUid, listener);
     }
-
     private void removeAllContactListeners() {
         for (Map.Entry<String, ChildEventListener> e : contactListeners.entrySet()) {
             FirebaseUtils.getStatusRef()
@@ -197,9 +174,7 @@ public class StatusBackgroundService extends Service {
         }
         contactListeners.clear();
     }
-
     // ── Notification posting ──────────────────────────────────────────────
-
     private void postNotificationIfNew(String fromUid, String fromName,
                                        String fromPhoto, String statusType,
                                        String text, String mediaUrl,
@@ -207,15 +182,12 @@ public class StatusBackgroundService extends Service {
         Long last = lastNotifiedAt.get(fromUid);
         if (last != null && timestamp <= last) return; // dedup
         lastNotifiedAt.put(fromUid, timestamp);
-
         int notifId = (fromUid != null ? fromUid.hashCode() : 0) & 0x7FFFFFFF;
         StatusNotificationHelper.postStatusNotification(
                 getApplicationContext(), fromUid, fromName, fromPhoto,
                 statusType, text, mediaUrl, notifId);
     }
-
     // ── Foreground notification (silent) ──────────────────────────────────
-
     private void createForegroundChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationChannel ch = new NotificationChannel(
@@ -226,7 +198,6 @@ public class StatusBackgroundService extends Service {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) nm.createNotificationChannel(ch);
     }
-
     private Notification buildSilentNotification() {
         return new NotificationCompat.Builder(this, FOREGROUND_CH)
                 .setSmallIcon(R.drawable.ic_status_notification)

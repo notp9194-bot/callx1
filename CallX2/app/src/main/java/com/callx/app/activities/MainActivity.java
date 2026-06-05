@@ -57,6 +57,8 @@ import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.group.NewGroupActivity;
 import com.callx.app.call.CallActivity;
 import com.callx.app.services.CallForegroundService;
+import com.callx.app.compose.NewStatusActivity;
+import com.callx.app.hub.GamesHubActivity;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -843,7 +845,7 @@ public class MainActivity extends AppCompatActivity {
         // Click → open GamesHubActivity (reflection — cross-module safe)
         gamesEntryRoot.setOnClickListener(v -> {
             try {
-                Class<?> cls = Class.forName("com.callx.app.activities.GamesHubActivity");
+                Class<?> cls = Class.forName("com.callx.app.hub.GamesHubActivity");
                 startActivity(new Intent(this, cls));
             } catch (ClassNotFoundException e) {
                 android.widget.Toast.makeText(this, "Games coming soon!", android.widget.Toast.LENGTH_SHORT).show();
