@@ -585,11 +585,10 @@ public class MessagePagingAdapter
             }
         }
 
-        // ── Reactions display ─────────────────────────────────────────
-        if (h.llReactions != null && h.tvReactions != null) {
+        // ── Reactions display — floating chip outside bubble ──────────
+        if (h.tvReactionChip != null) {
             java.util.Map<String, String> rxMap = m.reactions;
             if (rxMap != null && !rxMap.isEmpty()) {
-                // Count each unique emoji
                 java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
                 for (String emoji : rxMap.values()) {
                     counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
@@ -598,16 +597,22 @@ public class MessagePagingAdapter
                 int shown = 0;
                 for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
                     sb.append(e.getKey());
-                    if (e.getValue() > 1) sb.append(e.getValue());
-                    sb.append(" ");
-                    if (++shown >= 4) break; // max 4 distinct emojis shown
+                    if (e.getValue() > 1) sb.append(" ").append(e.getValue());
+                    sb.append("  ");
+                    if (++shown >= 4) break;
                 }
-                h.tvReactions.setText(sb.toString().trim());
-                h.llReactions.setVisibility(View.VISIBLE);
+                h.tvReactionChip.setText(sb.toString().trim());
+                h.tvReactionChip.setVisibility(View.VISIBLE);
+                final Message fm = m;
+                h.tvReactionChip.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onReactionTap(fm);
+                });
             } else {
-                h.llReactions.setVisibility(View.GONE);
+                h.tvReactionChip.setVisibility(View.GONE);
             }
         }
+        // Hide old in-bubble reaction row
+        if (h.llReactions != null) h.llReactions.setVisibility(View.GONE);
 
         // Sender name (group chats)
         if (isGroup && !sent && h.tvSenderName != null) {
@@ -910,11 +915,8 @@ public class MessagePagingAdapter
         h.itemView.setOnLongClickListener(v -> {
             // FIX: Haptic feedback on long press — production apps always do this
             v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-            if (!multiSelectMode) {
-                enterMultiSelectMode(m);
-            } else {
-                if (actionListener != null) showActionBottomSheet(ctx, m);
-            }
+            // Long press = seedha action sheet (emoji react + reply + copy)
+            if (actionListener != null) showActionBottomSheet(ctx, m);
             return true;
         });
         h.itemView.setOnClickListener(v -> {
@@ -1285,6 +1287,8 @@ public class MessagePagingAdapter
         // Reactions row (ll_reactions / tv_reactions in both item layouts)
         LinearLayout llReactions;
         TextView     tvReactions;
+        // Floating reaction chip (outside bubble, corner-anchored)
+        TextView     tvReactionChip;
         // POLISH: Video — proper FrameLayout with thumbnail + play overlay
         android.widget.FrameLayout flVideo;
         ImageView    ivVideoThumb;
@@ -1318,6 +1322,7 @@ public class MessagePagingAdapter
             // Reactions
             llReactions    = v.findViewById(R.id.ll_reactions);
             tvReactions    = v.findViewById(R.id.tv_reactions);
+            tvReactionChip = v.findViewById(R.id.tv_reaction_chip);
             // POLISH: Video FrameLayout with thumbnail + play overlay
             flVideo        = v.findViewById(R.id.fl_video);
             ivVideoThumb   = v.findViewById(R.id.iv_video_thumb);
