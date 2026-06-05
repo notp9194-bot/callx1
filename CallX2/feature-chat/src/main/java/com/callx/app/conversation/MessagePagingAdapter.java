@@ -682,13 +682,13 @@ public class MessagePagingAdapter
                         }
                     }
 
-                    // Click → open full-screen viewer
-                    h.ivImage.setOnClickListener(v -> {
-                        Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
-                        i.putExtra("url",      fullUrl);
-                        i.putExtra("thumbUrl", thumbUrl != null ? thumbUrl : fullUrl);
-                        i.putExtra("type", "image");
-                        ctx.startActivity(i);
+                    // Click → WhatsApp-style image action bottom sheet
+                    h.ivImage.setOnClickListener(v ->
+                        showImageActionSheet(ctx, m, fullUrl, thumbUrl != null ? thumbUrl : fullUrl));
+                    // Long-press → normal message action sheet
+                    h.ivImage.setOnLongClickListener(v -> {
+                        if (actionListener != null) showActionBottomSheet(ctx, m);
+                        return true;
                     });
                 }
                 break;
@@ -1066,6 +1066,118 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // Long-press bottom sheet actions
     // ──────────────────────────────────────────────────────────────
+    // ── WhatsApp-style image action bottom sheet ──────────────────
+    private void showImageActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer) {
+        com.google.android.material.bottomsheet.BottomSheetDialog bsd =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(ctx);
+
+        android.widget.LinearLayout root = new android.widget.LinearLayout(ctx);
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+        root.setBackgroundColor(android.graphics.Color.parseColor("#1E1E1E"));
+
+        // Drag handle
+        android.widget.FrameLayout handleWrap = new android.widget.FrameLayout(ctx);
+        android.view.View handle = new android.view.View(ctx);
+        int dp4  = dp(ctx, 4);
+        int dp36 = dp(ctx, 36);
+        int dp5  = dp(ctx, 5);
+        android.widget.FrameLayout.LayoutParams handleLp =
+                new android.widget.FrameLayout.LayoutParams(dp36, dp4);
+        handleLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        handle.setLayoutParams(handleLp);
+        handle.setBackgroundColor(android.graphics.Color.parseColor("#555555"));
+        android.view.ViewGroup.MarginLayoutParams hlm = (android.view.ViewGroup.MarginLayoutParams) handle.getLayoutParams();
+        hlm.topMargin = dp5;
+        hlm.bottomMargin = dp5;
+        handleWrap.setPadding(0, dp5, 0, dp5);
+        handleWrap.addView(handle);
+        root.addView(handleWrap);
+
+        // Options: View, Share, Forward, Star, Delete
+        String[] labels  = {"🖼  View",  "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
+        int[]    colors  = {0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFF5252 };
+
+        boolean isOwnMsg = currentUid != null && currentUid.equals(m.senderId);
+
+        for (int idx = 0; idx < labels.length; idx++) {
+            // Skip Delete if not own message
+            if (labels[idx].contains("Delete") && !isOwnMsg) continue;
+
+            android.widget.TextView tv = new android.widget.TextView(ctx);
+            tv.setText(labels[idx]);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
+            tv.setTextColor(colors[idx]);
+            tv.setPadding(dp(ctx, 20), dp(ctx, 15), dp(ctx, 20), dp(ctx, 15));
+            tv.setBackground(getRippleDrawable(ctx));
+
+            final String label = labels[idx];
+            tv.setOnClickListener(v -> {
+                bsd.dismiss();
+                switch (label) {
+                    case "🖼  View":
+                        android.content.Intent i = new android.content.Intent()
+                                .setClassName(ctx.getPackageName(),
+                                        "com.callx.app.activities.MediaViewerActivity");
+                        i.putExtra("url",      fullUrl);
+                        i.putExtra("thumbUrl", thumbForViewer);
+                        i.putExtra("type",     "image");
+                        ctx.startActivity(i);
+                        break;
+                    case "↗  Share":
+                        android.content.Intent share = new android.content.Intent(
+                                android.content.Intent.ACTION_SEND);
+                        share.setType("text/plain");
+                        share.putExtra(android.content.Intent.EXTRA_TEXT, fullUrl);
+                        ctx.startActivity(android.content.Intent.createChooser(share, "Share via"));
+                        break;
+                    case "↪  Forward":
+                        if (actionListener != null) actionListener.onForward(m);
+                        break;
+                    case "⭐  Star":
+                        if (actionListener != null) actionListener.onStar(m);
+                        break;
+                    case "🗑  Delete":
+                        if (actionListener != null) actionListener.onDelete(m);
+                        break;
+                }
+            });
+            root.addView(tv);
+
+            // Divider (not after last)
+            if (idx < labels.length - 1 && !(idx == labels.length - 2 && !isOwnMsg)) {
+                android.view.View div = new android.view.View(ctx);
+                android.widget.LinearLayout.LayoutParams dlp =
+                        new android.widget.LinearLayout.LayoutParams(
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
+                dlp.marginStart = dp(ctx, 20);
+                div.setLayoutParams(dlp);
+                div.setBackgroundColor(android.graphics.Color.parseColor("#333333"));
+                root.addView(div);
+            }
+        }
+
+        root.setPadding(0, 0, 0, dp(ctx, 16));
+        bsd.setContentView(root);
+        // Dark bottom sheet
+        if (bsd.getWindow() != null) {
+            bsd.getWindow().setNavigationBarColor(android.graphics.Color.parseColor("#1E1E1E"));
+        }
+        bsd.show();
+    }
+
+    private int dp(Context ctx, int value) {
+        return (int)(value * ctx.getResources().getDisplayMetrics().density);
+    }
+
+    private android.graphics.drawable.Drawable getRippleDrawable(Context ctx) {
+        android.graphics.drawable.ColorDrawable content =
+                new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT);
+        android.content.res.ColorStateList rippleColor =
+                android.content.res.ColorStateList.valueOf(
+                        android.graphics.Color.parseColor("#33FFFFFF"));
+        return new android.graphics.drawable.RippleDrawable(rippleColor, content, null);
+    }
+
     private void showActionBottomSheet(Context ctx, Message m) {
         if (actionListener == null) return;
 

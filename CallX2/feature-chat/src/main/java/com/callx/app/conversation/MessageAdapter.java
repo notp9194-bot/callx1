@@ -259,7 +259,12 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     });
                 }
                 final String fu = url;
-                h.ivImage.setOnClickListener(v -> openMedia(ctx, fu, "image"));
+                final String tu = m.thumbnailUrl;
+                h.ivImage.setOnClickListener(v -> showImageActionSheet(ctx, m, fu, tu != null ? tu : fu));
+                h.ivImage.setOnLongClickListener(v -> {
+                    openActionSheet(ctx, m);
+                    return true;
+                });
                 break;
             }
             case "video": {
@@ -1015,6 +1020,70 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             return info.activityInfo.packageName;
         }
         return null; // no browser found — Custom Tabs will pick default
+    }
+
+    private void openActionSheet(Context ctx, Message m) {
+        boolean sent = currentUid != null && currentUid.equals(m.senderId);
+        showActionSheet(ctx, m, sent);
+    }
+
+    private void showImageActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer) {
+        com.google.android.material.bottomsheet.BottomSheetDialog bsd =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(ctx);
+        android.widget.LinearLayout root = new android.widget.LinearLayout(ctx);
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+        root.setBackgroundColor(android.graphics.Color.parseColor("#1E1E1E"));
+
+        String[] labels = {"🖼  View", "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
+        int[] colors    = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFF5252};
+        boolean isOwn   = currentUid != null && currentUid.equals(m.senderId);
+        float density   = ctx.getResources().getDisplayMetrics().density;
+        int px20 = (int)(20 * density), px15 = (int)(15 * density);
+
+        for (int idx = 0; idx < labels.length; idx++) {
+            if (labels[idx].contains("Delete") && !isOwn) continue;
+            android.widget.TextView tv = new android.widget.TextView(ctx);
+            tv.setText(labels[idx]);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
+            tv.setTextColor(colors[idx]);
+            tv.setPadding(px20, px15, px20, px15);
+            android.graphics.drawable.ColorDrawable cnt =
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT);
+            tv.setBackground(new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(
+                            android.graphics.Color.parseColor("#33FFFFFF")), cnt, null));
+            final String lbl = labels[idx];
+            tv.setOnClickListener(v -> {
+                bsd.dismiss();
+                if (lbl.contains("View")) {
+                    openMedia(ctx, fullUrl, "image");
+                } else if (lbl.contains("Share")) {
+                    android.content.Intent s = new android.content.Intent(
+                            android.content.Intent.ACTION_SEND);
+                    s.setType("text/plain");
+                    s.putExtra(android.content.Intent.EXTRA_TEXT, fullUrl);
+                    ctx.startActivity(android.content.Intent.createChooser(s, "Share via"));
+                } else if (lbl.contains("Forward") && actionListener != null) {
+                    actionListener.onForward(m);
+                } else if (lbl.contains("Star") && actionListener != null) {
+                    actionListener.onStar(m);
+                } else if (lbl.contains("Delete") && actionListener != null) {
+                    actionListener.onDelete(m);
+                }
+            });
+            root.addView(tv);
+            android.view.View div = new android.view.View(ctx);
+            android.widget.LinearLayout.LayoutParams dlp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
+            dlp.setMarginStart(px20);
+            div.setLayoutParams(dlp);
+            div.setBackgroundColor(android.graphics.Color.parseColor("#333333"));
+            root.addView(div);
+        }
+        root.setPadding(0, 0, 0, px15);
+        bsd.setContentView(root);
+        bsd.show();
     }
 
     private void openMedia(Context ctx, String url, String type) {

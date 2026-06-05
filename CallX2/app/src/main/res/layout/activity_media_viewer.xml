@@ -3,17 +3,23 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/black">
-    <ImageView
+
+    <!-- Image viewer with pinch-to-zoom -->
+    <com.github.chrisbanes.photoview.PhotoView
         android:id="@+id/iv_full"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="fitCenter"
-        android:visibility="gone"/>
+        android:visibility="gone"
+        android:scaleType="fitCenter"/>
+
+    <!-- Video player -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/player"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone"/>
+
+    <!-- Loading spinner -->
     <ProgressBar
         android:id="@+id/pb_loading"
         android:layout_width="56dp"
@@ -21,13 +27,50 @@
         android:layout_gravity="center"
         android:indeterminateTint="@color/white"
         android:visibility="gone"/>
-    <ImageButton
-        android:id="@+id/btn_close"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|start"
-        android:layout_margin="12dp"
-        android:src="@drawable/ic_back"
-        android:tint="@color/white"
-        android:background="?attr/selectableItemBackgroundBorderless"/>
+
+    <!-- Top bar — tap image to toggle visibility -->
+    <LinearLayout
+        android:id="@+id/ll_top_bar"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:background="#99000000"
+        android:layout_gravity="top">
+
+        <ImageButton
+            android:id="@+id/btn_close"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_back"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"/>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"/>
+
+        <ImageButton
+            android:id="@+id/btn_share"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_menu_share"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Share"/>
+
+        <ImageButton
+            android:id="@+id/btn_more_options"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_info"
+            android:tint="@color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="More"/>
+    </LinearLayout>
+
 </FrameLayout>
