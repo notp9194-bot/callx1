@@ -2598,7 +2598,20 @@ public class ChatActivity extends AppCompatActivity {
     // ── Wallpaper apply ───────────────────────────────────────────────────
     private void applyWallpaper() {
         android.widget.ImageView ivWall = binding.ivChatWallpaper;
-        com.callx.app.utils.ChatWallpaperManager.get(this).applyWallpaper(ivWall, chatId);
+        if (ivWall == null) return;
+        String uriStr = com.callx.app.utils.ChatWallpaperManager.get(this)
+                            .getEffectiveWallpaper(chatId);
+        if (uriStr == null) {
+            ivWall.setVisibility(View.GONE);
+            ivWall.setImageDrawable(null);
+        } else {
+            ivWall.setVisibility(View.VISIBLE);
+            Glide.with(this)
+                 .load(android.net.Uri.parse(uriStr))
+                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                 .centerCrop()
+                 .into(ivWall);
+        }
     }
 
     // ── Wallpaper Picker ──────────────────────────────────────────────────

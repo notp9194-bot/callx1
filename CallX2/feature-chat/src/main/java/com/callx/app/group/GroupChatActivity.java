@@ -1341,7 +1341,20 @@ public class GroupChatActivity extends AppCompatActivity {
     // ── Wallpaper apply ───────────────────────────────────────────────────
     private void applyWallpaper() {
         android.widget.ImageView ivWall = binding.ivChatWallpaper;
-        com.callx.app.utils.ChatWallpaperManager.get(this).applyWallpaper(ivWall, groupId);
+        if (ivWall == null) return;
+        String uriStr = com.callx.app.utils.ChatWallpaperManager.get(this)
+                            .getEffectiveWallpaper(groupId);
+        if (uriStr == null) {
+            ivWall.setVisibility(android.view.View.GONE);
+            ivWall.setImageDrawable(null);
+        } else {
+            ivWall.setVisibility(android.view.View.VISIBLE);
+            com.bumptech.glide.Glide.with(this)
+                 .load(android.net.Uri.parse(uriStr))
+                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                 .centerCrop()
+                 .into(ivWall);
+        }
     }
 
     // ── Wallpaper Picker ──────────────────────────────────────────────────
