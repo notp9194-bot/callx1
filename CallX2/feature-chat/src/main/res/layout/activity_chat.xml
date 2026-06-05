@@ -399,7 +399,7 @@
             android:clipToPadding="false"
             android:visibility="gone"/>
 
-        <!-- Empty chat state -->
+        <!-- Empty chat state — animated emoji -->
         <LinearLayout
             android:id="@+id/ll_empty_chat"
             android:layout_width="match_parent"
@@ -409,28 +409,34 @@
             android:visibility="gone">
 
             <TextView
+                android:id="@+id/tv_empty_emoji"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🤔"
-                android:textSize="64sp"/>
+                android:textSize="72sp"
+                android:translationY="300dp"/>
 
             <TextView
+                android:id="@+id/tv_empty_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Say hello! 👋"
                 android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
-                android:layout_marginTop="16dp"/>
+                android:layout_marginTop="16dp"
+                android:alpha="0"/>
 
             <TextView
+                android:id="@+id/tv_empty_sub"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Pehla message bhejo!"
                 android:textSize="14sp"
                 android:textColor="@color/text_secondary"
                 android:layout_marginTop="6dp"
-                android:gravity="center"/>
+                android:gravity="center"
+                android:alpha="0"/>
 
         </LinearLayout>
 
