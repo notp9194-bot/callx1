@@ -428,7 +428,7 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
 
             // Message button
             h.btnMessage.setOnClickListener(v ->
-                launchByClass("com.callx.app.activities.ChatActivity",
+                launchByClass("com.callx.app.conversation.ChatActivity",
                         new String[]{"partnerUid", "partnerName", "partnerPhoto"},
                         new String[]{u.uid, u.name, u.photo}));
 

@@ -744,7 +744,7 @@ public class AllNotificationsActivity extends AppCompatActivity {
             case "reel":
                 try {
                     startActivity(new Intent(this,
-                        Class.forName("com.callx.app.activities.ReelNotificationsActivity")));
+                        Class.forName("com.callx.app.notifications.ReelNotificationsActivity")));
                 } catch (ClassNotFoundException e) {
                     if (it.fromUid != null) {
                         Intent p = new Intent(this, ProfileActivity.class);

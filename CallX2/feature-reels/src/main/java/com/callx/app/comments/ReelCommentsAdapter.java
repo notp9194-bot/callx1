@@ -250,7 +250,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     private void openCommentStatus(Context ctx, ReelComment c) {
         if (c.uid == null) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
+            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
             Intent si = new Intent(ctx, cls);
             si.putExtra("ownerUid",  c.uid);
             si.putExtra("ownerName", c.ownerName != null ? c.ownerName : "");

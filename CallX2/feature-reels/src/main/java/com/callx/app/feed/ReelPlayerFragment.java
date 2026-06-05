@@ -1409,7 +1409,7 @@ public class ReelPlayerFragment extends Fragment
     private void openOwnerStatus() {
         if (!isAdded() || getActivity() == null || reel == null || reel.uid == null) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
+            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
             Intent si = new Intent(getActivity(), cls);
             si.putExtra("ownerUid",  reel.uid);
             si.putExtra("ownerName", reel.ownerName != null ? reel.ownerName : "");

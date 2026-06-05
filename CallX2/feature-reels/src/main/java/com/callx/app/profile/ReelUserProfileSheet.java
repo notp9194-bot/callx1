@@ -198,7 +198,7 @@ public class ReelUserProfileSheet {
                     sheet.dismiss();
                     try {
                         android.content.Intent i = new android.content.Intent(activity,
-                            Class.forName("com.callx.app.activities.YouTubeChannelActivity"));
+                            Class.forName("com.callx.app.channel.YouTubeChannelActivity"));
                         i.putExtra("uid", uid);
                         activity.startActivity(i);
                     } catch (ClassNotFoundException ex) {
@@ -214,7 +214,7 @@ public class ReelUserProfileSheet {
                     sheet.dismiss();
                     try {
                         android.content.Intent i = new android.content.Intent(activity,
-                            Class.forName("com.callx.app.activities.YouTubeChannelActivity"));
+                            Class.forName("com.callx.app.channel.YouTubeChannelActivity"));
                         i.putExtra("uid", uid);
                         activity.startActivity(i);
                     } catch (ClassNotFoundException ex) {
@@ -286,7 +286,7 @@ public class ReelUserProfileSheet {
             btnMsg.setOnClickListener(x -> {
                 sheet.dismiss();
                 Intent i = new Intent()
-                    .setClassName(activity.getPackageName(), "com.callx.app.activities.ChatActivity");
+                    .setClassName(activity.getPackageName(), "com.callx.app.conversation.ChatActivity");
                 i.putExtra("partnerUid",   uid);
                 i.putExtra("partnerName",  name != null ? name : "");
                 i.putExtra("partnerPhoto", photoUrl != null ? photoUrl : "");
@@ -410,7 +410,7 @@ public class ReelUserProfileSheet {
                         btnXSheet.setOnClickListener(v -> {
                             sheet.dismiss();
                             try {
-                                Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
                                 java.lang.reflect.Method m = cls.getMethod("showProfile",
                                     androidx.fragment.app.FragmentManager.class, String.class);
                                 m.invoke(null, ((androidx.fragment.app.FragmentActivity) activity)
@@ -522,7 +522,7 @@ public class ReelUserProfileSheet {
                             sheet.dismiss();
                             try {
                                 Intent i = new Intent(activity,
-                                    Class.forName("com.callx.app.activities.YouTubeChannelActivity"));
+                                    Class.forName("com.callx.app.channel.YouTubeChannelActivity"));
                                 i.putExtra("uid", partnerUid);
                                 activity.startActivity(i);
                             } catch (ClassNotFoundException ex) {

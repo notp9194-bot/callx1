@@ -268,7 +268,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
 
     private void openChat(Context ctx, CallLog l) {
         if (l.partnerUid == null) return;
-        Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.ChatActivity");
+        Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.conversation.ChatActivity");
         i.putExtra("partnerUid",  l.partnerUid);
         i.putExtra("partnerName", l.partnerName != null ? l.partnerName : "");
         ctx.startActivity(i);
@@ -279,7 +279,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         if (scm.hasUnseen(l.partnerUid) || scm.hasStatus(l.partnerUid)) {
             Intent si = new Intent().setClassName(ctx.getPackageName(),
-                    "com.callx.app.activities.StatusViewerActivity");
+                    "com.callx.app.viewer.StatusViewerActivity");
             si.putExtra("ownerUid",  l.partnerUid);
             si.putExtra("ownerName", l.partnerName != null ? l.partnerName : "");
             ctx.startActivity(si);

@@ -134,7 +134,7 @@ public class YouTubeActivity extends AppCompatActivity {
 
     private void openGamesHub() {
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.GamesHubActivity");
+            Class<?> cls = Class.forName("com.callx.app.hub.GamesHubActivity");
             startActivity(new Intent(this, cls));
         } catch (ClassNotFoundException e) {
             android.widget.Toast.makeText(this, "Games coming soon!", android.widget.Toast.LENGTH_SHORT).show();

@@ -147,7 +147,7 @@ public class AccountMenuActivity extends AppCompatActivity {
     private void openMyReelsProfile() {
         if (myUid.isEmpty()) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+            Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
             Intent i = new Intent(this, cls);
             i.putExtra("uid", myUid); i.putExtra("name", myName); i.putExtra("photo", myPhoto);
             startActivity(i);

@@ -456,7 +456,7 @@ public class UserReelsActivity extends AppCompatActivity
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (snap.exists() && snap.getChildrenCount() > 0) {
                         try {
-                            Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
+                            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
                             Intent i = new Intent(UserReelsActivity.this, cls);
                             i.putExtra("ownerUid",  targetUid);
                             i.putExtra("ownerName", targetName != null ? targetName : "");
@@ -1021,7 +1021,7 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void setupActionButtons() {
         if (btnMessage != null) btnMessage.setOnClickListener(v ->
-            launchActivity("com.callx.app.activities.ChatActivity",
+            launchActivity("com.callx.app.conversation.ChatActivity",
                 new String[]{"partnerUid","partnerName","partnerPhoto"},
                 new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
 
@@ -1042,7 +1042,7 @@ public class UserReelsActivity extends AppCompatActivity
         if (btnOpenX != null) btnOpenX.setOnClickListener(v -> {
             if (targetUid == null || targetUid.isEmpty()) return;
             try {
-                Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
                 java.lang.reflect.Method method = cls.getMethod("showProfile",
                         androidx.fragment.app.FragmentManager.class, String.class);
                 method.invoke(null, getSupportFragmentManager(), targetUid);
@@ -1055,7 +1055,7 @@ public class UserReelsActivity extends AppCompatActivity
         if (btnOpenYoutube != null) btnOpenYoutube.setOnClickListener(v -> {
             if (targetUid == null || targetUid.isEmpty()) return;
             try {
-                Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
                 Intent i = new Intent(this, cls);
                 i.putExtra("uid",  targetUid);
                 i.putExtra("name", orEmpty(targetName));

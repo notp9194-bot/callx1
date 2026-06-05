@@ -484,7 +484,7 @@ public class MainActivity extends AppCompatActivity {
         String uid = currentUid();
         if (uid == null) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+            Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
             Intent i = new Intent(this, cls);
             i.putExtra("uid",   uid);
             i.putExtra("name",  myName);

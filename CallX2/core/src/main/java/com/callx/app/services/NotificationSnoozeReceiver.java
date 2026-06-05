@@ -92,7 +92,7 @@ package com.callx.app.services;
           if (message == null)    message = "You have a snoozed message";
 
           Intent openIntent = new Intent();
-          openIntent.setClassName(ctx, "com.callx.app.activities.ChatActivity");
+          openIntent.setClassName(ctx, "com.callx.app.conversation.ChatActivity");
           openIntent.putExtra(Constants.EXTRA_CHAT_ID, chatId);
           openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
           PendingIntent pi = PendingIntent.getActivity(ctx, notifId, openIntent,

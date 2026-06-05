@@ -310,7 +310,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     // Click → VideoPlayerActivity (full ExoPlayer)
                     h.flVideo.setOnClickListener(v -> {
                         android.content.Intent intent = new android.content.Intent()
-                                .setClassName(ctx, "com.callx.app.activities.VideoPlayerActivity");
+                                .setClassName(ctx, "com.callx.app.player.VideoPlayerActivity");
                         intent.putExtra(
                                 "videoUrl",
                                 videoUrl);

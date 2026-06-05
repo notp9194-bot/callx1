@@ -159,7 +159,7 @@ public class HomeFragment extends Fragment {
             btnAddStory.setOnClickListener(v -> {
                 if (!isAdded() || getContext() == null) return;
                 try {
-                    Class<?> cls = Class.forName("com.callx.app.activities.NewStatusActivity");
+                    Class<?> cls = Class.forName("com.callx.app.compose.NewStatusActivity");
                     startActivity(new Intent(getContext(), cls));
                 } catch (ClassNotFoundException e) {
                     startActivity(new Intent(getContext(), ReelCameraActivity.class));
@@ -437,7 +437,7 @@ public class HomeFragment extends Fragment {
     private void openStatusViewer(String ownerUid, String ownerName) {
         if (!isAdded() || getContext() == null) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.StatusViewerActivity");
+            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
             Intent i = new Intent(getContext(), cls);
             i.putExtra("ownerUid",  ownerUid);
             i.putExtra("ownerName", ownerName != null ? ownerName : "");

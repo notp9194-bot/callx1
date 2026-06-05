@@ -202,7 +202,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         if (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid)) {
             Intent si = new Intent().setClassName(ctx.getPackageName(),
-                    "com.callx.app.activities.StatusViewerActivity");
+                    "com.callx.app.viewer.StatusViewerActivity");
             si.putExtra("ownerUid",  u.uid);
             si.putExtra("ownerName", u.name != null ? u.name : "");
             ctx.startActivity(si);

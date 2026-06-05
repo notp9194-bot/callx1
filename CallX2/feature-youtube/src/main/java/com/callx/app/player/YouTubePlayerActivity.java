@@ -1088,7 +1088,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                             btnDescXSheet.setOnClickListener(v -> {
                                 sheet.dismiss();
                                 try {
-                                    Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                                    Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
                                     java.lang.reflect.Method m = cls.getMethod("showProfile",
                                         androidx.fragment.app.FragmentManager.class, String.class);
                                     m.invoke(null, getSupportFragmentManager(), uploaderUid);
@@ -1162,7 +1162,7 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             btnMsg.setOnClickListener(v -> {
                 sheet.dismiss();
                 Intent i = new Intent()
-                    .setClassName(getPackageName(), "com.callx.app.activities.ChatActivity");
+                    .setClassName(getPackageName(), "com.callx.app.conversation.ChatActivity");
                 i.putExtra("partnerUid",   uploaderUid);
                 i.putExtra("partnerName",  currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
                 i.putExtra("partnerPhoto", currentVideo.uploaderPhotoUrl != null ? currentVideo.uploaderPhotoUrl : "");

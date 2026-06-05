@@ -363,7 +363,7 @@ public class NotificationActionReceiver extends BroadcastReceiver {
             // Note: feature-calls module mein GroupChatActivity class visible nahi —
             // string-based Intent use karo (no cross-module dependency needed)
             Intent openGroup = new Intent();
-            openGroup.setClassName(context, "com.callx.app.activities.GroupChatActivity");
+            openGroup.setClassName(context, "com.callx.app.group.GroupChatActivity");
             openGroup.putExtra("groupId",    groupId);
             openGroup.putExtra("groupName",  groupName != null ? groupName : "");
             openGroup.putExtra("groupPhoto", "");

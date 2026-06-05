@@ -404,7 +404,7 @@ public class UserProfileActivity extends AppCompatActivity {
     private void openUserReels() {
         // UserReelsActivity — exact same as Reels profile header mein click
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+            Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
             Intent i = new Intent(this, cls);
             i.putExtra("uid",   partnerUid);
             i.putExtra("name",  orEmpty(partnerName));
@@ -419,7 +419,7 @@ public class UserProfileActivity extends AppCompatActivity {
         // XProfileSheet.showProfile() — same as Reels X button
         if (partnerUid == null || partnerUid.isEmpty()) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+            Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
             java.lang.reflect.Method method = cls.getMethod(
                     "showProfile",
                     androidx.fragment.app.FragmentManager.class,
@@ -434,7 +434,7 @@ public class UserProfileActivity extends AppCompatActivity {
         // YouTubeChannelActivity — same as Reels YouTube button
         if (partnerUid == null || partnerUid.isEmpty()) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+            Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
             Intent i = new Intent(this, cls);
             i.putExtra("uid",  partnerUid);
             i.putExtra("name", orEmpty(partnerName));
@@ -452,7 +452,7 @@ public class UserProfileActivity extends AppCompatActivity {
         if (partnerUid == null || partnerUid.isEmpty()) return;
         try {
             Class<?> sheetClass = Class.forName(
-                "com.callx.app.activities.ReelUserProfileSheet");
+                "com.callx.app.profile.ReelUserProfileSheet");
             java.lang.reflect.Method showMethod = sheetClass.getMethod(
                 "show",
                 android.app.Activity.class,

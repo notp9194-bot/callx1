@@ -243,7 +243,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             sheet.dismiss();
             if (log.partnerUid == null || getContext() == null) return;
             Intent i = new Intent().setClassName(getContext().getPackageName(),
-                "com.callx.app.activities.ChatActivity");
+                "com.callx.app.conversation.ChatActivity");
             i.putExtra("partnerUid",  log.partnerUid);
             i.putExtra("partnerName", log.partnerName != null ? log.partnerName : "");
             startActivity(i);
@@ -412,7 +412,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                         btnXSheet.setOnClickListener(v -> {
                             sheet.dismiss();
                             try {
-                                Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
                                 java.lang.reflect.Method m = cls.getMethod("showProfile",
                                     androidx.fragment.app.FragmentManager.class, String.class);
                                 m.invoke(null, getParentFragmentManager(), partnerUid);
@@ -476,7 +476,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                             sheet.dismiss();
                             if (getContext() == null) return;
                             try {
-                                Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+                                Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
                                 android.content.Intent i = new android.content.Intent(getContext(), cls);
                                 i.putExtra("uid", partnerUid);
                                 startActivity(i);
@@ -551,7 +551,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                             sheet.dismiss();
                             if (getContext() == null) return;
                             try {
-                                Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+                                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
                                 android.content.Intent i = new android.content.Intent(getContext(), cls);
                                 i.putExtra("uid", partnerUid);
                                 startActivity(i);

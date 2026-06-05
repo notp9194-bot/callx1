@@ -107,7 +107,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
         if (cardX != null && channelUid != null) {
             cardX.setOnClickListener(v -> {
                 Intent xi = new Intent();
-                xi.setClassName(getPackageName(), "com.callx.app.activities.XActivity");
+                xi.setClassName(getPackageName(), "com.callx.app.feed.XActivity");
                 xi.putExtra("open_profile_uid", channelUid);
                 startActivity(xi);
             });
@@ -127,7 +127,7 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                     // Directly ChatActivity open karo us user ke saath
                     Intent i = new Intent();
                     i.setClassName(getPackageName(),
-                        "com.callx.app.activities.ChatActivity");
+                        "com.callx.app.conversation.ChatActivity");
                     i.putExtra("partnerUid",   channelUid);
                     i.putExtra("partnerName",  tvChannelName.getText() != null
                         ? tvChannelName.getText().toString() : "");
