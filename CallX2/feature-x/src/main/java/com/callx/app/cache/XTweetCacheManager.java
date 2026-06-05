@@ -11,6 +11,8 @@ import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
 
 import java.io.File;
+import com.callx.app.feed.XActivity;
+import com.callx.app.feed.XHomeFragment;
 
 /**
  * XTweetCacheManager — Singleton SimpleCache specifically for X (tweet) videos.

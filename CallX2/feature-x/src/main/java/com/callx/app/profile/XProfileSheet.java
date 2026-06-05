@@ -31,6 +31,9 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import com.callx.app.feed.XActivity;
+import com.callx.app.messages.XDMConversationActivity;
+import com.callx.app.settings.XSettingsActivity;
 
 /**
  * XProfileSheet — X Profile as a BottomSheetDialogFragment.

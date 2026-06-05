@@ -30,6 +30,8 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.callx.app.models.XUser;
+import com.callx.app.workers.XScheduledPostWorker;
 
 /**
  * XComposeActivity — v35 production update:

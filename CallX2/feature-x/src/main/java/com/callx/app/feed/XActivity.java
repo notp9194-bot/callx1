@@ -21,6 +21,8 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.compose.XComposeActivity;
+import com.callx.app.profile.XProfileSheet;
 
 public class XActivity extends AppCompatActivity {
 

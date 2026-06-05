@@ -1,4 +1,5 @@
 package com.callx.app.models;
+import com.callx.app.utils.XProfileManager;
 
 /**
  * @deprecated Use {@link XProfile} instead.

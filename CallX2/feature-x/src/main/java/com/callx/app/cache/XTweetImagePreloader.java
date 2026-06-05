@@ -9,6 +9,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.models.XTweet;
 
 import java.util.List;
+import com.callx.app.feed.XHomeFragment;
 
 /**
  * XTweetImagePreloader — Glide se agle tweets ke images/thumbnails preload karta hai.
