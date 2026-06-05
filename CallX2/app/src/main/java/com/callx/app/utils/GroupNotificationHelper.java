@@ -16,7 +16,7 @@ import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.RemoteInput;
 import com.callx.app.R;
-import com.callx.app.activities.GroupChatActivity;
+import com.callx.app.group.GroupChatActivity;
 import com.callx.app.services.NotificationActionReceiver;
 import java.util.Calendar;
 import java.util.Map;

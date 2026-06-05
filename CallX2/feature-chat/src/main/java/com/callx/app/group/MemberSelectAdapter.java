@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.group;
 import android.view.*;
 import android.widget.CheckBox;
 import android.widget.TextView;

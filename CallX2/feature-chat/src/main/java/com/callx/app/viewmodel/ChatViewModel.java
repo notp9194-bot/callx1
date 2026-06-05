@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.callx.app.conversation.ChatActivity;
 
 /**
  * ChatViewModel — MVVM ViewModel for 1:1 ChatActivity.

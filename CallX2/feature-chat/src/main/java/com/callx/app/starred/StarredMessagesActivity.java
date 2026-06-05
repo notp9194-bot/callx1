@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.starred;
 
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
@@ -10,7 +10,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
-import com.callx.app.adapters.MessageAdapter;
+import com.callx.app.conversation.MessageAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;

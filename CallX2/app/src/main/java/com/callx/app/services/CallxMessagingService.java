@@ -19,7 +19,7 @@ import androidx.core.app.RemoteInput;
 import androidx.core.graphics.drawable.IconCompat;
 import com.callx.app.CallxApp;
 import com.callx.app.R;
-import com.callx.app.activities.ChatActivity;
+import com.callx.app.conversation.ChatActivity;
 import com.callx.app.activities.IncomingCallActivity;
 import com.callx.app.activities.IncomingGroupCallActivity;
 import com.callx.app.activities.MainActivity;

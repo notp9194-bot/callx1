@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.conversation;
 
 import android.content.Context;
 import android.content.Intent;

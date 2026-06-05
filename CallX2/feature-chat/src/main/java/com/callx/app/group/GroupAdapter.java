@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.group;
 import android.content.Context;
 import android.content.Intent;
 import android.view.*;
@@ -8,7 +8,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
-import com.callx.app.activities.GroupChatActivity;
+import com.callx.app.group.GroupChatActivity;
 import com.callx.app.models.Group;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.List;

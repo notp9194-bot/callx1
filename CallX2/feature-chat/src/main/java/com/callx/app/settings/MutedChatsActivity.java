@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.settings;
 
   import android.content.Intent;
   import android.os.Bundle;
@@ -14,6 +14,7 @@ package com.callx.app.activities;
   import com.google.firebase.database.*;
   import de.hdodenhof.circleimageview.CircleImageView;
   import java.util.*;
+import com.callx.app.conversation.ChatActivity;
 
   /**
    * MutedChatsActivity — View and manage all muted 1:1 chats.

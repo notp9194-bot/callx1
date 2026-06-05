@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.compose;
 
 import android.content.Context;
 import android.view.LayoutInflater;

@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.contacts;
 
 import android.view.LayoutInflater;
 import android.view.View;

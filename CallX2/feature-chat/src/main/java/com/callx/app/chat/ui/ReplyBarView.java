@@ -17,6 +17,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.chat.reply.ReplyStateManager;
 import com.callx.app.models.Message;
+import com.callx.app.conversation.ChatActivity;
 
 /**
  * ReplyBarView — Slide-up reply bar shown above the input field.

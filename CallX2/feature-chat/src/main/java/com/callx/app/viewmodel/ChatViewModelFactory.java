@@ -5,6 +5,7 @@ import android.app.Application;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
+import com.callx.app.conversation.ChatActivity;
 
 /**
  * ChatViewModelFactory — Provides ChatViewModel to Activity.

@@ -1,4 +1,4 @@
-package com.callx.app.fragments;
+package com.callx.app.group;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -8,8 +8,8 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
-import com.callx.app.activities.NewGroupActivity;
-import com.callx.app.adapters.GroupAdapter;
+import com.callx.app.group.NewGroupActivity;
+import com.callx.app.group.GroupAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.models.Group;

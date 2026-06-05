@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.group;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -9,7 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import com.bumptech.glide.Glide;
-import com.callx.app.adapters.MemberSelectAdapter;
+import com.callx.app.group.MemberSelectAdapter;
 import com.callx.app.chat.databinding.ActivityNewGroupBinding;
 import com.callx.app.models.User;
 import com.callx.app.utils.CloudinaryUploader;

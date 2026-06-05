@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.conversation;
 
 import android.content.Context;
 import android.content.Intent;
@@ -20,6 +20,7 @@ import com.callx.app.utils.MediaCache;
 
 import java.text.SimpleDateFormat;
 import java.util.Locale;
+import com.callx.app.utils.LinkPreviewFetcher;
 
 /**
  * MessagePagingAdapter — Paging 3 PagingDataAdapter for chat messages.

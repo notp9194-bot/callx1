@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.group;
 
 import android.Manifest;
 import android.content.Intent;
@@ -26,7 +26,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
-import com.callx.app.adapters.MessagePagingAdapter;
+import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.db.AppDatabase;
@@ -50,6 +50,10 @@ import android.net.NetworkRequest;
 import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import com.callx.app.conversation.ChatActivity;
+import com.callx.app.starred.StarredMessagesActivity;
+import com.callx.app.conversation.MessageAdapter;
+import com.callx.app.chat.ui.MessageHighlightAnimator;
 
 /**
  * GroupChatActivity — Production-grade group chat screen.

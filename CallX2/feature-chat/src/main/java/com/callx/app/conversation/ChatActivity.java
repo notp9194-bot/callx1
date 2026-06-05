@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.conversation;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -37,7 +37,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
-import com.callx.app.adapters.MessagePagingAdapter;
+import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.db.AppDatabase;
@@ -77,6 +77,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import com.callx.app.starred.StarredMessagesActivity;
 
 /**
  * ChatActivity — Production-grade 1:1 chat screen.

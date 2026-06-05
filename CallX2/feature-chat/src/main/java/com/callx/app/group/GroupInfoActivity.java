@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.group;
 
 import android.app.ProgressDialog;
 import android.content.ClipData;
@@ -18,8 +18,8 @@ import androidx.recyclerview.widget.*;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
-import com.callx.app.adapters.GroupMemberAdapter;
-import com.callx.app.adapters.MediaThumbAdapter;
+import com.callx.app.group.GroupMemberAdapter;
+import com.callx.app.media.MediaThumbAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.models.Group;
@@ -34,6 +34,7 @@ import com.google.firebase.database.*;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
+import com.callx.app.conversation.ChatActivity;
 
 /**
  * GroupInfoActivity — Ultra-advanced comprehensive group information screen.

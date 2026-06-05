@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.group;
 
 import android.content.Context;
 import android.view.*;

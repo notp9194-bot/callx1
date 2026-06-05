@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.media;
 
 import android.view.*;
 import android.widget.*;
@@ -7,6 +7,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import java.util.List;
+import com.callx.app.group.GroupInfoActivity;
 
 /**
  * MediaThumbAdapter — 3-column media grid for GroupInfoActivity.

@@ -1,4 +1,4 @@
-package com.callx.app.fragments;
+package com.callx.app.chatlist;
 
 import android.app.AlertDialog;
 import android.net.ConnectivityManager;
@@ -19,7 +19,7 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
-import com.callx.app.adapters.ChatListAdapter;
+import com.callx.app.chatlist.ChatListAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.ChatEntity;
 import com.callx.app.models.User;
@@ -33,6 +33,7 @@ import de.hdodenhof.circleimageview.CircleImageView;
 
 import java.util.*;
 import java.util.concurrent.Executors;
+import com.callx.app.conversation.ChatActivity;
 
 /**
  * ChatsFragment v15 — Offline-First

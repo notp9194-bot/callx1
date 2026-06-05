@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
-        <activity android:name="com.callx.app.activities.ChatActivity"
+        <activity android:name="com.callx.app.conversation.ChatActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name="com.callx.app.activities.GroupChatActivity"
+        <activity android:name="com.callx.app.group.GroupChatActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name="com.callx.app.activities.GroupInfoActivity"
+        <activity android:name="com.callx.app.group.GroupInfoActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name="com.callx.app.activities.GroupSettingsActivity"
+        <activity android:name="com.callx.app.group.GroupSettingsActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name="com.callx.app.activities.NewGroupActivity"
+        <activity android:name="com.callx.app.group.NewGroupActivity"
             android:exported="false"/>
-        <activity android:name="com.callx.app.activities.StarredMessagesActivity"
+        <activity android:name="com.callx.app.starred.StarredMessagesActivity"
             android:exported="false"
-            android:parentActivityName="com.callx.app.activities.ChatActivity"/>
-        <activity android:name="com.callx.app.activities.MutedChatsActivity"
+            android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
+        <activity android:name="com.callx.app.settings.MutedChatsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
     </application>

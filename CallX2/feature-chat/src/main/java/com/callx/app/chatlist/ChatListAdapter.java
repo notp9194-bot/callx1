@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.chatlist;
 
 import android.app.Dialog;
 import android.content.Context;
@@ -11,7 +11,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
-import com.callx.app.activities.ChatActivity;
+import com.callx.app.conversation.ChatActivity;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
