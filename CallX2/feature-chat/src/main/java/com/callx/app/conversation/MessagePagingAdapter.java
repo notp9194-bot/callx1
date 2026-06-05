@@ -1149,7 +1149,7 @@ public class MessagePagingAdapter
                 android.widget.LinearLayout.LayoutParams dlp =
                         new android.widget.LinearLayout.LayoutParams(
                                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
-                dlp.marginStart = dp(ctx, 20);
+                dlp.setMarginStart(dp(ctx, 20));
                 div.setLayoutParams(dlp);
                 div.setBackgroundColor(android.graphics.Color.parseColor("#333333"));
                 root.addView(div);
