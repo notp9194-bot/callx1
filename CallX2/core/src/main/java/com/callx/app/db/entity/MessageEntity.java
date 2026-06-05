@@ -8,21 +8,14 @@ import androidx.annotation.NonNull;
 
 /**
  * Room DB entity for cached messages.
- *
- * v20 additions:
- *   • disappearAt        — unix ms when this message auto-deletes (0/null = never)
- *   • groupReadBy        — comma-separated UIDs who read this message (group read receipts)
- *   • locationLat/Lng   — coordinates for location message type
- *   • liveLocationExpiry — when live location sharing expires
+ * Indexed on chatId + timestamp for fast query performance.
  */
 @Entity(
     tableName = "messages",
     indices = {
         @Index(value = {"chatId", "timestamp"}),
         @Index(value = {"chatId", "starred"}),
-        @Index(value = {"syncedAt"}),
-        @Index(value = {"disappearAt"}),        // v20: fast query for expired messages
-        @Index(value = {"chatId", "text"})       // v20: search performance
+        @Index(value = {"syncedAt"})
     }
 )
 public class MessageEntity {
@@ -34,23 +27,21 @@ public class MessageEntity {
     public String chatId;
     public String senderId;
     public String senderName;
-    public String senderPhoto;
+    public String senderPhoto;    // avatar URL — used by status_seen bubble
     public String text;
-    /** text | image | video | audio | file | location | live_location | status_seen | reel_seen */
-    public String type;
+    public String type;           // text | image | video | audio | file | status_seen
     public String mediaUrl;
     public String thumbnailUrl;
     public String fileName;
     public Long   fileSize;
     public Long   duration;
     public Long   timestamp;
-    /** sent | delivered | read | pending */
-    public String status;
+    public String status;         // sent | delivered | read
     public String replyToId;
     public String replyToText;
     public String replyToSenderName;
-    public String replyToType;
-    public String replyToMediaUrl;
+    public String replyToType;       // type of original message
+    public String replyToMediaUrl;   // media URL of original for thumbnail
     public Boolean edited;
     public Long   editedAt;
     public Boolean deleted;
@@ -58,44 +49,36 @@ public class MessageEntity {
     public Boolean starred;
     public Boolean pinned;
     public Boolean isGroup;
+
+    /** Last delta sync timestamp — used for incremental sync. */
     public long syncedAt;
 
-    public String reelId;
-    public String reelThumbUrl;
-    public String statusOwnerUid;
-    public String statusOwnerName;
-    public String statusThumbUrl;
 
+    /** Reel ID — for reel_seen bubble; used to open reel on tap. */
+    public String reelId;
+    /** Reel thumbnail URL — shown in reel_seen bubble. */
+    public String reelThumbUrl;
+
+    /**
+     * v18 IMPROVEMENT 5: Offline media upload queue.
+     * Image/video/file bhejne ka try offline karo — CloudinaryUploader fail hoga.
+     * Local file URI yahan store karo. SyncWorker ke HEAVY pass mein retry karega:
+     *   mediaLocalPath != null && mediaUrl == null → re-upload aur Firebase push.
+     */
     public String mediaLocalPath;
+
+    /**
+     * v18 IMPROVEMENT 5: Media resource type — retry ke liye zaroori.
+     * "image" | "video" | "raw" | "auto"
+     */
     public String mediaResourceType;
 
-    /** Font style ID — TypingStyleManager.STYLE_* (0–19). Default 0 = Normal. */
+    /**
+     * Font style ID — TypingStyleManager.STYLE_* (0–19).
+     * Sender ke selected typing style ko receiver pe bhi render karo.
+     * Default 0 = Normal.
+     */
     public int fontStyle;
-
-    // ── v20 NEW: Disappearing Messages ────────────────────────────────────
-    /**
-     * Unix ms when this message auto-deletes.
-     * null / 0 = never (disappearing not enabled for this chat).
-     * DisappearingMessageWorker queries: WHERE disappearAt > 0 AND disappearAt <= now.
-     */
-    public Long disappearAt;
-
-    // ── v20 NEW: Group Read Receipts ──────────────────────────────────────
-    /**
-     * Comma-separated UIDs of group members who have read this message.
-     * e.g. "uid1,uid2,uid3"
-     * Firebase path: groups/{groupId}/messages/{msgId}/readBy/{uid} = serverTimestamp
-     * UI: "Read by 3 of 7" in message info screen.
-     */
-    public String groupReadBy;
-
-    // ── v20 NEW: Location Message ─────────────────────────────────────────
-    /** For type = "location" / "live_location". Stored redundantly for fast map rendering. */
-    public Double locationLat;
-    public Double locationLng;
-
-    /** For type = "live_location": unix ms when sharing stops. */
-    public Long liveLocationExpiry;
 
     public MessageEntity() {}
 }

@@ -1558,18 +1558,8 @@ public class ChatActivity extends AppCompatActivity {
                 String statusText;
                 if (Boolean.TRUE.equals(online)) {
                     statusText = "online";
-                } else if (lastSeen != null) {
-                    // Smart formatting: aaj ka ho toh sirf time, warna date bhi
-                    java.util.Calendar now = java.util.Calendar.getInstance();
-                    java.util.Calendar then = java.util.Calendar.getInstance();
-                    then.setTimeInMillis(lastSeen);
-                    boolean isToday = now.get(java.util.Calendar.DATE) == then.get(java.util.Calendar.DATE)
-                            && now.get(java.util.Calendar.MONTH) == then.get(java.util.Calendar.MONTH)
-                            && now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR);
-                    java.text.SimpleDateFormat sdf = isToday
-                            ? new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
-                            : new java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault());
-                    statusText = "last seen " + sdf.format(new java.util.Date(lastSeen));
+                } else if (lastSeen != null && lastSeen > 0) {
+                    statusText = formatLastSeenRelative(lastSeen);
                 } else {
                     statusText = "";
                 }
@@ -1585,6 +1575,40 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.getUserRef(partnerUid).addValueEventListener(onlineListener);
+    }
+
+    /**
+     * Accurate relative last seen:
+     *   < 1 min   → "last seen just now"
+     *   < 1 hour  → "last seen X min ago"
+     *   < 24 hrs  → "last seen X hours ago" / "last seen at HH:mm"
+     *   older     → "last seen DD MMM"
+     */
+    private String formatLastSeenRelative(long ts) {
+        long diff = System.currentTimeMillis() - ts;
+        if (diff < 0) diff = 0; // clock skew guard
+
+        if (diff < 60_000L) {
+            return "last seen just now";
+        } else if (diff < 3_600_000L) {
+            long mins = diff / 60_000L;
+            return "last seen " + mins + " min" + (mins == 1 ? "" : "s") + " ago";
+        } else if (diff < 86_400_000L) {
+            // Same day — show time
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
+            return "last seen at " + sdf.format(new java.util.Date(ts));
+        } else if (diff < 7 * 86_400_000L) {
+            // Within a week — show day + time
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("EEE, hh:mm a", java.util.Locale.getDefault());
+            return "last seen " + sdf.format(new java.util.Date(ts));
+        } else {
+            // Older — show date
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault());
+            return "last seen " + sdf.format(new java.util.Date(ts));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
