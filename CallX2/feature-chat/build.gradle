@@ -50,4 +50,7 @@ dependencies {
 
     // SwipeReplySystem: spring-back animation (DynamicAnimation / SpringAnimation)
     implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
+
+    // Chrome Custom Tabs — in-app browser
+    implementation 'androidx.browser:browser:1.8.0'
 }

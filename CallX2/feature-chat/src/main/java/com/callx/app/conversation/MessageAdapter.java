@@ -500,10 +500,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                                     }
                                 }
                                 h.llLinkPreview.setOnClickListener(v -> {
-                                    Intent i = new Intent(Intent.ACTION_VIEW,
-                                            android.net.Uri.parse(r.url));
-                                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                    ctx.startActivity(i);
+                                    openInCustomTab(ctx, r.url);
                                 });
                             }
                             @Override public void onError(String url) {
@@ -952,6 +949,32 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
         sheet.setContentView(sv);
         sheet.show();
+    }
+
+    // ── Chrome Custom Tabs: open URL inside app, no external browser ──────────
+    private void openInCustomTab(Context ctx, String url) {
+        if (url == null || url.isEmpty()) return;
+        try {
+            androidx.browser.customtabs.CustomTabColorSchemeParams colorParams =
+                new androidx.browser.customtabs.CustomTabColorSchemeParams.Builder()
+                    .setToolbarColor(0xFF1565C0) // match app primary color
+                    .build();
+            androidx.browser.customtabs.CustomTabsIntent customTab =
+                new androidx.browser.customtabs.CustomTabsIntent.Builder()
+                    .setDefaultColorSchemeParams(colorParams)
+                    .setShowTitle(true)
+                    .setShareState(androidx.browser.customtabs.CustomTabsIntent.SHARE_STATE_ON)
+                    .setCloseButtonPosition(androidx.browser.customtabs.CustomTabsIntent.CLOSE_BUTTON_POSITION_START)
+                    .build();
+            customTab.launchUrl(ctx, android.net.Uri.parse(url));
+        } catch (Exception e) {
+            // Fallback: if Custom Tabs not available, open in external browser
+            try {
+                Intent fallback = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(fallback);
+            } catch (Exception ignored) {}
+        }
     }
 
     private void openMedia(Context ctx, String url, String type) {
