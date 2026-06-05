@@ -657,13 +657,7 @@ public class ChatActivity extends AppCompatActivity {
                 // FIX [P3-4]: Empty state — chat khali ho toh friendly message dikhao
                 boolean isEmpty = pagingAdapter.getItemCount() == 0;
                 binding.rvMessages.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
-                if (isEmpty) {
-                    binding.llEmptyChat.setVisibility(View.VISIBLE);
-                    binding.viewAnimatedEmoji.startAnimation();
-                } else {
-                    binding.llEmptyChat.setVisibility(View.GONE);
-                    binding.viewAnimatedEmoji.stopAnimation();
-                }
+                binding.llEmptyChat.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
             }
             return null;
         });
