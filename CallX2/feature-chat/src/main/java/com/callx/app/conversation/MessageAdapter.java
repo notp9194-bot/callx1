@@ -166,7 +166,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 final String sName = m.senderName;
                 h.ivSenderAvatar.setOnClickListener(v -> {
                     if (sUid == null) return;
-                    android.content.Intent i = new android.content.Intent().setClassName(h.itemView.getContext(), "com.callx.app.activities.ChatActivity");
+                    android.content.Intent i = new android.content.Intent().setClassName(h.itemView.getContext(), "com.callx.app.conversation.ChatActivity");
                     i.putExtra("partnerUid",  sUid);
                     i.putExtra("partnerName", sName != null ? sName : "");
                     h.itemView.getContext().startActivity(i);

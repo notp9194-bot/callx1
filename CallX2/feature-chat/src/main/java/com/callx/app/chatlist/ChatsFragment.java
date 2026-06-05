@@ -428,7 +428,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 sheet.dismiss();
                 if (user.uid == null || getContext() == null) return;
                 Intent i = new Intent().setClassName(getContext().getPackageName(),
-                    "com.callx.app.activities.ChatActivity");
+                    "com.callx.app.conversation.ChatActivity");
                 i.putExtra("partnerUid",   user.uid);
                 i.putExtra("partnerName",  user.name != null ? user.name : "");
                 i.putExtra("partnerPhoto", user.photoUrl != null ? user.photoUrl : "");
@@ -565,7 +565,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         btnXSheet.setOnClickListener(v -> {
                             sheet.dismiss();
                             try {
-                                Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
                                 java.lang.reflect.Method m = cls.getMethod("showProfile",
                                     androidx.fragment.app.FragmentManager.class, String.class);
                                 m.invoke(null, getParentFragmentManager(), partnerUid);
@@ -622,7 +622,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                             sheet.dismiss();
                             if (getContext() == null) return;
                             try {
-                                Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+                                Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
                                 Intent i = new Intent(getContext(), cls);
                                 i.putExtra("uid", partnerUid);
                                 startActivity(i);
@@ -678,7 +678,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                             sheet.dismiss();
                             if (getContext() == null) return;
                             try {
-                                Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+                                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
                                 Intent i = new Intent(getContext(), cls);
                                 i.putExtra("uid", partnerUid);
                                 startActivity(i);

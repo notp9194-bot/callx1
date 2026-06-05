@@ -517,7 +517,7 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnToolbarReel.setOnClickListener(v -> {
             if (partnerUid == null || partnerUid.isEmpty()) return;
             try {
-                Class<?> cls = Class.forName("com.callx.app.activities.UserReelsActivity");
+                Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
                 Intent i = new Intent(this, cls);
                 i.putExtra("uid",   partnerUid);
                 i.putExtra("name",  partnerName != null ? partnerName : "");
@@ -532,7 +532,7 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnToolbarX.setOnClickListener(v -> {
             if (partnerUid == null || partnerUid.isEmpty()) return;
             try {
-                Class<?> cls = Class.forName("com.callx.app.activities.XProfileSheet");
+                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
                 java.lang.reflect.Method method = cls.getMethod("showProfile",
                         androidx.fragment.app.FragmentManager.class, String.class);
                 method.invoke(null, getSupportFragmentManager(), partnerUid);
@@ -545,7 +545,7 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnToolbarYoutube.setOnClickListener(v -> {
             if (partnerUid == null || partnerUid.isEmpty()) return;
             try {
-                Class<?> cls = Class.forName("com.callx.app.activities.YouTubeChannelActivity");
+                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
                 Intent i = new Intent(this, cls);
                 i.putExtra("uid",  partnerUid);
                 i.putExtra("name", partnerName != null ? partnerName : "");
@@ -2676,7 +2676,7 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_view_profile)  { openAvatarZoom();     return true; }
         if (id == R.id.action_edit_profile)   { openEditProfile();    return true; }
         if (id == R.id.action_starred) {
-            Intent i = new Intent(this, com.callx.app.activities.StarredMessagesActivity.class);
+            Intent i = new Intent(this, com.callx.app.starred.StarredMessagesActivity.class);
             i.putExtra("chatId",  chatId);
             i.putExtra("isGroup", false);
             startActivity(i);
