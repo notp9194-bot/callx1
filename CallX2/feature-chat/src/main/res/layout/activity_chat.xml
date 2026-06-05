@@ -399,7 +399,7 @@
             android:clipToPadding="false"
             android:visibility="gone"/>
 
-        <!-- FIX [P3-4]: Empty chat state — no messages yet -->
+        <!-- Empty chat state — animated emoji -->
         <LinearLayout
             android:id="@+id/ll_empty_chat"
             android:layout_width="match_parent"
@@ -407,27 +407,30 @@
             android:orientation="vertical"
             android:gravity="center"
             android:visibility="gone">
+
+            <com.callx.app.conversation.AnimatedEmojiView
+                android:id="@+id/view_animated_emoji"
+                android:layout_width="120dp"
+                android:layout_height="120dp"/>
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="👋"
-                android:textSize="56sp"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Say hello!"
-                android:textSize="18sp"
+                android:text="Say hello! 👋"
+                android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
-                android:layout_marginTop="8dp"/>
+                android:layout_marginTop="16dp"/>
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="No messages yet. Send the first one!"
+                android:text="Pehla message bhejo!"
                 android:textSize="14sp"
                 android:textColor="@color/text_secondary"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="6dp"
                 android:gravity="center"/>
+
         </LinearLayout>
 
         <!-- "Back to latest" FAB — shown when navigating to original message -->
