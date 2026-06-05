@@ -340,9 +340,9 @@
                 android:layout_height="wrap_content"
                 android:maxHeight="320dp"
                 android:adjustViewBounds="true"
-                android:scaleType="centerCrop"
+                android:scaleType="fitCenter"
                 android:background="@drawable/bubble_image_sent"
-                android:padding="7dp"
+                android:padding="3dp"
                 android:clipToOutline="true"
                 android:visibility="gone"/>
 
@@ -352,7 +352,7 @@
                 android:layout_width="240dp"
                 android:layout_height="160dp"
                 android:background="@drawable/bubble_video_sent"
-                android:padding="7dp"
+                android:padding="3dp"
                 android:clipToOutline="true"
                 android:visibility="gone">
                 <ImageView
