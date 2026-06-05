@@ -405,7 +405,7 @@ public class GroupNotificationHelper {
           int    notifId   = ("mention_" + groupId + senderUid).hashCode() & 0x7FFFFFFF;
 
           Intent openIntent = new Intent();
-          openIntent.setClassName(ctx, "com.callx.app.activities.GroupChatActivity");
+          openIntent.setClassName(ctx, "com.callx.app.group.GroupChatActivity");
           openIntent.putExtra(Constants.EXTRA_GROUP_ID,   groupId);
           openIntent.putExtra(Constants.EXTRA_GROUP_NAME, groupName);
           openIntent.putExtra(Constants.EXTRA_IS_MENTION, true);
@@ -454,7 +454,7 @@ public class GroupNotificationHelper {
           int    notifId = ("join_" + groupId + newMemberName).hashCode() & 0x7FFFFFFF;
 
           Intent openIntent = new Intent();
-          openIntent.setClassName(ctx, "com.callx.app.activities.GroupChatActivity");
+          openIntent.setClassName(ctx, "com.callx.app.group.GroupChatActivity");
           openIntent.putExtra(Constants.EXTRA_GROUP_ID,   groupId);
           openIntent.putExtra(Constants.EXTRA_GROUP_NAME, groupName);
           openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

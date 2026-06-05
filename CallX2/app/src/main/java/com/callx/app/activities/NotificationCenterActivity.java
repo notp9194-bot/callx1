@@ -22,6 +22,7 @@ import com.google.firebase.database.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import com.callx.app.player.SingleReelPlayerActivity;
+import com.callx.app.conversation.ChatActivity;
 
 /**
  * NotificationCenterActivity — Unified Notification Center (Reels bottom nav).

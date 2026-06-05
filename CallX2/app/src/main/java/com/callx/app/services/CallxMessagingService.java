@@ -53,6 +53,7 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.telephony.TelephonyManager;
 import com.callx.app.notifications.ReelFCMNotificationHandler;
+import com.callx.app.group.GroupChatActivity;
 public class CallxMessagingService extends FirebaseMessagingService {
     @Override public void onNewToken(String token) {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
@@ -351,7 +352,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
           // Open ChatActivity on tap
           android.content.Intent openIntent = new android.content.Intent();
-          openIntent.setClassName(this, "com.callx.app.activities.ChatActivity");
+          openIntent.setClassName(this, "com.callx.app.conversation.ChatActivity");
           openIntent.putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_UID,   callerUid);
           openIntent.putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_NAME,  callerName);
           openIntent.putExtra("partnerPhoto", callerPhoto);
@@ -1422,7 +1423,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
         Intent mainIntent = new Intent(this, com.callx.app.activities.MainActivity.class);
         mainIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
 
-        Intent open = new Intent(this, com.callx.app.activities.GroupChatActivity.class);
+        Intent open = new Intent(this, com.callx.app.group.GroupChatActivity.class);
         open.putExtra("groupId",   groupId);
         open.putExtra("groupName", groupName);
         open.putExtra("groupPhoto", "");

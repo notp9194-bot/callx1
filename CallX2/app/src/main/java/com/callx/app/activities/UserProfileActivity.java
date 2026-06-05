@@ -31,6 +31,7 @@ import com.google.firebase.database.ValueEventListener;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
+import com.callx.app.conversation.ChatActivity;
 
 /**
  * UserProfileActivity — Chat header avatar click ya 3-dot "View Profile" se open hoti hai.
@@ -260,7 +261,7 @@ public class UserProfileActivity extends AppCompatActivity {
     private void openChat() {
         try {
             // ChatActivity is in feature-chat module
-            Intent i = new Intent().setClassName(this, "com.callx.app.activities.ChatActivity");
+            Intent i = new Intent().setClassName(this, "com.callx.app.conversation.ChatActivity");
             i.putExtra("partnerUid",   partnerUid);
             i.putExtra("partnerName",  partnerName  != null ? partnerName  : "");
             i.putExtra("partnerPhoto", partnerPhoto != null ? partnerPhoto : "");
@@ -290,7 +291,7 @@ public class UserProfileActivity extends AppCompatActivity {
     /** Return to chat in search mode */
     private void openChatSearch() {
         try {
-            Intent i = new Intent().setClassName(this, "com.callx.app.activities.ChatActivity");
+            Intent i = new Intent().setClassName(this, "com.callx.app.conversation.ChatActivity");
             i.putExtra("partnerUid",   partnerUid);
             i.putExtra("partnerName",  partnerName  != null ? partnerName  : "");
             i.putExtra("partnerPhoto", partnerPhoto != null ? partnerPhoto : "");

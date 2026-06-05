@@ -21,6 +21,8 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import com.callx.app.feed.ReelPlayerFragment;
 import com.callx.app.notifications.ReelNotificationsActivity;
+import com.callx.app.conversation.ChatActivity;
+import com.callx.app.group.GroupChatActivity;
 
 /**
  * AllNotificationsActivity — 6-tab unified notification center.

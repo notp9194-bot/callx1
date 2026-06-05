@@ -22,6 +22,7 @@ import com.google.firebase.database.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
+import com.callx.app.conversation.ChatActivity;
 
 /**
  * v18: Search by CallX ID  -or-  name.
