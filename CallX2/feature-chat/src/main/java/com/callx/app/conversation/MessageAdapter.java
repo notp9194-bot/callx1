@@ -477,6 +477,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                                 h.llLinkPreview.setVisibility(View.VISIBLE);
                                 if (h.tvLinkDomain != null) h.tvLinkDomain.setText(r.domain);
                                 if (h.tvLinkTitle  != null) h.tvLinkTitle.setText(r.title);
+                                // Description (e.g. YouTube channel name, OG description)
+                                if (h.tvLinkDescription != null) {
+                                    if (r.description != null && !r.description.isEmpty()) {
+                                        h.tvLinkDescription.setText(r.description);
+                                        h.tvLinkDescription.setVisibility(View.VISIBLE);
+                                    } else {
+                                        h.tvLinkDescription.setVisibility(View.GONE);
+                                    }
+                                }
                                 if (h.ivLinkThumb  != null) {
                                     if (r.imageUrl != null && !r.imageUrl.isEmpty()) {
                                         h.ivLinkThumb.setVisibility(View.VISIBLE);
@@ -484,6 +493,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                                             .load(r.imageUrl)
                                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                                             .centerCrop()
+                                            .placeholder(android.R.color.darker_gray)
                                             .into(h.ivLinkThumb);
                                     } else {
                                         h.ivLinkThumb.setVisibility(View.GONE);
@@ -1122,7 +1132,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         TextView     tvStarredIcon;
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
         LinearLayout llLinkPreview;
-        TextView     tvLinkTitle, tvLinkDomain;
+        TextView     tvLinkTitle, tvLinkDomain, tvLinkDescription;
         ImageView    ivLinkThumb;
 
         VH(View v) {
@@ -1156,6 +1166,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             llLinkPreview  = v.findViewById(R.id.ll_link_preview);
             tvLinkTitle    = v.findViewById(R.id.tv_link_title);
             tvLinkDomain   = v.findViewById(R.id.tv_link_domain);
+            tvLinkDescription = v.findViewById(R.id.tv_link_description);
             ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
         }
     }
