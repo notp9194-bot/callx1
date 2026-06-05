@@ -332,6 +332,55 @@ public class E2EEncryptionManager {
     }
 
     /**
+     * Encrypt a byte[] payload (e.g. a group AES key) using a partner's ECDH public key.
+     * Used by GroupE2EManager to distribute group keys securely to each member.
+     *
+     * Protocol:
+     *   1. Decode partner's public key from Base64
+     *   2. Perform ECDH key agreement with OUR private key + partner's public key
+     *   3. SHA-256 hash the shared secret → 32-byte AES key
+     *   4. Encrypt payload with AES-256-GCM
+     *   5. Return Base64(iv + ciphertext)
+     *
+     * @param partnerPublicKeyB64 Base64-encoded partner's EC public key (X.509)
+     * @param payload             raw bytes to encrypt (e.g. 32-byte group AES key)
+     * @return Base64(iv + ciphertext) or null on failure
+     */
+    public String encryptWithPublicKey(String partnerPublicKeyB64, byte[] payload) {
+        if (ourPrivateKey == null) return null;
+        try {
+            byte[] partnerPubBytes = Base64.decode(partnerPublicKeyB64, Base64.NO_WRAP);
+            PublicKey partnerPub   = KeyFactory.getInstance("EC")
+                    .generatePublic(new X509EncodedKeySpec(partnerPubBytes));
+
+            KeyAgreement ka = KeyAgreement.getInstance("ECDH");
+            ka.init(ourPrivateKey);
+            ka.doPhase(partnerPub, true);
+            byte[] sharedSecret = ka.generateSecret();
+
+            MessageDigest sha = MessageDigest.getInstance("SHA-256");
+            byte[] aesKey = sha.digest(sharedSecret);
+
+            byte[] iv = new byte[GCM_IV_LEN];
+            new java.security.SecureRandom().nextBytes(iv);
+
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(aesKey, "AES"),
+                    new GCMParameterSpec(GCM_TAG_LEN, iv));
+            byte[] ct = cipher.doFinal(payload);
+
+            byte[] combined = new byte[iv.length + ct.length];
+            System.arraycopy(iv, 0, combined, 0, iv.length);
+            System.arraycopy(ct, 0, combined, iv.length, ct.length);
+
+            return Base64.encodeToString(combined, Base64.NO_WRAP);
+        } catch (Exception e) {
+            Log.e(TAG, "encryptWithPublicKey failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Returns our own public key encoded as Base64.
      * Can be displayed in a "Security" screen to verify key fingerprint.
      */

@@ -18,12 +18,6 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
-import com.callx.app.chat.location.LocationMessageView;
-  import com.callx.app.chat.sticker.StickerMessageView;
-  import com.callx.app.chat.poll.PollMessageView;
-  import com.callx.app.chat.poll.ChatPollManager;
-  import com.google.android.gms.maps.model.LatLng;
-  import android.widget.LinearLayout;
 
 /**
  * Production-grade MessageAdapter.
@@ -32,8 +26,6 @@ import com.callx.app.chat.location.LocationMessageView;
  *   N7 Message Info
  */
 public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
-    private final com.callx.app.chat.translate.MessageTranslationHelper translationHelper;
-
 
     public interface ActionListener {
         void onReply(Message m);
@@ -100,7 +92,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     private int playingPos = -1;
 
     public MessageAdapter(List<Message> messages, String currentUid, boolean isGroup) {
-        this.translationHelper = new com.callx.app.chat.translate.MessageTranslationHelper(context);
         this.messages   = messages;
         this.currentUid = currentUid;
         this.isGroup    = isGroup;
@@ -412,80 +403,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                             h.ivDownload.setVisibility(View.GONE);
                         }
                     }
-
-              // ── v6: Location message ──────────────────────────
-              } else if ("location".equals(msg.type)) {
-                  binding.llLocationMsg.setVisibility(View.VISIBLE);
-                  binding.llTextMsg.setVisibility(View.GONE);
-                  binding.ivThumb.setVisibility(View.GONE);
-                  if (msg.locationLat != null && msg.locationLng != null) {
-                      // Show static map thumbnail via URL
-                      String mapUrl = "https://maps.googleapis.com/maps/api/staticmap?center="
-                          + msg.locationLat + "," + msg.locationLng
-                          + "&zoom=15&size=300x150&markers=" + msg.locationLat + "," + msg.locationLng;
-                      Glide.with(context).load(mapUrl).into(binding.ivLocationMap);
-                      binding.tvLocationName.setText(msg.locationName != null ? msg.locationName : "Shared Location");
-                      binding.llLocationMsg.setOnClickListener(v -> {
-                          String uri = "geo:" + msg.locationLat + "," + msg.locationLng + "?q=" + msg.locationLat + "," + msg.locationLng;
-                          context.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(uri)));
-                      });
-                  }
-
-              // ── v6: Sticker message ───────────────────────────
-              } else if ("sticker".equals(msg.type)) {
-                  binding.llTextMsg.setVisibility(View.GONE);
-                  binding.ivThumb.setVisibility(View.GONE);
-                  binding.ivSticker.setVisibility(View.VISIBLE);
-                  Glide.with(context)
-                      .load(msg.mediaUrl)
-                      .override(160, 160)
-                      .placeholder(R.drawable.ic_gallery)
-                      .into(binding.ivSticker);
-
-              // ── v6: GIF message ───────────────────────────────
-              } else if ("gif".equals(msg.type)) {
-                  binding.llTextMsg.setVisibility(View.GONE);
-                  binding.ivSticker.setVisibility(View.VISIBLE);
-                  Glide.with(context)
-                      .asGif()
-                      .load(msg.mediaUrl)
-                      .override(240, 180)
-                      .placeholder(R.drawable.ic_gallery)
-                      .into(binding.ivSticker);
-
-              // ── v6: Poll message ──────────────────────────────
-              } else if ("poll".equals(msg.type)) {
-                  binding.llTextMsg.setVisibility(View.GONE);
-                  binding.ivThumb.setVisibility(View.GONE);
-                  binding.llPoll.setVisibility(View.VISIBLE);
-                  binding.tvPollQuestion.setText(msg.pollQuestion);
-                  // Poll options rendered dynamically
-                  binding.llPollOptions.removeAllViews();
-                  if (msg.pollOptions != null) {
-                      int totalVotes = 0;
-                      for (Message.PollOption opt : msg.pollOptions.values()) {
-                          totalVotes += (opt.votes != null ? opt.votes.size() : 0);
-                      }
-                      final int total = totalVotes;
-                      for (Map.Entry<String, Message.PollOption> entry : msg.pollOptions.entrySet()) {
-                          Message.PollOption opt = entry.getValue();
-                          int votes = opt.votes != null ? opt.votes.size() : 0;
-                          int pct   = total > 0 ? (int)(votes * 100f / total) : 0;
-                          LinearLayout row = new LinearLayout(context);
-                          row.setOrientation(LinearLayout.VERTICAL);
-                          android.widget.TextView optTv = new android.widget.TextView(context);
-                          optTv.setText(opt.text + " (" + pct + "%)");
-                          optTv.setTextSize(13);
-                          row.addView(optTv);
-                          android.widget.ProgressBar pb = new android.widget.ProgressBar(context,
-                              null, android.R.attr.progressBarStyleHorizontal);
-                          pb.setMax(100);
-                          pb.setProgress(pct);
-                          row.addView(pb);
-                          binding.llPollOptions.addView(row);
-                      }
-                  }
-  
 
                     // Pre-cache file in background
                     if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
@@ -966,19 +883,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 if (actionListener != null) actionListener.onEdit(m);
             });
         }
-
-                  // v6: Translate
-                  sheet.findViewById(R.id.action_translate).setOnClickListener(av -> {
-                      sheet.dismiss();
-                      translationHelper.translate(msg.text, translated ->
-                          ((android.app.Activity)context).runOnUiThread(() ->
-                              new androidx.appcompat.app.AlertDialog.Builder(context)
-                                  .setTitle("Translation")
-                                  .setMessage(translated)
-                                  .setPositiveButton("Close", null)
-                                  .show()));
-                  });
-  
 
         // N4: Copy — text messages only
         TextView copyBtn = sv.findViewById(R.id.action_copy);

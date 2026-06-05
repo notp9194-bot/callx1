@@ -9,12 +9,17 @@ import androidx.annotation.NonNull;
 /**
  * Room DB entity for chat metadata cache.
  * Covers both 1-on-1 and group chats.
+ *
+ * v20 additions:
+ *   • archived        — hide from main list (WhatsApp-style archive)
+ *   • disappearTimer  — disappearing messages duration (ms), 0 = off
  */
 @Entity(
     tableName = "chats",
     indices = {
         @Index(value = {"lastMessageAt"}),
-        @Index(value = {"type"})
+        @Index(value = {"type"}),
+        @Index(value = {"archived"})   // v20: fast filter for archived chats
     }
 )
 public class ChatEntity {
@@ -29,7 +34,7 @@ public class ChatEntity {
     public String partnerUid;
     public String partnerName;
     public String partnerPhoto;
-    public String partnerThumb;  // 100×100 WebP — chat list fast avatar
+    public String partnerThumb;
 
     public String lastMessage;
     public Long   lastMessageAt;
@@ -40,20 +45,27 @@ public class ChatEntity {
     /** Unix ms when this row was last refreshed from Firebase. */
     public long syncedAt;
 
-    /**
-     * v18 IMPROVEMENT 2: Draft message persist karo.
-     * Jab user type kare aur navigate away kare, yahan save hoga.
-     * Wapas aane par etMessage mein auto-restore hoga.
-     */
+    /** v18: Draft message — auto-restored when reopening chat. */
     public String draft;
 
-    /**
-     * v18 IMPROVEMENT 4: Offline read receipt queue.
-     * Offline hone par markRead() fail hota tha silently.
-     * Ab agar offline hai toh pendingMarkRead = true set karo.
-     * SyncWorker online hone par batch push karega.
-     */
+    /** v18: Offline read receipt queue. */
     public Boolean pendingMarkRead;
+
+    /**
+     * v20 NEW: Archive chat.
+     * true  = chat hidden from main list, shown in "Archived" section.
+     * false/null = normal (visible in main list).
+     * Auto-unarchives on new message (configurable per WhatsApp behavior).
+     */
+    public Boolean archived;
+
+    /**
+     * v20 NEW: Disappearing messages timer for this chat (in milliseconds).
+     * 0 or null = off.
+     * Options: 86400000 (24h), 604800000 (7 days), 7776000000 (90 days).
+     * When set, each new message's disappearAt = timestamp + disappearTimer.
+     */
+    public Long disappearTimer;
 
     public ChatEntity() {
         this.syncedAt = System.currentTimeMillis();

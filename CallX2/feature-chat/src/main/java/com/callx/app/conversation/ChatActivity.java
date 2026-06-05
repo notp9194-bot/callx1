@@ -78,19 +78,6 @@ import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import com.callx.app.starred.StarredMessagesActivity;
-import com.callx.app.chat.typing.TypingIndicatorManager;
-  import com.callx.app.chat.draft.ChatDraftManager;
-  import com.callx.app.chat.disappearing.DisappearingMessageManager;
-  import com.callx.app.chat.lock.ChatLockManager;
-  import com.callx.app.chat.location.LocationShareHelper;
-  import com.callx.app.chat.sticker.StickerManager;
-  import com.callx.app.chat.poll.ChatPollManager;
-  import com.callx.app.chat.schedule.ScheduleMessageManager;
-  import com.callx.app.chat.translate.MessageTranslationHelper;
-  import com.callx.app.chat.search.ChatSearchActivity;
-  import com.callx.app.broadcast.BroadcastListActivity;
-  import com.callx.app.models.Message;
-  import android.location.Location;
 
 /**
  * ChatActivity — Production-grade 1:1 chat screen.
@@ -186,18 +173,7 @@ public class ChatActivity extends AppCompatActivity {
     private String pinnedMsgId   = null;
     private String pinnedMsgText = null;
 
-
-      // ── v6 Production Feature Managers ─────────────────────────────────────
-      private TypingIndicatorManager   typingIndicatorManager;
-      private ChatDraftManager         chatDraftManager;
-      private DisappearingMessageManager disappearingManager;
-      private ChatLockManager          chatLockManager;
-      private LocationShareHelper      locationShareHelper;
-      private StickerManager           stickerManager;
-      private ChatPollManager          pollManager;
-      private ScheduleMessageManager   scheduleManager;
-      private MessageTranslationHelper translationHelper;
-      // ── Network monitoring (Task 5) ────────────────────────────────────────
+    // ── Network monitoring (Task 5) ────────────────────────────────────────
     private ConnectivityManager          connMgr;
     private ConnectivityManager.NetworkCallback netCallback;
 
@@ -212,31 +188,7 @@ public class ChatActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-          // ── v6: Init production managers ──────────────────────────
-          typingIndicatorManager   = new TypingIndicatorManager(chatId, currentUid, this);
-          chatDraftManager         = new ChatDraftManager(this, chatId);
-          disappearingManager      = new DisappearingMessageManager(this, chatId);
-          chatLockManager          = new ChatLockManager(this, chatId);
-          locationShareHelper      = new LocationShareHelper(this, chatId, currentUid, currentName);
-          stickerManager           = new StickerManager(this, chatId, currentUid, currentName);
-          pollManager              = new ChatPollManager(this, chatId, currentUid, currentName);
-          scheduleManager          = new ScheduleMessageManager(this, chatId, currentUid, currentName);
-          translationHelper        = new MessageTranslationHelper(this);
-
-          // Restore draft if any
-          if (chatDraftManager.hasDraft()) {
-              binding.etMessage.setText(chatDraftManager.getDraft());
-              binding.etMessage.setSelection(binding.etMessage.length());
-          }
-
-          // Show disappearing messages banner if active
-          disappearingManager.attachBanner(binding.bannerDisappearing, binding.tvDisappearingLabel,
-                  binding.tvDisappearingChange);
-
-          // Check chat lock on open
-          chatLockManager.checkLockOnOpen(this);
-          binding = ActivityChatBinding.inflate(getLayoutInflater());
+        binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
         readIntentExtras();
@@ -319,10 +271,6 @@ public class ChatActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
-          // v6: save draft
-          if (chatDraftManager != null && binding != null) {
-              chatDraftManager.saveDraft(binding.etMessage.getText().toString());
-          }
         super.onPause();
         saveDraft();              // v18 IMPROVEMENT 2: User navigate away — draft save
         clearOurTypingStatus();   // FIX: typing indicator stuck when app is backgrounded
@@ -331,10 +279,6 @@ public class ChatActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-          // v6: cleanup managers
-          if (typingIndicatorManager != null) typingIndicatorManager.onUserStoppedTyping();
-          if (typingIndicatorManager != null) typingIndicatorManager.detach();
-          if (disappearingManager != null) disappearingManager.detach();
         super.onDestroy();
         saveDraft();
         if (messagesRef != null && messageListener != null)
@@ -904,7 +848,6 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
-                  typingIndicatorManager.onUserTyping();
                 boolean hasText = s.toString().trim().length() > 0;
                 binding.btnSend.setVisibility(hasText ? View.VISIBLE : View.GONE);
                 binding.btnMic.setVisibility(hasText ? View.GONE : View.VISIBLE);
@@ -2568,31 +2511,6 @@ public class ChatActivity extends AppCompatActivity {
         sheet.show();
     }
 
-          // v6: Location share
-          sheet.findViewById(R.id.opt_location).setOnClickListener(v -> {
-              bottomSheet.dismiss();
-              locationShareHelper.pickAndSendLocation();
-          });
-
-          // v6: Sticker picker
-          sheet.findViewById(R.id.opt_sticker).setOnClickListener(v -> {
-              bottomSheet.dismiss();
-              stickerManager.showStickerPicker();
-          });
-
-          // v6: GIF picker
-          sheet.findViewById(R.id.opt_gif).setOnClickListener(v -> {
-              bottomSheet.dismiss();
-              stickerManager.showGifPicker();
-          });
-
-          // v6: Poll creator
-          sheet.findViewById(R.id.opt_poll).setOnClickListener(v -> {
-              bottomSheet.dismiss();
-              pollManager.showCreatePollDialog();
-          });
-  
-
     // ─────────────────────────────────────────────────────────────────────
     // VOICE RECORDING
     // ─────────────────────────────────────────────────────────────────────
@@ -2836,41 +2754,8 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_chat_theme)   { showThemePicker();        return true; }
         if (id == R.id.action_typing_style) { showTypingStylePicker();   return true; }
         if (id == R.id.action_media_links_docs) { openAllMediaLinksDocs(); return true; }
-        
-              case R.id.action_search_messages:
-                  startActivity(new Intent(this, ChatSearchActivity.class)
-                      .putExtra("chatId", chatId)
-                      .putExtra("partnerName", partnerName));
-                  return true;
-
-              case R.id.action_disappearing:
-                  disappearingManager.showDisappearingDialog();
-                  return true;
-
-              case R.id.action_lock_chat:
-                  chatLockManager.showLockDialog();
-                  return true;
-
-              case R.id.action_broadcast:
-                  startActivity(new Intent(this, BroadcastListActivity.class));
-                  return true;
-
-  return super.onOptionsItemSelected(item);
+        return super.onOptionsItemSelected(item);
     }
-
-          // v6: Translate message
-          sheet.findViewById(R.id.action_translate).setOnClickListener(v -> {
-              sheet.dismiss();
-              translationHelper.translate(msg.text, translatedText ->
-                  runOnUiThread(() -> showTranslation(msg, translatedText)));
-          });
-
-          // v6: Schedule send
-          sheet.findViewById(R.id.action_schedule).setOnClickListener(v -> {
-              sheet.dismiss();
-              scheduleManager.showScheduleDialog(binding.etMessage.getText().toString());
-          });
-  
 
     // ─────────────────────────────────────────────────────────────────────
     // PERMISSIONS
@@ -3045,14 +2930,5 @@ public class ChatActivity extends AppCompatActivity {
             });
         }
     }
-
-      /** v6: Show translation in a dialog below the original message */
-      private void showTranslation(Message msg, String translated) {
-          new androidx.appcompat.app.AlertDialog.Builder(this)
-              .setTitle("Translation")
-              .setMessage(translated)
-              .setPositiveButton("Close", null)
-              .show();
-      }
-  
 }
+

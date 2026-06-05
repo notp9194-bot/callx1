@@ -1,81 +1,101 @@
 package com.callx.app.db.entity;
 
-  import androidx.annotation.NonNull;
-  import androidx.room.Entity;
-  import androidx.room.Index;
-  import androidx.room.PrimaryKey;
+import androidx.room.Entity;
+import androidx.room.Index;
+import androidx.room.PrimaryKey;
 
-  /**
-   * Room DB entity for cached messages.
-   *
-   * v6: Added fields for disappearing messages, location, poll, schedule.
-   * Schema version bumped — run migration or fallbackToDestructiveMigration().
-   */
-  @Entity(
-      tableName = "messages",
-      indices = {
-          @Index(value = {"chatId", "timestamp"}),
-          @Index(value = {"chatId", "starred"}),
-          @Index(value = {"syncedAt"}),
-          @Index(value = {"expiresAt"}),       // v6: fast expired-message lookup
-          @Index(value = {"chatId", "text"})   // v6: fast in-chat search
-      }
-  )
-  public class MessageEntity {
+import androidx.annotation.NonNull;
 
-      @PrimaryKey @NonNull
-      public String id = "";
+/**
+ * Room DB entity for cached messages.
+ *
+ * v20 additions:
+ *   • disappearAt        — unix ms when this message auto-deletes (0/null = never)
+ *   • groupReadBy        — comma-separated UIDs who read this message (group read receipts)
+ *   • locationLat/Lng   — coordinates for location message type
+ *   • liveLocationExpiry — when live location sharing expires
+ */
+@Entity(
+    tableName = "messages",
+    indices = {
+        @Index(value = {"chatId", "timestamp"}),
+        @Index(value = {"chatId", "starred"}),
+        @Index(value = {"syncedAt"}),
+        @Index(value = {"disappearAt"}),        // v20: fast query for expired messages
+        @Index(value = {"chatId", "text"})       // v20: search performance
+    }
+)
+public class MessageEntity {
 
-      public String  chatId;
-      public String  senderId;
-      public String  senderName;
-      public String  senderPhoto;
-      public String  text;
-      /** text|image|video|audio|file|location|sticker|gif|poll|status_seen|reel_seen */
-      public String  type;
-      public String  mediaUrl;
-      public String  thumbnailUrl;
-      public String  fileName;
-      public Long    fileSize;
-      public Long    duration;
-      public Long    timestamp;
-      public String  status;
-      public String  replyToId;
-      public String  replyToText;
-      public String  replyToSenderName;
-      public String  replyToType;
-      public String  replyToMediaUrl;
-      public Boolean edited;
-      public Long    editedAt;
-      public Boolean deleted;
-      public String  forwardedFrom;
-      public Boolean starred;
-      public Boolean pinned;
-      public Boolean isGroup;
-      public long    syncedAt;
-      public String  reelId;
-      public String  reelThumbUrl;
-      public String  mediaLocalPath;
-      public String  mediaResourceType;
-      public int     fontStyle;
+    @PrimaryKey
+    @NonNull
+    public String id = "";
 
-      // ── v6 new fields ────────────────────────────────────
-      /** Auto-delete timestamp. 0 = never expires. */
-      public long    expiresAt = 0L;
+    public String chatId;
+    public String senderId;
+    public String senderName;
+    public String senderPhoto;
+    public String text;
+    /** text | image | video | audio | file | location | live_location | status_seen | reel_seen */
+    public String type;
+    public String mediaUrl;
+    public String thumbnailUrl;
+    public String fileName;
+    public Long   fileSize;
+    public Long   duration;
+    public Long   timestamp;
+    /** sent | delivered | read | pending */
+    public String status;
+    public String replyToId;
+    public String replyToText;
+    public String replyToSenderName;
+    public String replyToType;
+    public String replyToMediaUrl;
+    public Boolean edited;
+    public Long   editedAt;
+    public Boolean deleted;
+    public String forwardedFrom;
+    public Boolean starred;
+    public Boolean pinned;
+    public Boolean isGroup;
+    public long syncedAt;
 
-      // Location
-      public double  locationLat = 0.0;
-      public double  locationLng = 0.0;
-      public String  locationName;
+    public String reelId;
+    public String reelThumbUrl;
+    public String statusOwnerUid;
+    public String statusOwnerName;
+    public String statusThumbUrl;
 
-      /** Poll data stored as JSON string (Gson). Non-null when type = "poll" */
-      public String  pollJson;
+    public String mediaLocalPath;
+    public String mediaResourceType;
 
-      /** true = sent via ScheduleMessageManager */
-      public boolean scheduled = false;
+    /** Font style ID — TypingStyleManager.STYLE_* (0–19). Default 0 = Normal. */
+    public int fontStyle;
 
-      /** Comma-separated mentioned UIDs */
-      public String  mentionedUids;
+    // ── v20 NEW: Disappearing Messages ────────────────────────────────────
+    /**
+     * Unix ms when this message auto-deletes.
+     * null / 0 = never (disappearing not enabled for this chat).
+     * DisappearingMessageWorker queries: WHERE disappearAt > 0 AND disappearAt <= now.
+     */
+    public Long disappearAt;
 
-      public MessageEntity() {}
-  }
+    // ── v20 NEW: Group Read Receipts ──────────────────────────────────────
+    /**
+     * Comma-separated UIDs of group members who have read this message.
+     * e.g. "uid1,uid2,uid3"
+     * Firebase path: groups/{groupId}/messages/{msgId}/readBy/{uid} = serverTimestamp
+     * UI: "Read by 3 of 7" in message info screen.
+     */
+    public String groupReadBy;
+
+    // ── v20 NEW: Location Message ─────────────────────────────────────────
+    /** For type = "location" / "live_location". Stored redundantly for fast map rendering. */
+    public Double locationLat;
+    public Double locationLng;
+
+    /** For type = "live_location": unix ms when sharing stops. */
+    public Long liveLocationExpiry;
+
+    public MessageEntity() {}
+}

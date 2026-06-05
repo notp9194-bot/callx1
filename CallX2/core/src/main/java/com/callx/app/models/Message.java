@@ -1,119 +1,128 @@
 package com.callx.app.models;
 
-  import java.util.List;
-  import java.util.Map;
+import java.util.Map;
 
-  /**
-   * Represents a single chat message (1-on-1 or group).
-   *
-   * v6 Production — fields added for new features are annotated.
-   * Firebase serialisation: default no-arg constructor + public fields.
-   */
-  public class Message {
+/**
+ * Represents a single chat message (1-on-1 or group).
+ *
+ * Firebase serialisation uses default no-arg constructor + public fields.
+ *
+ * v20 additions:
+ *   • disappearAt        — unix ms when message auto-deletes (disappearing messages)
+ *   • groupReadBy        — Map<uid, readTimestamp> for group read receipts
+ *   • locationLat/Lng   — for location message type
+ *   • liveLocationExpiry — when live location sharing expires
+ */
+public class Message {
 
-      // ── Core ──────────────────────────────────────────────
-      public String id;
-      public String messageId;       // alias for id — used by adapters
-      public String senderId;
-      public String senderName;
-      public String senderPhoto;
-      public String text;
-      /** text | image | video | audio | file | location | sticker | gif | poll | status_seen | reel_seen */
-      public String type;
-      public String mediaUrl;
-      public String thumbnailUrl;
-      public String fileName;
-      public Long   fileSize;
-      public Long   duration;        // ms — audio/video
-      public Long   timestamp;
-      public String imageUrl;        // legacy — backward compat
+    // ── Core ──────────────────────────────────────────────
+    public String id;
+    /** Alias for id — used by adapters and converters */
+    public String messageId;
+    public String senderId;
+    public String senderName;
+    public String senderPhoto;
+    /**
+     * text | image | video | audio | file
+     * | location | live_location
+     * | status_seen | reel_seen
+     */
+    public String type;
+    public String mediaUrl;
+    public String thumbnailUrl;
+    public String fileName;
+    public Long   fileSize;
+    public Long   duration;     // ms — audio/video
+    public Long   timestamp;
+    /** Legacy field kept for backward compatibility */
+    public String imageUrl;
 
-      // ── Feature 1: Read Receipts ──────────────────────────
-      /** sent | delivered | read */
-      public String status;
+    // ── Text content ──────────────────────────────────────
+    /**
+     * For type=text/audio: message text.
+     * For type=location: "location|lat|lng|address" (see LocationMessageHelper).
+     * For type=live_location: "location|lat|lng|address".
+     */
+    public String text;
 
-      // ── Feature 2: Reply / Quote ──────────────────────────
-      public String replyToId;
-      public String replyToText;
-      public String replyToSenderName;
-      public String replyToType;
-      public String replyToMediaUrl;
+    // ── Feature 1: Read Receipts ──────────────────────────
+    /** sent | delivered | read */
+    public String status;
 
-      // ── Feature 3: Emoji Reactions ────────────────────────
-      /** Map of uid → emoji */
-      public Map<String, String> reactions;
+    // ── Feature 2: Reply / Quote ──────────────────────────
+    public String replyToId;
+    public String replyToText;
+    public String replyToSenderName;
+    public String replyToType;
+    public String replyToMediaUrl;
 
-      // ── Feature 4: Message Editing ────────────────────────
-      public Boolean edited;
-      public Long    editedAt;
+    // ── Feature 3: Emoji Reactions ────────────────────────
+    /** Map of uid → emoji. Firebase path: messages/{id}/reactions/{uid} */
+    public Map<String, String> reactions;
 
-      // ── Feature 5: Delete for Everyone ───────────────────
-      public Boolean deleted;
+    // ── Feature 4: Message Editing ────────────────────────
+    public Boolean edited;
+    public Long    editedAt;
 
-      // ── Feature 6: Forward ───────────────────────────────
-      public String forwardedFrom;
+    // ── Feature 5: Delete for Everyone ───────────────────
+    public Boolean deleted;
 
-      // ── Feature 7: Starred ───────────────────────────────
-      public Boolean starred;
+    // ── Feature 6: Forward ───────────────────────────────
+    public String forwardedFrom;
 
-      // ── Feature 8: Pinned ────────────────────────────────
-      public Boolean pinned;
+    // ── Feature 7: Starred ───────────────────────────────
+    public Boolean starred;
 
-      // ── Feature 9: Reel Seen Bubble ──────────────────────
-      public String reelId;
-      public String reelThumbUrl;
+    // ── Feature 8: Pinned ────────────────────────────────
+    public Boolean pinned;
 
-      // ── Feature 10: Status Seen Bubble ───────────────────
-      public String statusOwnerUid;
-      public String statusOwnerName;
-      public String statusThumbUrl;
+    // ── Feature 9: Reel Seen Bubble ──────────────────────
+    public String reelId;
+    public String reelThumbUrl;
 
-      // ── Group flag ───────────────────────────────────────
-      public boolean isGroup;
+    // ── Feature 10: Status Seen Bubble ───────────────────
+    public String statusOwnerUid;
+    public String statusOwnerName;
+    public String statusThumbUrl;
 
-      // ── Typing Font Style ────────────────────────────────
-      public int fontStyle;  // 0 = Normal. Maps to TypingStyleManager.STYLE_*
+    // ── Group flag ───────────────────────────────────────
+    public boolean isGroup;
 
-      // ═══════════════════════════════════════════════════════
-      // v6 NEW FEATURES
-      // ═══════════════════════════════════════════════════════
+    // ── Font Style ───────────────────────────────────────
+    public int fontStyle;
 
-      // ── v6 Feature A: Disappearing Messages ──────────────
-      /** Unix ms — when this message auto-deletes. 0 / null = never */
-      public Long expiresAt;
+    // ── v20 NEW: Disappearing Messages ───────────────────
+    /**
+     * Unix ms when this message auto-deletes on all devices.
+     * null / 0 = never.
+     * Set by sender: disappearAt = timestamp + chat.disappearTimer.
+     * Firebase path: messages/{id}/disappearAt
+     */
+    public Long disappearAt;
 
-      // ── v6 Feature B: Location Sharing ───────────────────
-      /** Set when type = "location" */
-      public Double locationLat;
-      public Double locationLng;
-      public String locationName;
+    // ── v20 NEW: Group Read Receipts ─────────────────────
+    /**
+     * Map of uid → readTimestamp for group messages.
+     * Firebase path: groups/{groupId}/messages/{msgId}/readBy/{uid} = serverTimestamp
+     * UI: "Read by N of M members" in long-press message info.
+     * Note: For 1:1 chats, use the 'status' field instead.
+     */
+    public Map<String, Long> groupReadBy;
 
-      // ── v6 Feature C: Poll ───────────────────────────────
-      /** Set when type = "poll" */
-      public String               pollQuestion;
-      /** optId → {text, votes{uid:true}} */
-      public Map<String, PollOption> pollOptions;
-      public Boolean              pollMultiple;   // allow multiple votes
-      public Boolean              pollAnonymous;  // hide voter identities
+    // ── v20 NEW: Location Message ─────────────────────────
+    /**
+     * For type = "location" or "live_location".
+     * Coordinates stored separately for fast map SDK rendering.
+     * Address is also embedded in text field as: "location|lat|lng|address".
+     */
+    public Double locationLat;
+    public Double locationLng;
 
-      // ── v6 Feature D: Sticker / GIF ──────────────────────
-      // type = "sticker" or "gif" — mediaUrl holds the CDN URL
+    /**
+     * For type = "live_location": unix ms when sharing stops.
+     * After expiry, receiver sees "Stopped sharing location" state.
+     */
+    public Long liveLocationExpiry;
 
-      // ── v6 Feature E: Scheduled Message ──────────────────
-      public Boolean scheduled;     // true if sent via ScheduleMessageManager
-      public Long    scheduledFor;  // original scheduled timestamp (ms)
-
-      // ── v6 Feature F: @Mentions ──────────────────────────
-      /** UIDs of users mentioned via @ in this message */
-      public List<String> mentionedUids;
-
-      // ── PollOption inner class ────────────────────────────
-      public static class PollOption {
-          public String text;
-          /** uid → true */
-          public Map<String, Boolean> votes;
-          public PollOption() {}
-      }
-
-      public Message() {}
-  }
+    public Message() {}
+}

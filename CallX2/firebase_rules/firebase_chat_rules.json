@@ -1,6 +1,7 @@
 {
   "_comment": "CallX — Firebase Realtime Database Security Rules (Chat Module)",
-  "_version": "production-v1",
+  "_version": "production-v2",
+  "_changelog": "v2 (v20): Group chat rules + live location + disappearing messages + group_keys",
   "_deploy": "firebase deploy --only database",
   "_instructions": [
     "1. Install Firebase CLI: npm install -g firebase-tools",
