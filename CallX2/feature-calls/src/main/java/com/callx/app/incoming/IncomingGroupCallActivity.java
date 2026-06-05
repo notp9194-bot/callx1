@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.incoming;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -21,6 +21,7 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.animation.DecelerateInterpolator;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.group.GroupCallActivity;
 
 /**
  * IncomingGroupCallActivity — Full-screen incoming group call UI.

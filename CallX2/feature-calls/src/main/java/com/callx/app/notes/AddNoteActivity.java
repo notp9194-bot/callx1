@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.notes;
 
 import android.content.Intent;
 import android.net.Uri;

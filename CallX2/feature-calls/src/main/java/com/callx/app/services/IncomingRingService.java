@@ -18,7 +18,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.Person;
 import com.callx.app.calls.R;
-import com.callx.app.activities.IncomingCallActivity;
+import com.callx.app.incoming.IncomingCallActivity;
 import com.callx.app.utils.Constants;
 
 /**

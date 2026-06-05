@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.group;
 
 import android.view.LayoutInflater;
 import android.view.View;
@@ -9,7 +9,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.calls.R;
-import com.callx.app.activities.GroupCallActivity;
+import com.callx.app.group.GroupCallActivity;
 import org.webrtc.EglBase;
 import org.webrtc.SurfaceViewRenderer;
 import java.util.List;

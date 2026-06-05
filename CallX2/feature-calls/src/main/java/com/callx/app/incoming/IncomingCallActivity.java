@@ -1,4 +1,4 @@
-  package com.callx.app.activities;
+  package com.callx.app.incoming;
   import android.app.NotificationManager;
   import android.content.Context;
   import android.animation.ObjectAnimator;
@@ -28,10 +28,10 @@
   import com.callx.app.db.AppDatabase;
   import com.callx.app.db.entity.CallLogEntity;
   import androidx.annotation.NonNull;
-import com.callx.app.utils.FirebaseUtils;
   import java.util.HashMap;
   import java.util.Map;
   import java.util.concurrent.Executors;
+import com.callx.app.call.CallActivity;
   public class IncomingCallActivity extends AppCompatActivity {
       private ActivityIncomingCallBinding binding;
       private MediaPlayer ringtonePlayer;

@@ -19,7 +19,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.Person;
 import com.callx.app.calls.R;
-import com.callx.app.activities.IncomingGroupCallActivity;
+import com.callx.app.incoming.IncomingGroupCallActivity;
 import com.callx.app.utils.Constants;
 
 /**

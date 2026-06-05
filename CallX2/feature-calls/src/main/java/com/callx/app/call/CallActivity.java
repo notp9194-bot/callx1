@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.call;
 
 import android.Manifest;
 import android.app.PictureInPictureParams;
@@ -69,6 +69,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
+import com.callx.app.notes.AddNoteActivity;
 
 public class CallActivity extends AppCompatActivity {
 

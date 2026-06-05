@@ -55,6 +55,8 @@ import com.callx.app.profile.UserReelsActivity;
   import com.bumptech.glide.request.transition.Transition;
   import androidx.annotation.Nullable;
 import com.callx.app.group.NewGroupActivity;
+import com.callx.app.call.CallActivity;
+import com.callx.app.services.CallForegroundService;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -362,7 +364,7 @@ public class MainActivity extends AppCompatActivity {
 
                 Intent i = new Intent();
                 i.setClassName(this,
-                    "com.callx.app.activities.CallActivity");
+                    "com.callx.app.call.CallActivity");
                 i.putExtra("partnerUid",   uid);
                 i.putExtra("partnerName",  name);
                 i.putExtra("partnerPhoto", photo);

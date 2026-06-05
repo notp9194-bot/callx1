@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.group;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
@@ -32,7 +32,7 @@ import android.widget.LinearLayout;
 import android.widget.FrameLayout;
 
 import com.callx.app.calls.R;
-import com.callx.app.adapters.GroupCallParticipantAdapter;
+import com.callx.app.group.GroupCallParticipantAdapter;
 import com.callx.app.services.GroupCallForegroundService;
 import com.callx.app.services.GroupCallRingService;
 import com.callx.app.utils.Constants;
@@ -80,6 +80,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.callx.app.history.CallsFragment;
 
 /**
  * GroupCallActivity — Production-grade WebRTC mesh group call.

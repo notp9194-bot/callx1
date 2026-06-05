@@ -12,7 +12,7 @@ import android.os.Looper;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import com.callx.app.calls.R;
-import com.callx.app.activities.GroupCallActivity;
+import com.callx.app.group.GroupCallActivity;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
 import com.callx.app.utils.Constants;

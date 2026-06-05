@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
-        <activity android:name="com.callx.app.activities.CallActivity"
+        <activity android:name="com.callx.app.call.CallActivity"
             android:exported="false"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
             android:showWhenLocked="true"
             android:turnScreenOn="true"/>
-        <activity android:name="com.callx.app.activities.IncomingCallActivity"
+        <activity android:name="com.callx.app.incoming.IncomingCallActivity"
             android:exported="false"
             android:launchMode="singleInstance"
             android:screenOrientation="portrait"
@@ -15,14 +15,14 @@
             android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"/>
-        <activity android:name="com.callx.app.activities.GroupCallActivity"
+        <activity android:name="com.callx.app.group.GroupCallActivity"
             android:exported="false"
             android:launchMode="singleTask"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
             android:showWhenLocked="true"
             android:turnScreenOn="true"/>
-        <activity android:name="com.callx.app.activities.IncomingGroupCallActivity"
+        <activity android:name="com.callx.app.incoming.IncomingGroupCallActivity"
             android:exported="false"
             android:launchMode="singleInstance"
             android:screenOrientation="portrait"
@@ -30,12 +30,12 @@
             android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"/>
-        <activity android:name="com.callx.app.activities.AddNoteActivity"
+        <activity android:name="com.callx.app.notes.AddNoteActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait"/>
 
-        <activity android:name="com.callx.app.activities.GroupCallSettingsActivity"
+        <activity android:name="com.callx.app.group.GroupCallSettingsActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 

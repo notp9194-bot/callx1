@@ -1,4 +1,4 @@
-package com.callx.app.fragments;
+package com.callx.app.history;
 
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -15,7 +15,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.calls.R;
 
-import com.callx.app.adapters.CallHistoryAdapter;
+import com.callx.app.history.CallHistoryAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
 import com.callx.app.models.CallLog;
@@ -25,7 +25,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
 import com.google.firebase.auth.FirebaseAuth;
 import de.hdodenhof.circleimageview.CircleImageView;
-import com.callx.app.adapters.ContactCallHistoryAdapter;
+import com.callx.app.history.ContactCallHistoryAdapter;
 import android.widget.Button;
 import android.os.Handler;
 import android.os.Looper;
@@ -36,6 +36,7 @@ import android.animation.AnimatorListenerAdapter;
 
 import java.util.*;
 import java.util.concurrent.Executors;
+import com.callx.app.call.CallActivity;
 
 public class CallsFragment extends Fragment implements CallHistoryAdapter.SelectionListener {
 
@@ -253,7 +254,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             sheet.dismiss();
             if (log.partnerUid == null || getContext() == null) return;
             Intent i = new Intent().setClassName(getContext().getPackageName(),
-                "com.callx.app.activities.CallActivity");
+                "com.callx.app.call.CallActivity");
             i.putExtra("partnerUid",  log.partnerUid);
             i.putExtra("partnerName", log.partnerName != null ? log.partnerName : "");
             i.putExtra("isCaller", true);
@@ -266,7 +267,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             sheet.dismiss();
             if (log.partnerUid == null || getContext() == null) return;
             Intent i = new Intent().setClassName(getContext().getPackageName(),
-                "com.callx.app.activities.CallActivity");
+                "com.callx.app.call.CallActivity");
             i.putExtra("partnerUid",  log.partnerUid);
             i.putExtra("partnerName", log.partnerName != null ? log.partnerName : "");
             i.putExtra("isCaller", true);

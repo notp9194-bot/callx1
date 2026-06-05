@@ -12,7 +12,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.callx.app.R;
-import com.callx.app.activities.CallActivity;
+import com.callx.app.call.CallActivity;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.models.User;

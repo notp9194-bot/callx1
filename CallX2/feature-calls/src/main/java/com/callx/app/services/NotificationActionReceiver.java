@@ -17,6 +17,8 @@ import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ServerValue;
 import java.util.HashMap;
 import java.util.Map;
+import com.callx.app.call.CallActivity;
+import com.callx.app.incoming.IncomingCallActivity;
 public class NotificationActionReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
         // Fix 3: goAsync() — OS ko batao ki background kaam chal raha hai
@@ -133,7 +135,7 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                   boolean cbIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
                   String  cbPhoto   = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
                   Intent callIntent = new Intent(context,
-                      com.callx.app.activities.CallActivity.class);
+                      com.callx.app.call.CallActivity.class);
                   callIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
                   callIntent.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
                   if (cbPhoto != null) callIntent.putExtra("partnerPhoto", cbPhoto);
@@ -180,7 +182,7 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               context.stopService(new android.content.Intent(context,
                   com.callx.app.services.IncomingRingService.class));
               android.content.Intent open = new android.content.Intent(context,
-                  com.callx.app.activities.IncomingCallActivity.class);
+                  com.callx.app.incoming.IncomingCallActivity.class);
               open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
                   | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
               open.putExtra(Constants.EXTRA_CALL_ID,       callId);

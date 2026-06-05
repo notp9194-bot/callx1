@@ -32,6 +32,7 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.conversation.ChatActivity;
+import com.callx.app.call.CallActivity;
 
 /**
  * UserProfileActivity — Chat header avatar click ya 3-dot "View Profile" se open hoti hai.
@@ -274,7 +275,7 @@ public class UserProfileActivity extends AppCompatActivity {
     /** Start voice or video call */
     private void startCall(boolean isVideo) {
         try {
-            Intent i = new Intent().setClassName(this, "com.callx.app.activities.CallActivity");
+            Intent i = new Intent().setClassName(this, "com.callx.app.call.CallActivity");
             i.putExtra("partnerUid",   partnerUid);
             i.putExtra("partnerName",  partnerName  != null ? partnerName  : "");
             i.putExtra("partnerPhoto", partnerPhoto != null ? partnerPhoto : "");

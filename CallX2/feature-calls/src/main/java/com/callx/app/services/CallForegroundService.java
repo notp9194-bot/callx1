@@ -12,7 +12,7 @@ import androidx.annotation.Nullable;
 import androidx.core.graphics.drawable.IconCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.Person;
-import com.callx.app.activities.CallActivity;
+import com.callx.app.call.CallActivity;
 import com.callx.app.utils.Constants;
 import java.net.HttpURLConnection;
 import java.net.URL;

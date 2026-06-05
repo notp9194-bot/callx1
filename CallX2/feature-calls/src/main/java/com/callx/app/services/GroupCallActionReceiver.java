@@ -7,6 +7,7 @@ import android.content.Intent;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
+import com.callx.app.group.GroupCallActivity;
 
 /**
  * GroupCallActionReceiver — handles notification action broadcasts for group calls.

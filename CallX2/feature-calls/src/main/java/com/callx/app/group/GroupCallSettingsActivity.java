@@ -1,4 +1,4 @@
-package com.callx.app.activities;
+package com.callx.app.group;
 
 import android.content.SharedPreferences;
 import android.os.Bundle;

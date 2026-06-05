@@ -1,4 +1,4 @@
-package com.callx.app.adapters;
+package com.callx.app.history;
 
 import android.content.Context;
 import android.content.Intent;
@@ -9,7 +9,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.calls.R;
-import com.callx.app.activities.CallActivity;
+import com.callx.app.call.CallActivity;
 import com.callx.app.models.CallLog;
 import com.callx.app.utils.FileUtils;
 

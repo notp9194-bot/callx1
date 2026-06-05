@@ -3,7 +3,7 @@ import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
-import com.callx.app.fragments.CallsFragment;
+import com.callx.app.history.CallsFragment;
 import com.callx.app.chatlist.ChatsFragment;
 import com.callx.app.group.GroupsFragment;
 import com.callx.app.feed.ReelsFragment;

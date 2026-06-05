@@ -20,8 +20,8 @@ import androidx.core.graphics.drawable.IconCompat;
 import com.callx.app.CallxApp;
 import com.callx.app.R;
 import com.callx.app.conversation.ChatActivity;
-import com.callx.app.activities.IncomingCallActivity;
-import com.callx.app.activities.IncomingGroupCallActivity;
+import com.callx.app.incoming.IncomingCallActivity;
+import com.callx.app.incoming.IncomingGroupCallActivity;
 import com.callx.app.activities.MainActivity;
 import com.callx.app.activities.SpecialRequestPopupActivity;
 import com.callx.app.cache.CacheManager;
@@ -54,6 +54,9 @@ import android.net.NetworkInfo;
 import android.telephony.TelephonyManager;
 import com.callx.app.notifications.ReelFCMNotificationHandler;
 import com.callx.app.group.GroupChatActivity;
+import com.callx.app.services.GroupCallRingService;
+import com.callx.app.services.IncomingRingService;
+import com.callx.app.services.NotificationActionReceiver;
 public class CallxMessagingService extends FirebaseMessagingService {
     @Override public void onNewToken(String token) {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
