@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -25,9 +26,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 /**
  * TypingStyleBottomSheet
  *
- * Colorful Instagram/BubbleShape-style bottom sheet for picking typing style.
- * Each row has a unique gradient matching its font personality.
- * Selected item shows a glowing check indicator.
+ * 55% screen height, scrollable inside, drag-down to close.
  */
 public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
 
@@ -47,38 +46,35 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         this.listener = l;
     }
 
-    // ── Per-style gradient colours [start, end] ───────────────────────────
-    // 26 styles — each has a unique vibe colour pair
     private static final int[][] STYLE_COLORS = {
-        {0xFF6366F1, 0xFF8B5CF6},  //  0 Normal          — indigo → violet
-        {0xFF0EA5E9, 0xFF1D4ED8},  //  1 Bold             — sky → blue
-        {0xFFEC4899, 0xFFF43F5E},  //  2 Italic           — pink → rose
-        {0xFF7C3AED, 0xFFDB2777},  //  3 Bold Italic      — purple → pink
-        {0xFF0F766E, 0xFF0284C7},  //  4 Monospace        — teal → sky
-        {0xFF92400E, 0xFFD97706},  //  5 Serif            — brown → amber
-        {0xFF854D0E, 0xFFC2410C},  //  6 Serif Bold       — dark amber → orange
-        {0xFF374151, 0xFF6B7280},  //  7 Condensed        — charcoal → grey
-        {0xFF2563EB, 0xFF60A5FA},  //  8 Light            — blue → light blue
-        {0xFF16A34A, 0xFF86EFAC},  //  9 Casual           — green → mint
-        {0xFF7C3AED, 0xFFA855F7},  // 10 Medium           — purple → violet
-        {0xFF64748B, 0xFF94A3B8},  // 11 Thin             — slate → light slate
-        {0xFFD97706, 0xFFF59E0B},  // 12 Serif Italic     — amber → yellow
-        {0xFF0F172A, 0xFF1E293B},  // 13 Condensed Bold   — charcoal → slate
-        {0xFF111827, 0xFF374151},  // 14 Black/Heavy       — near-black → dark
-        {0xFFDB2777, 0xFFEC4899},  // 15 Cursive          — pink → rose
-        {0xFF0EA5E9, 0xFF38BDF8},  // 16 Sans Medium      — sky → light sky
-        {0xFF1D4ED8, 0xFF3B82F6},  // 17 Mono Bold        — dark blue → blue
-        {0xFF9333EA, 0xFFC084FC},  // 18 Light Italic     — purple → lilac
-        {0xFF15803D, 0xFF4ADE80},  // 19 Classic Bold     — green → light green
-        {0xFF0369A1, 0xFF0EA5E9},  // 20 Samsung One      — deep sky → sky
-        {0xFFDB2777, 0xFFF0ABFC},  // 21 Script ✨        — rose → lilac
-        {0xFF6B21A8, 0xFF7C3AED},  // 22 Serif Condensed  — dark purple → purple
-        {0xFF065F46, 0xFF0D9488},  // 23 Mono Italic      — emerald → teal
-        {0xFF1E40AF, 0xFF6366F1},  // 24 Condensed Light  — dark blue → indigo
-        {0xFFB91C1C, 0xFFF97316},  // 25 Sans Bold Condensed — red → orange
+        {0xFF6366F1, 0xFF8B5CF6},  //  0 Normal
+        {0xFF0EA5E9, 0xFF1D4ED8},  //  1 Bold
+        {0xFFEC4899, 0xFFF43F5E},  //  2 Italic
+        {0xFF7C3AED, 0xFFDB2777},  //  3 Bold Italic
+        {0xFF0F766E, 0xFF0284C7},  //  4 Monospace
+        {0xFF92400E, 0xFFD97706},  //  5 Serif
+        {0xFF854D0E, 0xFFC2410C},  //  6 Serif Bold
+        {0xFF374151, 0xFF6B7280},  //  7 Condensed
+        {0xFF2563EB, 0xFF60A5FA},  //  8 Light
+        {0xFF16A34A, 0xFF86EFAC},  //  9 Casual
+        {0xFF7C3AED, 0xFFA855F7},  // 10 Medium
+        {0xFF64748B, 0xFF94A3B8},  // 11 Thin
+        {0xFFD97706, 0xFFF59E0B},  // 12 Serif Italic
+        {0xFF0F172A, 0xFF1E293B},  // 13 Condensed Bold
+        {0xFF111827, 0xFF374151},  // 14 Black/Heavy
+        {0xFFDB2777, 0xFFEC4899},  // 15 Cursive
+        {0xFF0EA5E9, 0xFF38BDF8},  // 16 Sans Medium
+        {0xFF1D4ED8, 0xFF3B82F6},  // 17 Mono Bold
+        {0xFF9333EA, 0xFFC084FC},  // 18 Light Italic
+        {0xFF15803D, 0xFF4ADE80},  // 19 Classic Bold
+        {0xFF0369A1, 0xFF0EA5E9},  // 20 Samsung One
+        {0xFFDB2777, 0xFFF0ABFC},  // 21 Script ✨
+        {0xFF6B21A8, 0xFF7C3AED},  // 22 Serif Condensed
+        {0xFF065F46, 0xFF0D9488},  // 23 Mono Italic
+        {0xFF1E40AF, 0xFF6366F1},  // 24 Condensed Light
+        {0xFFB91C1C, 0xFFF97316},  // 25 Sans Bold Condensed
     };
 
-    // Short description per style
     private static final String[] STYLE_DESC = {
         "Regular weight, default look",
         "Strong & heavy text",
@@ -121,12 +117,11 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
                              @Nullable Bundle savedInstanceState) {
         Context ctx = requireContext();
 
-        // Root — dark gradient background
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(buildSheetBackground());
 
-        // ── Drag handle ────────────────────────────────────────────────
+        // Drag handle
         FrameLayout handleBar = new FrameLayout(ctx);
         handleBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(32)));
@@ -141,7 +136,7 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         handleBar.addView(handle);
         root.addView(handleBar);
 
-        // ── Header ─────────────────────────────────────────────────────
+        // Header
         TextView header = new TextView(ctx);
         LinearLayout.LayoutParams hp2 = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -154,7 +149,7 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         header.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         root.addView(header);
 
-        // ── Rainbow divider ─────────────────────────────────────────────
+        // Rainbow divider
         View divider = new View(ctx);
         LinearLayout.LayoutParams divP = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(2));
@@ -163,12 +158,13 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         divider.setBackground(buildRainbowDivider());
         root.addView(divider);
 
-        // ── Scrollable list ─────────────────────────────────────────────
+        // Scrollable list
         ScrollView scroll = new ScrollView(ctx);
         scroll.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+                LinearLayout.LayoutParams.MATCH_PARENT));
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setFillViewport(true);
 
         LinearLayout list = new LinearLayout(ctx);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -197,9 +193,18 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             BottomSheetBehavior<FrameLayout> behavior = d.getBehavior();
-            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-            behavior.setSkipCollapsed(true);
-            behavior.setDraggable(false);
+
+            // 55% screen height
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int sheetHeight = (int) (dm.heightPixels * 0.55f);
+
+            behavior.setPeekHeight(sheetHeight, false);
+            behavior.setMaxHeight(sheetHeight);
+            behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+            behavior.setSkipCollapsed(false);
+            behavior.setHideable(true);
+            behavior.setDraggable(true);
+            behavior.setFitToContents(true);
         }
     }
 
@@ -207,7 +212,6 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         boolean isSelected = (index == currentStyle);
         int[] clrs = STYLE_COLORS[index % STYLE_COLORS.length];
 
-        // Card container
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
@@ -222,7 +226,6 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         card.setBackground(buildRowBackground(clrs[0], clrs[1], isSelected));
         card.setMinimumHeight(dp(62));
 
-        // Gradient colour swatch (left accent bar)
         View swatch = new View(ctx);
         LinearLayout.LayoutParams swP = new LinearLayout.LayoutParams(dp(6), dp(38));
         swP.setMarginEnd(dp(14));
@@ -233,7 +236,6 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         swBg.setCornerRadius(dp(3));
         swatch.setBackground(swBg);
 
-        // Text block
         LinearLayout textBlock = new LinearLayout(ctx);
         textBlock.setOrientation(LinearLayout.VERTICAL);
         textBlock.setLayoutParams(new LinearLayout.LayoutParams(0,
@@ -259,7 +261,6 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         textBlock.addView(nameTv);
         textBlock.addView(descTv);
 
-        // Check indicator
         TextView check = new TextView(ctx);
         check.setText("✓");
         check.setTextSize(18f);
@@ -276,11 +277,10 @@ public class TypingStyleBottomSheet extends BottomSheetDialogFragment {
         card.addView(textBlock);
         card.addView(check);
 
-        // Samsung style — submenu
         card.setOnClickListener(v -> {
             if (index == TypingStyleManager.STYLE_SAMSUNG) {
                 dismiss();
-                if (listener != null) listener.onStyleSelected(-1); // signal: show samsung submenu
+                if (listener != null) listener.onStyleSelected(-1);
                 return;
             }
             TypingStyleManager.get(ctx).setStyle(index);

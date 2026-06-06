@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -25,9 +26,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 /**
  * ChatThemeBottomSheet
  *
- * Colorful Instagram/BubbleShape-style bottom sheet for picking bubble theme.
- * Each row previews the theme's actual sent/received bubble colours.
- * Selected item shows a glowing check indicator.
+ * 55% screen height, scrollable top-to-bottom inside, drag-down to close.
  */
 public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
 
@@ -48,7 +47,6 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
     }
 
     // ── Per-theme sent bubble [start, end] gradient + received colour ─────
-    // Mirrors ChatThemeManager's actual colours for accurate preview
     private static final int[][] THEME_SENT_COLORS = {
         {0xFFFF0080, 0xFFFF6B00},  //  0 Hybrid (Default) — magenta → orange
         {0xFF0EA5E9, 0xFF6366F1},  //  1 Ocean            — sky → indigo
@@ -63,7 +61,6 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         {0xFF6F3F1F, 0xFFD97706},  // 10 Coffee           — espresso → amber
         {0xFF00C853, 0xFFFF0088},  // 11 Neon Glow        — green → neon-pink
         {0xFFB8860B, 0xFF7B1C3C},  // 12 Royal            — dark-gold → burgundy
-        // 5 new
         {0xFF7B2FBE, 0xFF4361EE},  // 13 Galaxy           — deep-purple → electric-blue
         {0xFFFF6EB4, 0xFFFF9FD8},  // 14 Candy            — hot-pink → bubblegum
         {0xFFFF3A00, 0xFFFFA500},  // 15 Fire             — flame-red → orange
@@ -85,7 +82,6 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         0xFFD4A97A,  // 10 Coffee    — latte
         0xFF00BFA5,  // 11 Neon      — teal glow
         0xFFFFE066,  // 12 Royal     — champagne
-        // 5 new
         0xFFBB86FC,  // 13 Galaxy    — lavender
         0xFF98F5E1,  // 14 Candy     — mint
         0xFFFFCB69,  // 15 Fire      — light-amber
@@ -107,7 +103,6 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         "Warm Espresso / Caramel latte",
         "Electric Green / Neon Pink glow",
         "Deep Gold to Burgundy / Champagne",
-        // 5 new
         "Deep Space Blue to Nebula Purple / Lavender glow",
         "Bubblegum Pink to Mint / Pastel shades",
         "Flame Red to Lava Orange / Ember glow",
@@ -128,6 +123,7 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
                              @Nullable Bundle savedInstanceState) {
         Context ctx = requireContext();
 
+        // ── Root container ─────────────────────────────────────────────
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(buildSheetBackground());
@@ -169,12 +165,13 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         divider.setBackground(buildRainbowDivider());
         root.addView(divider);
 
-        // ── Scrollable list ─────────────────────────────────────────────
+        // ── Scrollable list (fills remaining 55% height) ────────────────
         ScrollView scroll = new ScrollView(ctx);
         scroll.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+                LinearLayout.LayoutParams.MATCH_PARENT));  // fills sheet height
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setFillViewport(true);
 
         LinearLayout list = new LinearLayout(ctx);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -203,9 +200,18 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             BottomSheetBehavior<FrameLayout> behavior = d.getBehavior();
-            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-            behavior.setSkipCollapsed(true);
-            behavior.setDraggable(false);
+
+            // 55% screen height
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int sheetHeight = (int) (dm.heightPixels * 0.55f);
+
+            behavior.setPeekHeight(sheetHeight, false);
+            behavior.setMaxHeight(sheetHeight);
+            behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+            behavior.setSkipCollapsed(false);
+            behavior.setHideable(true);          // drag niche se close ho
+            behavior.setDraggable(true);         // drag enable
+            behavior.setFitToContents(true);
         }
     }
 
@@ -214,7 +220,6 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         int[] sentClrs = THEME_SENT_COLORS[index % THEME_SENT_COLORS.length];
         int recvClr    = THEME_RECEIVED_COLORS[index % THEME_RECEIVED_COLORS.length];
 
-        // Card
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
@@ -229,7 +234,7 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         card.setBackground(buildRowBackground(sentClrs[0], sentClrs[1], isSelected));
         card.setMinimumHeight(dp(66));
 
-        // ── Mini bubble preview (two small pills side by side) ─────────
+        // Mini bubble preview
         LinearLayout previewBox = new LinearLayout(ctx);
         previewBox.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams pbLp = new LinearLayout.LayoutParams(dp(60), LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -237,18 +242,15 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         previewBox.setLayoutParams(pbLp);
         previewBox.setGravity(Gravity.END);
 
-        // Sent bubble pill
         TextView sentPill = new TextView(ctx);
         LinearLayout.LayoutParams spLp = new LinearLayout.LayoutParams(dp(48), dp(18));
         spLp.bottomMargin = dp(4);
         sentPill.setLayoutParams(spLp);
         GradientDrawable sentBg = new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                sentClrs);
+                GradientDrawable.Orientation.LEFT_RIGHT, sentClrs);
         sentBg.setCornerRadius(dp(9));
         sentPill.setBackground(sentBg);
 
-        // Received bubble pill
         TextView recvPill = new TextView(ctx);
         LinearLayout.LayoutParams rpLp = new LinearLayout.LayoutParams(dp(40), dp(18));
         recvPill.setLayoutParams(rpLp);
@@ -260,7 +262,7 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         previewBox.addView(sentPill);
         previewBox.addView(recvPill);
 
-        // ── Text block ─────────────────────────────────────────────────
+        // Text block
         LinearLayout textBlock = new LinearLayout(ctx);
         textBlock.setOrientation(LinearLayout.VERTICAL);
         textBlock.setLayoutParams(new LinearLayout.LayoutParams(0,
@@ -286,7 +288,7 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         textBlock.addView(nameTv);
         textBlock.addView(descTv);
 
-        // ── Check ──────────────────────────────────────────────────────
+        // Check indicator
         TextView check = new TextView(ctx);
         check.setText("✓");
         check.setTextSize(18f);

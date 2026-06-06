@@ -3,6 +3,7 @@ package com.callx.app.chat.ui;
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -24,14 +25,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 /**
  * BubbleShapeBottomSheet
  *
- * Colourful Instagram/Reel-style bottom sheet for picking bubble shape.
- * Each row has a gradient colour accent matching its style personality.
- * Selected item shows a glowing check indicator.
- *
- * Usage:
- *   BubbleShapeBottomSheet sheet = BubbleShapeBottomSheet.newInstance();
- *   sheet.setOnShapeSelectedListener(which -> adapter.notifyDataSetChanged());
- *   sheet.show(getSupportFragmentManager(), BubbleShapeBottomSheet.TAG);
+ * 55% screen height, scrollable inside, drag-down to close.
  */
 public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
 
@@ -51,34 +45,32 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         this.listener = l;
     }
 
-    // ── Per-shape gradient colours [start, end] ───────────────────────────
-    // 25 shapes — each has a unique vibe colour pair
     private static final int[][] SHAPE_COLORS = {
-        {0xFF6366F1, 0xFF8B5CF6},  //  0 Classic Rounded  — indigo → violet
-        {0xFF10B981, 0xFF06B6D4},  //  1 Tail WhatsApp     — emerald → cyan
-        {0xFFEC4899, 0xFFF43F5E},  //  2 Pill              — pink → rose
-        {0xFF64748B, 0xFF94A3B8},  //  3 Square            — slate → light slate
-        {0xFF8B5CF6, 0xFFD946EF},  //  4 Squircle          — purple → fuchsia
-        {0xFFEF4444, 0xFFF97316},  //  5 Sharp Tail        — red → orange
-        {0xFFF59E0B, 0xFFEAB308},  //  6 Double Tail       — amber → yellow
-        {0xFF22C55E, 0xFF86EFAC},  //  7 Leaf              — green → light green
-        {0xFF38BDF8, 0xFF818CF8},  //  8 Cloud             — sky → indigo
-        {0xFF0EA5E9, 0xFF6366F1},  //  9 Diamond Cut       — sky → indigo
-        {0xFF14B8A6, 0xFF06B6D4},  // 10 Teardrop          — teal → cyan
-        {0xFFA78BFA, 0xFFC084FC},  // 11 Wave              — violet → purple
-        {0xFFFF6B6B, 0xFFFFE66D},  // 12 Notch             — coral → yellow
-        {0xFF34D399, 0xFF6EE7B7},  // 13 Pebble            — emerald → mint
-        {0xFF374151, 0xFF6B7280},  // 14 Sharp Edge        — charcoal → grey
-        {0xFFDB2777, 0xFF9333EA},  // 15 Ribbon            — pink → purple
-        {0xFFF97316, 0xFFFBBF24},  // 16 Shield            — orange → amber
-        {0xFF0284C7, 0xFF7C3AED},  // 17 Ticket            — blue → purple
-        {0xFF10B981, 0xFF0EA5E9},  // 18 Gem Cut           — emerald → sky
-        {0xFF64748B, 0xFF38BDF8},  // 19 Soft Tail         — slate → sky
-        {0xFF7C3AED, 0xFFEC4899},  // 20 Bullet            — purple → pink
-        {0xFF0EA5E9, 0xFF14B8A6},  // 21 Raindrop          — sky → teal
-        {0xFFF59E0B, 0xFFEF4444},  // 22 Toast             — amber → red
-        {0xFF6366F1, 0xFF06B6D4},  // 23 Arch              — indigo → cyan
-        {0xFFDB2777, 0xFFEAB308},  // 24 Bowtie            — pink → yellow
+        {0xFF6366F1, 0xFF8B5CF6},  //  0 Classic Rounded
+        {0xFF10B981, 0xFF06B6D4},  //  1 Tail WhatsApp
+        {0xFFEC4899, 0xFFF43F5E},  //  2 Pill
+        {0xFF64748B, 0xFF94A3B8},  //  3 Square
+        {0xFF8B5CF6, 0xFFD946EF},  //  4 Squircle
+        {0xFFEF4444, 0xFFF97316},  //  5 Sharp Tail
+        {0xFFF59E0B, 0xFFEAB308},  //  6 Double Tail
+        {0xFF22C55E, 0xFF86EFAC},  //  7 Leaf
+        {0xFF38BDF8, 0xFF818CF8},  //  8 Cloud
+        {0xFF0EA5E9, 0xFF6366F1},  //  9 Diamond Cut
+        {0xFF14B8A6, 0xFF06B6D4},  // 10 Teardrop
+        {0xFFA78BFA, 0xFFC084FC},  // 11 Wave
+        {0xFFFF6B6B, 0xFFFFE66D},  // 12 Notch
+        {0xFF34D399, 0xFF6EE7B7},  // 13 Pebble
+        {0xFF374151, 0xFF6B7280},  // 14 Sharp Edge
+        {0xFFDB2777, 0xFF9333EA},  // 15 Ribbon
+        {0xFFF97316, 0xFFFBBF24},  // 16 Shield
+        {0xFF0284C7, 0xFF7C3AED},  // 17 Ticket
+        {0xFF10B981, 0xFF0EA5E9},  // 18 Gem Cut
+        {0xFF64748B, 0xFF38BDF8},  // 19 Soft Tail
+        {0xFF7C3AED, 0xFFEC4899},  // 20 Bullet
+        {0xFF0EA5E9, 0xFF14B8A6},  // 21 Raindrop
+        {0xFFF59E0B, 0xFFEF4444},  // 22 Toast
+        {0xFF6366F1, 0xFF06B6D4},  // 23 Arch
+        {0xFFDB2777, 0xFFEAB308},  // 24 Bowtie
     };
 
     @Override
@@ -92,15 +84,13 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
-        // Build the whole sheet programmatically — no XML needed
         Context ctx = requireContext();
 
-        // Root — dark gradient background
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(buildSheetBackground());
 
-        // ── Drag handle ────────────────────────────────────────────────
+        // Drag handle
         FrameLayout handleBar = new FrameLayout(ctx);
         handleBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(32)));
@@ -115,7 +105,7 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         handleBar.addView(handle);
         root.addView(handleBar);
 
-        // ── Header ─────────────────────────────────────────────────────
+        // Header
         TextView header = new TextView(ctx);
         LinearLayout.LayoutParams hp2 = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -129,7 +119,7 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
                 android.graphics.Typeface.BOLD));
         root.addView(header);
 
-        // ── Thin rainbow divider under header ──────────────────────────
+        // Rainbow divider
         View dividerTop = new View(ctx);
         LinearLayout.LayoutParams divP = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(2));
@@ -138,12 +128,13 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         dividerTop.setBackground(buildRainbowDivider());
         root.addView(dividerTop);
 
-        // ── Scrollable list ────────────────────────────────────────────
+        // Scrollable list
         ScrollView scroll = new ScrollView(ctx);
         scroll.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+                LinearLayout.LayoutParams.MATCH_PARENT));
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setFillViewport(true);
 
         LinearLayout list = new LinearLayout(ctx);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -172,18 +163,25 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             BottomSheetBehavior<FrameLayout> behavior = d.getBehavior();
-            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-            behavior.setSkipCollapsed(true);
-            behavior.setDraggable(false);   // ← drag se close band
+
+            // 55% screen height
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int sheetHeight = (int) (dm.heightPixels * 0.55f);
+
+            behavior.setPeekHeight(sheetHeight, false);
+            behavior.setMaxHeight(sheetHeight);
+            behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+            behavior.setSkipCollapsed(false);
+            behavior.setHideable(true);
+            behavior.setDraggable(true);
+            behavior.setFitToContents(true);
         }
     }
 
-    // ── Build a single row ────────────────────────────────────────────────
     private View buildRow(Context ctx, int index, int currentShape) {
         boolean isSelected = (index == currentShape);
         int[] clrs = SHAPE_COLORS[index % SHAPE_COLORS.length];
 
-        // Card container
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
@@ -198,7 +196,6 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         card.setBackground(buildRowBackground(clrs[0], clrs[1], isSelected));
         card.setMinimumHeight(dp(62));
 
-        // Gradient colour swatch (left accent dot)
         View swatch = new View(ctx);
         LinearLayout.LayoutParams swP = new LinearLayout.LayoutParams(dp(6), dp(38));
         swP.setMarginEnd(dp(14));
@@ -209,7 +206,6 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         swBg.setCornerRadius(dp(3));
         swatch.setBackground(swBg);
 
-        // Text block
         LinearLayout textBlock = new LinearLayout(ctx);
         textBlock.setOrientation(LinearLayout.VERTICAL);
         textBlock.setLayoutParams(new LinearLayout.LayoutParams(0,
@@ -235,7 +231,6 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         textBlock.addView(nameTv);
         textBlock.addView(descTv);
 
-        // Checkmark (visible only when selected)
         TextView check = new TextView(ctx);
         check.setText("✓");
         check.setTextSize(18f);
@@ -252,7 +247,6 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         card.addView(textBlock);
         card.addView(check);
 
-        // Click handler
         card.setOnClickListener(v -> {
             BubbleShapeManager.get(ctx).setShape(index);
             if (listener != null) listener.onShapeSelected(index);
@@ -265,9 +259,6 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         return card;
     }
 
-    // ── Background drawables ──────────────────────────────────────────────
-
-    /** Dark gradient sheet background with rounded top corners */
     private GradientDrawable buildSheetBackground() {
         GradientDrawable gd = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
@@ -276,13 +267,11 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         return gd;
     }
 
-    /** Row card background: subtle dark with gradient tint when selected */
     private GradientDrawable buildRowBackground(int clrStart, int clrEnd, boolean selected) {
         GradientDrawable gd;
         if (selected) {
-            // Selected: subtle gradient glow using the shape's colour with low alpha
-            int s = (clrStart & 0x00FFFFFF) | 0x30000000; // ~19% alpha of clrStart
-            int e = (clrEnd   & 0x00FFFFFF) | 0x15000000; // ~8%  alpha of clrEnd
+            int s = (clrStart & 0x00FFFFFF) | 0x30000000;
+            int e = (clrEnd   & 0x00FFFFFF) | 0x15000000;
             gd = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                     new int[]{s, e, 0x05FFFFFF});
             gd.setStroke(dp(1), (clrStart & 0x00FFFFFF) | 0x66000000);
@@ -294,7 +283,6 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         return gd;
     }
 
-    /** Horizontal rainbow gradient divider */
     private GradientDrawable buildRainbowDivider() {
         GradientDrawable gd = new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
@@ -304,7 +292,6 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         return gd;
     }
 
-    // ── Utility ──────────────────────────────────────────────────────────
     private int dp(int dp) {
         return Math.round(dp * getResources().getDisplayMetrics().density);
     }
