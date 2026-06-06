@@ -663,8 +663,10 @@ public class MessagePagingAdapter
                         // GIF ya no thumbnail — direct load with animation support
                         java.io.File cachedImg = MediaCache.getCached(ctx, fullUrl);
                         if (isGifMsg) {
-                            // GIF: asGif() se load karo taaki animation chale
-                            Glide.with(ctx).asGif().load(cachedImg != null ? cachedImg : fullUrl)
+                            // GIF: asGif() se load karo — URL mein .gif extension guaranteed hai
+                            Glide.with(ctx)
+                                .asGif()
+                                .load(cachedImg != null ? cachedImg : fullUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)

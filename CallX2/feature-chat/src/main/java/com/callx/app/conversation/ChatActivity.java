@@ -2298,8 +2298,13 @@ public class ChatActivity extends AppCompatActivity {
                         binding.uploadProgress.setVisibility(View.GONE);
                         Message m  = buildOutgoing();
                         m.type     = "gif";
-                        m.mediaUrl = r.secureUrl;
-                        m.imageUrl = r.secureUrl;
+                        // Cloudinary URL mein .gif append karo taaki Glide animated load kare
+                        String gifUrl = r.secureUrl;
+                        if (gifUrl != null && !gifUrl.endsWith(".gif")) {
+                            gifUrl = gifUrl + ".gif";
+                        }
+                        m.mediaUrl = gifUrl;
+                        m.imageUrl = gifUrl;
                         pushMessage(m, "🎞️ GIF");
                         clearReply();
                     }

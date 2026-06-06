@@ -239,32 +239,27 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 boolean isGif = "gif".equals(m.type);
                 // Check if already cached
                 java.io.File cached = MediaCache.getCached(ctx, url);
-                if (cached != null) {
+                if (isGif) {
+                    // GIF: hamesha asGif() use karo — animated chalega
+                    // URL mein .gif extension hai (Cloudinary se guaranteed)
+                    Glide.with(ctx)
+                            .asGif()
+                            .load(cached != null ? cached : url)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .placeholder(R.drawable.bg_circle_white)
+                            .into(h.ivImage);
+                } else if (cached != null) {
                     android.util.Log.d("ImageLoad", "Image found in cache: " + cached.getAbsolutePath());
-                    if (isGif) {
-                        Glide.with(ctx).asGif().load(cached)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .placeholder(R.drawable.bg_circle_white)
-                                .into(h.ivImage);
-                    } else {
-                        Glide.with(ctx).load(cached)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .placeholder(R.drawable.bg_circle_white)
-                                .into(h.ivImage);
-                    }
+                    Glide.with(ctx).load(cached)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .placeholder(R.drawable.bg_circle_white)
+                            .into(h.ivImage);
                 } else {
                     android.util.Log.d("ImageLoad", "Image NOT in cache, will download: " + url);
-                    if (isGif) {
-                        Glide.with(ctx).asGif().load(url)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .placeholder(R.drawable.bg_circle_white)
-                                .into(h.ivImage);
-                    } else {
-                        Glide.with(ctx).load(url)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .placeholder(R.drawable.bg_circle_white)
-                                .into(h.ivImage);
-                    }
+                    Glide.with(ctx).load(url)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .placeholder(R.drawable.bg_circle_white)
+                            .into(h.ivImage);
                     // Background cache
                     MediaCache.get(ctx, url, new MediaCache.Callback() {
                         @Override public void onReady(java.io.File file) {
