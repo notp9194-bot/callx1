@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_call_entry_bubble.xml
+    Call event system row in chat thread — shows audio/video call info.
+    Centered pill-style bubble, similar to WhatsApp call log in chat.
+    Views:
+      tv_call_entry_icon   — emoji icon (📞 / 📹)
+      tv_call_entry_label  — e.g. "Audio call • 2:30" or "Missed video call"
+      tv_call_entry_time   — formatted timestamp (hh:mm a)
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <!-- Centered pill bubble -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bubble_status_seen"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="7dp"
+        android:paddingBottom="7dp"
+        android:minWidth="180dp">
+
+        <!-- Call type emoji icon -->
+        <TextView
+            android:id="@+id/tv_call_entry_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📞"
+            android:textSize="15sp"
+            android:layout_marginEnd="6dp"/>
+
+        <!-- Direction + duration label -->
+        <TextView
+            android:id="@+id/tv_call_entry_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Audio call"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="italic"/>
+
+        <!-- Separator dot -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="  •  "
+            android:textSize="10sp"
+            android:textColor="@color/text_muted"/>
+
+        <!-- Timestamp -->
+        <TextView
+            android:id="@+id/tv_call_entry_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10sp"
+            android:textColor="@color/text_muted"/>
+
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_message_video.xml
+    Chat bubble for video messages (received side — mirror for sent)
+
+    Shows:
+      - Thumbnail (blurred until tapped)
+      - Play button overlay
+      - Duration badge (e.g. "0:32")
+      - "Uploading..." shimmer when status = uploading
+      - Timestamp + tick icons (same as text bubble)
+-->
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="220dp"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="8dp"
+    android:layout_marginEnd="64dp"
+    android:layout_marginBottom="4dp"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="2dp">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <!-- Video thumbnail -->
+        <ImageView
+            android:id="@+id/iv_video_thumb"
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:scaleType="centerCrop"
+            android:background="#1A000000" />
+
+        <!-- Uploading shimmer overlay -->
+        <com.facebook.shimmer.ShimmerFrameLayout
+            android:id="@+id/shimmer_uploading"
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:visibility="gone">
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="#33FFFFFF" />
+
+        </com.facebook.shimmer.ShimmerFrameLayout>
+
+        <!-- Dark gradient overlay (for play button visibility) -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:background="#44000000" />
+
+        <!-- Play button (center) -->
+        <ImageView
+            android:id="@+id/iv_play_btn"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_play"
+            android:tint="@android:color/white"
+            android:alpha="0.95" />
+
+        <!-- Duration badge (bottom-left) -->
+        <TextView
+            android:id="@+id/tv_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="8dp"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:background="#88000000"
+            android:visibility="gone"
+            android:text="0:00" />
+
+        <!-- Upload progress bar (shown during upload) -->
+        <ProgressBar
+            android:id="@+id/progress_upload"
+            style="@android:style/Widget.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:layout_gravity="bottom"
+            android:progressTint="@color/brand_primary"
+            android:max="100"
+            android:progress="0"
+            android:visibility="gone" />
+
+        <!-- Bottom info row: timestamp + ticks -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="6dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="2dp"
+            android:background="#66000000">
+
+            <TextView
+                android:id="@+id/tv_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="10sp"
+                android:text="12:00" />
+
+            <ImageView
+                android:id="@+id/iv_status"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginStart="3dp"
+                android:src="@drawable/ic_single_tick"
+                android:tint="@android:color/white" />
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+</com.google.android.material.card.MaterialCardView>

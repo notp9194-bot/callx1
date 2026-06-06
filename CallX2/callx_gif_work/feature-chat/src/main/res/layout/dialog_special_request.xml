@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SpecialRequest bottom sheet — Emotional / Dramatic design -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#F0111111">
+
+    <!-- Emoji Rain — fixed height, sits at top as decoration -->
+    <com.callx.app.views.EmojiRainView
+        android:id="@+id/emoji_rain"
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:alpha="0.7"/>
+
+    <!-- Content below rain -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="20dp">
+
+        <!-- Drag handle -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="14dp"
+            android:background="#44FFFFFF"/>
+
+        <!-- Sad mood header label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="😭 Unblock Request"
+            android:textColor="#FFAAAAAA"
+            android:textSize="12sp"
+            android:letterSpacing="0.12"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Avatar row — simple, no FrameLayout nesting -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_sp_avatar"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="2dp"
+                app:civ_border_color="#99FF6B6B"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="14dp">
+
+                <TextView
+                    android:id="@+id/tv_sp_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textStyle="bold"
+                    android:textSize="17sp"
+                    android:textColor="#FFFFFFFF"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="is begging you to unblock them 🙏"
+                    android:textSize="12sp"
+                    android:textColor="#FFAAAAAA"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Message bubble — typewriter effect happens here -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#22FFFFFF"
+            android:padding="14dp"
+            android:layout_marginBottom="20dp">
+
+            <TextView
+                android:id="@+id/tv_sp_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FFEEEEEE"
+                android:textSize="15sp"
+                android:lineSpacingMultiplier="1.4"
+                android:minLines="2"/>
+
+            <!-- Blinking cursor -->
+            <TextView
+                android:id="@+id/tv_cursor"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="|"
+                android:textColor="#FFAAAAAA"
+                android:textSize="15sp"
+                android:layout_marginTop="2dp"/>
+
+            <!-- "Still waiting..." -->
+            <TextView
+                android:id="@+id/tv_waiting"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="still waiting... 💔"
+                android:textColor="#88AAAAAA"
+                android:textSize="11sp"
+                android:layout_gravity="end"
+                android:layout_marginTop="8dp"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <!-- Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_sp_later"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:text="Not now"
+                android:textColor="#FFAAAAAA"
+                app:strokeColor="#44FFFFFF"
+                app:strokeWidth="1dp"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:cornerRadius="14dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_sp_unblock"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="Please... 🙏"
+                android:textColor="#FFFFFFFF"
+                android:backgroundTint="#FF4CAF50"
+                app:cornerRadius="14dp"/>
+        </LinearLayout>
+
+    </LinearLayout>
+</LinearLayout>
