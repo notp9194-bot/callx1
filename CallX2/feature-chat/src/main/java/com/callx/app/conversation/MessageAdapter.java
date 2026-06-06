@@ -139,11 +139,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
         h.tvMessage.setVisibility(View.GONE);
         h.ivImage.setVisibility(View.GONE);
+        if (h.llMediaContainer != null) h.llMediaContainer.setVisibility(View.GONE);
         if (h.flVideo  != null) h.flVideo.setVisibility(View.GONE);
         if (h.llAudio  != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile   != null) h.llFile.setVisibility(View.GONE);
         if (h.tvEdited     != null) h.tvEdited.setVisibility(View.GONE);
         if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
+        // Reset: ll_bubble always visible for text/audio/file
+        android.view.View llBubbleReset = h.itemView.findViewById(R.id.ll_bubble);
+        if (llBubbleReset != null) llBubbleReset.setVisibility(View.VISIBLE);
 
         // Feature 8: Pinned label
         if (h.tvPinnedLabel != null)
@@ -219,18 +223,22 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 type = "image";
         }
 
-        // ── Per-type bubble background ─────────────────────────────────────────────
-        // Media types (image/gif/video/sticker): bubble bg hata do — media apna
-        // rounded background khud carry karta hai. Text/audio/file: normal bubble.
+        // ── Route to media container OR text bubble ──────────────────────────────
+        // Media types (image/gif/video/sticker): llMediaContainer dikhao, ll_bubble chupao
+        // Text/audio/file: ll_bubble dikhao, llMediaContainer chupa rehne do
         boolean isMediaType = "image".equals(type) || "gif".equals(type)
                 || "video".equals(type) || "sticker".equals(type);
         try {
             android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
-            if (llBubble != null) {
-                if (isMediaType) {
-                    llBubble.setBackground(null);
-                    llBubble.setPadding(0, 0, 0, 0);
-                } else {
+            if (isMediaType) {
+                // Media: apna container use karo, bubble chupao
+                if (h.llMediaContainer != null) h.llMediaContainer.setVisibility(View.VISIBLE);
+                if (llBubble != null) llBubble.setVisibility(View.GONE);
+            } else {
+                // Text/audio/file: bubble dikhao, theme apply karo
+                if (h.llMediaContainer != null) h.llMediaContainer.setVisibility(View.GONE);
+                if (llBubble != null) {
+                    llBubble.setVisibility(View.VISIBLE);
                     boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
                     com.callx.app.utils.ChatThemeManager
                             .get(ctx)
@@ -239,62 +247,59 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
         } catch (Exception ignored) {}
 
-        // ── Image sizing + rounded clipping (WhatsApp style) ──────────────────────
-        if (h.ivImage != null) {
+        // ── Media container: rounded background (WhatsApp style) ───────────────────
+        // Sent:     top corners bade, bottom-right chota (tail)
+        // Received: top-left chota (tail), baki corners bade
+        if (isMediaType && h.llMediaContainer != null) {
             float density = ctx.getResources().getDisplayMetrics().density;
             float bigR  = 18 * density;
             float tailR =  4 * density;
+
             if ("sticker".equals(type)) {
-                int stickerPx = (int) (120 * density);
-                android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
-                lp.width  = stickerPx;
-                lp.height = stickerPx;
-                h.ivImage.setLayoutParams(lp);
-                h.ivImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-                h.ivImage.setMaxHeight(stickerPx);
-                h.ivImage.setBackground(null);
-                h.ivImage.setClipToOutline(false);
+                // Sticker: transparent, no rounded bg, small square
+                h.llMediaContainer.setBackground(null);
+                if (h.ivImage != null) {
+                    int stickerPx = (int) (120 * density);
+                    android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
+                    lp.width  = stickerPx;
+                    lp.height = stickerPx;
+                    h.ivImage.setLayoutParams(lp);
+                    h.ivImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                    h.ivImage.setMaxHeight(stickerPx);
+                    h.ivImage.setBackground(null);
+                    h.ivImage.setClipToOutline(false);
+                }
             } else {
-                // image / gif — fill bubble width, rounded corners clip image
-                int imagePx = (int) (240 * density);
-                android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
-                lp.width  = imagePx;
-                lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
-                h.ivImage.setLayoutParams(lp);
-                h.ivImage.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-                h.ivImage.setMaxHeight((int) (320 * density));
-                // Rounded corners on image — WhatsApp style
-                // Sent: bottom-right chota (tail); Received: top-left chota (tail)
+                // image / gif / video — rounded corners on the container
                 float[] radii = sent
                         ? new float[]{ bigR, bigR,  bigR, bigR,  tailR, tailR,  bigR, bigR }
                         : new float[]{ tailR, tailR,  bigR, bigR,  bigR, bigR,  bigR, bigR };
-                android.graphics.drawable.GradientDrawable imgBg =
+                android.graphics.drawable.GradientDrawable mediaBg =
                         new android.graphics.drawable.GradientDrawable();
-                imgBg.setColor(android.graphics.Color.TRANSPARENT);
-                imgBg.setCornerRadii(radii);
-                h.ivImage.setBackground(imgBg);
-                h.ivImage.setClipToOutline(true);
+                mediaBg.setColor(0xFF1A1A1A); // dark bg while loading
+                mediaBg.setCornerRadii(radii);
+                h.llMediaContainer.setBackground(mediaBg);
+                h.llMediaContainer.setClipToOutline(true);
                 final float clipR = bigR;
-                h.ivImage.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                h.llMediaContainer.setOutlineProvider(new android.view.ViewOutlineProvider() {
                     @Override
                     public void getOutline(android.view.View view, android.graphics.Outline outline) {
                         outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), clipR);
                     }
                 });
-            }
-        }
-
-        // ── Video frame: rounded clipping (same style) ─────────────────────────────
-        if (h.flVideo != null) {
-            float density = ctx.getResources().getDisplayMetrics().density;
-            float bigR  = 18 * density;
-            h.flVideo.setClipToOutline(true);
-            h.flVideo.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                @Override
-                public void getOutline(android.view.View view, android.graphics.Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), bigR);
+                // Image sizing
+                if (h.ivImage != null) {
+                    int imagePx = (int) (240 * density);
+                    android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
+                    lp.width  = imagePx;
+                    lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+                    h.ivImage.setLayoutParams(lp);
+                    h.ivImage.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                    h.ivImage.setMaxHeight((int) (320 * density));
+                    h.ivImage.setBackground(null);
+                    h.ivImage.setClipToOutline(false);
                 }
-            });
+            }
         }
 
         switch (type) {
@@ -1335,6 +1340,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         ImageView    ivImage, ivVideoThumb;
         FrameLayout  flVideo;
         android.widget.TextView tvVideoDuration; // v21: video duration badge
+        LinearLayout llMediaContainer;
         LinearLayout llAudio;
         ImageButton  btnPlayAudio;
         SeekBar      seekAudio;
@@ -1365,6 +1371,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             flVideo      = v.findViewById(R.id.fl_video);
             ivVideoThumb = v.findViewById(R.id.iv_video_thumb);
             tvVideoDuration = v.findViewById(R.id.tv_duration); // v21
+            llMediaContainer = v.findViewById(R.id.ll_media_container);
             llAudio      = v.findViewById(R.id.ll_audio);
             btnPlayAudio = v.findViewById(R.id.btn_play_pause);
             seekAudio    = v.findViewById(R.id.seek_audio);
