@@ -6,7 +6,7 @@ import android.graphics.Typeface;
 import android.widget.EditText;
 
 /**
- * TypingStyleManager — Chat input box ke liye 21 alag typing styles.
+ * TypingStyleManager — Chat input box ke liye 26 alag typing styles.
  *
  * Usage:
  *   TypingStyleManager.get(ctx).applyToInput(binding.etMessage);
@@ -15,59 +15,70 @@ import android.widget.EditText;
 public class TypingStyleManager {
 
     // ── Original Style IDs (0–9) ──────────────────────────────────────────
-    public static final int STYLE_NORMAL      = 0;   // Normal (Default)
-    public static final int STYLE_BOLD        = 1;   // Bold
-    public static final int STYLE_ITALIC      = 2;   // Italic
-    public static final int STYLE_BOLD_ITALIC = 3;   // Bold Italic
-    public static final int STYLE_MONOSPACE   = 4;   // Monospace (code feel)
-    public static final int STYLE_SERIF       = 5;   // Serif (classic)
-    public static final int STYLE_SERIF_BOLD  = 6;   // Serif Bold
-    public static final int STYLE_CONDENSED   = 7;   // Sans-Serif Condensed
-    public static final int STYLE_LIGHT       = 8;   // Sans-Serif Light
-    public static final int STYLE_HANDWRITING = 9;   // Casual/Handwriting feel
+    public static final int STYLE_NORMAL      = 0;
+    public static final int STYLE_BOLD        = 1;
+    public static final int STYLE_ITALIC      = 2;
+    public static final int STYLE_BOLD_ITALIC = 3;
+    public static final int STYLE_MONOSPACE   = 4;
+    public static final int STYLE_SERIF       = 5;
+    public static final int STYLE_SERIF_BOLD  = 6;
+    public static final int STYLE_CONDENSED   = 7;
+    public static final int STYLE_LIGHT       = 8;
+    public static final int STYLE_HANDWRITING = 9;
 
     // ── New Popular Style IDs (10–19) ─────────────────────────────────────
-    public static final int STYLE_MEDIUM         = 10;  // Medium weight
-    public static final int STYLE_THIN           = 11;  // Thin / Hairline
-    public static final int STYLE_SERIF_ITALIC   = 12;  // Serif Italic
-    public static final int STYLE_CONDENSED_BOLD = 13;  // Condensed Bold
-    public static final int STYLE_BLACK          = 14;  // Black/Extra Bold
-    public static final int STYLE_CURSIVE        = 15;  // Cursive
-    public static final int STYLE_SANS_MEDIUM    = 16;  // Sans-Serif Medium
-    public static final int STYLE_MONO_BOLD      = 17;  // Monospace Bold
-    public static final int STYLE_LIGHT_ITALIC   = 18;  // Light Italic
-    public static final int STYLE_CLASSIC_BOLD   = 19;  // Classic Sans Bold Italic
+    public static final int STYLE_MEDIUM         = 10;
+    public static final int STYLE_THIN           = 11;
+    public static final int STYLE_SERIF_ITALIC   = 12;
+    public static final int STYLE_CONDENSED_BOLD = 13;
+    public static final int STYLE_BLACK          = 14;
+    public static final int STYLE_CURSIVE        = 15;
+    public static final int STYLE_SANS_MEDIUM    = 16;
+    public static final int STYLE_MONO_BOLD      = 17;
+    public static final int STYLE_LIGHT_ITALIC   = 18;
+    public static final int STYLE_CLASSIC_BOLD   = 19;
 
     // ── Samsung Style IDs (20–21) ────────────────────────────────────────
-    public static final int STYLE_SAMSUNG        = 20;  // Samsung One font (native on Samsung, Serif fallback on others)
-    public static final int STYLE_SAMSUNG_SCRIPT = 21;  // Unicode Mathematical Script — 𝒶𝒷𝒸 style, font-independent
+    public static final int STYLE_SAMSUNG        = 20;
+    public static final int STYLE_SAMSUNG_SCRIPT = 21;
+
+    // ── 4 New Style IDs (22–25) ──────────────────────────────────────────
+    public static final int STYLE_SERIF_CONDENSED      = 22;  // Serif Condensed — compact classic
+    public static final int STYLE_MONO_ITALIC          = 23;  // Monospace Italic — code slant
+    public static final int STYLE_CONDENSED_LIGHT      = 24;  // Condensed Light — minimal narrow
+    public static final int STYLE_SANS_BOLD_CONDENSED  = 25;  // Sans-Serif Bold Condensed — strong narrow
 
     public static final String[] STYLE_NAMES = {
         // Original 10
-        "✏️ Normal (Default)",                    // 0
-        "𝗕 Bold",                                 // 1
-        "𝘐 Italic",                               // 2
-        "𝙱 Bold Italic",                          // 3
-        "🅢 Samsung One",                         // 4  ← index 4 in menu (1-based: 5th)
-        "⌨️ Monospace",                           // 5
-        "𝐒 Serif",                                // 6
-        "𝐁 Serif Bold",                           // 7
-        "▌Condensed",                             // 8
-        "ₗ Light",                                // 9
+        "\u270F\uFE0F Normal (Default)",             // 0
+        "\uD835\uDC01 Bold",                          // 1
+        "\uD835\uDC18 Italic",                        // 2
+        "\uD835\uDCD1 Bold Italic",                   // 3
+        "\u2328\uFE0F Monospace",                     // 4
+        "\uD835\uDC12 Serif",                         // 5
+        "\uD835\uDC01 Serif Bold",                    // 6
+        "\u258C Condensed",                           // 7
+        "\u2097 Light",                               // 8
+        "\u270C\uFE0F Casual",                        // 9
         // New 10
-        "✒️ Casual",                              // 10
-        "✦ Medium",                               // 11
-        "᳀ Thin",                                 // 12
-        "𝓘 Serif Italic",                         // 13
-        "❚ Condensed Bold",                       // 14
-        "⬛ Black / Heavy",                       // 15
-        "𝒞 Cursive",                             // 16
-        "◆ Sans Medium",                          // 17
-        "⌨ Mono Bold",                           // 18
-        "~ Light Italic",                         // 19
-        "Ꞵ Classic Bold Italic",                  // 20
-        // Samsung Script
-        "𝒮𝒶𝓂𝓈𝓊𝓃𝑔 𝒮𝒸𝓇𝒾𝓅𝓉 ✨"                   // 21
+        "\u2726 Medium",                              // 10
+        "\u1D00 Thin",                                // 11
+        "\uD835\uDC34 Serif Italic",                  // 12
+        "\u2759 Condensed Bold",                      // 13
+        "\u2B1B Black / Heavy",                       // 14
+        "\uD835\uDC9E Cursive",                       // 15
+        "\u25C6 Sans Medium",                         // 16
+        "\u2328 Mono Bold",                           // 17
+        "~ Light Italic",                             // 18
+        "\ua7B5 Classic Bold Italic",                 // 19
+        // Samsung
+        "\uD83C\uDDF8 Samsung One",                   // 20
+        "\uD835\uDC9E\uD835\uDCB6\uD835\uDCBB\uD835\uDCBC\uD835\uDCCA\uD835\uDCB7\uD835\uDCB8 Script \u2728", // 21
+        // 4 New
+        "\uD83D\uDCDA Serif Condensed",               // 22
+        "\uD83D\uDCBB Mono Italic",                   // 23
+        "\u2018 Condensed Light",                     // 24
+        "\u25AE Sans Bold Condensed"                  // 25
     };
 
     // ── SharedPreferences ─────────────────────────────────────────────────
@@ -164,8 +175,6 @@ public class TypingStyleManager {
                 editText.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC));
                 break;
             case STYLE_SAMSUNG:
-                // Samsung One — Samsung devices pe natively available.
-                // Non-Samsung pe "samsung-sans" try karo, warna Serif fallback.
                 try {
                     Typeface samsungTf = Typeface.create("SamsungOne", Typeface.NORMAL);
                     if (samsungTf != null && !samsungTf.equals(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))) {
@@ -183,10 +192,31 @@ public class TypingStyleManager {
                 }
                 break;
             case STYLE_SAMSUNG_SCRIPT:
-                // Unicode Mathematical Script — text transformation hai, font nahi.
-                // Input box pe normal typeface — text already 𝒶𝒷𝒸 form mein hoga.
                 editText.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));
                 break;
+
+            // ── 4 New Styles ──────────────────────────────────────────────
+
+            case STYLE_SERIF_CONDENSED:
+                // Serif Condensed — compact serif with Italic for classic narrow feel
+                editText.setTypeface(Typeface.create(Typeface.SERIF, Typeface.ITALIC));
+                break;
+
+            case STYLE_MONO_ITALIC:
+                // Monospace Italic — code style with slant
+                editText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.ITALIC));
+                break;
+
+            case STYLE_CONDENSED_LIGHT:
+                // Condensed Light — very narrow and hairline feel
+                editText.setTypeface(Typeface.create("sans-serif-condensed-light", Typeface.NORMAL));
+                break;
+
+            case STYLE_SANS_BOLD_CONDENSED:
+                // Sans-Serif Bold Condensed — strong and narrow, great for impact
+                editText.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD_ITALIC));
+                break;
+
             case STYLE_NORMAL:
             default:
                 editText.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));

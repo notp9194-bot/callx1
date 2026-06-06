@@ -19,26 +19,34 @@
         android:title="⭐ Starred Messages"
         app:showAsAction="never"/>
 
-
     <!-- Wallpaper Picker -->
     <item android:id="@+id/action_set_wallpaper"
         android:title="🖼️ Set Wallpaper"
         app:showAsAction="never"/>
 
-    <!-- Chat Bubble Theme Picker -->
-    <item android:id="@+id/action_chat_theme"
-        android:title="🎨 Chat Theme"
-        app:showAsAction="never"/>
+    <!-- ═══════════════════════════════════════════════
+         CHAT CUSTOMIZATION — Sub-menu (Theme, Typing, Bubble)
+         ═══════════════════════════════════════════════ -->
+    <item android:id="@+id/action_chat_customization"
+        android:title="🎨 Chat Customization"
+        app:showAsAction="never">
+        <menu>
+            <!-- Theme sub-item -->
+            <item android:id="@+id/action_chat_theme"
+                android:title="🎨 Theme"
+                app:showAsAction="never"/>
 
-    <!-- Chat Bubble Shape Picker -->
-    <item android:id="@+id/action_bubble_shape"
-        android:title="💬 Bubble Shape"
-        app:showAsAction="never"/>
+            <!-- Typing Style sub-item -->
+            <item android:id="@+id/action_typing_style"
+                android:title="✍️ Typing Style"
+                app:showAsAction="never"/>
 
-    <!-- Typing Style Picker -->
-    <item android:id="@+id/action_typing_style"
-        android:title="✍️ Typing Style"
-        app:showAsAction="never"/>
+            <!-- Bubble Shape sub-item -->
+            <item android:id="@+id/action_bubble_shape"
+                android:title="💬 Bubble Shape"
+                app:showAsAction="never"/>
+        </menu>
+    </item>
 
     <item android:id="@+id/action_mute"
         android:title="🔔 Mute"
