@@ -2,117 +2,184 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/surface_card"
     android:orientation="vertical"
-    android:padding="20dp">
+    android:background="@color/surface_card"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="20dp"
+    android:paddingBottom="24dp">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Bhejo"
         android:textColor="?android:attr/textColorPrimary"
-        android:textSize="18sp"
+        android:textSize="16sp"
         android:textStyle="bold"
-        android:layout_marginBottom="14dp"/>
+        android:layout_marginBottom="16dp"/>
 
-    <!-- Row 1: Photo, Video, Audio, File -->
+    <!-- Row 1: Photo  Video  Audio  File -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="12dp">
 
-        <LinearLayout android:id="@+id/opt_gallery"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical"
-            android:gravity="center" android:padding="8dp"
+        <LinearLayout
+            android:id="@+id/opt_gallery"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="6dp"
             android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="26dp" android:layout_height="26dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_gallery"/>
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_gallery"/>
             </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Photo" android:textSize="11sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="5dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Photo"
+                android:textSize="11sp"
+                android:textColor="?android:attr/textColorPrimary"/>
         </LinearLayout>
 
-        <LinearLayout android:id="@+id/opt_video"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical"
-            android:gravity="center" android:padding="8dp"
+        <LinearLayout
+            android:id="@+id/opt_video"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="6dp"
             android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="26dp" android:layout_height="26dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_video"/>
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_video"/>
             </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Video" android:textSize="11sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="5dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Video"
+                android:textSize="11sp"
+                android:textColor="?android:attr/textColorPrimary"/>
         </LinearLayout>
 
-        <LinearLayout android:id="@+id/opt_audio"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical"
-            android:gravity="center" android:padding="8dp"
+        <LinearLayout
+            android:id="@+id/opt_audio"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="6dp"
             android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="26dp" android:layout_height="26dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_audio"/>
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_audio"/>
             </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Audio" android:textSize="11sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="5dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Audio"
+                android:textSize="11sp"
+                android:textColor="?android:attr/textColorPrimary"/>
         </LinearLayout>
 
-        <LinearLayout android:id="@+id/opt_file"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical"
-            android:gravity="center" android:padding="8dp"
+        <LinearLayout
+            android:id="@+id/opt_file"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="6dp"
             android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:background="@drawable/circle_primary">
-                <ImageView android:layout_width="26dp" android:layout_height="26dp"
-                    android:layout_gravity="center" android:src="@drawable/ic_file"/>
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_file"/>
             </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="File" android:textSize="11sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="5dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="File"
+                android:textSize="11sp"
+                android:textColor="?android:attr/textColorPrimary"/>
         </LinearLayout>
 
     </LinearLayout>
 
-    <!-- Row 2: GIF -->
+    <!-- Row 2: GIF only -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
 
-        <LinearLayout android:id="@+id/opt_gif"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical"
-            android:gravity="center" android:padding="8dp"
+        <LinearLayout
+            android:id="@+id/opt_gif"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="6dp"
             android:background="?attr/selectableItemBackground">
-            <FrameLayout android:layout_width="52dp" android:layout_height="52dp"
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:background="@drawable/circle_primary">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:layout_gravity="center"
                     android:text="GIF"
                     android:textColor="@color/white"
-                    android:textSize="13sp"
+                    android:textSize="14sp"
                     android:textStyle="bold"/>
             </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="GIF" android:textSize="11sp"
-                android:textColor="?android:attr/textColorPrimary" android:layout_marginTop="5dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="GIF"
+                android:textSize="11sp"
+                android:textColor="?android:attr/textColorPrimary"/>
         </LinearLayout>
 
-        <!-- Empty placeholders to keep GIF left-aligned -->
-        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
-        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
-        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
+        <!-- 3 empty spaces to align GIF to left like other rows -->
+        <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+        <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+        <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
 
     </LinearLayout>
 
