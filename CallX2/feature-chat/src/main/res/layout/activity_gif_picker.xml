@@ -70,16 +70,19 @@
     </LinearLayout>
 
     <!-- Progress bar -->
-    <ProgressBar
-        android:id="@+id/gif_progress"
-        android:layout_width="wrap_content"
+    <FrameLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
         android:visibility="gone"
-        android:layout_marginTop="8dp"
-        android:layout_marginStart="auto"
-        android:layout_marginEnd="auto"
-        style="?android:attr/progressBarStyle"/>
+        android:id="@+id/gif_progress">
+        <ProgressBar
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            style="?android:attr/progressBarStyle"/>
+    </FrameLayout>
 
     <!-- Empty state -->
     <TextView
