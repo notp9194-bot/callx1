@@ -568,8 +568,7 @@ public class GroupChatActivity extends AppCompatActivity {
             ((GifAwareEditText) binding.etMessage).setGifReceivedListener(contentInfo -> {
                 contentInfo.requestPermission();
                 Uri gifUri = contentInfo.getContentUri();
-                sendGifMessage(gifUri);
-                contentInfo.releasePermission();
+                sendGifMessage(gifUri, contentInfo);
             });
         }
     }
@@ -1138,9 +1137,13 @@ public class GroupChatActivity extends AppCompatActivity {
     // GIF MESSAGE — Google Keyboard se aaya GIF send karo
     // ─────────────────────────────────────────────────────────────────────
 
-    private void sendGifMessage(Uri gifUri) {
-        if (gifUri == null) return;
+    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo) {
+        if (gifUri == null) {
+            if (contentInfo != null) contentInfo.releasePermission();
+            return;
+        }
         if (!isOnline()) {
+            if (contentInfo != null) contentInfo.releasePermission();
             Toast.makeText(this, "No connection — GIF send nahi ho sakta", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1150,6 +1153,7 @@ public class GroupChatActivity extends AppCompatActivity {
                 new CloudinaryUploader.UploadCallback() {
                     @Override
                     public void onSuccess(CloudinaryUploader.Result r) {
+                        if (contentInfo != null) contentInfo.releasePermission();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Message m  = buildOutgoing();
                         m.type     = "gif";
@@ -1159,6 +1163,7 @@ public class GroupChatActivity extends AppCompatActivity {
                     }
                     @Override
                     public void onError(String err) {
+                        if (contentInfo != null) contentInfo.releasePermission();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Toast.makeText(GroupChatActivity.this,
                                 err != null ? err : "GIF upload failed",

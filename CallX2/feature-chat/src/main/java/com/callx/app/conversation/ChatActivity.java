@@ -888,10 +888,11 @@ public class ChatActivity extends AppCompatActivity {
         // GIF support: Google Keyboard se GIF aane par handle karo
         if (binding.etMessage instanceof GifAwareEditText) {
             ((GifAwareEditText) binding.etMessage).setGifReceivedListener(contentInfo -> {
+                // Permission lena zaroori hai URI access ke liye (Android 13+)
                 contentInfo.requestPermission();
                 Uri gifUri = contentInfo.getContentUri();
-                sendGifMessage(gifUri);
-                contentInfo.releasePermission();
+                // contentInfo bhi pass karo taaki upload ke BAAD permission release ho
+                sendGifMessage(gifUri, contentInfo);
             });
         }
     }
@@ -2274,18 +2275,26 @@ public class ChatActivity extends AppCompatActivity {
     // GIF MESSAGE — Google Keyboard se aaya GIF send karo
     // ─────────────────────────────────────────────────────────────────────
 
-    private void sendGifMessage(Uri gifUri) {
-        if (gifUri == null) return;
+    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo) {
+        if (gifUri == null) {
+            if (contentInfo != null) contentInfo.releasePermission();
+            return;
+        }
         if (!isOnline()) {
+            if (contentInfo != null) contentInfo.releasePermission();
             Toast.makeText(this, "No connection — GIF send nahi ho sakta", Toast.LENGTH_SHORT).show();
             return;
         }
         binding.uploadProgress.setVisibility(View.VISIBLE);
         Toast.makeText(this, "GIF bhej raha hai...", Toast.LENGTH_SHORT).show();
-        CloudinaryUploader.upload(this, gifUri, "callx/gif", "image",
+        // URI ko local copy karo permission release se pehle safe rehne ke liye
+        final Uri finalUri = gifUri;
+        CloudinaryUploader.upload(this, finalUri, "callx/gif", "image",
                 new CloudinaryUploader.UploadCallback() {
                     @Override
                     public void onSuccess(CloudinaryUploader.Result r) {
+                        // Upload ho gaya — ab permission release karo
+                        if (contentInfo != null) contentInfo.releasePermission();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Message m  = buildOutgoing();
                         m.type     = "gif";
@@ -2296,6 +2305,8 @@ public class ChatActivity extends AppCompatActivity {
                     }
                     @Override
                     public void onError(String err) {
+                        // Error par bhi release karo
+                        if (contentInfo != null) contentInfo.releasePermission();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Toast.makeText(ChatActivity.this,
                                 err != null ? err : "GIF upload failed",
