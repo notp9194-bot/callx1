@@ -42,7 +42,7 @@ public class GifPickerActivity extends AppCompatActivity {
     public static final String EXTRA_GIF_PREVIEW = "gif_preview_url";
 
     // ← Replace with your key from developers.giphy.com (free)
-    private static final String GIPHY_API_KEY       = "YOUR_GIPHY_API_KEY";
+    private static final String GIPHY_API_KEY       = "PolH67XHOhQnLy2rZcMMz5wSjd5ynraL";
     private static final int    PAGE_SIZE           = 24;
     private static final long   DEBOUNCE_MS         = 400;
 
