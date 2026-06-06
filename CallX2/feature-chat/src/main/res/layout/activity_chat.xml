@@ -600,17 +600,14 @@
             android:src="@drawable/ic_camera"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Camera"/>
-        <TextView
+        <ImageButton
             android:id="@+id/btn_gif"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:gravity="center"
-            android:text="GIF"
-            android:textColor="@color/white"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:background="@drawable/circle_primary"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_gif"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="GIF"/>
+
         <FrameLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
