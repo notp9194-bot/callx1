@@ -881,11 +881,12 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnMic.setOnClickListener(v -> toggleRecording());
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> launchCamera());
-        // GIF button — use findViewById fallback (binding field may be null if layout not rebuilt)
-        android.view.View _gifBtn = binding.getRoot().findViewById(R.id.btn_gif);
-        if (_gifBtn != null) {
-            _gifBtn.setOnClickListener(v -> openGifPicker());
-        }
+        // GIF button fallback — onClick in XML is primary; this is secondary backup
+        try {
+            android.view.View _gifBtn = binding.getRoot().findViewById(
+                    getResources().getIdentifier("btn_gif", "id", getPackageName()));
+            if (_gifBtn != null) _gifBtn.setOnClickListener(v -> openGifPicker());
+        } catch (Exception ignored) {}
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
@@ -2807,6 +2808,11 @@ public class ChatActivity extends AppCompatActivity {
     /**
      * Opens GifPickerActivity using the registered gifPicker launcher.
      */
+    /** Called by android:onClick in layout — most reliable way to attach click */
+    public void openGifPickerClick(android.view.View v) {
+        openGifPicker();
+    }
+
     private void openGifPicker() {
         android.widget.Toast.makeText(this,
             "DEBUG: GIF button clicked", android.widget.Toast.LENGTH_SHORT).show();

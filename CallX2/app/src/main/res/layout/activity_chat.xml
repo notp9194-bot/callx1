@@ -606,6 +606,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_gif"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:onClick="openGifPickerClick"
             android:contentDescription="Send GIF"/>
         <FrameLayout
             android:layout_width="0dp"

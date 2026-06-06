@@ -558,11 +558,12 @@ public class GroupChatActivity extends AppCompatActivity {
             }
         });
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
-        // GIF button — use findViewById fallback
-        android.view.View _gifBtn2 = binding.getRoot().findViewById(R.id.btn_gif);
-        if (_gifBtn2 != null) {
-            _gifBtn2.setOnClickListener(v -> openGifPicker());
-        }
+        // GIF button fallback
+        try {
+            android.view.View _gifBtn2 = binding.getRoot().findViewById(
+                    getResources().getIdentifier("btn_gif", "id", getPackageName()));
+            if (_gifBtn2 != null) _gifBtn2.setOnClickListener(v -> openGifPicker());
+        } catch (Exception ignored) {}
         binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
         binding.btnMic.setOnClickListener(v -> toggleRecording());
@@ -1095,6 +1096,11 @@ public class GroupChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
     // MEDIA
     // ─────────────────────────────────────────────────────────────────────
+
+    /** Called by android:onClick in layout */
+    public void openGifPickerClick(android.view.View v) {
+        openGifPicker();
+    }
 
     private void openGifPicker() {
         android.widget.Toast.makeText(this,
