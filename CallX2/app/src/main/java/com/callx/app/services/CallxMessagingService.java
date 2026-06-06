@@ -662,9 +662,11 @@ public class CallxMessagingService extends FirebaseMessagingService {
             case "image": return "📷 Photo";
             case "video": return "🎬 Video";
             case "audio": return "🎤 Voice message";
-            case "file":  return "📎 File";
-            case "pdf":   return "📄 PDF document";
-            default:      return "Naya message";
+            case "file":    return "📎 File";
+            case "pdf":     return "📄 PDF document";
+            case "gif":     return "🎞️ GIF";
+            case "sticker": return "🎭 Sticker";
+            default:        return "Naya message";
         }
     }
     private static int smallIconFor(String type) {
@@ -1752,7 +1754,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 // background mein download karo taaki offline mein bhi dikhe
                 if (mediaUrl != null && !mediaUrl.isEmpty()) {
                     String t = normalizeType(type);
-                    if ("image".equals(t) || "audio".equals(t)) {
+                    if ("image".equals(t) || "audio".equals(t) || "sticker".equals(t) || "gif".equals(t)) {
                         com.callx.app.utils.MediaCache.get(
                             getApplicationContext(), mediaUrl,
                             new com.callx.app.utils.MediaCache.Callback() {
@@ -1785,6 +1787,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
             case "file":         return "file";
             case "document":     return "file";
             case "gif":          return "gif";
+            case "sticker":      return "sticker";
+            case "group_sticker": return "sticker";
             case "group_image":  return "image";
             case "group_video":  return "video";
             case "group_audio":  return "audio";
