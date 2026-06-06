@@ -2569,20 +2569,21 @@ public class ChatActivity extends AppCompatActivity {
         pushMessage(m, "🎞️ GIF");
     }
 
-    private void showAttachSheet() {
+    /** Null-safe findViewById + setOnClickListener — prevents NPE if view missing in layout. */
+    private void safeClick(View root, int id, android.view.View.OnClickListener l) {
+        android.view.View v = root.findViewById(id);
+        if (v != null) v.setOnClickListener(l);
+    }
+
+        private void showAttachSheet() {
         BottomSheetDialog sheet = new BottomSheetDialog(this);
         View v = LayoutInflater.from(this)
                 .inflate(R.layout.bottom_sheet_attach, null);
-        v.findViewById(R.id.opt_gallery)
-                .setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
-        v.findViewById(R.id.opt_video)
-                .setOnClickListener(x -> { sheet.dismiss(); videoPicker.launch("video/*"); });
-        v.findViewById(R.id.opt_audio)
-                .setOnClickListener(x -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
-        v.findViewById(R.id.opt_file)
-                .setOnClickListener(x -> { sheet.dismiss(); filePicker.launch("*/*"); });
-        v.findViewById(R.id.opt_gif)
-                .setOnClickListener(x -> { sheet.dismiss(); gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class)); });
+        safeClick(v, R.id.opt_gallery, x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
+        safeClick(v, R.id.opt_video,   x -> { sheet.dismiss(); videoPicker.launch("video/*"); });
+        safeClick(v, R.id.opt_audio,   x -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
+        safeClick(v, R.id.opt_file,    x -> { sheet.dismiss(); filePicker.launch("*/*"); });
+        safeClick(v, R.id.opt_gif,     x -> { sheet.dismiss(); gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class)); });
         sheet.setContentView(v);
         sheet.show();
     }
