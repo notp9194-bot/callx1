@@ -138,8 +138,7 @@ public class GifPickerActivity extends AppCompatActivity {
             PAGE_SIZE,
             0,
             RatingType.g,
-            null,          // lang — null = default (en)
-            null,          // country
+            null,          // LangType — null = default
             (CompletionHandler<ListMediaResponse>) (response, error) -> {
                 runOnUiThread(() -> {
                     showProgress(false);
