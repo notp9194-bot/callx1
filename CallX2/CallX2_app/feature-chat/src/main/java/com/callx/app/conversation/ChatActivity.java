@@ -2298,11 +2298,10 @@ public class ChatActivity extends AppCompatActivity {
                         binding.uploadProgress.setVisibility(View.GONE);
                         Message m  = buildOutgoing();
                         m.type     = "gif";
-                        // Cloudinary URL mein .gif append karo taaki Glide animated load kare
+                        // Cloudinary URL as-is use karo — m.type="gif" se Glide
+                        // asGif() use karega. URL pe .gif append karna GALAT tha —
+                        // Cloudinary URL break ho jaata tha, GIF blank dikhta tha.
                         String gifUrl = r.secureUrl;
-                        if (gifUrl != null && !gifUrl.endsWith(".gif")) {
-                            gifUrl = gifUrl + ".gif";
-                        }
                         m.mediaUrl = gifUrl;
                         m.imageUrl = gifUrl;
                         pushMessage(m, "🎞️ GIF");

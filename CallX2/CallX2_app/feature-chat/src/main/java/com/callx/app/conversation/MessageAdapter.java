@@ -237,14 +237,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 String url = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
                 android.util.Log.d("ImageLoad", "Loading image/gif: " + url);
                 boolean isGif = "gif".equals(m.type);
-                // Check if already cached
-                java.io.File cached = MediaCache.getCached(ctx, url);
+                // Check if already cached (only used for non-GIF types)
+                java.io.File cached = isGif ? null : MediaCache.getCached(ctx, url);
                 if (isGif) {
-                    // GIF: hamesha asGif() use karo — animated chalega
-                    // URL mein .gif extension hai (Cloudinary se guaranteed)
+                    // GIF: Glide ke DiskCache pe rely karo — MediaCache file se load
+                    // karne par .gif extension nahi hoti, Glide decode fail karta hai.
+                    // URL directly load karo, Glide DiskCacheStrategy.ALL GIF cache karega.
                     Glide.with(ctx)
                             .asGif()
-                            .load(cached != null ? cached : url)
+                            .load(url)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
                             .into(h.ivImage);

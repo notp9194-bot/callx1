@@ -145,8 +145,9 @@ public class CloudinaryUploader {
     }
     private static byte[] readBytes(Context ctx, Uri uri) throws IOException {
         // Images: compress before upload (resize + JPEG 80%)
+        // GIF ko compress MAT karo — MediaCompressor JPEG banata hai, animation destroy ho jaati hai
         String mime = ctx.getContentResolver().getType(uri);
-        if (mime != null && mime.startsWith("image/")) {
+        if (mime != null && mime.startsWith("image/") && !"image/gif".equals(mime)) {
             byte[] compressed = MediaCompressor.compressImage(ctx, uri);
             if (compressed != null && compressed.length > 0) {
                 Log.d(TAG, "Image compressed for upload: " + compressed.length / 1024 + " KB");

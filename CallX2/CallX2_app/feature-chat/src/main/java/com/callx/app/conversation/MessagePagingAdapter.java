@@ -661,12 +661,14 @@ public class MessagePagingAdapter
                             .into(h.ivImage);
                     } else {
                         // GIF ya no thumbnail — direct load with animation support
-                        java.io.File cachedImg = MediaCache.getCached(ctx, fullUrl);
+                        java.io.File cachedImg = isGifMsg ? null : MediaCache.getCached(ctx, fullUrl);
                         if (isGifMsg) {
-                            // GIF: asGif() se load karo — URL mein .gif extension guaranteed hai
+                            // GIF: asGif() se URL directly load karo — MediaCache file use
+                            // mat karo kyunki file mein .gif extension nahi hogi, Glide
+                            // decode fail karta hai. Glide DiskCache GIF cache kar lega.
                             Glide.with(ctx)
                                 .asGif()
-                                .load(cachedImg != null ? cachedImg : fullUrl)
+                                .load(fullUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)
