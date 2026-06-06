@@ -891,8 +891,10 @@ public class ChatActivity extends AppCompatActivity {
                 // Permission lena zaroori hai URI access ke liye (Android 13+)
                 contentInfo.requestPermission();
                 Uri gifUri = contentInfo.getContentUri();
-                // contentInfo bhi pass karo taaki upload ke BAAD permission release ho
-                sendGifMessage(gifUri, contentInfo);
+                // MIME type se pata karo GIF hai ya WebP sticker
+                String mime = contentInfo.getDescription().getMimeType(0);
+                boolean isSticker = mime != null && mime.contains("webp");
+                sendGifMessage(gifUri, contentInfo, isSticker);
             });
         }
     }
@@ -1139,6 +1141,7 @@ public class ChatActivity extends AppCompatActivity {
         switch (m.type) {
             case "image":  return "📷 Photo";
             case "gif":    return "🎞️ GIF";
+            case "sticker": return "🎭 Sticker";
             case "video":  return "🎬 Video";
             case "audio":  return "🎤 Voice message";
             case "file":   return "📎 " + (m.fileName != null ? m.fileName : "File");
@@ -2275,7 +2278,7 @@ public class ChatActivity extends AppCompatActivity {
     // GIF MESSAGE — Google Keyboard se aaya GIF send karo
     // ─────────────────────────────────────────────────────────────────────
 
-    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo) {
+    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo, boolean isSticker) {
         if (gifUri == null) {
             if (contentInfo != null) contentInfo.releasePermission();
             return;
@@ -2297,14 +2300,13 @@ public class ChatActivity extends AppCompatActivity {
                         if (contentInfo != null) contentInfo.releasePermission();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Message m  = buildOutgoing();
-                        m.type     = "gif";
-                        // Cloudinary URL as-is use karo — m.type="gif" se Glide
-                        // asGif() use karega. URL pe .gif append karna GALAT tha —
-                        // Cloudinary URL break ho jaata tha, GIF blank dikhta tha.
+                        // MIME se decide karo: webp = sticker, gif = gif
+                        m.type     = isSticker ? "sticker" : "gif";
                         String gifUrl = r.secureUrl;
                         m.mediaUrl = gifUrl;
                         m.imageUrl = gifUrl;
-                        pushMessage(m, "🎞️ GIF");
+                        String preview = isSticker ? "🎭 Sticker" : "🎞️ GIF";
+                        pushMessage(m, preview);
                         clearReply();
                     }
                     @Override

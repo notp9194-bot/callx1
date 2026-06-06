@@ -568,7 +568,9 @@ public class GroupChatActivity extends AppCompatActivity {
             ((GifAwareEditText) binding.etMessage).setGifReceivedListener(contentInfo -> {
                 contentInfo.requestPermission();
                 Uri gifUri = contentInfo.getContentUri();
-                sendGifMessage(gifUri, contentInfo);
+                String mime = contentInfo.getDescription().getMimeType(0);
+                boolean isSticker = mime != null && mime.contains("webp");
+                sendGifMessage(gifUri, contentInfo, isSticker);
             });
         }
     }
@@ -1137,7 +1139,7 @@ public class GroupChatActivity extends AppCompatActivity {
     // GIF MESSAGE — Google Keyboard se aaya GIF send karo
     // ─────────────────────────────────────────────────────────────────────
 
-    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo) {
+    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo, boolean isSticker) {
         if (gifUri == null) {
             if (contentInfo != null) contentInfo.releasePermission();
             return;
@@ -1156,14 +1158,12 @@ public class GroupChatActivity extends AppCompatActivity {
                         if (contentInfo != null) contentInfo.releasePermission();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Message m  = buildOutgoing();
-                        m.type     = "gif";
-                        // Cloudinary URL as-is use karo — m.type="gif" se Glide
-                        // asGif() use karega. URL pe .gif append karna GALAT tha —
-                        // Cloudinary URL break ho jaata tha, GIF blank dikhta tha.
+                        m.type     = isSticker ? "sticker" : "gif";
                         String gifUrl = r.secureUrl;
                         m.mediaUrl = gifUrl;
                         m.imageUrl = gifUrl;
-                        pushMessage(m, "🎞️ GIF");
+                        String preview = isSticker ? "🎭 Sticker" : "🎞️ GIF";
+                        pushMessage(m, preview);
                     }
                     @Override
                     public void onError(String err) {
