@@ -80,6 +80,7 @@ import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import com.callx.app.starred.StarredMessagesActivity;
+import android.graphics.drawable.ColorDrawable;
 
 /**
  * ChatActivity — Production-grade 1:1 chat screen.
@@ -558,12 +559,7 @@ public class ChatActivity extends AppCompatActivity {
             }
         });
 
-        binding.btnMoreOptions.setOnClickListener(v -> {
-            android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
-            popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
-            popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
-            popup.show();
-        });
+        binding.btnMoreOptions.setOnClickListener(v -> showColorfulMenu(v));
     }
 
     private void startCall(boolean isVideo) {
@@ -2732,31 +2728,19 @@ public class ChatActivity extends AppCompatActivity {
 
     // ── Typing Style Picker (10 styles for message input box) ─────────────
     private void showTypingStylePicker() {
-        com.callx.app.utils.TypingStyleManager mgr =
-                com.callx.app.utils.TypingStyleManager.get(this);
-        int current = mgr.getCurrentStyle();
-        new AlertDialog.Builder(this)
-            .setTitle("✍️ Choose Typing Style")
-            .setSingleChoiceItems(
-                com.callx.app.utils.TypingStyleManager.STYLE_NAMES,
-                current,
-                (dialog, which) -> {
-                    // Samsung style selected — submenu dikhao
-                    if (which == com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG) {
-                        dialog.dismiss();
-                        showSamsungStyleSubmenu(mgr);
-                        return;
-                    }
-                    mgr.setStyle(which);
-                    dialog.dismiss();
-                    // dialog dismiss ke baad post() se apply karo
-                    // warna dismiss ka focus-change typeface reset kar deta hai
-                    binding.etMessage.post(() ->
-                        mgr.applyToInput(binding.etMessage)
-                    );
-                })
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.chat.ui.TypingStyleBottomSheet sheet =
+                com.callx.app.chat.ui.TypingStyleBottomSheet.newInstance();
+        sheet.setOnStyleSelectedListener(which -> {
+            if (which == -1) {
+                // Samsung submenu signal
+                showSamsungStyleSubmenu(com.callx.app.utils.TypingStyleManager.get(this));
+                return;
+            }
+            binding.etMessage.post(() ->
+                com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage)
+            );
+        });
+        sheet.show(getSupportFragmentManager(), com.callx.app.chat.ui.TypingStyleBottomSheet.TAG);
     }
 
     /** Samsung style ka submenu — Font vs Script choose karo */
@@ -2784,22 +2768,147 @@ public class ChatActivity extends AppCompatActivity {
 
     // ── Chat Bubble Theme Picker ──────────────────────────────────────────
     private void showThemePicker() {
-        com.callx.app.utils.ChatThemeManager mgr =
-                com.callx.app.utils.ChatThemeManager.get(this);
-        int current = mgr.getCurrentTheme();
-        new AlertDialog.Builder(this)
-            .setTitle("\uD83C\uDFA8 Choose Bubble Theme")
-            .setSingleChoiceItems(
-                com.callx.app.utils.ChatThemeManager.THEME_NAMES,
-                current,
-                (dialog, which) -> {
-                    mgr.setTheme(which);
-                    pagingAdapter.notifyDataSetChanged();
-                    applyScreenTheme();   // ← Apply to toolbar/bg/buttons too
-                    dialog.dismiss();
-                })
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.chat.ui.ChatThemeBottomSheet sheet =
+                com.callx.app.chat.ui.ChatThemeBottomSheet.newInstance();
+        sheet.setOnThemeSelectedListener(which -> {
+            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+            applyScreenTheme();
+        });
+        sheet.show(getSupportFragmentManager(), com.callx.app.chat.ui.ChatThemeBottomSheet.TAG);
+    }
+
+    // ── Colorful 3-dot popup menu ─────────────────────────────────────────
+    private void showColorfulMenu(android.view.View anchor) {
+        String[] titles = {
+            "👤 View Profile",
+            "✏️ Edit Profile",
+            "🔍 Search",
+            "⭐ Starred Messages",
+            "🖼️ Set Wallpaper",
+            "🎨 Chat Theme",
+            "💬 Bubble Shape",
+            "✍️ Typing Style",
+            isMuted ? "🔔 Unmute" : "🔕 Mute",
+            "🚫 Block",
+            "🗑 Clear Chat",
+            "📁 Media, Links & Docs"
+        };
+        Runnable[] actions = {
+            () -> openAvatarZoom(),
+            () -> openEditProfile(),
+            () -> openSearch(),
+            () -> {
+                android.content.Intent si = new android.content.Intent(this, com.callx.app.starred.StarredMessagesActivity.class);
+                si.putExtra("chatId", chatId);
+                si.putExtra("isGroup", false);
+                startActivity(si);
+            },
+            () -> showWallpaperPicker(),
+            () -> showThemePicker(),
+            () -> showBubbleShapePicker(),
+            () -> showTypingStylePicker(),
+            () -> toggleMute(),
+            () -> confirmBlockUser(),
+            () -> confirmClearChat(),
+            () -> openAllMediaLinksDocs()
+        };
+        int[][] rowColors = {
+            {0xFF6366F1, 0xFF8B5CF6},
+            {0xFF0EA5E9, 0xFF38BDF8},
+            {0xFF16A34A, 0xFF4ADE80},
+            {0xFFF59E0B, 0xFFEAB308},
+            {0xFFEC4899, 0xFFF43F5E},
+            {0xFFFF0080, 0xFFFF6B00},
+            {0xFF8B5CF6, 0xFFD946EF},
+            {0xFF0284C7, 0xFF7C3AED},
+            {0xFF0D9488, 0xFF06B6D4},
+            {0xFFEF4444, 0xFFF97316},
+            {0xFF374151, 0xFF6B7280},
+            {0xFF15803D, 0xFF0D9488},
+        };
+
+        android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+        android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+        android.graphics.drawable.GradientDrawable rootBg = new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFF1A1A2E, 0xFF0F0F1A});
+        rootBg.setCornerRadius(dp(20));
+        root.setBackground(rootBg);
+        root.setPadding(dp(8), dp(12), dp(8), dp(12));
+
+        for (int i = 0; i < titles.length; i++) {
+            final Runnable action = actions[i];
+            int[] clrs = rowColors[i % rowColors.length];
+
+            android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            android.widget.LinearLayout.LayoutParams rowLp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            rowLp.setMargins(0, dp(2), 0, dp(2));
+            row.setLayoutParams(rowLp);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            row.setMinimumHeight(dp(48));
+            row.setClickable(true);
+            row.setFocusable(true);
+
+            android.graphics.drawable.GradientDrawable rowBg =
+                    new android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                            new int[]{0x14FFFFFF, 0x08FFFFFF});
+            rowBg.setCornerRadius(dp(12));
+            row.setBackground(rowBg);
+
+            // Left colour bar
+            android.view.View bar = new android.view.View(this);
+            android.widget.LinearLayout.LayoutParams barLp =
+                    new android.widget.LinearLayout.LayoutParams(dp(4), dp(28));
+            barLp.setMarginEnd(dp(12));
+            bar.setLayoutParams(barLp);
+            android.graphics.drawable.GradientDrawable barBg =
+                    new android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                            clrs);
+            barBg.setCornerRadius(dp(2));
+            bar.setBackground(barBg);
+
+            android.widget.TextView tv = new android.widget.TextView(this);
+            tv.setText(titles[i]);
+            tv.setTextSize(14f);
+            tv.setTextColor(0xFFFFFFFF);
+            tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
+                    android.graphics.Typeface.NORMAL));
+            tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+            row.addView(bar);
+            row.addView(tv);
+
+            row.setOnClickListener(vv -> {
+                dialog.dismiss();
+                action.run();
+            });
+
+            root.addView(row);
+        }
+
+        dialog.setContentView(root);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+            android.view.WindowManager.LayoutParams wlp = dialog.getWindow().getAttributes();
+            wlp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+            wlp.x = dp(8);
+            wlp.y = dp(56);
+            wlp.width = dp(260);
+            wlp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
+            dialog.getWindow().setAttributes(wlp);
+        }
+        dialog.show();
     }
 
     private void showBubbleShapePicker() {
