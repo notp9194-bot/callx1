@@ -82,20 +82,9 @@ public class ChatThemeManager {
 
         float density = bubbleView.getContext().getResources().getDisplayMetrics().density;
 
-        // Sent = sharp bottom-right corner, Received = sharp top-left corner
-        float[] corners = sent
-                ? new float[]{
-                    R_LARGE * density, R_LARGE * density,  // topLeft
-                    R_LARGE * density, R_LARGE * density,  // topRight
-                    R_SMALL * density, R_SMALL * density,  // bottomRight (sharp)
-                    R_LARGE * density, R_LARGE * density   // bottomLeft
-                  }
-                : new float[]{
-                    R_SMALL * density, R_SMALL * density,  // topLeft (sharp)
-                    R_LARGE * density, R_LARGE * density,  // topRight
-                    R_LARGE * density, R_LARGE * density,  // bottomRight
-                    R_LARGE * density, R_LARGE * density   // bottomLeft
-                  };
+        // Corners come from BubbleShapeManager so shape is independent of colour theme
+        float[] corners = BubbleShapeManager.get(bubbleView.getContext())
+                              .getCornerRadii(sent, density);
 
         int[] colors = getColors(currentTheme, sent);
         GradientDrawable gd;

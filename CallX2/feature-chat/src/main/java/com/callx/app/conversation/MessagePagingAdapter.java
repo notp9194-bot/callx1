@@ -630,7 +630,6 @@ public class MessagePagingAdapter
         // ── Render by type ───────────────────────────────────────
         String type = m.type != null ? m.type : "text";
         switch (type) {
-            case "sticker":
             case "image":
             case "gif":
                 if (h.ivImage != null) {
@@ -638,11 +637,9 @@ public class MessagePagingAdapter
                     String fullUrl  = m.mediaUrl != null ? m.mediaUrl : m.text;
                     String thumbUrl = m.thumbnailUrl;
                     boolean isGifMsg = "gif".equals(m.type);
-                    boolean isStickerType = "sticker".equals(m.type);
 
                     // ── Progressive loading: thumb instantly → full replaces ──
-                    // Sticker aur GIF ke liye thumbnail skip karo
-                    if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg && !isStickerType) {
+                    if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
                         // Step 1: Show thumbnail instantly (tiny, ~30KB)
                         Glide.with(ctx)
                             .load(thumbUrl)
@@ -664,18 +661,11 @@ public class MessagePagingAdapter
                             .into(h.ivImage);
                     } else {
                         // GIF ya no thumbnail — direct load with animation support
-                        // isStickerType already declared above
-                        java.io.File cachedImg = (isGifMsg || isStickerType) ? null : MediaCache.getCached(ctx, fullUrl);
-                        if (isStickerType) {
-                            // Sticker: WebP — normal Glide load, asGif() use mat karo
-                            Glide.with(ctx)
-                                .load(fullUrl)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .placeholder(R.drawable.ic_file)
-                                .error(R.drawable.ic_file)
-                                .into(h.ivImage);
-                        } else if (isGifMsg) {
-                            // GIF: asGif() se URL directly load karo
+                        java.io.File cachedImg = isGifMsg ? null : MediaCache.getCached(ctx, fullUrl);
+                        if (isGifMsg) {
+                            // GIF: asGif() se URL directly load karo — MediaCache file use
+                            // mat karo kyunki file mein .gif extension nahi hogi, Glide
+                            // decode fail karta hai. Glide DiskCache GIF cache kar lega.
                             Glide.with(ctx)
                                 .asGif()
                                 .load(fullUrl)

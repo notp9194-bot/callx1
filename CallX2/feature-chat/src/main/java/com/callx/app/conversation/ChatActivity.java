@@ -891,10 +891,8 @@ public class ChatActivity extends AppCompatActivity {
                 // Permission lena zaroori hai URI access ke liye (Android 13+)
                 contentInfo.requestPermission();
                 Uri gifUri = contentInfo.getContentUri();
-                // MIME type se pata karo GIF hai ya WebP sticker
-                String mime = contentInfo.getDescription().getMimeType(0);
-                boolean isSticker = mime != null && mime.contains("webp");
-                sendGifMessage(gifUri, contentInfo, isSticker);
+                // contentInfo bhi pass karo taaki upload ke BAAD permission release ho
+                sendGifMessage(gifUri, contentInfo);
             });
         }
     }
@@ -1141,7 +1139,6 @@ public class ChatActivity extends AppCompatActivity {
         switch (m.type) {
             case "image":  return "📷 Photo";
             case "gif":    return "🎞️ GIF";
-            case "sticker": return "🎭 Sticker";
             case "video":  return "🎬 Video";
             case "audio":  return "🎤 Voice message";
             case "file":   return "📎 " + (m.fileName != null ? m.fileName : "File");
@@ -2278,7 +2275,7 @@ public class ChatActivity extends AppCompatActivity {
     // GIF MESSAGE — Google Keyboard se aaya GIF send karo
     // ─────────────────────────────────────────────────────────────────────
 
-    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo, boolean isSticker) {
+    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo) {
         if (gifUri == null) {
             if (contentInfo != null) contentInfo.releasePermission();
             return;
@@ -2300,13 +2297,14 @@ public class ChatActivity extends AppCompatActivity {
                         if (contentInfo != null) contentInfo.releasePermission();
                         binding.uploadProgress.setVisibility(View.GONE);
                         Message m  = buildOutgoing();
-                        // MIME se decide karo: webp = sticker, gif = gif
-                        m.type     = isSticker ? "sticker" : "gif";
+                        m.type     = "gif";
+                        // Cloudinary URL as-is use karo — m.type="gif" se Glide
+                        // asGif() use karega. URL pe .gif append karna GALAT tha —
+                        // Cloudinary URL break ho jaata tha, GIF blank dikhta tha.
                         String gifUrl = r.secureUrl;
                         m.mediaUrl = gifUrl;
                         m.imageUrl = gifUrl;
-                        String preview = isSticker ? "🎭 Sticker" : "🎞️ GIF";
-                        pushMessage(m, preview);
+                        pushMessage(m, "🎞️ GIF");
                         clearReply();
                     }
                     @Override
@@ -2804,6 +2802,36 @@ public class ChatActivity extends AppCompatActivity {
             .show();
     }
 
+    private void showBubbleShapePicker() {
+        com.callx.app.utils.BubbleShapeManager shapeMgr =
+                com.callx.app.utils.BubbleShapeManager.get(this);
+        int current = shapeMgr.getCurrentShape();
+
+        // Build display list with name + description
+        String[] items = new String[com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES.length];
+        for (int i = 0; i < items.length; i++) {
+            items[i] = com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES[i]
+                     + "\n" + com.callx.app.utils.BubbleShapeManager.SHAPE_DESC[i];
+        }
+
+        new AlertDialog.Builder(this)
+            .setTitle("\uD83D\uDCAC Bubble Shape")
+            .setSingleChoiceItems(
+                items,
+                current,
+                (dialog, which) -> {
+                    shapeMgr.setShape(which);
+                    // Refresh messages so new shape is applied immediately
+                    if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+                    dialog.dismiss();
+                    android.widget.Toast.makeText(this,
+                        com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES[which] + " applied!",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // MENU
     // ─────────────────────────────────────────────────────────────────────
@@ -2840,6 +2868,7 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
         if (id == R.id.action_set_wallpaper) { showWallpaperPicker();     return true; }
         if (id == R.id.action_chat_theme)   { showThemePicker();        return true; }
+        if (id == R.id.action_bubble_shape) { showBubbleShapePicker();  return true; }
         if (id == R.id.action_typing_style) { showTypingStylePicker();   return true; }
         if (id == R.id.action_media_links_docs) { openAllMediaLinksDocs(); return true; }
         return super.onOptionsItemSelected(item);

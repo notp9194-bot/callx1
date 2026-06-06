@@ -30,6 +30,11 @@
         android:title="🎨 Chat Theme"
         app:showAsAction="never"/>
 
+    <!-- Chat Bubble Shape Picker -->
+    <item android:id="@+id/action_bubble_shape"
+        android:title="💬 Bubble Shape"
+        app:showAsAction="never"/>
+
     <!-- Typing Style Picker -->
     <item android:id="@+id/action_typing_style"
         android:title="✍️ Typing Style"

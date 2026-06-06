@@ -139,15 +139,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
         h.tvMessage.setVisibility(View.GONE);
         h.ivImage.setVisibility(View.GONE);
-        if (h.llMediaContainer != null) h.llMediaContainer.setVisibility(View.GONE);
         if (h.flVideo  != null) h.flVideo.setVisibility(View.GONE);
         if (h.llAudio  != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile   != null) h.llFile.setVisibility(View.GONE);
         if (h.tvEdited     != null) h.tvEdited.setVisibility(View.GONE);
         if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
-        // Reset: ll_bubble always visible for text/audio/file
-        android.view.View llBubbleReset = h.itemView.findViewById(R.id.ll_bubble);
-        if (llBubbleReset != null) llBubbleReset.setVisibility(View.VISIBLE);
 
         // Feature 8: Pinned label
         if (h.tvPinnedLabel != null)
@@ -216,119 +212,42 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         }
 
         String type = m.type == null ? "text" : m.type;
-        // Sticker type preserve karo — image/gif override se pehle check karo
-        if (!"sticker".equals(type) && !"gif".equals(type)) {
-            if ("image".equals(type) || (m.imageUrl != null && !m.imageUrl.isEmpty()
-                    && (m.mediaUrl == null || m.mediaUrl.isEmpty())))
-                type = "image";
-        }
+        if ("image".equals(type) || (m.imageUrl != null && !m.imageUrl.isEmpty()
+                && (m.mediaUrl == null || m.mediaUrl.isEmpty())))
+            type = "image";
+        // GIF ko bhi image ki tarah treat karo — Glide GIF auto-play karta hai
+        if ("gif".equals(type)) type = "gif";
 
-        // ── Route to media container OR text bubble ──────────────────────────────
-        // Media types (image/gif/video/sticker): llMediaContainer dikhao, ll_bubble chupao
-        // Text/audio/file: ll_bubble dikhao, llMediaContainer chupa rehne do
-        boolean isMediaType = "image".equals(type) || "gif".equals(type)
-                || "video".equals(type) || "sticker".equals(type);
+        // ── Per-type bubble background — ChatThemeManager (runtime gradient) ──
         try {
             android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
-            if (isMediaType) {
-                // Media: apna container use karo, bubble chupao
-                if (h.llMediaContainer != null) h.llMediaContainer.setVisibility(View.VISIBLE);
-                if (llBubble != null) llBubble.setVisibility(View.GONE);
-            } else {
-                // Text/audio/file: bubble dikhao, theme apply karo
-                if (h.llMediaContainer != null) h.llMediaContainer.setVisibility(View.GONE);
-                if (llBubble != null) {
-                    llBubble.setVisibility(View.VISIBLE);
-                    boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
-                    com.callx.app.utils.ChatThemeManager
-                            .get(ctx)
-                            .applyBubble(llBubble, sent, type, hasReply);
-                }
+            if (llBubble != null) {
+                boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
+                com.callx.app.utils.ChatThemeManager
+                        .get(ctx)
+                        .applyBubble(llBubble, sent, type, hasReply);
+
             }
         } catch (Exception ignored) {}
 
-        // ── Media container: rounded background (WhatsApp style) ───────────────────
-        // Sent:     top corners bade, bottom-right chota (tail)
-        // Received: top-left chota (tail), baki corners bade
-        if (isMediaType && h.llMediaContainer != null) {
-            float density = ctx.getResources().getDisplayMetrics().density;
-            float bigR  = 18 * density;
-            float tailR =  4 * density;
-
-            if ("sticker".equals(type)) {
-                // Sticker: transparent, no rounded bg, small square
-                h.llMediaContainer.setBackground(null);
-                if (h.ivImage != null) {
-                    int stickerPx = (int) (120 * density);
-                    android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
-                    lp.width  = stickerPx;
-                    lp.height = stickerPx;
-                    h.ivImage.setLayoutParams(lp);
-                    h.ivImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-                    h.ivImage.setMaxHeight(stickerPx);
-                    h.ivImage.setBackground(null);
-                    h.ivImage.setClipToOutline(false);
-                }
-            } else {
-                // image / gif / video — rounded corners on the container
-                float[] radii = sent
-                        ? new float[]{ bigR, bigR,  bigR, bigR,  tailR, tailR,  bigR, bigR }
-                        : new float[]{ tailR, tailR,  bigR, bigR,  bigR, bigR,  bigR, bigR };
-                android.graphics.drawable.GradientDrawable mediaBg =
-                        new android.graphics.drawable.GradientDrawable();
-                mediaBg.setColor(0xFF1A1A1A); // dark bg while loading
-                mediaBg.setCornerRadii(radii);
-                h.llMediaContainer.setBackground(mediaBg);
-                h.llMediaContainer.setClipToOutline(true);
-                final float clipR = bigR;
-                h.llMediaContainer.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                    @Override
-                    public void getOutline(android.view.View view, android.graphics.Outline outline) {
-                        outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), clipR);
-                    }
-                });
-                // Image sizing
-                if (h.ivImage != null) {
-                    int imagePx = (int) (240 * density);
-                    android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
-                    lp.width  = imagePx;
-                    lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
-                    h.ivImage.setLayoutParams(lp);
-                    h.ivImage.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-                    h.ivImage.setMaxHeight((int) (320 * density));
-                    h.ivImage.setBackground(null);
-                    h.ivImage.setClipToOutline(false);
-                }
-            }
-        }
-
         switch (type) {
-            case "sticker":
             case "gif":
             case "image": {
                 h.ivImage.setVisibility(View.VISIBLE);
                 String url = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
                 android.util.Log.d("ImageLoad", "Loading image/gif: " + url);
                 boolean isGif = "gif".equals(m.type);
-                boolean isSticker = "sticker".equals(m.type);
-                // Check if already cached (only used for non-GIF/non-sticker types)
-                java.io.File cached = (isGif || isSticker) ? null : MediaCache.getCached(ctx, url);
+                // Check if already cached (only used for non-GIF types)
+                java.io.File cached = isGif ? null : MediaCache.getCached(ctx, url);
                 if (isGif) {
                     // GIF: Glide ke DiskCache pe rely karo — MediaCache file se load
                     // karne par .gif extension nahi hoti, Glide decode fail karta hai.
+                    // URL directly load karo, Glide DiskCacheStrategy.ALL GIF cache karega.
                     Glide.with(ctx)
                             .asGif()
                             .load(url)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
-                            .into(h.ivImage);
-                } else if (isSticker) {
-                    // Sticker: WebP format — asGif() mat use karo, normal load karo
-                    // Glide WebP animated stickers bhi support karta hai .load() se
-                    Glide.with(ctx)
-                            .load(url)
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            // No placeholder for sticker — transparent background chahiye
                             .into(h.ivImage);
                 } else if (cached != null) {
                     android.util.Log.d("ImageLoad", "Image found in cache: " + cached.getAbsolutePath());
@@ -1340,7 +1259,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         ImageView    ivImage, ivVideoThumb;
         FrameLayout  flVideo;
         android.widget.TextView tvVideoDuration; // v21: video duration badge
-        LinearLayout llMediaContainer;
         LinearLayout llAudio;
         ImageButton  btnPlayAudio;
         SeekBar      seekAudio;
@@ -1371,7 +1289,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             flVideo      = v.findViewById(R.id.fl_video);
             ivVideoThumb = v.findViewById(R.id.iv_video_thumb);
             tvVideoDuration = v.findViewById(R.id.tv_duration); // v21
-            llMediaContainer = v.findViewById(R.id.ll_media_container);
             llAudio      = v.findViewById(R.id.ll_audio);
             btnPlayAudio = v.findViewById(R.id.btn_play_pause);
             seekAudio    = v.findViewById(R.id.seek_audio);
