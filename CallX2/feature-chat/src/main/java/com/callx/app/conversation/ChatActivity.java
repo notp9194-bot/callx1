@@ -562,7 +562,28 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnMoreOptions.setOnClickListener(v -> {
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
             popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
-            popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
+            popup.setOnMenuItemClickListener(item -> {
+                int id = item.getItemId();
+                if (id == com.callx.app.chat.R.id.action_send_gif)       { gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class)); return true; }
+                if (id == com.callx.app.chat.R.id.action_view_profile)   { openAvatarZoom();     return true; }
+                if (id == com.callx.app.chat.R.id.action_edit_profile)   { openEditProfile();    return true; }
+                if (id == com.callx.app.chat.R.id.action_search)         { openSearch();         return true; }
+                if (id == com.callx.app.chat.R.id.action_starred)        {
+                    Intent si = new Intent(this, com.callx.app.starred.StarredMessagesActivity.class);
+                    si.putExtra("chatId", chatId);
+                    si.putExtra("isGroup", false);
+                    startActivity(si);
+                    return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_set_wallpaper)    { showWallpaperPicker();      return true; }
+                if (id == com.callx.app.chat.R.id.action_chat_theme)       { showThemePicker();          return true; }
+                if (id == com.callx.app.chat.R.id.action_typing_style)     { showTypingStylePicker();    return true; }
+                if (id == com.callx.app.chat.R.id.action_mute)             { toggleMute();               return true; }
+                if (id == com.callx.app.chat.R.id.action_block)            { confirmBlockUser();         return true; }
+                if (id == com.callx.app.chat.R.id.action_clear_chat)       { confirmClearChat();         return true; }
+                if (id == com.callx.app.chat.R.id.action_media_links_docs) { openAllMediaLinksDocs();    return true; }
+                return false;
+            });
             popup.show();
         });
     }
