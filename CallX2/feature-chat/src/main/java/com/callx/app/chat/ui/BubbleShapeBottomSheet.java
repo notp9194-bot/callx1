@@ -171,8 +171,10 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         super.onViewCreated(view, savedInstanceState);
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
-            d.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
-            d.getBehavior().setSkipCollapsed(true);
+            BottomSheetBehavior<FrameLayout> behavior = d.getBehavior();
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            behavior.setSkipCollapsed(true);
+            behavior.setDraggable(false);   // ← drag se close band
         }
     }
 
