@@ -15,9 +15,6 @@
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.group.NewGroupActivity"
             android:exported="false"/>
-        <activity android:name="com.callx.app.chat.gif.GifPickerActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.starred.StarredMessagesActivity"
             android:exported="false"
             android:parentActivityName="com.callx.app.conversation.ChatActivity"/>

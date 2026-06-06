@@ -80,13 +80,6 @@ public class Message {
     /** True if this message belongs to a group chat */
     public boolean isGroup;
 
-    // ── Feature 11: GIF Messages ─────────────────────────────────────────────
-    /**
-     * GIF URL from GIPHY — set when type = "gif".
-     * Stored in Firebase; receiver loads & plays the animated GIF via Glide.
-     */
-    public String gifUrl;
-
     // ── Feature: Typing Font Style ────────────────────────────────────────
     /**
      * Font style ID used when this message was typed.

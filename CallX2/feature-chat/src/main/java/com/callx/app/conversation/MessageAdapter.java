@@ -215,6 +215,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         if ("image".equals(type) || (m.imageUrl != null && !m.imageUrl.isEmpty()
                 && (m.mediaUrl == null || m.mediaUrl.isEmpty())))
             type = "image";
+        // GIF ko bhi image ki tarah treat karo — Glide GIF auto-play karta hai
+        if ("gif".equals(type)) type = "gif";
 
         // ── Per-type bubble background — ChatThemeManager (runtime gradient) ──
         try {
@@ -229,25 +231,40 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         } catch (Exception ignored) {}
 
         switch (type) {
+            case "gif":
             case "image": {
                 h.ivImage.setVisibility(View.VISIBLE);
                 String url = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
-                android.util.Log.d("ImageLoad", "Loading image: " + url);
+                android.util.Log.d("ImageLoad", "Loading image/gif: " + url);
+                boolean isGif = "gif".equals(m.type);
                 // Check if already cached
                 java.io.File cached = MediaCache.getCached(ctx, url);
                 if (cached != null) {
                     android.util.Log.d("ImageLoad", "Image found in cache: " + cached.getAbsolutePath());
-                    Glide.with(ctx).load(cached)
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .placeholder(R.drawable.bg_circle_white)
-                            .into(h.ivImage);
+                    if (isGif) {
+                        Glide.with(ctx).asGif().load(cached)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .placeholder(R.drawable.bg_circle_white)
+                                .into(h.ivImage);
+                    } else {
+                        Glide.with(ctx).load(cached)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .placeholder(R.drawable.bg_circle_white)
+                                .into(h.ivImage);
+                    }
                 } else {
                     android.util.Log.d("ImageLoad", "Image NOT in cache, will download: " + url);
-                    // Not cached yet - load from network and let MediaCache download in background
-                    Glide.with(ctx).load(url)
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .placeholder(R.drawable.bg_circle_white)
-                            .into(h.ivImage);
+                    if (isGif) {
+                        Glide.with(ctx).asGif().load(url)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .placeholder(R.drawable.bg_circle_white)
+                                .into(h.ivImage);
+                    } else {
+                        Glide.with(ctx).load(url)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .placeholder(R.drawable.bg_circle_white)
+                                .into(h.ivImage);
+                    }
                     // Background cache
                     MediaCache.get(ctx, url, new MediaCache.Callback() {
                         @Override public void onReady(java.io.File file) {
@@ -261,27 +278,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 final String fu = url;
                 final String tu = m.thumbnailUrl;
                 h.ivImage.setOnClickListener(v -> showImageActionSheet(ctx, m, fu, tu != null ? tu : fu));
-                h.ivImage.setOnLongClickListener(v -> {
-                    openActionSheet(ctx, m);
-                    return true;
-                });
-                break;
-            }
-            case "gif": {
-                // GIF messages — load animated GIF via Glide asGif()
-                h.ivImage.setVisibility(View.VISIBLE);
-                String gifUrl = m.gifUrl != null ? m.gifUrl :
-                                (m.mediaUrl != null ? m.mediaUrl : m.imageUrl);
-                Glide.with(ctx)
-                        .asGif()
-                        .load(gifUrl)
-                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                        .placeholder(R.drawable.bg_circle_white)
-                        .into(h.ivImage);
-                h.ivImage.setOnClickListener(v -> {
-                    // Open GIF in full-screen image viewer
-                    showImageActionSheet(ctx, m, gifUrl, gifUrl);
-                });
                 h.ivImage.setOnLongClickListener(v -> {
                     openActionSheet(ctx, m);
                     return true;

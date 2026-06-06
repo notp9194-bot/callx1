@@ -636,11 +636,10 @@ public class MessagePagingAdapter
                     h.ivImage.setVisibility(View.VISIBLE);
                     String fullUrl  = m.mediaUrl != null ? m.mediaUrl : m.text;
                     String thumbUrl = m.thumbnailUrl;
+                    boolean isGifMsg = "gif".equals(m.type);
 
                     // ── Progressive loading: thumb instantly → full replaces ──
-                    // If thumbnail exists: show it immediately, then full overlays
-                    // If no thumbnail: direct load from cache/network
-                    if (thumbUrl != null && !thumbUrl.isEmpty()) {
+                    if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
                         // Step 1: Show thumbnail instantly (tiny, ~30KB)
                         Glide.with(ctx)
                             .load(thumbUrl)
@@ -661,9 +660,16 @@ public class MessagePagingAdapter
                             .error(R.drawable.ic_file)
                             .into(h.ivImage);
                     } else {
-                        // No thumbnail — direct progressive load with cache
+                        // GIF ya no thumbnail — direct load with animation support
                         java.io.File cachedImg = MediaCache.getCached(ctx, fullUrl);
-                        if (cachedImg != null) {
+                        if (isGifMsg) {
+                            // GIF: asGif() se load karo taaki animation chale
+                            Glide.with(ctx).asGif().load(cachedImg != null ? cachedImg : fullUrl)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .placeholder(R.drawable.ic_file)
+                                .error(R.drawable.ic_file)
+                                .into(h.ivImage);
+                        } else if (cachedImg != null) {
                             Glide.with(ctx).load(cachedImg)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                                 .placeholder(R.drawable.ic_file)

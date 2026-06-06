@@ -72,6 +72,8 @@ import com.callx.app.chat.performance.SwipeOptimizer;
 import com.callx.app.chat.reply.ReplyController;
 import com.callx.app.chat.reply.ReplyDataMapper;
 import com.callx.app.chat.ui.MessageHighlightAnimator;
+import com.callx.app.chat.ui.GifAwareEditText;
+import androidx.core.view.inputmethod.InputContentInfoCompat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -116,7 +118,6 @@ public class ChatActivity extends AppCompatActivity {
     private static final int    INITIAL_LOAD  = 40;
     private static final int    REQ_AUDIO     = 200;
     private static final int    REQ_CAMERA    = 300;
-    private static final int    REQ_GIF       = 400;
 
     // ── View binding ───────────────────────────────────────────────────────
     private ActivityChatBinding binding;
@@ -165,7 +166,6 @@ public class ChatActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> filePicker;
     private ActivityResultLauncher<Uri>    cameraCapturer;
     private ActivityResultLauncher<String> wallpaperPicker;
-    private ActivityResultLauncher<android.content.Intent> gifPicker;
     private Uri cameraOutputUri;
 
     // ── Voice recorder ─────────────────────────────────────────────────────
@@ -881,15 +881,19 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnMic.setOnClickListener(v -> toggleRecording());
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> launchCamera());
-        // GIF button fallback — onClick in XML is primary; this is secondary backup
-        try {
-            android.view.View _gifBtn = binding.getRoot().findViewById(
-                    getResources().getIdentifier("btn_gif", "id", getPackageName()));
-            if (_gifBtn != null) _gifBtn.setOnClickListener(v -> openGifPicker());
-        } catch (Exception ignored) {}
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
+
+        // GIF support: Google Keyboard se GIF aane par handle karo
+        if (binding.etMessage instanceof GifAwareEditText) {
+            ((GifAwareEditText) binding.etMessage).setGifReceivedListener(contentInfo -> {
+                contentInfo.requestPermission();
+                Uri gifUri = contentInfo.getContentUri();
+                sendGifMessage(gifUri);
+                contentInfo.releasePermission();
+            });
+        }
     }
 
     private static final int MAX_MESSAGE_LENGTH = 4000;
@@ -1133,6 +1137,7 @@ public class ChatActivity extends AppCompatActivity {
         if (m.type == null) return "[message]";
         switch (m.type) {
             case "image":  return "📷 Photo";
+            case "gif":    return "🎞️ GIF";
             case "video":  return "🎬 Video";
             case "audio":  return "🎤 Voice message";
             case "file":   return "📎 " + (m.fileName != null ? m.fileName : "File");
@@ -1566,18 +1571,8 @@ public class ChatActivity extends AppCompatActivity {
                 String statusText;
                 if (Boolean.TRUE.equals(online)) {
                     statusText = "online";
-                } else if (lastSeen != null) {
-                    // Smart formatting: aaj ka ho toh sirf time, warna date bhi
-                    java.util.Calendar now = java.util.Calendar.getInstance();
-                    java.util.Calendar then = java.util.Calendar.getInstance();
-                    then.setTimeInMillis(lastSeen);
-                    boolean isToday = now.get(java.util.Calendar.DATE) == then.get(java.util.Calendar.DATE)
-                            && now.get(java.util.Calendar.MONTH) == then.get(java.util.Calendar.MONTH)
-                            && now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR);
-                    java.text.SimpleDateFormat sdf = isToday
-                            ? new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
-                            : new java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault());
-                    statusText = "last seen " + sdf.format(new java.util.Date(lastSeen));
+                } else if (lastSeen != null && lastSeen > 0) {
+                    statusText = formatLastSeenRelative(lastSeen);
                 } else {
                     statusText = "";
                 }
@@ -1593,6 +1588,40 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.getUserRef(partnerUid).addValueEventListener(onlineListener);
+    }
+
+    /**
+     * Accurate relative last seen:
+     *   < 1 min   → "last seen just now"
+     *   < 1 hour  → "last seen X min ago"
+     *   < 24 hrs  → "last seen X hours ago" / "last seen at HH:mm"
+     *   older     → "last seen DD MMM"
+     */
+    private String formatLastSeenRelative(long ts) {
+        long diff = System.currentTimeMillis() - ts;
+        if (diff < 0) diff = 0; // clock skew guard
+
+        if (diff < 60_000L) {
+            return "last seen just now";
+        } else if (diff < 3_600_000L) {
+            long mins = diff / 60_000L;
+            return "last seen " + mins + " min" + (mins == 1 ? "" : "s") + " ago";
+        } else if (diff < 86_400_000L) {
+            // Same day — show time
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
+            return "last seen at " + sdf.format(new java.util.Date(ts));
+        } else if (diff < 7 * 86_400_000L) {
+            // Within a week — show day + time
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("EEE, hh:mm a", java.util.Locale.getDefault());
+            return "last seen " + sdf.format(new java.util.Date(ts));
+        } else {
+            // Older — show date
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault());
+            return "last seen " + sdf.format(new java.util.Date(ts));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2241,6 +2270,40 @@ public class ChatActivity extends AppCompatActivity {
     // MEDIA UPLOAD
     // ─────────────────────────────────────────────────────────────────────
 
+    // ─────────────────────────────────────────────────────────────────────
+    // GIF MESSAGE — Google Keyboard se aaya GIF send karo
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void sendGifMessage(Uri gifUri) {
+        if (gifUri == null) return;
+        if (!isOnline()) {
+            Toast.makeText(this, "No connection — GIF send nahi ho sakta", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+        Toast.makeText(this, "GIF bhej raha hai...", Toast.LENGTH_SHORT).show();
+        CloudinaryUploader.upload(this, gifUri, "callx/gif", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override
+                    public void onSuccess(CloudinaryUploader.Result r) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Message m  = buildOutgoing();
+                        m.type     = "gif";
+                        m.mediaUrl = r.secureUrl;
+                        m.imageUrl = r.secureUrl;
+                        pushMessage(m, "🎞️ GIF");
+                        clearReply();
+                    }
+                    @Override
+                    public void onError(String err) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Toast.makeText(ChatActivity.this,
+                                err != null ? err : "GIF upload failed",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
     private void uploadAndSend(Uri uri, String msgType,
                                String resourceType, String fileName) {
         // OFFLINE FIX: Media upload needs internet — check before starting
@@ -2494,14 +2557,6 @@ public class ChatActivity extends AppCompatActivity {
                             uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     } catch (SecurityException ignored) {}
                     showWallpaperScopeDialog(uri);
-                });
-        gifPicker = registerForActivityResult(
-                new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                        String gifUrl = result.getData().getStringExtra("gif_url");
-                        if (gifUrl != null && !gifUrl.isEmpty()) sendGifMessage(gifUrl);
-                    }
                 });
         cameraCapturer = registerForActivityResult(
                 new ActivityResultContracts.TakePicture(),
@@ -2799,58 +2854,6 @@ public class ChatActivity extends AppCompatActivity {
 
     private int dp(int dp) {
         return (int) (dp * getResources().getDisplayMetrics().density);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // GIF SUPPORT
-    // ─────────────────────────────────────────────────────────────────────
-
-    /**
-     * Opens GifPickerActivity using the registered gifPicker launcher.
-     */
-    /** Called by android:onClick in layout — most reliable way to attach click */
-    public void openGifPickerClick(android.view.View v) {
-        openGifPicker();
-    }
-
-    private void openGifPicker() {
-        android.widget.Toast.makeText(this,
-            "DEBUG: GIF button clicked", android.widget.Toast.LENGTH_SHORT).show();
-
-        if (gifPicker == null) {
-            android.widget.Toast.makeText(this,
-                "DEBUG ERROR: gifPicker is NULL (not registered)", android.widget.Toast.LENGTH_LONG).show();
-            return;
-        }
-        android.widget.Toast.makeText(this,
-            "DEBUG: gifPicker OK, launching GifPickerActivity...", android.widget.Toast.LENGTH_SHORT).show();
-        try {
-            android.content.Intent intent = new android.content.Intent(
-                    this, com.callx.app.chat.gif.GifPickerActivity.class);
-            gifPicker.launch(intent);
-            android.widget.Toast.makeText(this,
-                "DEBUG: launch() called OK", android.widget.Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            android.widget.Toast.makeText(this,
-                "DEBUG CRASH: " + e.getClass().getSimpleName() + " — " + e.getMessage(),
-                android.widget.Toast.LENGTH_LONG).show();
-            android.util.Log.e("GifDebug", "openGifPicker crash", e);
-        }
-    }
-
-    /**
-     * Builds and pushes a GIF message.
-     * @param gifUrl Full GIPHY GIF URL returned by GifPickerActivity.
-     */
-    private void sendGifMessage(String gifUrl) {
-        if (gifUrl == null || gifUrl.isEmpty()) return;
-        Message m     = buildOutgoing();
-        m.type        = "gif";
-        m.gifUrl      = gifUrl;
-        m.mediaUrl    = gifUrl;   // fallback for older clients
-        m.imageUrl    = gifUrl;   // fallback for legacy adapters
-        pushMessage(m, "🎞️ GIF");
-        clearReply();
     }
 
     // ─────────────────────────────────────────────────────────────────────

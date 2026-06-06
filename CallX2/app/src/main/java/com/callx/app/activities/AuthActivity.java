@@ -711,6 +711,8 @@ public class AuthActivity extends AppCompatActivity {
     }
 
     private void goToMain() {
+        // Mark user online immediately after login
+        com.callx.app.utils.PresenceManager.getInstance().onLogin();
         startActivity(new Intent(this, MainActivity.class));
         finish();
     }

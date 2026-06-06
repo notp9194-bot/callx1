@@ -52,6 +52,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.starred.StarredMessagesActivity;
+import com.callx.app.chat.ui.GifAwareEditText;
+import androidx.core.view.inputmethod.InputContentInfoCompat;
 import com.callx.app.conversation.MessageAdapter;
 import com.callx.app.chat.ui.MessageHighlightAnimator;
 
@@ -133,7 +135,6 @@ public class GroupChatActivity extends AppCompatActivity {
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker;
     private ActivityResultLauncher<String> wallpaperPicker;
-    private ActivityResultLauncher<android.content.Intent> gifPicker;
     private final AudioRecorderHelper recorder = new AudioRecorderHelper();
 
     // ── Network monitoring (Task 5) ────────────────────────────────────────
@@ -558,15 +559,19 @@ public class GroupChatActivity extends AppCompatActivity {
             }
         });
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
-        // GIF button fallback
-        try {
-            android.view.View _gifBtn2 = binding.getRoot().findViewById(
-                    getResources().getIdentifier("btn_gif", "id", getPackageName()));
-            if (_gifBtn2 != null) _gifBtn2.setOnClickListener(v -> openGifPicker());
-        } catch (Exception ignored) {}
         binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
         binding.btnMic.setOnClickListener(v -> toggleRecording());
+
+        // GIF support: Google Keyboard se GIF aane par handle karo
+        if (binding.etMessage instanceof GifAwareEditText) {
+            ((GifAwareEditText) binding.etMessage).setGifReceivedListener(contentInfo -> {
+                contentInfo.requestPermission();
+                Uri gifUri = contentInfo.getContentUri();
+                sendGifMessage(gifUri);
+                contentInfo.releasePermission();
+            });
+        }
     }
 
     private static final int MAX_MESSAGE_LENGTH = 4000;
@@ -1097,41 +1102,6 @@ public class GroupChatActivity extends AppCompatActivity {
     // MEDIA
     // ─────────────────────────────────────────────────────────────────────
 
-    /** Called by android:onClick in layout */
-    public void openGifPickerClick(android.view.View v) {
-        openGifPicker();
-    }
-
-    private void openGifPicker() {
-        android.widget.Toast.makeText(this,
-            "DEBUG: GIF button clicked (Group)", android.widget.Toast.LENGTH_SHORT).show();
-        if (gifPicker == null) {
-            android.widget.Toast.makeText(this,
-                "DEBUG ERROR: gifPicker NULL", android.widget.Toast.LENGTH_LONG).show();
-            return;
-        }
-        try {
-            android.content.Intent intent = new android.content.Intent(
-                    this, com.callx.app.chat.gif.GifPickerActivity.class);
-            gifPicker.launch(intent);
-        } catch (Exception e) {
-            android.widget.Toast.makeText(this,
-                "DEBUG CRASH: " + e.getClass().getSimpleName() + " — " + e.getMessage(),
-                android.widget.Toast.LENGTH_LONG).show();
-            android.util.Log.e("GifDebug", "group openGifPicker crash", e);
-        }
-    }
-
-    private void sendGifMessage(String gifUrl) {
-        if (gifUrl == null || gifUrl.isEmpty()) return;
-        Message m     = buildOutgoing();
-        m.type        = "gif";
-        m.gifUrl      = gifUrl;
-        m.mediaUrl    = gifUrl;
-        m.imageUrl    = gifUrl;
-        pushMessage(m, "🎞️ GIF");
-    }
-
     private void setupPickers() {
         wallpaperPicker = registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
@@ -1142,14 +1112,6 @@ public class GroupChatActivity extends AppCompatActivity {
                             uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     } catch (SecurityException ignored) {}
                     showWallpaperScopeDialog(uri);
-                });
-        gifPicker = registerForActivityResult(
-                new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                        String gifUrl = result.getData().getStringExtra("gif_url");
-                        if (gifUrl != null && !gifUrl.isEmpty()) sendGifMessage(gifUrl);
-                    }
                 });
         imagePicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "image", "image", null); });
@@ -1170,6 +1132,39 @@ public class GroupChatActivity extends AppCompatActivity {
         v.findViewById(R.id.opt_audio).setOnClickListener(x  -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
         v.findViewById(R.id.opt_file).setOnClickListener(x   -> { sheet.dismiss(); filePicker.launch("*/*"); });
         sheet.setContentView(v); sheet.show();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GIF MESSAGE — Google Keyboard se aaya GIF send karo
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void sendGifMessage(Uri gifUri) {
+        if (gifUri == null) return;
+        if (!isOnline()) {
+            Toast.makeText(this, "No connection — GIF send nahi ho sakta", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+        Toast.makeText(this, "GIF bhej raha hai...", Toast.LENGTH_SHORT).show();
+        CloudinaryUploader.upload(this, gifUri, "callx/gif", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override
+                    public void onSuccess(CloudinaryUploader.Result r) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Message m  = buildOutgoing();
+                        m.type     = "gif";
+                        m.mediaUrl = r.secureUrl;
+                        m.imageUrl = r.secureUrl;
+                        pushMessage(m, "🎞️ GIF");
+                    }
+                    @Override
+                    public void onError(String err) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Toast.makeText(GroupChatActivity.this,
+                                err != null ? err : "GIF upload failed",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
     }
 
     private void uploadAndSend(Uri uri, String msgType, String resourceType, String fileName) {
