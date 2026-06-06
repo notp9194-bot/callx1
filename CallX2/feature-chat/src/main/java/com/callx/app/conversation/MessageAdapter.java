@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.callx.app.chat.R;
+import com.callx.app.gif.GifUtils;
 
 import com.callx.app.models.Message;
 import com.callx.app.utils.FileUtils;

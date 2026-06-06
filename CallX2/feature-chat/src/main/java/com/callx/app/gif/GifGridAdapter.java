@@ -11,7 +11,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.load.resource.gif.GifDrawable;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 import com.giphy.sdk.core.models.Media;
@@ -20,9 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * GifGridAdapter — 2-column grid of GIFs.
- * Loads animated GIFs via Glide (asGif() — memory + disk cache automatic).
- * Offline: Glide serves from disk cache; new GIFs won't appear.
+ * GifGridAdapter — 2-column animated GIF grid.
+ * Uses GifUtils for null-safe URL extraction (GIPHY SDK 2.3.14).
+ * Glide DiskCacheStrategy.ALL → offline: previously loaded thumbnails served from cache.
  */
 public class GifGridAdapter extends RecyclerView.Adapter<GifGridAdapter.GifVH> {
 
@@ -30,7 +29,7 @@ public class GifGridAdapter extends RecyclerView.Adapter<GifGridAdapter.GifVH> {
         void onGifClick(Media gif);
     }
 
-    private final Context           ctx;
+    private final Context            ctx;
     private final OnGifClickListener listener;
     private final List<Media>        gifs = new ArrayList<>();
 
@@ -47,35 +46,24 @@ public class GifGridAdapter extends RecyclerView.Adapter<GifGridAdapter.GifVH> {
 
     @NonNull @Override
     public GifVH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View v = LayoutInflater.from(ctx)
-                .inflate(R.layout.item_gif_grid, parent, false);
+        View v = LayoutInflater.from(ctx).inflate(R.layout.item_gif_grid, parent, false);
         return new GifVH(v);
     }
 
     @Override
     public void onBindViewHolder(@NonNull GifVH h, int pos) {
-        Media gif = gifs.get(pos);
+        Media gif     = gifs.get(pos);
+        String thumb  = GifUtils.getThumbUrl(gif);
 
-        // Prefer previewGif URL (smaller) for thumbnail in grid
-        String thumbUrl = "";
-        try {
-            if (gif.getImages() != null && gif.getImages().getPreviewGif() != null
-                    && gif.getImages().getPreviewGif().getGifUrl() != null) {
-                thumbUrl = gif.getImages().getPreviewGif().getGifUrl();
-            } else if (gif.getImages() != null && gif.getImages().getFixedWidthSmall() != null
-                    && gif.getImages().getFixedWidthSmall().getGifUrl() != null) {
-                thumbUrl = gif.getImages().getFixedWidthSmall().getGifUrl();
-            }
-        } catch (Exception ignored) {}
+        RequestOptions opts = new RequestOptions()
+                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                .placeholder(R.drawable.bg_date_chip)
+                .error(R.drawable.bg_date_chip);
 
-        // Load animated GIF — DiskCacheStrategy.ALL caches for offline
         Glide.with(ctx)
                 .asGif()
-                .load(thumbUrl)
-                .apply(new RequestOptions()
-                        .diskCacheStrategy(DiskCacheStrategy.ALL)
-                        .placeholder(R.drawable.bg_date_chip)
-                        .error(R.drawable.bg_date_chip))
+                .load(thumb)
+                .apply(opts)
                 .into(h.ivGif);
 
         h.itemView.setOnClickListener(v -> listener.onGifClick(gif));
