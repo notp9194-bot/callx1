@@ -601,6 +601,13 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Camera"/>
 
+        <ImageButton
+            android:id="@+id/btn_gif"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_gif"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Send GIF"/>
 
         <FrameLayout
             android:layout_width="0dp"

@@ -978,6 +978,14 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnMic.setOnClickListener(v -> toggleRecording());
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> launchCamera());
+        binding.btnGif.setOnClickListener(v -> {
+            android.util.Log.d("ChatMenu", "GIF button (input bar) clicked");
+            if (gifPicker == null) {
+                android.widget.Toast.makeText(this, "GIF picker not ready", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class));
+        });
 
 
         if (binding.btnCancelReply != null)
