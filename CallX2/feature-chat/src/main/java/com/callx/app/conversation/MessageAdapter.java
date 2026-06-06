@@ -223,13 +223,39 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         try {
             android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
             if (llBubble != null) {
-                boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
-                com.callx.app.utils.ChatThemeManager
-                        .get(ctx)
-                        .applyBubble(llBubble, sent, type, hasReply);
-
+                if ("sticker".equals(type)) {
+                    // Sticker: no bubble background — transparent so sticker floats freely
+                    llBubble.setBackground(null);
+                    llBubble.setPadding(0, 0, 0, 0);
+                } else {
+                    boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
+                    com.callx.app.utils.ChatThemeManager
+                            .get(ctx)
+                            .applyBubble(llBubble, sent, type, hasReply);
+                }
             }
         } catch (Exception ignored) {}
+
+        // ── Sticker: fixed square size; image/gif: full width with aspect ratio ──
+        if (h.ivImage != null) {
+            if ("sticker".equals(type)) {
+                int stickerPx = (int) (120 * ctx.getResources().getDisplayMetrics().density);
+                android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
+                lp.width  = stickerPx;
+                lp.height = stickerPx;
+                h.ivImage.setLayoutParams(lp);
+                h.ivImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                h.ivImage.setMaxHeight(stickerPx);
+            } else {
+                int imagePx = (int) (240 * ctx.getResources().getDisplayMetrics().density);
+                android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
+                lp.width  = imagePx;
+                lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+                h.ivImage.setLayoutParams(lp);
+                h.ivImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                h.ivImage.setMaxHeight((int) (320 * ctx.getResources().getDisplayMetrics().density));
+            }
+        }
 
         switch (type) {
             case "sticker":
@@ -257,7 +283,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     Glide.with(ctx)
                             .load(url)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .placeholder(R.drawable.bg_circle_white)
+                            // No placeholder for sticker — transparent background chahiye
                             .into(h.ivImage);
                 } else if (cached != null) {
                     android.util.Log.d("ImageLoad", "Image found in cache: " + cached.getAbsolutePath());
