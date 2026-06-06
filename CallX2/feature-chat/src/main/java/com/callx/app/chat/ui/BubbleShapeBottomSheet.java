@@ -143,7 +143,6 @@ public class BubbleShapeBottomSheet extends BottomSheetDialogFragment {
         scroll.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
-        scroll.setScrollbars(View.SCROLLBARS_INSIDE_OVERLAY);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         LinearLayout list = new LinearLayout(ctx);
