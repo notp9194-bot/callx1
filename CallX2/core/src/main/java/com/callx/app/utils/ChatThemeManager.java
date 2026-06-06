@@ -29,6 +29,12 @@ public class ChatThemeManager {
     public static final int THEME_COFFEE    = 10; // Coffee: Warm Brown / Caramel
     public static final int THEME_NEON      = 11; // Neon Glow: Electric Green / Hot Pink
     public static final int THEME_ROYAL     = 12; // Royal: Deep Gold / Burgundy
+    // ── 5 New Themes ─────────────────────────────────────────────────────
+    public static final int THEME_GALAXY    = 13; // Galaxy: Deep Space Blue / Nebula Purple
+    public static final int THEME_CANDY     = 14; // Candy: Bubblegum Pink / Mint
+    public static final int THEME_FIRE      = 15; // Fire: Flame Red / Lava Orange
+    public static final int THEME_ICE       = 16; // Ice: Arctic Blue / Glacier White
+    public static final int THEME_JUNGLE    = 17; // Jungle: Deep Green / Lime Yellow
 
     public static final String[] THEME_NAMES = {
         "\uD83C\uDF08 Hybrid (Default)",
@@ -44,7 +50,13 @@ public class ChatThemeManager {
         "\uD83C\uDF0C Aurora Borealis",
         "\u2615 Coffee",
         "\u26A1 Neon Glow",
-        "\uD83D\uDC51 Royal"
+        "\uD83D\uDC51 Royal",
+        // 5 new
+        "\uD83C\uDF0C Galaxy",
+        "\uD83C\uDF6C Candy",
+        "\uD83D\uDD25 Fire",
+        "\u2744\uFE0F Ice",
+        "\uD83C\uDF3F Jungle"
     };
 
     // ── Corner radii in dp ───────────────────────────────────────────────
@@ -96,7 +108,7 @@ public class ChatThemeManager {
         GradientDrawable gd;
 
         if (currentTheme == THEME_MONO || currentTheme == THEME_CLASSIC
-                || currentTheme == THEME_COFFEE) {
+                || currentTheme == THEME_COFFEE || currentTheme == THEME_ICE) {
             gd = new GradientDrawable();
             gd.setColor(colors[0]);
         } else {
@@ -143,6 +155,11 @@ public class ChatThemeManager {
             case THEME_COFFEE:   return 0xFF92400E;
             case THEME_NEON:     return 0xFF00FF88;
             case THEME_ROYAL:    return 0xFFB8860B;
+            case THEME_GALAXY:  return 0xFF7B2FBE;
+            case THEME_CANDY:   return 0xFFFF6EB4;
+            case THEME_FIRE:    return 0xFFFF3A00;
+            case THEME_ICE:     return 0xFF48CAE4;
+            case THEME_JUNGLE:  return 0xFF2D6A4F;
             case THEME_HYBRID:
             default:             return 0xFFFF0080;
         }
@@ -165,6 +182,11 @@ public class ChatThemeManager {
             case THEME_COFFEE:   return 0xFFD97706;
             case THEME_NEON:     return 0xFFFF0088;
             case THEME_ROYAL:    return 0xFF7B1C3C;
+            case THEME_GALAXY:  return 0xFF4361EE;
+            case THEME_CANDY:   return 0xFF98F5E1;
+            case THEME_FIRE:    return 0xFFFFA500;
+            case THEME_ICE:     return 0xFFCAF0F8;
+            case THEME_JUNGLE:  return 0xFF95D5B2;
             case THEME_HYBRID:
             default:             return 0xFFFF6B00;
         }
@@ -192,6 +214,11 @@ public class ChatThemeManager {
                 case THEME_COFFEE:   return 0xFF1A0D05;
                 case THEME_NEON:     return 0xFF050F08;
                 case THEME_ROYAL:    return 0xFF0F0A02;
+                case THEME_GALAXY:  return 0xFF07050F;
+                case THEME_CANDY:   return 0xFF1A0A14;
+                case THEME_FIRE:    return 0xFF150500;
+                case THEME_ICE:     return 0xFF051A22;
+                case THEME_JUNGLE:  return 0xFF050F08;
                 case THEME_HYBRID:
                 default:             return 0xFF0A0A0A;
             }
@@ -209,6 +236,11 @@ public class ChatThemeManager {
                 case THEME_COFFEE:   return 0xFFFDF6EC;
                 case THEME_NEON:     return 0xFF0A1A0F;
                 case THEME_ROYAL:    return 0xFFFDF8EC;
+                case THEME_GALAXY:  return 0xFFEDE7F6;
+                case THEME_CANDY:   return 0xFFFFF0F7;
+                case THEME_FIRE:    return 0xFFFFF3ED;
+                case THEME_ICE:     return 0xFFE8F8FF;
+                case THEME_JUNGLE:  return 0xFFE8F5E9;
                 case THEME_HYBRID:
                 default:             return 0xFFECEEF5;
             }
@@ -298,6 +330,11 @@ public class ChatThemeManager {
             case THEME_COFFEE:   return isRead ? 0xFFD97706 : 0xCCFFFFFF;
             case THEME_NEON:     return isRead ? 0xFF00FF88 : 0xCCFFFFFF;
             case THEME_ROYAL:    return isRead ? 0xFFFFD700 : 0xCCFFFFFF;
+            case THEME_GALAXY:  return isRead ? 0xFFBB86FC : 0xCCFFFFFF;
+            case THEME_CANDY:   return isRead ? 0xFFFF9FD8 : 0xCCFFFFFF;
+            case THEME_FIRE:    return isRead ? 0xFFFFAB40 : 0xCCFFFFFF;
+            case THEME_ICE:     return isRead ? 0xFF90E0EF : 0xCCFFFFFF;
+            case THEME_JUNGLE:  return isRead ? 0xFF95D5B2 : 0xCCFFFFFF;
             default:             return isRead ? 0xFFFF00FF : 0xCCFFFFFF;
         }
     }
@@ -372,6 +409,36 @@ public class ChatThemeManager {
                 return sent
                     ? new int[]{0xFFB8860B, 0xFF7B1C3C}    // dark-gold → burgundy
                     : new int[]{0xFFFFE066, 0xFFFFF0B3};   // champagne → ivory
+
+            case THEME_GALAXY:
+                // Galaxy: Deep Space Blue → Nebula Purple / Soft Lavender glow
+                return sent
+                    ? new int[]{0xFF7B2FBE, 0xFF4361EE}    // deep-purple → electric-blue
+                    : new int[]{0xFFBB86FC, 0xFF9C4DCC};   // lavender → mid-purple
+
+            case THEME_CANDY:
+                // Candy: Bubblegum Pink → Mint / Pastel shades
+                return sent
+                    ? new int[]{0xFFFF6EB4, 0xFFFF9FD8}    // hot-pink → bubblegum
+                    : new int[]{0xFF98F5E1, 0xFFB5EAD7};   // mint → pastel-green
+
+            case THEME_FIRE:
+                // Fire: Flame Red → Lava Orange / Ember glow
+                return sent
+                    ? new int[]{0xFFFF3A00, 0xFFFFA500}    // flame-red → orange
+                    : new int[]{0xFFFFCB69, 0xFFFFAB40};   // light-amber → ember
+
+            case THEME_ICE:
+                // Ice: Arctic Blue flat / Glacier White flat
+                return sent
+                    ? new int[]{0xFF48CAE4, 0xFF48CAE4}    // arctic-blue (flat)
+                    : new int[]{0xFFCAF0F8, 0xFFCAF0F8};   // glacier-white (flat)
+
+            case THEME_JUNGLE:
+                // Jungle: Deep Green → Lime / Leaf glow
+                return sent
+                    ? new int[]{0xFF2D6A4F, 0xFF40916C}    // deep-green → mid-green
+                    : new int[]{0xFF95D5B2, 0xFFD8F3DC};   // light-leaf → pale-mint
 
             case THEME_HYBRID:
             default:

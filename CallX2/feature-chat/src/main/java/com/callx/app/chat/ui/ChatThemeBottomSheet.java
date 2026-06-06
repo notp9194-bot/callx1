@@ -63,6 +63,12 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         {0xFF6F3F1F, 0xFFD97706},  // 10 Coffee           — espresso → amber
         {0xFF00C853, 0xFFFF0088},  // 11 Neon Glow        — green → neon-pink
         {0xFFB8860B, 0xFF7B1C3C},  // 12 Royal            — dark-gold → burgundy
+        // 5 new
+        {0xFF7B2FBE, 0xFF4361EE},  // 13 Galaxy           — deep-purple → electric-blue
+        {0xFFFF6EB4, 0xFFFF9FD8},  // 14 Candy            — hot-pink → bubblegum
+        {0xFFFF3A00, 0xFFFFA500},  // 15 Fire             — flame-red → orange
+        {0xFF48CAE4, 0xFF48CAE4},  // 16 Ice              — arctic-blue (flat)
+        {0xFF2D6A4F, 0xFF40916C},  // 17 Jungle           — deep-green → mid-green
     };
 
     private static final int[] THEME_RECEIVED_COLORS = {
@@ -79,6 +85,12 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         0xFFD4A97A,  // 10 Coffee    — latte
         0xFF00BFA5,  // 11 Neon      — teal glow
         0xFFFFE066,  // 12 Royal     — champagne
+        // 5 new
+        0xFFBB86FC,  // 13 Galaxy    — lavender
+        0xFF98F5E1,  // 14 Candy     — mint
+        0xFFFFCB69,  // 15 Fire      — light-amber
+        0xFFCAF0F8,  // 16 Ice       — glacier-white
+        0xFF95D5B2,  // 17 Jungle    — light-leaf
     };
 
     private static final String[] THEME_DESC = {
@@ -95,6 +107,12 @@ public class ChatThemeBottomSheet extends BottomSheetDialogFragment {
         "Warm Espresso / Caramel latte",
         "Electric Green / Neon Pink glow",
         "Deep Gold to Burgundy / Champagne",
+        // 5 new
+        "Deep Space Blue to Nebula Purple / Lavender glow",
+        "Bubblegum Pink to Mint / Pastel shades",
+        "Flame Red to Lava Orange / Ember glow",
+        "Arctic Blue flat / Glacier White calm",
+        "Deep Green to Mid-Green / Pale mint leaves",
     };
 
     @Override
