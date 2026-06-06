@@ -560,28 +560,93 @@ public class ChatActivity extends AppCompatActivity {
         });
 
         binding.btnMoreOptions.setOnClickListener(v -> {
+            android.util.Log.d("ChatMenu", "3-dot menu opened");
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
             popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
+
+            // DEBUG: print all menu item IDs and titles
+            android.view.Menu dbgMenu = popup.getMenu();
+            for (int i = 0; i < dbgMenu.size(); i++) {
+                android.view.MenuItem mi = dbgMenu.getItem(i);
+                android.util.Log.d("ChatMenu", "  item[" + i + "] id=" + mi.getItemId()
+                        + " title=" + mi.getTitle()
+                        + " | expected send_gif id=" + com.callx.app.chat.R.id.action_send_gif);
+            }
+
             popup.setOnMenuItemClickListener(item -> {
                 int id = item.getItemId();
-                if (id == com.callx.app.chat.R.id.action_send_gif)       { gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class)); return true; }
-                if (id == com.callx.app.chat.R.id.action_view_profile)   { openAvatarZoom();     return true; }
-                if (id == com.callx.app.chat.R.id.action_edit_profile)   { openEditProfile();    return true; }
-                if (id == com.callx.app.chat.R.id.action_search)         { openSearch();         return true; }
-                if (id == com.callx.app.chat.R.id.action_starred)        {
+                android.util.Log.d("ChatMenu", "Menu item clicked: id=" + id + " title=" + item.getTitle());
+
+                // SEND GIF
+                if (id == com.callx.app.chat.R.id.action_send_gif) {
+                    android.util.Log.d("ChatMenu", "Send GIF clicked");
+                    android.util.Log.d("ChatMenu", "  gifPicker null? " + (gifPicker == null));
+                    if (gifPicker == null) {
+                        android.util.Log.e("ChatMenu", "  ERROR: gifPicker is null!");
+                        android.widget.Toast.makeText(this, "GIF picker not ready", android.widget.Toast.LENGTH_SHORT).show();
+                        return true;
+                    }
+                    try {
+                        android.util.Log.d("ChatMenu", "  Launching GifPickerActivity...");
+                        gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class));
+                        android.util.Log.d("ChatMenu", "  GifPickerActivity launched OK");
+                    } catch (Exception e) {
+                        android.util.Log.e("ChatMenu", "  ERROR launching GifPickerActivity: " + e.getMessage(), e);
+                        android.widget.Toast.makeText(this, "GIF Error: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+                    }
+                    return true;
+                }
+
+                if (id == com.callx.app.chat.R.id.action_view_profile) {
+                    android.util.Log.d("ChatMenu", "View Profile clicked");
+                    openAvatarZoom(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_edit_profile) {
+                    android.util.Log.d("ChatMenu", "Edit Profile clicked");
+                    openEditProfile(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_search) {
+                    android.util.Log.d("ChatMenu", "Search clicked");
+                    openSearch(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_starred) {
+                    android.util.Log.d("ChatMenu", "Starred Messages clicked");
                     Intent si = new Intent(this, com.callx.app.starred.StarredMessagesActivity.class);
                     si.putExtra("chatId", chatId);
                     si.putExtra("isGroup", false);
                     startActivity(si);
                     return true;
                 }
-                if (id == com.callx.app.chat.R.id.action_set_wallpaper)    { showWallpaperPicker();      return true; }
-                if (id == com.callx.app.chat.R.id.action_chat_theme)       { showThemePicker();          return true; }
-                if (id == com.callx.app.chat.R.id.action_typing_style)     { showTypingStylePicker();    return true; }
-                if (id == com.callx.app.chat.R.id.action_mute)             { toggleMute();               return true; }
-                if (id == com.callx.app.chat.R.id.action_block)            { confirmBlockUser();         return true; }
-                if (id == com.callx.app.chat.R.id.action_clear_chat)       { confirmClearChat();         return true; }
-                if (id == com.callx.app.chat.R.id.action_media_links_docs) { openAllMediaLinksDocs();    return true; }
+                if (id == com.callx.app.chat.R.id.action_set_wallpaper) {
+                    android.util.Log.d("ChatMenu", "Set Wallpaper clicked");
+                    showWallpaperPicker(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_chat_theme) {
+                    android.util.Log.d("ChatMenu", "Chat Theme clicked");
+                    showThemePicker(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_typing_style) {
+                    android.util.Log.d("ChatMenu", "Typing Style clicked");
+                    showTypingStylePicker(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_mute) {
+                    android.util.Log.d("ChatMenu", "Mute clicked");
+                    toggleMute(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_block) {
+                    android.util.Log.d("ChatMenu", "Block clicked");
+                    confirmBlockUser(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_clear_chat) {
+                    android.util.Log.d("ChatMenu", "Clear Chat clicked");
+                    confirmClearChat(); return true;
+                }
+                if (id == com.callx.app.chat.R.id.action_media_links_docs) {
+                    android.util.Log.d("ChatMenu", "Media Links Docs clicked");
+                    openAllMediaLinksDocs(); return true;
+                }
+
+                android.util.Log.w("ChatMenu", "Unhandled menu item id=" + id + " title=" + item.getTitle());
                 return false;
             });
             popup.show();
