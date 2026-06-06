@@ -239,7 +239,6 @@ public class PhoneAuthActivity extends AppCompatActivity {
     }
 
     private void goToMain() {
-        com.callx.app.utils.PresenceManager.getInstance().onLogin();
         startActivity(new Intent(this, MainActivity.class));
         finish();
     }

@@ -563,28 +563,13 @@ public class ChatViewModel extends AndroidViewModel {
 
     private String formatLastSeen(Object lastSeen) {
         if (lastSeen instanceof Long) {
-            long ts   = (Long) lastSeen;
+            long ts = (Long) lastSeen;
             long diff = System.currentTimeMillis() - ts;
-            if (diff < 0) diff = 0; // clock skew guard
-
-            if (diff < 60_000L)     return "last seen just now";
-            if (diff < 3_600_000L) {
-                long mins = diff / 60_000L;
-                return "last seen " + mins + " min" + (mins == 1 ? "" : "s") + " ago";
-            }
-            if (diff < 86_400_000L) {
-                java.text.SimpleDateFormat sdf =
-                        new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
-                return "last seen at " + sdf.format(new java.util.Date(ts));
-            }
-            if (diff < 7 * 86_400_000L) {
-                java.text.SimpleDateFormat sdf =
-                        new java.text.SimpleDateFormat("EEE, hh:mm a", java.util.Locale.getDefault());
-                return "last seen " + sdf.format(new java.util.Date(ts));
-            }
-            return "last seen " + new java.text.SimpleDateFormat(
-                    "dd MMM", java.util.Locale.getDefault()).format(new java.util.Date(ts));
+            if (diff < 60_000)    return "last seen just now";
+            if (diff < 3_600_000) return "last seen " + (diff / 60_000) + "m ago";
+            if (diff < 86_400_000) return "last seen " + (diff / 3_600_000) + "h ago";
+            return "last seen " + new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(new java.util.Date(ts));
         }
-        return "";
+        return "last seen recently";
     }
 }

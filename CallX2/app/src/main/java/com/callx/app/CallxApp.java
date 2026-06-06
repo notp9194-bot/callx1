@@ -206,10 +206,6 @@ public class CallxApp extends Application {
             @Override public void onActivityCreated(Activity a, Bundle s) {}
 
             @Override public void onActivityStarted(Activity a) {
-                if (sActivityRefs == 0) {
-                    // App is coming to foreground — mark online
-                    com.callx.app.utils.PresenceManager.getInstance().goOnline();
-                }
                 sActivityRefs++;
             }
 
@@ -233,9 +229,6 @@ public class CallxApp extends Application {
 
                 if (sActivityRefs == 0) {
                     // All activities stopped — app going to background
-
-                    // Mark user offline + write lastSeen to Firebase
-                    com.callx.app.utils.PresenceManager.getInstance().goOffline();
 
                     // FIX #5: flush analytics NOW before OS can SIGKILL
                     try {

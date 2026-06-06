@@ -80,13 +80,5 @@ public class MessageEntity {
      */
     public int fontStyle;
 
-    // ── GIF (GIPHY) — v10 ───────────────────────────────────────────
-    /** GIPHY GIF ID for offline cache key. */
-    public String gifId;
-    /** CDN URL of the GIF/mp4. */
-    public String gifUrl;
-    /** Static preview thumbnail URL. */
-    public String gifPreviewUrl;
-
     public MessageEntity() {}
 }

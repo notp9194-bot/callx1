@@ -133,6 +133,7 @@ public class GroupChatActivity extends AppCompatActivity {
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker, videoPicker, audioPicker, filePicker;
     private ActivityResultLauncher<String> wallpaperPicker;
+    private ActivityResultLauncher<android.content.Intent> gifPicker;
     private final AudioRecorderHelper recorder = new AudioRecorderHelper();
 
     // ── Network monitoring (Task 5) ────────────────────────────────────────
@@ -557,6 +558,8 @@ public class GroupChatActivity extends AppCompatActivity {
             }
         });
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
+        if (binding.btnGif != null)
+            binding.btnGif.setOnClickListener(v -> openGifPicker());
         binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
         binding.btnMic.setOnClickListener(v -> toggleRecording());
@@ -1090,6 +1093,23 @@ public class GroupChatActivity extends AppCompatActivity {
     // MEDIA
     // ─────────────────────────────────────────────────────────────────────
 
+    private void openGifPicker() {
+        if (gifPicker == null) return;
+        android.content.Intent intent = new android.content.Intent(
+                this, com.callx.app.chat.gif.GifPickerActivity.class);
+        gifPicker.launch(intent);
+    }
+
+    private void sendGifMessage(String gifUrl) {
+        if (gifUrl == null || gifUrl.isEmpty()) return;
+        Message m     = buildOutgoing();
+        m.type        = "gif";
+        m.gifUrl      = gifUrl;
+        m.mediaUrl    = gifUrl;
+        m.imageUrl    = gifUrl;
+        pushMessage(m, "🎞️ GIF");
+    }
+
     private void setupPickers() {
         wallpaperPicker = registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
@@ -1100,6 +1120,14 @@ public class GroupChatActivity extends AppCompatActivity {
                             uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     } catch (SecurityException ignored) {}
                     showWallpaperScopeDialog(uri);
+                });
+        gifPicker = registerForActivityResult(
+                new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        String gifUrl = result.getData().getStringExtra("gif_url");
+                        if (gifUrl != null && !gifUrl.isEmpty()) sendGifMessage(gifUrl);
+                    }
                 });
         imagePicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "image", "image", null); });

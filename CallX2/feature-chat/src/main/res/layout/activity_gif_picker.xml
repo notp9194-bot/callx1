@@ -3,104 +3,143 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/dark_bg">
+    android:background="?attr/colorSurface">
 
-    <!-- Toolbar -->
+    <!-- Header bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="16dp"
-        android:background="@color/surface_card">
+        android:background="?attr/colorPrimaryContainer"
+        android:paddingStart="4dp"
+        android:paddingEnd="8dp"
+        android:elevation="4dp">
 
-        <ImageView
+        <ImageButton
             android:id="@+id/btn_gif_back"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:padding="8dp"
             android:src="@drawable/ic_back"
-            android:background="?attr/selectableItemBackgroundBorderless"/>
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"
+            android:tint="?attr/colorOnPrimaryContainer"/>
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="GIF"
-            android:textColor="?android:attr/textColorPrimary"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:paddingStart="8dp"/>
+            android:textColor="?attr/colorOnPrimaryContainer"
+            android:layout_marginStart="4dp"/>
 
-        <!-- GIPHY attribution -->
+        <!-- GIPHY powered badge -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Powered by GIPHY"
-            android:textColor="@color/text_secondary"
-            android:textSize="10sp"/>
+            android:textSize="10sp"
+            android:textColor="?attr/colorOnPrimaryContainer"
+            android:alpha="0.7"
+            android:layout_marginEnd="4dp"/>
     </LinearLayout>
 
     <!-- Search bar -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="52dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
+        android:background="?attr/colorSurface"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
-        android:background="@color/surface_card">
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_search"
+            android:alpha="0.5"
+            android:layout_marginEnd="8dp"
+            android:contentDescription="Search"/>
 
         <EditText
             android:id="@+id/et_gif_search"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_search_field"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:hint="Search GIFs…"
-            android:inputType="text"
-            android:imeOptions="actionSearch"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
+            android:textColorHint="@color/text_muted"
             android:textColor="?android:attr/textColorPrimary"
-            android:textColorHint="@color/text_secondary"
-            android:textSize="14sp"/>
+            android:background="@android:color/transparent"
+            android:singleLine="true"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:textSize="15sp"/>
     </LinearLayout>
 
-    <!-- Progress bar -->
-    <FrameLayout
+    <View
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:visibility="gone"
-        android:id="@+id/gif_progress">
-        <ProgressBar
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp"
-            style="?android:attr/progressBarStyle"/>
-    </FrameLayout>
+        android:layout_height="1dp"
+        android:background="@color/divider"/>
 
-    <!-- Empty state -->
-    <TextView
-        android:id="@+id/tv_gif_empty"
+    <!-- Progress bar -->
+    <ProgressBar
+        android:id="@+id/pb_gif_loading"
+        style="@android:style/Widget.ProgressBar.Horizontal"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="No GIFs found"
-        android:textColor="@color/text_secondary"
-        android:textSize="14sp"
-        android:gravity="center"
-        android:padding="32dp"
+        android:layout_height="3dp"
+        android:indeterminate="true"
         android:visibility="gone"/>
 
     <!-- GIF grid -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_gifs"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="4dp"
-        android:clipToPadding="false"/>
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_gifs"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="4dp"
+            android:clipToPadding="false"/>
+
+        <!-- Empty state -->
+        <LinearLayout
+            android:id="@+id/tv_gif_empty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔍"
+                android:textSize="48sp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="No GIFs found"
+                android:textSize="16sp"
+                android:textColor="?android:attr/textColorSecondary"
+                android:layout_marginTop="8dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Try a different search term"
+                android:textSize="13sp"
+                android:textColor="?android:attr/textColorSecondary"
+                android:layout_marginTop="4dp"
+                android:alpha="0.7"/>
+        </LinearLayout>
+    </FrameLayout>
+
 </LinearLayout>

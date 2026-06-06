@@ -80,6 +80,13 @@ public class Message {
     /** True if this message belongs to a group chat */
     public boolean isGroup;
 
+    // ── Feature 11: GIF Messages ─────────────────────────────────────────────
+    /**
+     * GIF URL from GIPHY — set when type = "gif".
+     * Stored in Firebase; receiver loads & plays the animated GIF via Glide.
+     */
+    public String gifUrl;
+
     // ── Feature: Typing Font Style ────────────────────────────────────────
     /**
      * Font style ID used when this message was typed.
@@ -87,14 +94,6 @@ public class Message {
      * 0 = Normal (default). Stored in Firebase & Room so receiver sees same style.
      */
     public int fontStyle;
-
-    // ── Feature 11: GIF (GIPHY) ───────────────────────────────────────
-    /** GIPHY GIF ID — set when type = "gif". Used for offline cache lookup. */
-    public String gifId;
-    /** Direct URL to GIF media (e.g. GIPHY CDN mp4 or gif URL). */
-    public String gifUrl;
-    /** Static preview thumbnail of the GIF (shown when GIF not loaded). */
-    public String gifPreviewUrl;
 
     public Message() {}
 }

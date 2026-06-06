@@ -243,14 +243,6 @@
                     android:scaleType="fitCenter"
                     android:visibility="gone"/>
 
-                <!-- GIF message -->
-                <ImageView
-                    android:id="@+id/iv_gif"
-                    android:layout_width="200dp"
-                    android:layout_height="150dp"
-                    android:scaleType="centerCrop"
-                    android:visibility="gone"/>
-
                 <FrameLayout
                     android:id="@+id/fl_video"
                     android:layout_width="240dp"

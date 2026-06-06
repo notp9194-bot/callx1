@@ -10,7 +10,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.callx.app.chat.R;
-import com.callx.app.gif.GifUtils;
 
 import com.callx.app.models.Message;
 import com.callx.app.utils.FileUtils;
@@ -269,40 +268,26 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 break;
             }
             case "gif": {
-                // Hide other media views
-                if (h.ivImage    != null) h.ivImage.setVisibility(View.GONE);
-                if (h.ivGif      != null) h.ivGif.setVisibility(View.GONE);
-                if (h.flVideo    != null) h.flVideo.setVisibility(View.GONE);
-                if (h.llAudio    != null) h.llAudio.setVisibility(View.GONE);
-                if (h.llFile     != null) h.llFile.setVisibility(View.GONE);
-                // Show GIF view
-                if (h.ivGif != null) {
-                    h.ivGif.setVisibility(View.VISIBLE);
-                    String gifUrl = m.gifUrl != null ? m.gifUrl : m.mediaUrl;
-                    String previewUrl = m.gifPreviewUrl;
-                    // Check disk cache first (offline support)
-                    com.bumptech.glide.request.RequestOptions gifOpts =
-                        new com.bumptech.glide.request.RequestOptions()
-                            .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                            .placeholder(R.drawable.bg_date_chip)
-                            .error(R.drawable.bg_date_chip);
-                    Glide.with(ctx)
+                // GIF messages — load animated GIF via Glide asGif()
+                h.ivImage.setVisibility(View.VISIBLE);
+                String gifUrl = m.gifUrl != null ? m.gifUrl :
+                                (m.mediaUrl != null ? m.mediaUrl : m.imageUrl);
+                Glide.with(ctx)
                         .asGif()
                         .load(gifUrl)
-                        .apply(gifOpts)
-                        .thumbnail(
-                            Glide.with(ctx)
-                                .asGif()
-                                .load(previewUrl)
-                                .apply(gifOpts))
-                        .into(h.ivGif);
-                    // Tap to open full GIF in photo viewer
-                    final String fGifUrl = gifUrl;
-                    h.ivGif.setOnClickListener(v2 -> openMedia(ctx, fGifUrl, "gif"));
-                }
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                        .placeholder(R.drawable.bg_circle_white)
+                        .into(h.ivImage);
+                h.ivImage.setOnClickListener(v -> {
+                    // Open GIF in full-screen image viewer
+                    showImageActionSheet(ctx, m, gifUrl, gifUrl);
+                });
+                h.ivImage.setOnLongClickListener(v -> {
+                    openActionSheet(ctx, m);
+                    return true;
+                });
                 break;
             }
-
             case "video": {
                 if (h.flVideo != null) {
                     h.flVideo.setVisibility(View.VISIBLE);
@@ -1279,7 +1264,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName;
-        ImageView    ivImage, ivVideoThumb, ivGif;
+        ImageView    ivImage, ivVideoThumb;
         FrameLayout  flVideo;
         android.widget.TextView tvVideoDuration; // v21: video duration badge
         LinearLayout llAudio;
@@ -1336,7 +1321,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvLinkDomain   = v.findViewById(R.id.tv_link_domain);
             tvLinkDescription = v.findViewById(R.id.tv_link_description);
             ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
-            ivGif          = v.findViewById(R.id.iv_gif);
         }
     }
 }

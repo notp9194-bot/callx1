@@ -78,7 +78,6 @@ import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import com.callx.app.starred.StarredMessagesActivity;
-import com.callx.app.gif.GifPickerActivity;
 
 /**
  * ChatActivity — Production-grade 1:1 chat screen.
@@ -161,12 +160,12 @@ public class ChatActivity extends AppCompatActivity {
 
     // ── Media pickers ──────────────────────────────────────────────────────
     private ActivityResultLauncher<String> imagePicker;
-    private ActivityResultLauncher<android.content.Intent> gifPicker;
     private ActivityResultLauncher<String> videoPicker;
     private ActivityResultLauncher<String> audioPicker;
     private ActivityResultLauncher<String> filePicker;
     private ActivityResultLauncher<Uri>    cameraCapturer;
     private ActivityResultLauncher<String> wallpaperPicker;
+    private ActivityResultLauncher<android.content.Intent> gifPicker;
     private Uri cameraOutputUri;
 
     // ── Voice recorder ─────────────────────────────────────────────────────
@@ -560,99 +559,9 @@ public class ChatActivity extends AppCompatActivity {
         });
 
         binding.btnMoreOptions.setOnClickListener(v -> {
-            android.util.Log.d("ChatMenu", "3-dot menu opened");
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
             popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
-
-            // DEBUG: print all menu item IDs and titles
-            android.view.Menu dbgMenu = popup.getMenu();
-            for (int i = 0; i < dbgMenu.size(); i++) {
-                android.view.MenuItem mi = dbgMenu.getItem(i);
-                android.util.Log.d("ChatMenu", "  item[" + i + "] id=" + mi.getItemId()
-                        + " title=" + mi.getTitle()
-                        + " | expected send_gif id=" + com.callx.app.chat.R.id.action_send_gif);
-            }
-
-            popup.setOnMenuItemClickListener(item -> {
-                int id = item.getItemId();
-                android.util.Log.d("ChatMenu", "Menu item clicked: id=" + id + " title=" + item.getTitle());
-
-                // SEND GIF
-                if (id == com.callx.app.chat.R.id.action_send_gif) {
-                    android.util.Log.d("ChatMenu", "Send GIF clicked");
-                    toast("DEBUG: Send GIF button clicked");
-
-                    if (gifPicker == null) {
-                        android.util.Log.e("ChatMenu", "  ERROR: gifPicker is null!");
-                        toast("ERROR: gifPicker is null! setupPickers() failed");
-                        return true;
-                    }
-                    toast("DEBUG: gifPicker OK, launching GifPickerActivity...");
-                    try {
-                        gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class));
-                        toast("DEBUG: GifPickerActivity launched successfully");
-                    } catch (android.content.ActivityNotFoundException e) {
-                        android.util.Log.e("ChatMenu", "ActivityNotFoundException: " + e.getMessage(), e);
-                        toast("ERROR: GifPickerActivity not found in manifest! " + e.getMessage());
-                    } catch (Exception e) {
-                        android.util.Log.e("ChatMenu", "ERROR launching GifPickerActivity: " + e.getMessage(), e);
-                        toast("ERROR: " + e.getClass().getSimpleName() + " - " + e.getMessage());
-                    }
-                    return true;
-                }
-
-                if (id == com.callx.app.chat.R.id.action_view_profile) {
-                    android.util.Log.d("ChatMenu", "View Profile clicked");
-                    openAvatarZoom(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_edit_profile) {
-                    android.util.Log.d("ChatMenu", "Edit Profile clicked");
-                    openEditProfile(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_search) {
-                    android.util.Log.d("ChatMenu", "Search clicked");
-                    openSearch(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_starred) {
-                    android.util.Log.d("ChatMenu", "Starred Messages clicked");
-                    Intent si = new Intent(this, com.callx.app.starred.StarredMessagesActivity.class);
-                    si.putExtra("chatId", chatId);
-                    si.putExtra("isGroup", false);
-                    startActivity(si);
-                    return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_set_wallpaper) {
-                    android.util.Log.d("ChatMenu", "Set Wallpaper clicked");
-                    showWallpaperPicker(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_chat_theme) {
-                    android.util.Log.d("ChatMenu", "Chat Theme clicked");
-                    showThemePicker(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_typing_style) {
-                    android.util.Log.d("ChatMenu", "Typing Style clicked");
-                    showTypingStylePicker(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_mute) {
-                    android.util.Log.d("ChatMenu", "Mute clicked");
-                    toggleMute(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_block) {
-                    android.util.Log.d("ChatMenu", "Block clicked");
-                    confirmBlockUser(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_clear_chat) {
-                    android.util.Log.d("ChatMenu", "Clear Chat clicked");
-                    confirmClearChat(); return true;
-                }
-                if (id == com.callx.app.chat.R.id.action_media_links_docs) {
-                    android.util.Log.d("ChatMenu", "Media Links Docs clicked");
-                    openAllMediaLinksDocs(); return true;
-                }
-
-                android.util.Log.w("ChatMenu", "Unhandled menu item id=" + id + " title=" + item.getTitle());
-                return false;
-            });
+            popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
             popup.show();
         });
     }
@@ -896,9 +805,6 @@ public class ChatActivity extends AppCompatActivity {
         m.reelId                = e.reelId;       // FIX: reel_seen bubble
         m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
         m.fontStyle             = e.fontStyle;    // FIX: typing style — Room se load hone par preserve karo
-        m.gifId                 = e.gifId;         // GIF support
-        m.gifUrl                = e.gifUrl;
-        m.gifPreviewUrl         = e.gifPreviewUrl;
         return m;
     }
 
@@ -931,9 +837,6 @@ public class ChatActivity extends AppCompatActivity {
         e.reelId                  = m.reelId;           // FIX: reel_seen bubble
         e.reelThumbUrl            = m.reelThumbUrl;      // FIX: reel_seen bubble thumbnail
         e.fontStyle               = m.fontStyle;         // FIX: typing style preserve
-        e.gifId                   = m.gifId;           // GIF support
-        e.gifUrl                  = m.gifUrl;
-        e.gifPreviewUrl           = m.gifPreviewUrl;
         e.syncedAt                = System.currentTimeMillis();
         return e;
     }
@@ -978,15 +881,8 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnMic.setOnClickListener(v -> toggleRecording());
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> launchCamera());
-        binding.btnGif.setOnClickListener(v -> {
-            android.util.Log.d("ChatMenu", "GIF button (input bar) clicked");
-            if (gifPicker == null) {
-                android.widget.Toast.makeText(this, "GIF picker not ready", android.widget.Toast.LENGTH_SHORT).show();
-                return;
-            }
-            gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class));
-        });
-
+        if (binding.btnGif != null)
+            binding.btnGif.setOnClickListener(v -> openGifPicker());
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
@@ -1125,9 +1021,6 @@ public class ChatActivity extends AppCompatActivity {
         e.isGroup        = false;
         e.syncedAt       = System.currentTimeMillis();
         e.fontStyle      = m.fontStyle;
-        e.gifId          = m.gifId;
-        e.gifUrl         = m.gifUrl;
-        e.gifPreviewUrl  = m.gifPreviewUrl;
         return e;
     }
 
@@ -1669,8 +1562,18 @@ public class ChatActivity extends AppCompatActivity {
                 String statusText;
                 if (Boolean.TRUE.equals(online)) {
                     statusText = "online";
-                } else if (lastSeen != null && lastSeen > 0) {
-                    statusText = formatLastSeenRelative(lastSeen);
+                } else if (lastSeen != null) {
+                    // Smart formatting: aaj ka ho toh sirf time, warna date bhi
+                    java.util.Calendar now = java.util.Calendar.getInstance();
+                    java.util.Calendar then = java.util.Calendar.getInstance();
+                    then.setTimeInMillis(lastSeen);
+                    boolean isToday = now.get(java.util.Calendar.DATE) == then.get(java.util.Calendar.DATE)
+                            && now.get(java.util.Calendar.MONTH) == then.get(java.util.Calendar.MONTH)
+                            && now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR);
+                    java.text.SimpleDateFormat sdf = isToday
+                            ? new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                            : new java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault());
+                    statusText = "last seen " + sdf.format(new java.util.Date(lastSeen));
                 } else {
                     statusText = "";
                 }
@@ -1686,40 +1589,6 @@ public class ChatActivity extends AppCompatActivity {
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.getUserRef(partnerUid).addValueEventListener(onlineListener);
-    }
-
-    /**
-     * Accurate relative last seen:
-     *   < 1 min   → "last seen just now"
-     *   < 1 hour  → "last seen X min ago"
-     *   < 24 hrs  → "last seen X hours ago" / "last seen at HH:mm"
-     *   older     → "last seen DD MMM"
-     */
-    private String formatLastSeenRelative(long ts) {
-        long diff = System.currentTimeMillis() - ts;
-        if (diff < 0) diff = 0; // clock skew guard
-
-        if (diff < 60_000L) {
-            return "last seen just now";
-        } else if (diff < 3_600_000L) {
-            long mins = diff / 60_000L;
-            return "last seen " + mins + " min" + (mins == 1 ? "" : "s") + " ago";
-        } else if (diff < 86_400_000L) {
-            // Same day — show time
-            java.text.SimpleDateFormat sdf =
-                    new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
-            return "last seen at " + sdf.format(new java.util.Date(ts));
-        } else if (diff < 7 * 86_400_000L) {
-            // Within a week — show day + time
-            java.text.SimpleDateFormat sdf =
-                    new java.text.SimpleDateFormat("EEE, hh:mm a", java.util.Locale.getDefault());
-            return "last seen " + sdf.format(new java.util.Date(ts));
-        } else {
-            // Older — show date
-            java.text.SimpleDateFormat sdf =
-                    new java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault());
-            return "last seen " + sdf.format(new java.util.Date(ts));
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2596,20 +2465,6 @@ public class ChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     private void setupPickers() {
-        
-        // GIF picker launcher
-        gifPicker = registerForActivityResult(
-            new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                    android.content.Intent data = result.getData();
-                    String gifId      = data.getStringExtra(GifPickerActivity.EXTRA_GIF_ID);
-                    String gifUrl     = data.getStringExtra(GifPickerActivity.EXTRA_GIF_URL);
-                    String previewUrl = data.getStringExtra(GifPickerActivity.EXTRA_GIF_PREVIEW);
-                    sendGifMessage(gifId, gifUrl, previewUrl);
-                }
-            });
-
         imagePicker = registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "image", "image", null); });
@@ -2636,6 +2491,14 @@ public class ChatActivity extends AppCompatActivity {
                     } catch (SecurityException ignored) {}
                     showWallpaperScopeDialog(uri);
                 });
+        gifPicker = registerForActivityResult(
+                new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        String gifUrl = result.getData().getStringExtra("gif_url");
+                        if (gifUrl != null && !gifUrl.isEmpty()) sendGifMessage(gifUrl);
+                    }
+                });
         cameraCapturer = registerForActivityResult(
                 new ActivityResultContracts.TakePicture(),
                 success -> {
@@ -2644,50 +2507,18 @@ public class ChatActivity extends AppCompatActivity {
                 });
     }
 
-
-    // ─────────────────────────────────────────────────────────────────────
-    // GIF MESSAGE SEND
-    // ─────────────────────────────────────────────────────────────────────
-
-    /** Send a GIPHY GIF as a chat message. No Cloudinary upload needed — GIPHY CDN URL direct use. */
-    private void sendGifMessage(String gifId, String gifUrl, String previewUrl) {
-        if (gifUrl == null || gifUrl.isEmpty()) {
-            Toast.makeText(this, "GIF load failed", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        Message m = new Message();
-        m.senderId    = currentUid;
-        m.senderName  = currentName;
-        m.type        = "gif";
-        m.gifId       = gifId;
-        m.gifUrl      = gifUrl;
-        m.gifPreviewUrl = previewUrl;
-        m.mediaUrl    = gifUrl;          // fallback for adapters that check mediaUrl
-        m.thumbnailUrl = previewUrl;
-        m.timestamp   = System.currentTimeMillis();
-        pushMessage(m, "🎞️ GIF");
-    }
-
-    /** Null-safe findViewById + setOnClickListener — prevents NPE if view missing in layout. */
-    /** Quick debug toast — remove after fixing */
-    private void toast(String msg) {
-        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show();
-    }
-
-    private void safeClick(View root, int id, android.view.View.OnClickListener l) {
-        android.view.View v = root.findViewById(id);
-        if (v != null) v.setOnClickListener(l);
-    }
-
-        private void showAttachSheet() {
+    private void showAttachSheet() {
         BottomSheetDialog sheet = new BottomSheetDialog(this);
         View v = LayoutInflater.from(this)
                 .inflate(R.layout.bottom_sheet_attach, null);
-        safeClick(v, R.id.opt_gallery, x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
-        safeClick(v, R.id.opt_video,   x -> { sheet.dismiss(); videoPicker.launch("video/*"); });
-        safeClick(v, R.id.opt_audio,   x -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
-        safeClick(v, R.id.opt_file,    x -> { sheet.dismiss(); filePicker.launch("*/*"); });
-        safeClick(v, R.id.opt_gif,     x -> { sheet.dismiss(); gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class)); });
+        v.findViewById(R.id.opt_gallery)
+                .setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
+        v.findViewById(R.id.opt_video)
+                .setOnClickListener(x -> { sheet.dismiss(); videoPicker.launch("video/*"); });
+        v.findViewById(R.id.opt_audio)
+                .setOnClickListener(x -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
+        v.findViewById(R.id.opt_file)
+                .setOnClickListener(x -> { sheet.dismiss(); filePicker.launch("*/*"); });
         sheet.setContentView(v);
         sheet.show();
     }
@@ -2918,7 +2749,6 @@ public class ChatActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
-        if (id == R.id.action_send_gif)      { gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class)); return true; }
         if (id == R.id.action_view_profile)  { openAvatarZoom();     return true; }
         if (id == R.id.action_edit_profile)   { openEditProfile();    return true; }
         if (id == R.id.action_starred) {
@@ -2965,6 +2795,35 @@ public class ChatActivity extends AppCompatActivity {
 
     private int dp(int dp) {
         return (int) (dp * getResources().getDisplayMetrics().density);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GIF SUPPORT
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Opens GifPickerActivity using the registered gifPicker launcher.
+     */
+    private void openGifPicker() {
+        if (gifPicker == null) return;
+        android.content.Intent intent = new android.content.Intent(
+                this, com.callx.app.chat.gif.GifPickerActivity.class);
+        gifPicker.launch(intent);
+    }
+
+    /**
+     * Builds and pushes a GIF message.
+     * @param gifUrl Full GIPHY GIF URL returned by GifPickerActivity.
+     */
+    private void sendGifMessage(String gifUrl) {
+        if (gifUrl == null || gifUrl.isEmpty()) return;
+        Message m     = buildOutgoing();
+        m.type        = "gif";
+        m.gifUrl      = gifUrl;
+        m.mediaUrl    = gifUrl;   // fallback for older clients
+        m.imageUrl    = gifUrl;   // fallback for legacy adapters
+        pushMessage(m, "🎞️ GIF");
+        clearReply();
     }
 
     // ─────────────────────────────────────────────────────────────────────

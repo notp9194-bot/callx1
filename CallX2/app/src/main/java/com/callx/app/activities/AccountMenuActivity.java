@@ -163,7 +163,6 @@ public class AccountMenuActivity extends AppCompatActivity {
             .setPositiveButton("Logout", (d, w) -> {
                 // Fix #2: Logout pe biometric login disable karo (security)
                 BiometricLoginManager.getInstance(this).disable();
-                com.callx.app.utils.PresenceManager.getInstance().onLogout();
                 FirebaseAuth.getInstance().signOut();
                 Intent i = new Intent(this, AuthActivity.class);
                 i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
