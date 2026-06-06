@@ -7,7 +7,7 @@ import android.text.TextWatcher;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
-import android.widget.ImageButton;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -100,7 +100,7 @@ public class GifPickerActivity extends AppCompatActivity {
                 return;
             }
 
-            ImageButton btnBack = findViewById(R.id.btn_gif_back);
+            android.view.View btnBack = findViewById(R.id.btn_gif_back);
             if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
             adapter = new GifAdapter(this::onGifSelected);

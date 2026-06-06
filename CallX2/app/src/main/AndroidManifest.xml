@@ -80,6 +80,9 @@
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.GroupChatActivity" android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.chat.gif.GifPickerActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".activities.GroupInfoActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

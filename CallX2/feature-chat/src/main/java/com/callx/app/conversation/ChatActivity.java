@@ -881,8 +881,11 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnMic.setOnClickListener(v -> toggleRecording());
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> launchCamera());
-        if (binding.btnGif != null)
-            binding.btnGif.setOnClickListener(v -> openGifPicker());
+        // GIF button — use findViewById fallback (binding field may be null if layout not rebuilt)
+        android.view.View _gifBtn = binding.getRoot().findViewById(R.id.btn_gif);
+        if (_gifBtn != null) {
+            _gifBtn.setOnClickListener(v -> openGifPicker());
+        }
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());

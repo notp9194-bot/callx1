@@ -558,8 +558,11 @@ public class GroupChatActivity extends AppCompatActivity {
             }
         });
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
-        if (binding.btnGif != null)
-            binding.btnGif.setOnClickListener(v -> openGifPicker());
+        // GIF button — use findViewById fallback
+        android.view.View _gifBtn2 = binding.getRoot().findViewById(R.id.btn_gif);
+        if (_gifBtn2 != null) {
+            _gifBtn2.setOnClickListener(v -> openGifPicker());
+        }
         binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
         binding.btnMic.setOnClickListener(v -> toggleRecording());
