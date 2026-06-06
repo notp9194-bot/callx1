@@ -212,11 +212,12 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         }
 
         String type = m.type == null ? "text" : m.type;
-        if ("image".equals(type) || (m.imageUrl != null && !m.imageUrl.isEmpty()
-                && (m.mediaUrl == null || m.mediaUrl.isEmpty())))
-            type = "image";
-        // GIF ko bhi image ki tarah treat karo — Glide GIF auto-play karta hai
-        if ("gif".equals(type)) type = "gif";
+        // Sticker type preserve karo — image/gif override se pehle check karo
+        if (!"sticker".equals(type) && !"gif".equals(type)) {
+            if ("image".equals(type) || (m.imageUrl != null && !m.imageUrl.isEmpty()
+                    && (m.mediaUrl == null || m.mediaUrl.isEmpty())))
+                type = "image";
+        }
 
         // ── Per-type bubble background — ChatThemeManager (runtime gradient) ──
         try {
@@ -231,6 +232,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         } catch (Exception ignored) {}
 
         switch (type) {
+            case "sticker":
             case "gif":
             case "image": {
                 h.ivImage.setVisibility(View.VISIBLE);

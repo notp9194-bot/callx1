@@ -638,9 +638,11 @@ public class MessagePagingAdapter
                     String fullUrl  = m.mediaUrl != null ? m.mediaUrl : m.text;
                     String thumbUrl = m.thumbnailUrl;
                     boolean isGifMsg = "gif".equals(m.type);
+                    boolean isStickerType = "sticker".equals(m.type);
 
                     // ── Progressive loading: thumb instantly → full replaces ──
-                    if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
+                    // Sticker aur GIF ke liye thumbnail skip karo
+                    if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg && !isStickerType) {
                         // Step 1: Show thumbnail instantly (tiny, ~30KB)
                         Glide.with(ctx)
                             .load(thumbUrl)
@@ -662,9 +664,9 @@ public class MessagePagingAdapter
                             .into(h.ivImage);
                     } else {
                         // GIF ya no thumbnail — direct load with animation support
-                        boolean isStickerMsg = "sticker".equals(m.type);
-                        java.io.File cachedImg = (isGifMsg || isStickerMsg) ? null : MediaCache.getCached(ctx, fullUrl);
-                        if (isStickerMsg) {
+                        // isStickerType already declared above
+                        java.io.File cachedImg = (isGifMsg || isStickerType) ? null : MediaCache.getCached(ctx, fullUrl);
+                        if (isStickerType) {
                             // Sticker: WebP — normal Glide load, asGif() use mat karo
                             Glide.with(ctx)
                                 .load(fullUrl)
