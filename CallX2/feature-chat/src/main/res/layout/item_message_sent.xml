@@ -69,6 +69,8 @@
             android:layout_weight="3"
             android:orientation="vertical"
             android:background="@drawable/bubble_sent"
+            android:clipChildren="true"
+            android:clipToPadding="true"
             android:minWidth="80dp">
 
         <!-- ═══ UPGRADED REPLY PREVIEW — left border + clickable ═══ -->
@@ -229,16 +231,15 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Image -->
-        <!-- FIX: was hardcoded 240×220dp — portrait photos cropped, landscape squeezed.
-             adjustViewBounds + wrap_content lets the image keep its natural aspect ratio. -->
+        <!-- Image / GIF — fills bubble width, rounded corners applied in code -->
         <ImageView
             android:id="@+id/iv_image"
-            android:layout_width="240dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:maxHeight="320dp"
             android:adjustViewBounds="true"
-            android:scaleType="fitCenter"
+            android:scaleType="centerCrop"
+            android:clipToOutline="true"
             android:visibility="gone"/>
 
         <!-- Video -->

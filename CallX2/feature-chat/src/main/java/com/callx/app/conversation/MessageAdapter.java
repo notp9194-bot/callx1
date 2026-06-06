@@ -219,12 +219,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 type = "image";
         }
 
-        // ── Per-type bubble background — ChatThemeManager (runtime gradient) ──
+        // ── Per-type bubble background ─────────────────────────────────────────────
+        // Media types (image/gif/video/sticker): bubble bg hata do — media apna
+        // rounded background khud carry karta hai. Text/audio/file: normal bubble.
+        boolean isMediaType = "image".equals(type) || "gif".equals(type)
+                || "video".equals(type) || "sticker".equals(type);
         try {
             android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
             if (llBubble != null) {
-                if ("sticker".equals(type)) {
-                    // Sticker: no bubble background — transparent so sticker floats freely
+                if (isMediaType) {
                     llBubble.setBackground(null);
                     llBubble.setPadding(0, 0, 0, 0);
                 } else {
@@ -236,25 +239,62 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             }
         } catch (Exception ignored) {}
 
-        // ── Sticker: fixed square size; image/gif: full width with aspect ratio ──
+        // ── Image sizing + rounded clipping (WhatsApp style) ──────────────────────
         if (h.ivImage != null) {
+            float density = ctx.getResources().getDisplayMetrics().density;
+            float bigR  = 18 * density;
+            float tailR =  4 * density;
             if ("sticker".equals(type)) {
-                int stickerPx = (int) (120 * ctx.getResources().getDisplayMetrics().density);
+                int stickerPx = (int) (120 * density);
                 android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
                 lp.width  = stickerPx;
                 lp.height = stickerPx;
                 h.ivImage.setLayoutParams(lp);
                 h.ivImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
                 h.ivImage.setMaxHeight(stickerPx);
+                h.ivImage.setBackground(null);
+                h.ivImage.setClipToOutline(false);
             } else {
-                int imagePx = (int) (240 * ctx.getResources().getDisplayMetrics().density);
+                // image / gif — fill bubble width, rounded corners clip image
+                int imagePx = (int) (240 * density);
                 android.view.ViewGroup.LayoutParams lp = h.ivImage.getLayoutParams();
                 lp.width  = imagePx;
                 lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
                 h.ivImage.setLayoutParams(lp);
-                h.ivImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-                h.ivImage.setMaxHeight((int) (320 * ctx.getResources().getDisplayMetrics().density));
+                h.ivImage.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                h.ivImage.setMaxHeight((int) (320 * density));
+                // Rounded corners on image — WhatsApp style
+                // Sent: bottom-right chota (tail); Received: top-left chota (tail)
+                float[] radii = sent
+                        ? new float[]{ bigR, bigR,  bigR, bigR,  tailR, tailR,  bigR, bigR }
+                        : new float[]{ tailR, tailR,  bigR, bigR,  bigR, bigR,  bigR, bigR };
+                android.graphics.drawable.GradientDrawable imgBg =
+                        new android.graphics.drawable.GradientDrawable();
+                imgBg.setColor(android.graphics.Color.TRANSPARENT);
+                imgBg.setCornerRadii(radii);
+                h.ivImage.setBackground(imgBg);
+                h.ivImage.setClipToOutline(true);
+                final float clipR = bigR;
+                h.ivImage.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                    @Override
+                    public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                        outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), clipR);
+                    }
+                });
             }
+        }
+
+        // ── Video frame: rounded clipping (same style) ─────────────────────────────
+        if (h.flVideo != null) {
+            float density = ctx.getResources().getDisplayMetrics().density;
+            float bigR  = 18 * density;
+            h.flVideo.setClipToOutline(true);
+            h.flVideo.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), bigR);
+                }
+            });
         }
 
         switch (type) {
