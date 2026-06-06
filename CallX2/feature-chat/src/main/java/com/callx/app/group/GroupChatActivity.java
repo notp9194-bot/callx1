@@ -1463,31 +1463,13 @@ public class GroupChatActivity extends AppCompatActivity {
     }
 
     private void showBubbleShapePicker() {
-        com.callx.app.utils.BubbleShapeManager shapeMgr =
-                com.callx.app.utils.BubbleShapeManager.get(this);
-        int current = shapeMgr.getCurrentShape();
-
-        String[] items = new String[com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES.length];
-        for (int i = 0; i < items.length; i++) {
-            items[i] = com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES[i]
-                     + "\n" + com.callx.app.utils.BubbleShapeManager.SHAPE_DESC[i];
-        }
-
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("💬 Bubble Shape")
-            .setSingleChoiceItems(
-                items,
-                current,
-                (dialog, which) -> {
-                    shapeMgr.setShape(which);
-                    if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
-                    dialog.dismiss();
-                    android.widget.Toast.makeText(this,
-                        com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES[which] + " applied!",
-                        android.widget.Toast.LENGTH_SHORT).show();
-                })
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.chat.ui.BubbleShapeBottomSheet sheet =
+                com.callx.app.chat.ui.BubbleShapeBottomSheet.newInstance();
+        sheet.setOnShapeSelectedListener(which -> {
+            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+        });
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.BubbleShapeBottomSheet.TAG);
     }
 
     // ── Typing Style Picker ───────────────────────────────────────────────

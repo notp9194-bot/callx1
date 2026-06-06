@@ -2803,33 +2803,13 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void showBubbleShapePicker() {
-        com.callx.app.utils.BubbleShapeManager shapeMgr =
-                com.callx.app.utils.BubbleShapeManager.get(this);
-        int current = shapeMgr.getCurrentShape();
-
-        // Build display list with name + description
-        String[] items = new String[com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES.length];
-        for (int i = 0; i < items.length; i++) {
-            items[i] = com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES[i]
-                     + "\n" + com.callx.app.utils.BubbleShapeManager.SHAPE_DESC[i];
-        }
-
-        new AlertDialog.Builder(this)
-            .setTitle("\uD83D\uDCAC Bubble Shape")
-            .setSingleChoiceItems(
-                items,
-                current,
-                (dialog, which) -> {
-                    shapeMgr.setShape(which);
-                    // Refresh messages so new shape is applied immediately
-                    if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
-                    dialog.dismiss();
-                    android.widget.Toast.makeText(this,
-                        com.callx.app.utils.BubbleShapeManager.SHAPE_NAMES[which] + " applied!",
-                        android.widget.Toast.LENGTH_SHORT).show();
-                })
-            .setNegativeButton("Cancel", null)
-            .show();
+        com.callx.app.chat.ui.BubbleShapeBottomSheet sheet =
+                com.callx.app.chat.ui.BubbleShapeBottomSheet.newInstance();
+        sheet.setOnShapeSelectedListener(which -> {
+            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+        });
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.BubbleShapeBottomSheet.TAG);
     }
 
     // ─────────────────────────────────────────────────────────────────────
