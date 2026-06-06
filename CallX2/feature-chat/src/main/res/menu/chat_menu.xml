@@ -3,6 +3,10 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <!-- Overflow menu items only -->
+    <item android:id="@+id/action_send_gif"
+        android:title="🎞️ Send GIF"
+        app:showAsAction="never"/>
+
     <item android:id="@+id/action_view_profile"
         android:title="👤 View Profile"
         app:showAsAction="never"/>

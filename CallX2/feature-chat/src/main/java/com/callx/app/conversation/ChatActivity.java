@@ -2815,6 +2815,7 @@ public class ChatActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
+        if (id == R.id.action_send_gif)      { gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class)); return true; }
         if (id == R.id.action_view_profile)  { openAvatarZoom();     return true; }
         if (id == R.id.action_edit_profile)   { openEditProfile();    return true; }
         if (id == R.id.action_starred) {
