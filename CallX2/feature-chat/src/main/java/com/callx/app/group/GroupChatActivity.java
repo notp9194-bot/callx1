@@ -1094,10 +1094,23 @@ public class GroupChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     private void openGifPicker() {
-        if (gifPicker == null) return;
-        android.content.Intent intent = new android.content.Intent(
-                this, com.callx.app.chat.gif.GifPickerActivity.class);
-        gifPicker.launch(intent);
+        android.widget.Toast.makeText(this,
+            "DEBUG: GIF button clicked (Group)", android.widget.Toast.LENGTH_SHORT).show();
+        if (gifPicker == null) {
+            android.widget.Toast.makeText(this,
+                "DEBUG ERROR: gifPicker NULL", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    this, com.callx.app.chat.gif.GifPickerActivity.class);
+            gifPicker.launch(intent);
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this,
+                "DEBUG CRASH: " + e.getClass().getSimpleName() + " — " + e.getMessage(),
+                android.widget.Toast.LENGTH_LONG).show();
+            android.util.Log.e("GifDebug", "group openGifPicker crash", e);
+        }
     }
 
     private void sendGifMessage(String gifUrl) {

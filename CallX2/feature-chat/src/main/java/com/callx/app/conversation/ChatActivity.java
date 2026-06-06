@@ -2805,10 +2805,28 @@ public class ChatActivity extends AppCompatActivity {
      * Opens GifPickerActivity using the registered gifPicker launcher.
      */
     private void openGifPicker() {
-        if (gifPicker == null) return;
-        android.content.Intent intent = new android.content.Intent(
-                this, com.callx.app.chat.gif.GifPickerActivity.class);
-        gifPicker.launch(intent);
+        android.widget.Toast.makeText(this,
+            "DEBUG: GIF button clicked", android.widget.Toast.LENGTH_SHORT).show();
+
+        if (gifPicker == null) {
+            android.widget.Toast.makeText(this,
+                "DEBUG ERROR: gifPicker is NULL (not registered)", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        android.widget.Toast.makeText(this,
+            "DEBUG: gifPicker OK, launching GifPickerActivity...", android.widget.Toast.LENGTH_SHORT).show();
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    this, com.callx.app.chat.gif.GifPickerActivity.class);
+            gifPicker.launch(intent);
+            android.widget.Toast.makeText(this,
+                "DEBUG: launch() called OK", android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this,
+                "DEBUG CRASH: " + e.getClass().getSimpleName() + " — " + e.getMessage(),
+                android.widget.Toast.LENGTH_LONG).show();
+            android.util.Log.e("GifDebug", "openGifPicker crash", e);
+        }
     }
 
     /**

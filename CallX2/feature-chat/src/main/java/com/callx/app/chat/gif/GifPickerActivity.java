@@ -63,36 +63,76 @@ public class GifPickerActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        android.widget.Toast.makeText(this,
+            "DEBUG GifPicker: onCreate START", android.widget.Toast.LENGTH_SHORT).show();
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_gif_picker);
 
-        etSearch  = findViewById(R.id.et_gif_search);
-        rvGifs    = findViewById(R.id.rv_gifs);
-        pbLoading = findViewById(R.id.pb_gif_loading);
-        tvEmpty   = findViewById(R.id.tv_gif_empty);
+        try {
+            android.widget.Toast.makeText(this,
+                "DEBUG GifPicker: setContentView calling...", android.widget.Toast.LENGTH_SHORT).show();
+            setContentView(R.layout.activity_gif_picker);
+            android.widget.Toast.makeText(this,
+                "DEBUG GifPicker: setContentView OK", android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this,
+                "DEBUG GifPicker CRASH in setContentView: " + e.getClass().getSimpleName()
+                + " — " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+            android.util.Log.e("GifDebug", "setContentView failed", e);
+            finish();
+            return;
+        }
 
-        ImageButton btnBack = findViewById(R.id.btn_gif_back);
-        if (btnBack != null) btnBack.setOnClickListener(v -> finish());
+        try {
+            etSearch  = findViewById(R.id.et_gif_search);
+            rvGifs    = findViewById(R.id.rv_gifs);
+            pbLoading = findViewById(R.id.pb_gif_loading);
+            tvEmpty   = findViewById(R.id.tv_gif_empty);
 
-        adapter = new GifAdapter(this::onGifSelected);
-        rvGifs.setLayoutManager(new GridLayoutManager(this, GRID_COLUMNS));
-        rvGifs.setAdapter(adapter);
+            android.widget.Toast.makeText(this,
+                "DEBUG GifPicker: views found — etSearch=" + (etSearch != null)
+                + " rvGifs=" + (rvGifs != null), android.widget.Toast.LENGTH_SHORT).show();
 
-        etSearch.addTextChangedListener(new TextWatcher() {
-            private final Runnable searchRunnable = () -> {
-                String q = etSearch.getText().toString().trim();
-                if (q.length() >= 2) fetchSearch(q);
-                else if (q.isEmpty()) fetchTrending();
-            };
-            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-            @Override public void afterTextChanged(Editable s) {}
-            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
-                mainHandler.removeCallbacksAndMessages(null);
-                mainHandler.postDelayed(searchRunnable, 350);
+            if (etSearch == null || rvGifs == null) {
+                android.widget.Toast.makeText(this,
+                    "DEBUG GifPicker ERROR: required view is NULL — check layout IDs",
+                    android.widget.Toast.LENGTH_LONG).show();
+                finish();
+                return;
             }
-        });
 
-        fetchTrending();
+            ImageButton btnBack = findViewById(R.id.btn_gif_back);
+            if (btnBack != null) btnBack.setOnClickListener(v -> finish());
+
+            adapter = new GifAdapter(this::onGifSelected);
+            rvGifs.setLayoutManager(new GridLayoutManager(this, GRID_COLUMNS));
+            rvGifs.setAdapter(adapter);
+
+            etSearch.addTextChangedListener(new TextWatcher() {
+                private final Runnable searchRunnable = () -> {
+                    String q = etSearch.getText().toString().trim();
+                    if (q.length() >= 2) fetchSearch(q);
+                    else if (q.isEmpty()) fetchTrending();
+                };
+                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+                @Override public void afterTextChanged(Editable s) {}
+                @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
+                    mainHandler.removeCallbacksAndMessages(null);
+                    mainHandler.postDelayed(searchRunnable, 350);
+                }
+            });
+
+            android.widget.Toast.makeText(this,
+                "DEBUG GifPicker: setup complete, fetching trending GIFs...",
+                android.widget.Toast.LENGTH_SHORT).show();
+            fetchTrending();
+
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this,
+                "DEBUG GifPicker CRASH in setup: " + e.getClass().getSimpleName()
+                + " — " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+            android.util.Log.e("GifDebug", "GifPickerActivity setup crash", e);
+            finish();
+        }
     }
 
     @Override
