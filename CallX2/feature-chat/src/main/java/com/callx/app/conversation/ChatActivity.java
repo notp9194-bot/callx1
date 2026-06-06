@@ -580,19 +580,23 @@ public class ChatActivity extends AppCompatActivity {
                 // SEND GIF
                 if (id == com.callx.app.chat.R.id.action_send_gif) {
                     android.util.Log.d("ChatMenu", "Send GIF clicked");
-                    android.util.Log.d("ChatMenu", "  gifPicker null? " + (gifPicker == null));
+                    toast("DEBUG: Send GIF button clicked");
+
                     if (gifPicker == null) {
                         android.util.Log.e("ChatMenu", "  ERROR: gifPicker is null!");
-                        android.widget.Toast.makeText(this, "GIF picker not ready", android.widget.Toast.LENGTH_SHORT).show();
+                        toast("ERROR: gifPicker is null! setupPickers() failed");
                         return true;
                     }
+                    toast("DEBUG: gifPicker OK, launching GifPickerActivity...");
                     try {
-                        android.util.Log.d("ChatMenu", "  Launching GifPickerActivity...");
                         gifPicker.launch(new android.content.Intent(this, GifPickerActivity.class));
-                        android.util.Log.d("ChatMenu", "  GifPickerActivity launched OK");
+                        toast("DEBUG: GifPickerActivity launched successfully");
+                    } catch (android.content.ActivityNotFoundException e) {
+                        android.util.Log.e("ChatMenu", "ActivityNotFoundException: " + e.getMessage(), e);
+                        toast("ERROR: GifPickerActivity not found in manifest! " + e.getMessage());
                     } catch (Exception e) {
-                        android.util.Log.e("ChatMenu", "  ERROR launching GifPickerActivity: " + e.getMessage(), e);
-                        android.widget.Toast.makeText(this, "GIF Error: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+                        android.util.Log.e("ChatMenu", "ERROR launching GifPickerActivity: " + e.getMessage(), e);
+                        toast("ERROR: " + e.getClass().getSimpleName() + " - " + e.getMessage());
                     }
                     return true;
                 }
@@ -2657,6 +2661,11 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     /** Null-safe findViewById + setOnClickListener — prevents NPE if view missing in layout. */
+    /** Quick debug toast — remove after fixing */
+    private void toast(String msg) {
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show();
+    }
+
     private void safeClick(View root, int id, android.view.View.OnClickListener l) {
         android.view.View v = root.findViewById(id);
         if (v != null) v.setOnClickListener(l);
