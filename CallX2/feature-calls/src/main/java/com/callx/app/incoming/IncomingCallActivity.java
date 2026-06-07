@@ -113,6 +113,34 @@ import com.callx.app.call.CallActivity;
       }
 
       private void proceedWithCall() {
+          // ── Silence Unknown Callers check ─────────────────────────────
+          com.callx.app.utils.SecurityManager secMgr =
+              new com.callx.app.utils.SecurityManager(this);
+          if (secMgr.isSilenceUnknownCallers()) {
+              String myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+              if (myUid != null && fromUid != null) {
+                  // Check if caller is in my contacts
+                  com.callx.app.utils.FirebaseUtils.getContactsRef(myUid).child(fromUid)
+                      .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                          @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                              if (!snap.exists()) {
+                                  // Not a contact — silently reject
+                                  if (!acted) { acted = true; reject(); }
+                              } else {
+                                  startCallUI();
+                              }
+                          }
+                          @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                              startCallUI(); // Fail-open: error pe reject mat karo
+                          }
+                      });
+                  return; // Wait for Firebase callback
+              }
+          }
+          startCallUI();
+      }
+
+      private void startCallUI() {
           startVibration();
           startLoopingRingtone();
           startPulseAnimation();

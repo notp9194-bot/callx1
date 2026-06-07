@@ -37,6 +37,7 @@ public class SecurityManager {
     private static final String KEY_PROFILE_PHOTO     = "profilePhoto";
     private static final String KEY_READ_RECEIPTS     = "readReceipts";
     private static final String KEY_SCREENSHOT_LOCK   = "screenshotLock";
+    private static final String KEY_SILENCE_UNKNOWN   = "silenceUnknownCallers";
 
     // Security keys
     private static final String KEY_SECURE_NOTIFS     = "secure_notifications";
@@ -112,6 +113,12 @@ public class SecurityManager {
     public boolean isScreenshotLockEnabled()      { return prefs.getBoolean(KEY_SCREENSHOT_LOCK, false); }
     public void setScreenshotLock(boolean v)      { prefs.edit().putBoolean(KEY_SCREENSHOT_LOCK, v).apply(); }
 
+    public boolean isSilenceUnknownCallers()          { return prefs.getBoolean(KEY_SILENCE_UNKNOWN, false); }
+    public void setSilenceUnknownCallers(boolean v)   {
+        prefs.edit().putBoolean(KEY_SILENCE_UNKNOWN, v).apply();
+        pushPrivacy("silenceUnknownCallers", v);
+    }
+
     public String getLastSeenVisibility()         { return prefs.getString(KEY_LAST_SEEN, VIS_EVERYONE); }
     public void setLastSeenVisibility(String v) {
         prefs.edit().putString(KEY_LAST_SEEN, v).apply();
@@ -125,16 +132,28 @@ public class SecurityManager {
     }
 
     public String getStatusPrivacy()              { return prefs.getString(KEY_STATUS_PRIVACY, VIS_EVERYONE); }
-    public void setStatusPrivacy(String v)        { prefs.edit().putString(KEY_STATUS_PRIVACY, v).apply(); }
+    public void setStatusPrivacy(String v) {
+        prefs.edit().putString(KEY_STATUS_PRIVACY, v).apply();
+        pushPrivacy("statusPrivacy", v);
+    }
 
     public String getAboutPrivacy()               { return prefs.getString(KEY_ABOUT_PRIVACY, VIS_EVERYONE); }
-    public void setAboutPrivacy(String v)         { prefs.edit().putString(KEY_ABOUT_PRIVACY, v).apply(); }
+    public void setAboutPrivacy(String v) {
+        prefs.edit().putString(KEY_ABOUT_PRIVACY, v).apply();
+        pushPrivacy("aboutPrivacy", v);
+    }
 
     public String getGroupAddPermission()         { return prefs.getString(KEY_GROUP_ADD_PERM, VIS_EVERYONE); }
-    public void setGroupAddPermission(String v)   { prefs.edit().putString(KEY_GROUP_ADD_PERM, v).apply(); }
+    public void setGroupAddPermission(String v) {
+        prefs.edit().putString(KEY_GROUP_ADD_PERM, v).apply();
+        pushPrivacy("groupAddPermission", v);
+    }
 
     public String getCallPermission()             { return prefs.getString(KEY_CALL_PERM, VIS_EVERYONE); }
-    public void setCallPermission(String v)       { prefs.edit().putString(KEY_CALL_PERM, v).apply(); }
+    public void setCallPermission(String v) {
+        prefs.edit().putString(KEY_CALL_PERM, v).apply();
+        pushPrivacy("callPermission", v);
+    }
 
     // ── Security settings ─────────────────────────────────────────────────
 
@@ -266,6 +285,11 @@ public class SecurityManager {
         map.put("profilePhotoVisibility", getProfilePhotoVisibility());
         map.put("incognito",              isIncognitoMode());
         map.put("ghost",                  isGhostMode());
+        map.put("silenceUnknownCallers",  isSilenceUnknownCallers());
+        map.put("statusPrivacy",          getStatusPrivacy());
+        map.put("aboutPrivacy",           getAboutPrivacy());
+        map.put("callPermission",         getCallPermission());
+        map.put("groupAddPermission",     getGroupAddPermission());
         ref.updateChildren(map);
     }
 
