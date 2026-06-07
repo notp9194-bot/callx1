@@ -528,8 +528,9 @@ public class CallActivity extends AppCompatActivity {
                     if (micOn != newMicOn) {
                         micOn = newMicOn;
                         if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
-                        if (callRef != null && myUid != null)
-                            callRef.child("micState").child(myUid).setValue(micOn);
+                        String uid = FirebaseUtils.getCurrentUid();
+                        if (callRef != null && uid != null)
+                            callRef.child("micState").child(uid).setValue(micOn);
                         binding.btnToggleMic.setAlpha(micOn ? 1f : 0.4f);
                         binding.btnToggleMic.setImageResource(micOn
                             ? com.callx.app.calls.R.drawable.ic_mic
@@ -555,8 +556,9 @@ public class CallActivity extends AppCompatActivity {
                                 capturerRunning = true;
                             }
                         }
-                        if (callRef != null && myUid != null)
-                            callRef.child("camState").child(myUid).setValue(camOn);
+                        String uid = FirebaseUtils.getCurrentUid();
+                        if (callRef != null && uid != null)
+                            callRef.child("camState").child(uid).setValue(camOn);
                         binding.btnToggleCamera.setAlpha(camOn ? 1f : 0.4f);
                         binding.btnToggleCamera.setImageResource(camOn
                             ? com.callx.app.calls.R.drawable.ic_video
