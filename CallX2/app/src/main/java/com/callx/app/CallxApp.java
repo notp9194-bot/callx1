@@ -349,10 +349,12 @@ public class CallxApp extends Application {
             NotificationManager.IMPORTANCE_HIGH, true, true, attrs,
             android.app.Notification.VISIBILITY_PUBLIC, true);
 
-        // BUG-4 FIX: Dedicated missed call channel — no ringtone, badge enabled
+        // HUN-FIX: IMPORTANCE_HIGH required for heads-up notification (peeking banner)
+        // No ringtone (null sound), vibrate ON, badge ON, public lock-screen visibility
+        // Channel ID bumped to v2 in Constants — forces Android to recreate with correct importance
         makeChannel(nm, Constants.CHANNEL_CALLS_MISSED, "Missed Calls",
-            NotificationManager.IMPORTANCE_DEFAULT, true, false, null,
-            android.app.Notification.VISIBILITY_PRIVATE, true);
+            NotificationManager.IMPORTANCE_HIGH, true, false, null,
+            android.app.Notification.VISIBILITY_PUBLIC, true);
 
         makeChannel(nm, Constants.CHANNEL_MESSAGES, "Messages",
             NotificationManager.IMPORTANCE_HIGH, true, false, null,

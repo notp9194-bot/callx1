@@ -200,19 +200,21 @@ public class IncomingRingService extends Service {
                 ("cb_" + savedFromUid).hashCode(), callBackIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+            // ── HUN-FIX: PRIORITY_HIGH → heads-up banner even from background/killed ──
             NotificationCompat.Builder b = new NotificationCompat.Builder(this,
                     Constants.CHANNEL_CALLS_MISSED)
                 .setSmallIcon(R.drawable.ic_call_notification)
                 .setContentTitle("Missed call from " + savedFromName)
                 .setContentText("Tap to call back")
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)   // HUN-FIX
                 .setAutoCancel(true)
                 .setContentIntent(openPi)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .addAction(R.drawable.ic_phone, "📞 Call Back", callBackPi)
                 .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
 
-            // ── Inline Message reply (RemoteInput) ───────────────────────
-            // User notification shade se seedha type karke reply kar sakta hai
+            // ── Inline Message reply (RemoteInput) ───────────────────────────
+            // User notification shade se expand karke seedha type kar sakta hai.
             RemoteInput remoteInput = new RemoteInput.Builder(Constants.KEY_MISSED_CALL_REPLY)
                 .setLabel("Write a message…")
                 .build();
@@ -230,6 +232,7 @@ public class IncomingRingService extends Service {
                     R.drawable.ic_send, "💬 Message", msgPi)
                 .addRemoteInput(remoteInput)
                 .setAllowGeneratedReplies(true)
+                .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
                 .build();
             b.addAction(msgAction);
 
