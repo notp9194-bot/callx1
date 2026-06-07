@@ -224,9 +224,10 @@ public class IncomingRingService extends Service {
                 .putExtra(Constants.EXTRA_PARTNER_NAME,  savedFromName)
                 .putExtra(Constants.EXTRA_PARTNER_PHOTO, savedFromPhoto)
                 .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+            // FIX: RemoteInput requires FLAG_MUTABLE — FLAG_IMMUTABLE causes silent drop on API 31+
             PendingIntent msgPi = PendingIntent.getBroadcast(this,
                 ("msg_" + savedFromUid).hashCode(), msgIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             NotificationCompat.Action msgAction =
                 new NotificationCompat.Action.Builder(
                     R.drawable.ic_send, "💬 Message", msgPi)

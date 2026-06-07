@@ -408,8 +408,9 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .putExtra(com.callx.app.utils.Constants.EXTRA_NOTIF_ID,      notifId);
           android.app.PendingIntent msgPi = android.app.PendingIntent.getBroadcast(
               this, ("mcmsg_" + callerUid).hashCode(), msgIntent,
+              // FIX: RemoteInput requires FLAG_MUTABLE — FLAG_IMMUTABLE causes silent drop on API 31+
               android.app.PendingIntent.FLAG_UPDATE_CURRENT |
-              android.app.PendingIntent.FLAG_IMMUTABLE);
+              android.app.PendingIntent.FLAG_MUTABLE);
           NotificationCompat.Action msgAction = new NotificationCompat.Action.Builder(
                   R.drawable.ic_send, "💬 Message", msgPi)
               .addRemoteInput(missedReply)
