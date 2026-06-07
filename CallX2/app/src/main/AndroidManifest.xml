@@ -76,17 +76,17 @@
                       android:host="callx-server.onrender.com"/>
             </intent-filter>
         </activity>
-        <activity android:name=".activities.ChatActivity"     android:exported="false"
+        <activity android:name="com.callx.app.conversation.ChatActivity"     android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name=".activities.GroupChatActivity" android:exported="false"
+        <activity android:name="com.callx.app.group.GroupChatActivity" android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name=".activities.GroupInfoActivity"
+        <activity android:name="com.callx.app.group.GroupInfoActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name=".activities.GroupSettingsActivity"
+        <activity android:name="com.callx.app.group.GroupSettingsActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <activity android:name=".activities.NewGroupActivity" android:exported="false"/>
+        <activity android:name="com.callx.app.group.NewGroupActivity" android:exported="false"/>
         <activity android:name=".activities.SearchActivity" android:exported="false"
             android:theme="@style/Theme.CallX.NoTransition"
             android:windowSoftInputMode="adjustResize"/>
@@ -101,7 +101,7 @@
         <activity android:name=".activities.ProfileActivity"  android:exported="false"/>
         <activity android:name=".activities.UserProfileActivity" android:exported="false"/>
         <activity android:name=".activities.AllMediaLinksDocsActivity" android:exported="false"
-            android:parentActivityName=".activities.ChatActivity"/>
+            android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
         <activity android:name=".activities.MediaViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen"/>
@@ -121,9 +121,9 @@
         </activity>
         <activity android:name=".activities.NewStatusActivity"
             android:exported="false"/>
-        <activity android:name=".activities.StarredMessagesActivity"
+        <activity android:name="com.callx.app.starred.StarredMessagesActivity"
             android:exported="false"
-            android:parentActivityName=".activities.ChatActivity"/>
+            android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
         <activity android:name=".activities.JoinGroupActivity"
             android:exported="true">
             <intent-filter android:autoVerify="true">
@@ -632,7 +632,7 @@
               android:windowSoftInputMode="adjustResize"/>
 
           <activity
-              android:name=".activities.MutedChatsActivity"
+              android:name="com.callx.app.settings.MutedChatsActivity"
               android:exported="false"
               android:screenOrientation="portrait"/>
 
