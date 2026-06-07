@@ -108,6 +108,11 @@ public class GroupChatActivity extends AppCompatActivity {
     // ── State ──────────────────────────────────────────────────────────────
     private boolean isAdmin    = false;
     private boolean isRecording = false;
+    private boolean isMuted    = false;
+
+    // ── Search ─────────────────────────────────────────────────────────────
+    private final java.util.List<Integer> searchMatchPositions = new java.util.ArrayList<>();
+    private int searchCurrentIndex = -1;
     private final Map<String, String> memberNames = new HashMap<>();
     private final Map<String, String> memberRoles = new HashMap<>();
     private final Map<String, Long>   memberLastSeen = new HashMap<>();
@@ -178,6 +183,7 @@ public class GroupChatActivity extends AppCompatActivity {
         setupRealtimeHeader();
         checkAdminStatus();
         watchPinnedMessage();
+        watchMute();
 
         // ── Task 5: Offline banner + message pruning ──
         setupNetworkMonitor();
@@ -312,12 +318,18 @@ public class GroupChatActivity extends AppCompatActivity {
             m.add(0, R.id.menu_group_info,           0, "ℹ Group Info").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             m.add(0, R.id.menu_group_settings,       1, "⚙ Group Settings").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             m.add(0, R.id.menu_invite,               2, "🔗 Invite Link").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.menu_starred,              3, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_privacy,       5, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_search,             3, "🔍 Search Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_starred,              4, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_media_links_docs,   5, "📁 Media, Links & Docs").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_customization, 6, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_privacy,       7, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_security,           8, "🔒 Security").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_mute,               9, isMuted ? "🔔 Unmute" : "🔇 Mute").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_clear_chat,        10, "🗑 Clear Chat").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_leave_group,         11, "🚪 Leave Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             if (isAdmin) {
-                m.add(0, R.id.menu_admin_panel, 6, "👑 Admin Panel").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-                m.add(0, R.id.menu_rename,      7, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+                m.add(0, R.id.menu_admin_panel, 12, "👑 Admin Panel").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+                m.add(0, R.id.menu_rename,      13, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             }
             popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
             popup.show();
@@ -728,12 +740,36 @@ public class GroupChatActivity extends AppCompatActivity {
     private void confirmDelete(Message m) {
         new AlertDialog.Builder(this)
                 .setTitle("Delete message?")
-                .setPositiveButton("Delete", (d, w) -> {
+                .setPositiveButton("Delete for everyone", (d, w) -> {
                     groupMessagesRef.child(m.id).child("deleted").setValue(true);
                     groupMessagesRef.child(m.id).child("text").setValue("");
                     ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                 })
+                .setNeutralButton("Delete for me", (d, w) ->
+                    ioExecutor.execute(() -> db.messageDao().softDelete(m.id)))
                 .setNegativeButton("Cancel", null).show();
+    }
+
+    private void confirmPermanentDeleteGroup(java.util.List<Message> sel) {
+        int count = sel.size();
+        String msg = count == 1
+            ? "This message will be permanently deleted from your device and Firebase. This cannot be undone."
+            : count + " messages will be permanently deleted from your device and Firebase. This cannot be undone.";
+        new AlertDialog.Builder(this)
+            .setTitle("⚠ Permanent Delete")
+            .setMessage(msg)
+            .setPositiveButton("Delete Permanently", (d, w) -> {
+                for (Message m : sel) {
+                    groupMessagesRef.child(m.id).removeValue();
+                    final String mid = m.id;
+                    ioExecutor.execute(() -> db.messageDao().permanentDelete(mid));
+                }
+                pagingAdapter.exitMultiSelectMode();
+                hideMultiSelectBar();
+                Toast.makeText(this, "Permanently deleted", Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     private void sendReaction(Message m, String emoji) {
@@ -805,6 +841,19 @@ public class GroupChatActivity extends AppCompatActivity {
             hideMultiSelectBar();
         });
 
+        // Select All
+        android.view.View btnSelectAll = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_select_all);
+        if (btnSelectAll != null) btnSelectAll.setOnClickListener(v -> {
+            pagingAdapter.selectAll();
+            android.view.View selBar = binding.getRoot().findViewById(
+                    com.callx.app.chat.R.id.ll_selection_toolbar);
+            android.widget.TextView tvCount = binding.getRoot().findViewById(
+                    com.callx.app.chat.R.id.tv_selection_count);
+            if (tvCount != null)
+                tvCount.setText(String.valueOf(pagingAdapter.getSelectedMessages().size()));
+        });
+
         android.view.View btnFwd = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.btn_selection_forward);
         if (btnFwd != null) btnFwd.setOnClickListener(v -> forwardSelectedMessages());
@@ -813,11 +862,42 @@ public class GroupChatActivity extends AppCompatActivity {
                 com.callx.app.chat.R.id.btn_selection_delete);
         if (btnDel != null) btnDel.setOnClickListener(v -> {
             java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
-            if (!sel.isEmpty()) {
-                confirmDelete(sel.get(0));
-                pagingAdapter.exitMultiSelectMode();
-                hideMultiSelectBar();
-            }
+            if (sel.isEmpty()) return;
+            int count = sel.size();
+            String msg = count == 1 ? "Delete this message?" : "Delete " + count + " messages?";
+            new AlertDialog.Builder(this)
+                .setTitle("Delete messages")
+                .setMessage(msg)
+                .setPositiveButton("Delete for everyone", (d, w) -> {
+                    for (com.callx.app.models.Message m : sel) {
+                        groupMessagesRef.child(m.id).child("deleted").setValue(true);
+                        groupMessagesRef.child(m.id).child("text").setValue("");
+                        final String mid = m.id;
+                        ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                    }
+                    pagingAdapter.exitMultiSelectMode();
+                    hideMultiSelectBar();
+                })
+                .setNeutralButton("Delete for me", (d, w) -> {
+                    for (com.callx.app.models.Message m : sel) {
+                        final String mid = m.id;
+                        ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                    }
+                    pagingAdapter.exitMultiSelectMode();
+                    hideMultiSelectBar();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        });
+
+        // Long-press delete = permanent delete option
+        android.view.View btnDelView = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_delete);
+        if (btnDelView != null) btnDelView.setOnLongClickListener(v -> {
+            java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
+            if (sel.isEmpty()) return true;
+            confirmPermanentDeleteGroup(sel);
+            return true;
         });
 
         android.view.View btnStar = binding.getRoot().findViewById(
@@ -1323,23 +1403,21 @@ public class GroupChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     @Override public boolean onCreateOptionsMenu(Menu menu) {
-        menu.add(0, R.id.menu_group_info, 0, "ℹ Group Info")
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.menu_group_settings, 1, "⚙ Group Settings")
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.menu_invite, 2, "🔗 Invite Link")
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.menu_starred, 3, "⭐ Starred Messages")
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization")
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.action_chat_privacy, 5, "🛡 Chat Privacy")
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.menu_group_info,           0,  "ℹ Group Info").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.menu_group_settings,       1,  "⚙ Group Settings").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.menu_invite,               2,  "🔗 Invite Link").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_search,             3,  "🔍 Search Messages").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.menu_starred,              4,  "⭐ Starred Messages").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_media_links_docs,   5,  "📁 Media, Links & Docs").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_chat_customization, 6,  "🎨 Chat Customization").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_chat_privacy,       7,  "🛡 Chat Privacy").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_security,           8,  "🔒 Security").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_mute,               9,  isMuted ? "🔔 Unmute" : "🔇 Mute").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_clear_chat,         10, "🗑 Clear Chat").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.menu_leave_group,          11, "🚪 Leave Group").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         if (isAdmin) {
-            menu.add(0, R.id.menu_admin_panel, 4, "👑 Admin Panel")
-                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-            menu.add(0, R.id.menu_rename, 5, "✏ Rename Group")
-                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+            menu.add(0, R.id.menu_admin_panel, 12, "👑 Admin Panel").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+            menu.add(0, R.id.menu_rename,      13, "✏ Rename Group").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         }
         return true;
     }
@@ -1369,6 +1447,12 @@ public class GroupChatActivity extends AppCompatActivity {
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
         if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
         if (id == R.id.action_chat_privacy) { showGroupChatPrivacySheet(); return true; }
+        if (id == R.id.action_search)        { openGroupSearch();           return true; }
+        if (id == R.id.action_mute)          { toggleGroupMute();           return true; }
+        if (id == R.id.action_clear_chat)    { confirmClearGroupChat();     return true; }
+        if (id == R.id.action_media_links_docs) { openGroupMediaLinksDocs(); return true; }
+        if (id == R.id.action_security)      { showGroupSecuritySheet();    return true; }
+        if (id == R.id.menu_leave_group)     { confirmLeaveGroup();         return true; }
         return super.onOptionsItemSelected(item);
     }
 
@@ -1568,5 +1652,192 @@ public class GroupChatActivity extends AppCompatActivity {
 
     private int dp(int dp) {
         return (int) (dp * getResources().getDisplayMetrics().density);
+    }
+
+    // ── Mute Group ────────────────────────────────────────────────────────
+
+    private void watchMute() {
+        if (currentUid == null || currentUid.isEmpty() || groupId == null) return;
+        com.callx.app.utils.FirebaseUtils.db().getReference("muted")
+                .child(currentUid).child(groupId)
+                .addValueEventListener(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        isMuted = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+    }
+
+    private void toggleGroupMute() {
+        com.callx.app.utils.FirebaseUtils.db().getReference("muted")
+                .child(currentUid).child(groupId)
+                .setValue(!isMuted);
+        Toast.makeText(this, isMuted ? "Group unmuted 🔔" : "Group muted 🔇", Toast.LENGTH_SHORT).show();
+    }
+
+    // ── Search Messages ───────────────────────────────────────────────────
+
+    private void openGroupSearch() {
+        if (binding.llSearchBar == null) return;
+        binding.llSearchBar.setVisibility(android.view.View.VISIBLE);
+        if (binding.etSearch != null) {
+            binding.etSearch.requestFocus();
+            android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(binding.etSearch, 0);
+
+            binding.etSearch.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+                @Override public void afterTextChanged(android.text.Editable s) {}
+                @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
+                    String query = s.toString().trim();
+                    if (query.length() < 2) {
+                        searchMatchPositions.clear();
+                        searchCurrentIndex = -1;
+                        updateSearchUI();
+                        return;
+                    }
+                    runGroupSearchQuery(query);
+                }
+            });
+
+            binding.etSearch.setOnEditorActionListener((v, actionId, e) -> {
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                    navigateGroupSearch(true);
+                    return true;
+                }
+                return false;
+            });
+        }
+        if (binding.btnSearchPrev != null)
+            binding.btnSearchPrev.setOnClickListener(v -> navigateGroupSearch(false));
+        if (binding.btnSearchNext != null)
+            binding.btnSearchNext.setOnClickListener(v -> navigateGroupSearch(true));
+        if (binding.btnCloseSearch != null)
+            binding.btnCloseSearch.setOnClickListener(v -> closeGroupSearch());
+    }
+
+    private void runGroupSearchQuery(String query) {
+        ioExecutor.execute(() -> {
+            java.util.List<com.callx.app.db.entity.MessageEntity> all =
+                db.messageDao().getMessagesPaged(groupId, 2000, 0);
+            java.util.List<Integer> matches = new java.util.ArrayList<>();
+            String lq = query.toLowerCase(java.util.Locale.getDefault());
+            for (int i = 0; i < all.size(); i++) {
+                com.callx.app.db.entity.MessageEntity me = all.get(i);
+                if (me.text != null &&
+                    me.text.toLowerCase(java.util.Locale.getDefault()).contains(lq)) {
+                    matches.add(i);
+                }
+            }
+            runOnUiThread(() -> {
+                searchMatchPositions.clear();
+                searchMatchPositions.addAll(matches);
+                searchCurrentIndex = matches.isEmpty() ? -1 : matches.size() - 1;
+                updateSearchUI();
+                if (!matches.isEmpty())
+                    binding.rvMessages.scrollToPosition(searchMatchPositions.get(searchCurrentIndex));
+            });
+        });
+    }
+
+    private void navigateGroupSearch(boolean forward) {
+        if (searchMatchPositions.isEmpty()) return;
+        if (forward) {
+            searchCurrentIndex = (searchCurrentIndex + 1) % searchMatchPositions.size();
+        } else {
+            searchCurrentIndex = (searchCurrentIndex - 1 + searchMatchPositions.size())
+                                  % searchMatchPositions.size();
+        }
+        updateSearchUI();
+        binding.rvMessages.scrollToPosition(searchMatchPositions.get(searchCurrentIndex));
+    }
+
+    private void updateSearchUI() {
+        if (binding.tvSearchCount == null) return;
+        if (searchMatchPositions.isEmpty()) {
+            binding.tvSearchCount.setVisibility(android.view.View.GONE);
+            if (binding.btnSearchPrev != null) binding.btnSearchPrev.setVisibility(android.view.View.GONE);
+            if (binding.btnSearchNext != null) binding.btnSearchNext.setVisibility(android.view.View.GONE);
+        } else {
+            String label = (searchCurrentIndex + 1) + " / " + searchMatchPositions.size();
+            binding.tvSearchCount.setText(label);
+            binding.tvSearchCount.setVisibility(android.view.View.VISIBLE);
+            if (binding.btnSearchPrev != null) binding.btnSearchPrev.setVisibility(android.view.View.VISIBLE);
+            if (binding.btnSearchNext != null) binding.btnSearchNext.setVisibility(android.view.View.VISIBLE);
+        }
+    }
+
+    private void closeGroupSearch() {
+        if (binding.llSearchBar != null)
+            binding.llSearchBar.setVisibility(android.view.View.GONE);
+        if (binding.etSearch != null) binding.etSearch.setText("");
+        searchMatchPositions.clear();
+        searchCurrentIndex = -1;
+        updateSearchUI();
+    }
+
+    // ── Clear Chat ────────────────────────────────────────────────────────
+
+    private void confirmClearGroupChat() {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Clear group chat?")
+                .setMessage("All messages will be deleted from your device only. Other members won't be affected.")
+                .setPositiveButton("Clear", (d, w) -> {
+                    ioExecutor.execute(() -> db.messageDao().deleteAllForChat(groupId));
+                    com.callx.app.utils.CacheManager.getInstance(this).invalidateMessages(groupId);
+                    Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    // ── Media, Links & Docs ───────────────────────────────────────────────
+
+    private void openGroupMediaLinksDocs() {
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.AllMediaLinksDocsActivity");
+            android.content.Intent i = new android.content.Intent(this, cls);
+            i.putExtra("chatId",      groupId);
+            i.putExtra("partnerName", groupName != null ? groupName : "Group");
+            i.putExtra("isGroup",     true);
+            startActivity(i);
+        } catch (ClassNotFoundException e) {
+            android.util.Log.e("GroupChatActivity", "AllMediaLinksDocsActivity not found", e);
+        }
+    }
+
+    // ── Security ──────────────────────────────────────────────────────────
+
+    private void showGroupSecuritySheet() {
+        com.callx.app.chat.ui.ChatSecurityBottomSheet sheet =
+                com.callx.app.chat.ui.ChatSecurityBottomSheet.newInstance();
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.ChatSecurityBottomSheet.TAG);
+    }
+
+    // ── Leave Group ───────────────────────────────────────────────────────
+
+    private void confirmLeaveGroup() {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Leave group?")
+                .setMessage("You will no longer receive messages from \"" + groupName + "\".")
+                .setPositiveButton("Leave", (d, w) -> leaveGroup())
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void leaveGroup() {
+        if (currentUid == null || groupId == null) return;
+        com.callx.app.utils.FirebaseUtils.getGroupMembersRef(groupId)
+                .child(currentUid).removeValue()
+                .addOnSuccessListener(aVoid -> {
+                    com.callx.app.utils.FirebaseUtils.db().getReference("users")
+                            .child(currentUid).child("groups").child(groupId).removeValue();
+                    Toast.makeText(this, "Left group", Toast.LENGTH_SHORT).show();
+                    finish();
+                })
+                .addOnFailureListener(e ->
+                    Toast.makeText(this, "Failed to leave group", Toast.LENGTH_SHORT).show());
     }
 }

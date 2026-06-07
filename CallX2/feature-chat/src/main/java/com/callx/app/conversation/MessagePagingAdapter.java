@@ -149,6 +149,19 @@ public class MessagePagingAdapter
 
     public boolean isInMultiSelectMode() { return multiSelectMode; }
 
+    public void selectAll() {
+        if (!multiSelectMode) multiSelectMode = true;
+        selectedMessageIds.clear();
+        for (int i = 0; i < getItemCount(); i++) {
+            Message m = getItem(i);
+            if (m == null) continue;
+            String id = m.messageId != null ? m.messageId : m.id;
+            if (id != null) selectedMessageIds.add(id);
+        }
+        notifyItemRangeChanged(0, getItemCount());
+        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+    }
+
     public java.util.List<Message> getSelectedMessages() {
         java.util.List<Message> result = new java.util.ArrayList<>();
         for (int i = 0; i < getItemCount(); i++) {

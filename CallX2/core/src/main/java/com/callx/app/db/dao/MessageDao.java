@@ -148,6 +148,10 @@ public interface MessageDao {
     void softDelete(String messageId);
 
     @WorkerThread
+    @Query("DELETE FROM messages WHERE id = :messageId")
+    void permanentDelete(String messageId);
+
+    @WorkerThread
     @Query("UPDATE messages SET status = :status WHERE id = :messageId")
     void updateStatus(String messageId, String status);
 

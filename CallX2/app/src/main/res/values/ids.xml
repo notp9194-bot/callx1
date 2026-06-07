@@ -7,6 +7,7 @@
     <item name="menu_rename"        type="id"/>
     <item name="menu_group_info"    type="id"/>
     <item name="menu_group_settings" type="id"/>
+    <item name="menu_leave_group"   type="id"/>
     <item type="id" name="iv_muted_avatar"/>
     <item type="id" name="tv_muted_name"/>
     <item type="id" name="btn_unmute"/>
