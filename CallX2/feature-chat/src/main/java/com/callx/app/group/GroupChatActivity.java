@@ -1093,29 +1093,6 @@ public class GroupChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
     // GROUP SETTINGS LISTENER — reads slowMode, isLocked, canAddMembers, etc.
     // ─────────────────────────────────────────────────────────────────────
-    private void listenGroupSettings() {
-        FirebaseUtils.getGroupsRef().child(groupId).child("settings")
-                .addValueEventListener(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        Long slow = snap.child("slowModeMs").getValue(Long.class);
-                        slowModeMs = (slow != null) ? slow : 0L;
-
-                        Boolean locked = snap.child("isLocked").getValue(Boolean.class);
-                        isGroupLocked = Boolean.TRUE.equals(locked);
-
-                        Boolean canAdd = snap.child("canAddMembers").getValue(Boolean.class);
-                        canAddMembers = (canAdd == null) || canAdd; // default: everyone
-
-                        Boolean canSee = snap.child("canSeeMemberList").getValue(Boolean.class);
-                        canSeeMemberList = (canSee == null) || canSee; // default: everyone
-
-                        updateInputBarLockState();
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {}
-                });
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
     // GROUP SETTINGS LISTENER
     // ─────────────────────────────────────────────────────────────────────
     private void listenGroupSettings() {
@@ -1226,11 +1203,9 @@ public class GroupChatActivity extends AppCompatActivity {
                                 FirebaseUtils.getGroupsRef().child(groupId)
                                         .child("iconUrl").setValue(r.secureUrl);
                                 // Update header avatar
-                                if (binding.ivGroupAvatar != null) {
-                                    com.bumptech.glide.Glide.with(GroupChatActivity.this)
-                                            .load(r.secureUrl).circleCrop()
-                                            .into(binding.ivGroupAvatar);
-                                }
+                                com.bumptech.glide.Glide.with(GroupChatActivity.this)
+                                        .load(r.secureUrl).circleCrop()
+                                        .into(binding.ivPartnerAvatar);
                                 Toast.makeText(GroupChatActivity.this,
                                         "Group photo update ho gaya ✅", Toast.LENGTH_SHORT).show();
                             });
