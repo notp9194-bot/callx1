@@ -103,6 +103,8 @@ public class CallActivity extends AppCompatActivity {
 
     // Wake lock
     private PowerManager.WakeLock wakeLock;
+    // Proximity sensor — kaan paas aao toh screen off
+    private PowerManager.WakeLock proximityWakeLock;
 
     // Audio
     private AudioManager audioManager;
@@ -304,6 +306,13 @@ public class CallActivity extends AppCompatActivity {
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "callx:call_active");
             wakeLock.acquire(3 * 60 * 60 * 1000L);
+
+            // Proximity sensor — kaan paas aao toh screen off (WhatsApp style)
+            if (pm.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
+                proximityWakeLock = pm.newWakeLock(
+                    PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "callx:proximity");
+                proximityWakeLock.acquire(3 * 60 * 60 * 1000L);
+            }
         } catch (Exception ignored) {}
     }
 
@@ -1264,6 +1273,11 @@ public class CallActivity extends AppCompatActivity {
         if (ticker != null) tick.removeCallbacks(ticker);
         cancelPendingIceRestart();
         if (timeoutRunnable != null) timeoutHandler.removeCallbacks(timeoutRunnable);
+        // Proximity wake lock release
+        try {
+            if (proximityWakeLock != null && proximityWakeLock.isHeld())
+                proximityWakeLock.release();
+        } catch (Exception ignored) {}
         super.onDestroy();
     }
 }
