@@ -106,6 +106,7 @@ public class CallActivity extends AppCompatActivity {
 
     // Audio
     private AudioManager audioManager;
+    private android.media.AudioFocusRequest audioFocusRequest; // BUG-1 FIX: audio focus
 
     // FIX-NOISY: Headphone unplug receiver
     private BroadcastReceiver noisyReceiver;
@@ -211,7 +212,28 @@ public class CallActivity extends AppCompatActivity {
             timeoutHandler.postDelayed(timeoutRunnable, CALL_TIMEOUT_MS);
         }
 
-        if (isRestore && callConnected) return;
+        // BUG-5 FIX: isRestore + callConnected check broken tha — nayi instance mein
+        // callConnected always false hota hai. Firebase se actual status verify karo.
+        if (isRestore && callId != null && !callId.isEmpty()) {
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("activeCalls").child(callId).child("status")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
+                        String st = snap.getValue(String.class);
+                        if ("accepted".equals(st) || "ringing".equals(st)) {
+                            // Call still active — reconnect WebRTC
+                            checkPermsAndInit();
+                        } else {
+                            // Call already ended — screen band karo
+                            finish();
+                        }
+                    }
+                    @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {
+                        checkPermsAndInit(); // error pe try karo
+                    }
+                });
+            return;
+        }
         checkPermsAndInit();
     }
 
@@ -432,6 +454,9 @@ public class CallActivity extends AppCompatActivity {
 
         enableSpeaker(isVideo);
 
+        // BUG-1 FIX: Request audio focus — dusri apps (music/video) mute ho jayengi call mein
+        requestCallAudioFocus();
+
         if (callId == null) {
             if (isCaller) {
                 callId = FirebaseUtils.db().getReference("activeCalls").push().getKey();
@@ -627,6 +652,14 @@ public class CallActivity extends AppCompatActivity {
         binding.tvCallStatus.setVisibility(v);
         if (!isInPipMode && isVideo && videoCapturer != null && !capturerRunning && camOn)
             startCapture();
+        // BUG-8 FIX: PiP se wapas aane par tvCallStatus timer sync karo
+        // PiP ke dauran ticker chal raha tha lekin text visible nahi tha —
+        // ab wapas aate hi current elapsed time se status refresh karo
+        if (!isInPipMode && callConnected && startedAt > 0) {
+            long e = (System.currentTimeMillis() - startedAt) / 1000;
+            binding.tvCallStatus.setText(
+                String.format("Connected \u2022 %d:%02d", e / 60, e % 60));
+        }
     }
 
     // ── Controls ───────────────────────────────────────────────────────────
@@ -1010,6 +1043,41 @@ public class CallActivity extends AppCompatActivity {
         tick.post(ticker);
     }
 
+    // ── BUG-1 FIX: Audio Focus ────────────────────────────────────────────
+    private void requestCallAudioFocus() {
+        if (audioManager == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest = new android.media.AudioFocusRequest.Builder(
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build())
+                .setOnAudioFocusChangeListener(focusChange -> {
+                    // Call ke dauran focus change — kuch nahi karna,
+                    // WebRTC khud manage karta hai
+                })
+                .build();
+            audioManager.requestAudioFocus(audioFocusRequest);
+        } else {
+            //noinspection deprecation
+            audioManager.requestAudioFocus(null,
+                AudioManager.STREAM_VOICE_CALL,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+        }
+    }
+
+    private void abandonCallAudioFocus() {
+        if (audioManager == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+            audioFocusRequest = null;
+        } else {
+            //noinspection deprecation
+            audioManager.abandonAudioFocus(null);
+        }
+    }
+
     // ── End call ───────────────────────────────────────────────────────────
     private void endCall() {
         if (finishing) return;
@@ -1108,6 +1176,8 @@ public class CallActivity extends AppCompatActivity {
         if (audioManager != null) {
             audioManager.setSpeakerphoneOn(false);
             audioManager.setMode(AudioManager.MODE_NORMAL);
+            // BUG-1 FIX: Audio focus release karo
+            abandonCallAudioFocus();
         }
         releaseWebRTC();
 

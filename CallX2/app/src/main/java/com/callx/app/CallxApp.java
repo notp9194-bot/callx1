@@ -349,6 +349,11 @@ public class CallxApp extends Application {
             NotificationManager.IMPORTANCE_HIGH, true, true, attrs,
             android.app.Notification.VISIBILITY_PUBLIC, true);
 
+        // BUG-4 FIX: Dedicated missed call channel — no ringtone, badge enabled
+        makeChannel(nm, Constants.CHANNEL_CALLS_MISSED, "Missed Calls",
+            NotificationManager.IMPORTANCE_DEFAULT, true, false, null,
+            android.app.Notification.VISIBILITY_PRIVATE, true);
+
         makeChannel(nm, Constants.CHANNEL_MESSAGES, "Messages",
             NotificationManager.IMPORTANCE_HIGH, true, false, null,
             android.app.Notification.VISIBILITY_PRIVATE, false);

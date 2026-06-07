@@ -119,13 +119,16 @@ public class CallForegroundService extends android.app.Service {
                     .setValue("ended");
             } catch (Exception ignored) {}
         }
+        // BUG-6 FIX: bgEx.execute() nahi — onDestroy mein shutdownNow() se Room write drop ho jaata tha.
+        // Dedicated daemon thread use karo jo onDestroy se independent hai.
         if (startedAt > 0 && !activePartnerUid.isEmpty()) {
-            final long dur  = System.currentTimeMillis() - startedAt;
+            final long dur    = System.currentTimeMillis() - startedAt;
             final String fUid = activePartnerUid, fName = activePartnerName;
-            final String fDir = activeIsCaller ? "outgoing" : "incoming";
-            final String fType = activeIsVideo ? "video" : "audio";
-            final long fTs = startedAt;
-            bgEx.execute(() -> {
+            final String fDir  = activeIsCaller ? "outgoing" : "incoming";
+            final String fType = activeIsVideo  ? "video"    : "audio";
+            final long fTs     = startedAt;
+            final android.content.Context appCtx = getApplicationContext();
+            Thread t = new Thread(() -> {
                 try {
                     CallLogEntity e = new CallLogEntity();
                     e.id          = java.util.UUID.randomUUID().toString();
@@ -135,9 +138,11 @@ public class CallForegroundService extends android.app.Service {
                     e.mediaType   = fType;
                     e.timestamp   = fTs;
                     e.duration    = dur;
-                    AppDatabase.getInstance(getApplicationContext()).callLogDao().insertCallLog(e);
+                    AppDatabase.getInstance(appCtx).callLogDao().insertCallLog(e);
                 } catch (Exception ignored) {}
             });
+            t.setDaemon(true);
+            t.start();
         }
         stopSelf();
         super.onTaskRemoved(rootIntent);

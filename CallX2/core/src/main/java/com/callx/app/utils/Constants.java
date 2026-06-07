@@ -128,6 +128,7 @@ public class Constants {
 
     // ── 1:1 Call channels ────────────────────────────────────────────────
     public static final String CHANNEL_CALLS_INCOMING = "callx_calls_incoming";
+    public static final String CHANNEL_CALLS_MISSED   = "callx_calls_missed"; // BUG-4 FIX: dedicated missed-call channel
 
     // ── Reel deep-link action (used by feature-chat to open SingleReelPlayerActivity
     //    without a compile-time class reference to feature-reels) ──────────

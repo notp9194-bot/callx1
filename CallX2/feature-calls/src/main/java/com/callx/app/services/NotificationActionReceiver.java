@@ -170,7 +170,8 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                       myUid,       // hum hai receiver (missed by us = caller ke liye missed)
                       myName != null ? myName : "",
                       callId != null ? callId : "",
-                      isVid
+                      isVid,
+                      partnerPhoto != null ? partnerPhoto : ""  // BUG-3 FIX: caller avatar bhi bhejo
                   );
               }
               pendingResult.finish();

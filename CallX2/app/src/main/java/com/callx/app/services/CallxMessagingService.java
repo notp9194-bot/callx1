@@ -241,9 +241,10 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
               NotificationCompat.Builder b = new NotificationCompat.Builder(
                       this, Constants.CHANNEL_CALLS_INCOMING)
+                  // BUG-7 FIX: app icons instead of system drawables
                   .setSmallIcon(isVideo
-                      ? android.R.drawable.ic_menu_camera
-                      : android.R.drawable.ic_menu_call)
+                      ? R.drawable.ic_video_call
+                      : R.drawable.ic_call_notification)
                   .setContentTitle(fromName)
                   .setContentText(isVideo ? "Incoming video call" : "Incoming voice call")
                   .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -255,10 +256,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
                   .setContentIntent(acceptPi)
                   .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                   // Decline left, Accept right — matches WhatsApp/Telegram convention
-                  .addAction(android.R.drawable.ic_menu_close_clear_cancel,
-                      "Decline", declinePi)
-                  .addAction(android.R.drawable.ic_menu_call,
-                      "Accept",  acceptPi);
+                  .addAction(R.drawable.ic_phone_off, "Decline", declinePi)
+                  .addAction(R.drawable.ic_phone,     "Accept",  acceptPi);
 
               if (avatar != null) b.setLargeIcon(avatar);
 
@@ -383,11 +382,11 @@ public class CallxMessagingService extends FirebaseMessagingService {
               android.app.PendingIntent.FLAG_IMMUTABLE);
 
           NotificationCompat.Builder b = new NotificationCompat.Builder(this,
-                  com.callx.app.utils.Constants.CHANNEL_CALLS)
+                  com.callx.app.utils.Constants.CHANNEL_CALLS_MISSED) // BUG-4 FIX: dedicated missed-call channel
               .setSmallIcon(R.drawable.ic_call_notification)
               .setContentTitle("Missed call from " + callerName)
               .setContentText("Tap to call back")
-              .setPriority(NotificationCompat.PRIORITY_HIGH)
+              .setPriority(NotificationCompat.PRIORITY_DEFAULT)   // BUG-4 FIX: HIGH nahi — ringtone nahi chahiye
               .setAutoCancel(true)
               .setContentIntent(openPi)
               .addAction(R.drawable.ic_call_answer, "📞 Call Back", callBackPi)

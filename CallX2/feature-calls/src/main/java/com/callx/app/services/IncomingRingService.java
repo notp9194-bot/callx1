@@ -108,12 +108,12 @@ public class IncomingRingService extends Service {
             Constants.CALL_RING_NOTIF_ID + 1, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        int icon = isVideo ? android.R.drawable.ic_menu_camera : android.R.drawable.ic_menu_call;
+        // BUG-7 FIX: system drawables ki jagah app icon use karo — branding + tinting sahi hogi
         String text = isVideo ? "Incoming video call" : "Incoming voice call";
 
         NotificationCompat.Builder b = new NotificationCompat.Builder(
                 this, Constants.CHANNEL_CALLS_INCOMING)
-            .setSmallIcon(icon)
+            .setSmallIcon(R.drawable.ic_call_notification)   // BUG-7 FIX: app icon
             .setContentTitle(fromName)
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -124,8 +124,8 @@ public class IncomingRingService extends Service {
             .setTimeoutAfter(Constants.CALL_TIMEOUT_MS)
             .setFullScreenIntent(fullPi, true)
             .setContentIntent(fullPi)
-            .addAction(android.R.drawable.ic_menu_call, "Accept",  fullPi)
-            .addAction(android.R.drawable.ic_delete,    "Decline", declinePi);
+            .addAction(R.drawable.ic_phone,     "Accept",  fullPi)    // BUG-7 FIX: app icon (core)
+            .addAction(R.drawable.ic_phone_off, "Decline", declinePi); // BUG-7 FIX: app icon (core)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             Person caller = new Person.Builder().setName(fromName).setImportant(true).build();
