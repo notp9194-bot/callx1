@@ -5,6 +5,8 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
@@ -20,6 +22,10 @@ import androidx.core.app.Person;
 import com.callx.app.calls.R;
 import com.callx.app.incoming.IncomingCallActivity;
 import com.callx.app.utils.Constants;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.ValueEventListener;
 
 /**
  * Foreground service that rings on incoming call even from killed state.
@@ -29,11 +35,29 @@ import com.callx.app.utils.Constants;
  *   (matlab user already ek call mein hai), toh ring karne ki bajaye Firebase
  *   mein "busy" likh do aur band ho jao. Doosre caller ko auto-missed call
  *   notification milegi.
+ *
+ * Feature 3 — AUTO CANCEL + MISSED CALL:
+ *   Firebase mein activeCalls/{callId}/status watch karo.
+ *   Agar caller ne kat diya (cancelled/ended) ya timeout hua toh:
+ *     1. Ring notification turant cancel karo
+ *     2. Missed call notification dikhao
+ *     3. Service band karo
  */
 public class IncomingRingService extends Service {
     private MediaPlayer player;
     private PowerManager.WakeLock wakeLock;
     private final Handler stopHandler = new Handler(Looper.getMainLooper());
+
+    // Firebase listener — caller cancel detect karne ke liye
+    private DatabaseReference callStatusRef;
+    private ValueEventListener callStatusListener;
+
+    // Call info — missed call notif ke liye store karo
+    private String savedCallId;
+    private String savedFromUid;
+    private String savedFromName;
+    private String savedFromPhoto;
+    private boolean savedIsVideo;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -46,10 +70,15 @@ public class IncomingRingService extends Service {
         if (fromPhoto == null) fromPhoto = "";
         if (fromThumb == null) fromThumb = "";
 
+        // Save for missed call notification
+        savedCallId   = callId;
+        savedFromUid  = fromUid;
+        savedFromName = fromName;
+        savedFromPhoto = fromPhoto;
+        savedIsVideo  = isVideo;
+
         // ── Feature 2: BUSY SIGNAL ────────────────────────────────────────
-        // Agar user already ek active call mein hai toh ring mat karo
         if (CallForegroundService.isRunning) {
-            // Firebase mein "busy" likhdo — caller ko pata chalega
             if (callId != null && !callId.isEmpty()) {
                 try {
                     com.callx.app.utils.FirebaseUtils.db()
@@ -69,14 +98,134 @@ public class IncomingRingService extends Service {
         startRingtone();
         acquireWakeLock();
 
-        // Auto-stop after timeout
+        // ── Feature 3: Watch Firebase — caller cancel detect karo ─────────
+        watchCallStatus(callId);
+        // ─────────────────────────────────────────────────────────────────
+
+        // Auto-stop after timeout — missed call bhi dikhao
         stopHandler.postDelayed(() -> {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.cancel(Constants.CALL_RING_NOTIF_ID);
+            showMissedCallNotification();
             stopSelf();
         }, Constants.CALL_TIMEOUT_MS + 2_000L);
 
         return START_NOT_STICKY;
+    }
+
+    /**
+     * Firebase mein activeCalls/{callId}/status watch karo.
+     * Agar "cancelled", "ended", "timeout", "busy" aaye toh:
+     *   - Ring notif cancel karo
+     *   - Missed call notif dikhao
+     *   - Service band karo
+     */
+    private void watchCallStatus(String callId) {
+        if (callId == null || callId.isEmpty()) return;
+        try {
+            callStatusRef = com.callx.app.utils.FirebaseUtils.db()
+                .getReference("activeCalls")
+                .child(callId)
+                .child("status");
+
+            callStatusListener = new ValueEventListener() {
+                @Override
+                public void onDataChange(DataSnapshot snapshot) {
+                    String status = snapshot.getValue(String.class);
+                    if (status == null) return;
+                    switch (status) {
+                        case "cancelled":
+                        case "ended":
+                        case "timeout":
+                        case "busy":
+                            // Caller ne kat diya ya timeout — ring band karo, missed dikhao
+                            stopHandler.removeCallbacksAndMessages(null);
+                            NotificationManager nm =
+                                (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                            if (nm != null) nm.cancel(Constants.CALL_RING_NOTIF_ID);
+                            showMissedCallNotification();
+                            stopSelf();
+                            break;
+                        case "accepted":
+                        case "ongoing":
+                            // Callee ne kisi aur device se utha liya — sirf ring band karo
+                            stopHandler.removeCallbacksAndMessages(null);
+                            NotificationManager nm2 =
+                                (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                            if (nm2 != null) nm2.cancel(Constants.CALL_RING_NOTIF_ID);
+                            stopSelf();
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                @Override
+                public void onCancelled(DatabaseError error) {}
+            };
+
+            callStatusRef.addValueEventListener(callStatusListener);
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Missed call notification — same style jaise CallxMessagingService mein hai.
+     * Background/killed state mein callee ko dikhao.
+     */
+    private void showMissedCallNotification() {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+
+            // Tap karne par ChatActivity khule
+            android.content.Intent openIntent = new android.content.Intent();
+            openIntent.setClassName(this, "com.callx.app.conversation.ChatActivity");
+            openIntent.putExtra(Constants.EXTRA_PARTNER_UID,  savedFromUid);
+            openIntent.putExtra(Constants.EXTRA_PARTNER_NAME, savedFromName);
+            openIntent.putExtra("partnerPhoto", savedFromPhoto);
+            openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            int notifId = ("missed_" + savedFromUid).hashCode() & 0x7FFFFFFF;
+            PendingIntent openPi = PendingIntent.getActivity(this, notifId, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+            // Call Back action
+            Intent callBackIntent = new Intent(this, NotificationActionReceiver.class)
+                .setAction(Constants.ACTION_CALL_BACK)
+                .putExtra(Constants.EXTRA_PARTNER_UID,   savedFromUid)
+                .putExtra(Constants.EXTRA_PARTNER_NAME,  savedFromName)
+                .putExtra(Constants.EXTRA_PARTNER_PHOTO, savedFromPhoto)
+                .putExtra(Constants.EXTRA_IS_VIDEO,      savedIsVideo)
+                .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+            PendingIntent callBackPi = PendingIntent.getBroadcast(this,
+                ("cb_" + savedFromUid).hashCode(), callBackIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+            NotificationCompat.Builder b = new NotificationCompat.Builder(this,
+                    Constants.CHANNEL_CALLS_MISSED)
+                .setSmallIcon(R.drawable.ic_call_notification)
+                .setContentTitle("Missed call from " + savedFromName)
+                .setContentText("Tap to call back")
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .setContentIntent(openPi)
+                .addAction(R.drawable.ic_phone, "📞 Call Back", callBackPi)
+                .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
+
+            // Avatar async download
+            final String photoUrl = savedFromPhoto;
+            new Thread(() -> {
+                try {
+                    if (!photoUrl.isEmpty()) {
+                        java.net.HttpURLConnection c =
+                            (java.net.HttpURLConnection) new java.net.URL(photoUrl).openConnection();
+                        c.setDoInput(true); c.connect();
+                        Bitmap bm = BitmapFactory.decodeStream(c.getInputStream());
+                        if (bm != null) b.setLargeIcon(bm);
+                    }
+                } catch (Exception ignored2) {}
+                nm.notify(notifId, b.build());
+            }).start();
+
+        } catch (Exception ignored) {}
     }
 
     private Notification buildNotification(String callId, String fromUid,
@@ -108,7 +257,6 @@ public class IncomingRingService extends Service {
             Constants.CALL_RING_NOTIF_ID + 1, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // BUG-7 FIX: system drawables ki jagah app icon use karo — branding + tinting sahi hogi
         String text = isVideo ? "Incoming video call" : "Incoming voice call";
 
         NotificationCompat.Builder b = new NotificationCompat.Builder(
@@ -126,15 +274,12 @@ public class IncomingRingService extends Service {
             .setContentIntent(fullPi);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Android 12+: CallStyle system UI — apne aap Decline + Answer lagata hai
-            // Manual addAction() bilkul mat karo, duplicate ban jaata hai
             Person caller = new Person.Builder()
                 .setName(fromName)
                 .setImportant(true)
                 .build();
             b.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, declinePi, fullPi));
         } else {
-            // Android 11 aur neeche: manually Decline + Accept lagao
             b.addAction(R.drawable.ic_phone_off, "Decline", declinePi)
              .addAction(R.drawable.ic_phone,     "Accept",  fullPi);
         }
@@ -170,6 +315,11 @@ public class IncomingRingService extends Service {
     @Override
     public void onDestroy() {
         stopHandler.removeCallbacksAndMessages(null);
+        // Firebase listener remove karo — memory leak nahi hoga
+        try {
+            if (callStatusRef != null && callStatusListener != null)
+                callStatusRef.removeEventListener(callStatusListener);
+        } catch (Exception ignored) {}
         try { if (player != null) { player.stop(); player.release(); player = null; } }
         catch (Exception ignored) {}
         if (wakeLock != null && wakeLock.isHeld()) {

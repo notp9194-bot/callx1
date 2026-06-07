@@ -1106,7 +1106,11 @@ public class CallActivity extends AppCompatActivity {
 
         if (callRef != null) {
             long dur = startedAt == 0 ? 0 : System.currentTimeMillis() - startedAt;
-            callRef.child("status").setValue("ended");
+            // Caller ne unanswered call kat di → "cancelled" likhao taaki callee ka
+            // IncomingRingService turant ring band kare aur missed call dikhaye.
+            // Call connected ho chuki thi → "ended" likhao (normal end).
+            String endStatus = (isCaller && !callConnected) ? "cancelled" : "ended";
+            callRef.child("status").setValue(endStatus);
             callRef.child("status").onDisconnect().cancel();
 
             // FIX-CLEANUP: camState hata do
