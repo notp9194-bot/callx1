@@ -35,6 +35,10 @@ public class GroupCallForegroundService extends Service {
 
     // Static field — set by GroupCallActivity when first ICE peer connects
     public static volatile long connectedAt = 0;
+
+    // ── Mute / Camera state ───────────────────────────────────────────────
+    public static volatile boolean micOn = true;
+    public static volatile boolean camOn = true;
     private String  groupName        = "";
     private String  callId           = "";
     private String  myUid            = "";
@@ -63,6 +67,12 @@ public class GroupCallForegroundService extends Service {
             isCaller = intent.getBooleanExtra(EXTRA_IS_CALLER, false);
             isVideo          = intent.getBooleanExtra(EXTRA_IS_VIDEO, false);
             participantCount = intent.getIntExtra(EXTRA_PARTICIPANT_COUNT, 2);
+
+            // ── Mic/Cam state update ──────────────────────────────────────
+            if (intent.hasExtra(Constants.EXTRA_MIC_ON))
+                micOn = intent.getBooleanExtra(Constants.EXTRA_MIC_ON, true);
+            if (intent.hasExtra(Constants.EXTRA_CAM_ON))
+                camOn = intent.getBooleanExtra(Constants.EXTRA_CAM_ON, true);
         }
         if (startedAt == 0) startedAt = System.currentTimeMillis();
         startForeground(Constants.GROUP_CALL_ONGOING_NOTIF_ID, buildNotification("0:00"));
@@ -152,7 +162,18 @@ public class GroupCallForegroundService extends Service {
             + (participantCount == 1 ? "" : "s");
 
         int smallIconRes = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
-        return new NotificationCompat.Builder(this, Constants.CHANNEL_GROUP_CALLS_ONGOING)
+
+        // ── Mute button ───────────────────────────────────────────────────
+        Intent micIntent = new Intent(this, GroupCallActionReceiver.class);
+        micIntent.setAction(Constants.ACTION_GROUP_TOGGLE_MIC);
+        micIntent.putExtra(Constants.EXTRA_CALL_ID, callId);
+        micIntent.putExtra(Constants.EXTRA_GROUP_ID, groupId);
+        PendingIntent micPi = PendingIntent.getBroadcast(this,
+            Constants.GROUP_CALL_ONGOING_NOTIF_ID + 2, micIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        String micLabel = micOn ? "Mute" : "Unmuted";
+
+        NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_GROUP_CALLS_ONGOING)
             .setSmallIcon(smallIconRes)
             .setContentTitle(title)
             .setContentText(text)
@@ -163,7 +184,22 @@ public class GroupCallForegroundService extends Service {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(tapPi)
             .addAction(R.drawable.ic_phone_off, "End Call", endPi)
-            .build();
+            .addAction(micOn ? R.drawable.ic_mic : R.drawable.ic_mic_off, micLabel, micPi);
+
+        // ── Camera On/Off button (video call only) ────────────────────────
+        if (isVideo) {
+            Intent camIntent = new Intent(this, GroupCallActionReceiver.class);
+            camIntent.setAction(Constants.ACTION_GROUP_TOGGLE_CAMERA);
+            camIntent.putExtra(Constants.EXTRA_CALL_ID, callId);
+            camIntent.putExtra(Constants.EXTRA_GROUP_ID, groupId);
+            PendingIntent camPi = PendingIntent.getBroadcast(this,
+                Constants.GROUP_CALL_ONGOING_NOTIF_ID + 3, camIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            b.addAction(camOn ? R.drawable.ic_video : R.drawable.ic_video_off,
+                camOn ? "Cam Off" : "Cam On", camPi);
+        }
+
+        return b.build();
     }
 
     @Override

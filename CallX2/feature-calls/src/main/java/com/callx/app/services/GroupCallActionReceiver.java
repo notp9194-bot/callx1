@@ -37,7 +37,37 @@ public class GroupCallActionReceiver extends BroadcastReceiver {
                 Intent local = new Intent(Constants.ACTION_GROUP_END_CALL);
                 context.sendBroadcast(local);
                 break;
+            case Constants.ACTION_GROUP_TOGGLE_MIC:
+                handleToggleMic(context);
+                break;
+            case Constants.ACTION_GROUP_TOGGLE_CAMERA:
+                handleToggleCamera(context);
+                break;
         }
+    }
+
+    private void handleToggleMic(Context context) {
+        GroupCallForegroundService.micOn = !GroupCallForegroundService.micOn;
+        boolean nowMicOn = GroupCallForegroundService.micOn;
+        // GroupCallActivity ko broadcast karo taaki WebRTC track bhi toggle ho
+        Intent micBroadcast = new Intent("com.callx.app.INTERNAL_GROUP_TOGGLE_MIC");
+        micBroadcast.putExtra(Constants.EXTRA_MIC_ON, nowMicOn);
+        context.sendBroadcast(micBroadcast);
+        // Service ko restart karo taaki notification button label update ho
+        Intent svcIntent = new Intent(context, GroupCallForegroundService.class);
+        svcIntent.putExtra(Constants.EXTRA_MIC_ON, nowMicOn);
+        context.startService(svcIntent);
+    }
+
+    private void handleToggleCamera(Context context) {
+        GroupCallForegroundService.camOn = !GroupCallForegroundService.camOn;
+        boolean nowCamOn = GroupCallForegroundService.camOn;
+        Intent camBroadcast = new Intent("com.callx.app.INTERNAL_GROUP_TOGGLE_CAMERA");
+        camBroadcast.putExtra(Constants.EXTRA_CAM_ON, nowCamOn);
+        context.sendBroadcast(camBroadcast);
+        Intent svcIntent = new Intent(context, GroupCallForegroundService.class);
+        svcIntent.putExtra(Constants.EXTRA_CAM_ON, nowCamOn);
+        context.startService(svcIntent);
     }
 
     private void handleDecline(Context context, String callId, int notifId) {

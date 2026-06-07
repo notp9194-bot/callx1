@@ -210,6 +210,18 @@ public class IncomingRingService extends Service {
                 .addAction(R.drawable.ic_phone, "📞 Call Back", callBackPi)
                 .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
 
+            // ── Message button — call nahi karna toh message bhejo ────────
+            Intent msgIntent = new Intent(this, NotificationActionReceiver.class)
+                .setAction(Constants.ACTION_MISSED_CALL_MESSAGE)
+                .putExtra(Constants.EXTRA_PARTNER_UID,   savedFromUid)
+                .putExtra(Constants.EXTRA_PARTNER_NAME,  savedFromName)
+                .putExtra(Constants.EXTRA_PARTNER_PHOTO, savedFromPhoto)
+                .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+            PendingIntent msgPi = PendingIntent.getBroadcast(this,
+                ("msg_" + savedFromUid).hashCode(), msgIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            b.addAction(R.drawable.ic_send, "💬 Message", msgPi);
+
             // Avatar async download
             final String photoUrl = savedFromPhoto;
             new Thread(() -> {

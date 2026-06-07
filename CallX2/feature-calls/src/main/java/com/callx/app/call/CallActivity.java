@@ -119,6 +119,10 @@ public class CallActivity extends AppCompatActivity {
     private BroadcastReceiver btScoReceiver;
     private boolean btScoReceiverRegistered = false;
 
+    // ── Notification shade mic/cam toggle receiver ─────────────────────────
+    private BroadcastReceiver notifToggleReceiver;
+    private boolean notifToggleReceiverRegistered = false;
+
     // WebRTC
     private EglBase eglBase;
     private PeerConnectionFactory factory;
@@ -509,6 +513,67 @@ public class CallActivity extends AppCompatActivity {
         registerNetworkCallback();
         registerNoisyReceiver();
         registerBtScoReceiver();
+        registerNotifToggleReceiver();
+    }
+
+    // ── Notification shade mic/camera toggle ──────────────────────────────
+    private void registerNotifToggleReceiver() {
+        notifToggleReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                String a = intent.getAction();
+                if (com.callx.app.utils.Constants.ACTION_TOGGLE_MIC.equals(a)
+                        || "com.callx.app.INTERNAL_TOGGLE_MIC".equals(a)) {
+                    // Sync mic state from service static field, then apply
+                    boolean newMicOn = com.callx.app.services.CallForegroundService.micOn;
+                    if (micOn != newMicOn) {
+                        micOn = newMicOn;
+                        if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
+                        if (callRef != null && myUid != null)
+                            callRef.child("micState").child(myUid).setValue(micOn);
+                        binding.btnToggleMic.setAlpha(micOn ? 1f : 0.4f);
+                        binding.btnToggleMic.setImageResource(micOn
+                            ? com.callx.app.calls.R.drawable.ic_mic
+                            : com.callx.app.calls.R.drawable.ic_mic_off);
+                        if (binding.tvMicLabel != null)
+                            binding.tvMicLabel.setText(micOn ? "Mute" : "Unmute");
+                    }
+                } else if (com.callx.app.utils.Constants.ACTION_TOGGLE_CAMERA.equals(a)
+                        || "com.callx.app.INTERNAL_TOGGLE_CAMERA".equals(a)) {
+                    boolean newCamOn = com.callx.app.services.CallForegroundService.camOn;
+                    if (isVideo && camOn != newCamOn) {
+                        camOn = newCamOn;
+                        if (localVideoTrack != null) localVideoTrack.setEnabled(camOn);
+                        if (videoCapturer != null) {
+                            if (!camOn && capturerRunning) {
+                                try { videoCapturer.stopCapture(); capturerRunning = false; }
+                                catch (Exception ignored) {}
+                            } else if (camOn && !capturerRunning) {
+                                videoCapturer.startCapture(
+                                    com.callx.app.utils.Constants.VIDEO_WIDTH_VGA,
+                                    com.callx.app.utils.Constants.VIDEO_HEIGHT_VGA,
+                                    com.callx.app.utils.Constants.VIDEO_FPS);
+                                capturerRunning = true;
+                            }
+                        }
+                        if (callRef != null && myUid != null)
+                            callRef.child("camState").child(myUid).setValue(camOn);
+                        binding.btnToggleCamera.setAlpha(camOn ? 1f : 0.4f);
+                        binding.btnToggleCamera.setImageResource(camOn
+                            ? com.callx.app.calls.R.drawable.ic_video
+                            : com.callx.app.calls.R.drawable.ic_video_off);
+                        if (binding.tvCameraLabel != null)
+                            binding.tvCameraLabel.setText(camOn ? "Camera" : "Cam Off");
+                    }
+                }
+            }
+        };
+        try {
+            android.content.IntentFilter f = new android.content.IntentFilter();
+            f.addAction("com.callx.app.INTERNAL_TOGGLE_MIC");
+            f.addAction("com.callx.app.INTERNAL_TOGGLE_CAMERA");
+            registerReceiver(notifToggleReceiver, f);
+            notifToggleReceiverRegistered = true;
+        } catch (Exception ignored) {}
     }
 
     // ── FIX-NOISY: Headphone unplug ───────────────────────────────────────
@@ -1233,6 +1298,10 @@ public class CallActivity extends AppCompatActivity {
         if (btScoReceiverRegistered && btScoReceiver != null) {
             try { unregisterReceiver(btScoReceiver); } catch (Exception ignored) {}
             btScoReceiverRegistered = false;
+        }
+        if (notifToggleReceiverRegistered && notifToggleReceiver != null) {
+            try { unregisterReceiver(notifToggleReceiver); } catch (Exception ignored) {}
+            notifToggleReceiverRegistered = false;
         }
         try {
             if (remoteCandidateListener != null && callRef != null) {

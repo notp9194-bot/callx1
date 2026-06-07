@@ -198,7 +198,7 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               pendingResult.finish();
               return;
           }
-          // End call — hang up from notification shade during active call
+          // ── End call — hang up from notification shade during active call ──
           if (Constants.ACTION_END_CALL.equals(action)) {
               if (nm != null) nm.cancel(Constants.CALL_ONGOING_NOTIF_ID);
               context.stopService(new android.content.Intent(context,
@@ -207,6 +207,58 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                   com.callx.app.utils.FirebaseUtils.db()
                       .getReference("activeCalls").child(callId)
                       .child("status").setValue("ended");
+              }
+              pendingResult.finish();
+              return;
+          }
+
+          // ── Mute / Unmute mic from notification ────────────────────────
+          if (Constants.ACTION_TOGGLE_MIC.equals(action)) {
+              com.callx.app.services.CallForegroundService.micOn =
+                  !com.callx.app.services.CallForegroundService.micOn;
+              boolean nowMicOn = com.callx.app.services.CallForegroundService.micOn;
+              // CallActivity ko broadcast karo taaki WebRTC track bhi toggle ho
+              Intent micBroadcast = new Intent("com.callx.app.INTERNAL_TOGGLE_MIC");
+              micBroadcast.putExtra(Constants.EXTRA_MIC_ON, nowMicOn);
+              context.sendBroadcast(micBroadcast);
+              // Service restart karo taaki notification update ho
+              Intent svcIntent = new Intent(context,
+                  com.callx.app.services.CallForegroundService.class);
+              svcIntent.putExtra(Constants.EXTRA_MIC_ON, nowMicOn);
+              context.startService(svcIntent);
+              pendingResult.finish();
+              return;
+          }
+
+          // ── Camera On/Off from notification ────────────────────────────
+          if (Constants.ACTION_TOGGLE_CAMERA.equals(action)) {
+              com.callx.app.services.CallForegroundService.camOn =
+                  !com.callx.app.services.CallForegroundService.camOn;
+              boolean nowCamOn = com.callx.app.services.CallForegroundService.camOn;
+              // CallActivity ko broadcast karo
+              Intent camBroadcast = new Intent("com.callx.app.INTERNAL_TOGGLE_CAMERA");
+              camBroadcast.putExtra(Constants.EXTRA_CAM_ON, nowCamOn);
+              context.sendBroadcast(camBroadcast);
+              // Notification refresh
+              Intent svcIntent = new Intent(context,
+                  com.callx.app.services.CallForegroundService.class);
+              svcIntent.putExtra(Constants.EXTRA_CAM_ON, nowCamOn);
+              context.startService(svcIntent);
+              pendingResult.finish();
+              return;
+          }
+
+          // ── Missed call → Open chat to send message ─────────────────────
+          if (Constants.ACTION_MISSED_CALL_MESSAGE.equals(action)) {
+              if (nm != null) nm.cancel(notifId);
+              if (partnerUid != null && !partnerUid.isEmpty()) {
+                  Intent msgIntent = new Intent();
+                  msgIntent.setClassName(context, "com.callx.app.conversation.ChatActivity");
+                  msgIntent.putExtra(Constants.EXTRA_PARTNER_UID,   partnerUid);
+                  msgIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  partnerName);
+                  msgIntent.putExtra("partnerPhoto",                 partnerPhoto != null ? partnerPhoto : "");
+                  msgIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  context.startActivity(msgIntent);
               }
               pendingResult.finish();
               return;

@@ -48,6 +48,11 @@ public class CallForegroundService extends android.app.Service {
     public static volatile boolean activeIsVideo      = false;
     public static volatile boolean activeIsCaller     = false;
 
+    // ── Mute / Camera state — CallActivity sets these via broadcast ───────
+    // NotificationActionReceiver bhi read karta hai taaki notification update ho
+    public static volatile boolean micOn = true;
+    public static volatile boolean camOn = true;
+
     private long startedAt      = 0;
     private Bitmap avatarBitmap = null;
     private final Handler tickHandler = new Handler(Looper.getMainLooper());
@@ -73,6 +78,12 @@ public class CallForegroundService extends android.app.Service {
             if (pu != null && !pu.isEmpty()) activePartnerUid   = pu;
             activeIsVideo  = iv;
             activeIsCaller = ic;
+
+            // ── Mic/Cam state update (sent by CallActivity or NotificationActionReceiver) ──
+            if (intent.hasExtra(Constants.EXTRA_MIC_ON))
+                micOn = intent.getBooleanExtra(Constants.EXTRA_MIC_ON, true);
+            if (intent.hasExtra(Constants.EXTRA_CAM_ON))
+                camOn = intent.getBooleanExtra(Constants.EXTRA_CAM_ON, true);
         }
         if (startedAt == 0) startedAt = System.currentTimeMillis();
 
@@ -198,6 +209,34 @@ public class CallForegroundService extends android.app.Service {
             .setContentIntent(openPi)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(com.callx.app.calls.R.drawable.ic_phone_off, "End Call", endPi);
+
+        // ── Mute / Unmute button ──────────────────────────────────────────
+        Intent micIntent = new Intent(this, NotificationActionReceiver.class);
+        micIntent.setAction(Constants.ACTION_TOGGLE_MIC);
+        micIntent.putExtra(Constants.EXTRA_CALL_ID, activeCallId);
+        micIntent.putExtra(Constants.EXTRA_IS_VIDEO, activeIsVideo);
+        PendingIntent micPi = PendingIntent.getBroadcast(this, ID + 2, micIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        String micLabel = micOn ? "Mute" : "Unmuted";
+        b.addAction(micOn
+                ? com.callx.app.calls.R.drawable.ic_mic
+                : com.callx.app.calls.R.drawable.ic_mic_off,
+            micLabel, micPi);
+
+        // ── Camera On/Off button (video call only) ────────────────────────
+        if (activeIsVideo) {
+            Intent camIntent = new Intent(this, NotificationActionReceiver.class);
+            camIntent.setAction(Constants.ACTION_TOGGLE_CAMERA);
+            camIntent.putExtra(Constants.EXTRA_CALL_ID, activeCallId);
+            camIntent.putExtra(Constants.EXTRA_IS_VIDEO, true);
+            PendingIntent camPi = PendingIntent.getBroadcast(this, ID + 3, camIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            String camLabel = camOn ? "Cam Off" : "Cam On";
+            b.addAction(camOn
+                    ? com.callx.app.calls.R.drawable.ic_video
+                    : com.callx.app.calls.R.drawable.ic_video_off,
+                camLabel, camPi);
+        }
 
         if (avatarBitmap != null) b.setLargeIcon(avatarBitmap);
 

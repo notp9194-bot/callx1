@@ -1209,10 +1209,52 @@ public class GroupCallActivity extends AppCompatActivity {
                 String action = intent.getAction();
                 if (Constants.ACTION_GROUP_END_CALL.equals(action)) {
                     endCall();
+                } else if ("com.callx.app.INTERNAL_GROUP_TOGGLE_MIC".equals(action)) {
+                    boolean newMicOn = GroupCallForegroundService.micOn;
+                    if (micOn != newMicOn) {
+                        micOn = newMicOn;
+                        if (localAudioTrack != null) localAudioTrack.setEnabled(micOn);
+                        if (callRef != null && myUid != null)
+                            callRef.child("participants").child(myUid).child("micOn").setValue(micOn);
+                        if (btnToggleMic != null) {
+                            btnToggleMic.setAlpha(micOn ? 1f : 0.4f);
+                            btnToggleMic.setImageResource(micOn
+                                ? com.callx.app.calls.R.drawable.ic_mic
+                                : com.callx.app.calls.R.drawable.ic_mic_off);
+                        }
+                    }
+                } else if ("com.callx.app.INTERNAL_GROUP_TOGGLE_CAMERA".equals(action)) {
+                    boolean newCamOn = GroupCallForegroundService.camOn;
+                    if (isVideo && camOn != newCamOn) {
+                        camOn = newCamOn;
+                        if (localVideoTrack != null) localVideoTrack.setEnabled(camOn);
+                        if (videoCapturer != null) {
+                            if (!camOn && capturerRunning) {
+                                try { videoCapturer.stopCapture(); capturerRunning = false; }
+                                catch (Exception ignored) {}
+                            } else if (camOn && !capturerRunning) {
+                                videoCapturer.startCapture(
+                                    Constants.VIDEO_WIDTH_VGA,
+                                    Constants.VIDEO_HEIGHT_VGA,
+                                    Constants.VIDEO_FPS);
+                                capturerRunning = true;
+                            }
+                        }
+                        if (callRef != null && myUid != null)
+                            callRef.child("participants").child(myUid).child("camOn").setValue(camOn);
+                        if (btnToggleCamera != null) {
+                            btnToggleCamera.setAlpha(camOn ? 1f : 0.4f);
+                            btnToggleCamera.setImageResource(camOn
+                                ? com.callx.app.calls.R.drawable.ic_video
+                                : com.callx.app.calls.R.drawable.ic_video_off);
+                        }
+                    }
                 }
             }
         };
         IntentFilter f = new IntentFilter(Constants.ACTION_GROUP_END_CALL);
+        f.addAction("com.callx.app.INTERNAL_GROUP_TOGGLE_MIC");
+        f.addAction("com.callx.app.INTERNAL_GROUP_TOGGLE_CAMERA");
         registerReceiver(callEndReceiver, f);
         // FIX-7: register BT SCO state receiver
         registerReceiver(btScoReceiver,

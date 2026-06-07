@@ -61,6 +61,9 @@
                 <action android:name="com.callx.app.DECLINE_CALL"/>
                 <action android:name="com.callx.app.END_CALL"/>
                 <action android:name="com.callx.app.ACTION_CALL_BACK"/>
+                <action android:name="com.callx.app.ACTION_TOGGLE_MIC"/>
+                <action android:name="com.callx.app.ACTION_TOGGLE_CAMERA"/>
+                <action android:name="com.callx.app.MISSED_CALL_MESSAGE"/>
                 <action android:name="com.callx.app.ACTION_SPECIAL_UNBLOCK"/>
             </intent-filter>
         </receiver>
@@ -70,6 +73,8 @@
                 <action android:name="com.callx.app.ACTION_GROUP_DECLINE_CALL"/>
                 <action android:name="com.callx.app.ACTION_GROUP_END_CALL"/>
                 <action android:name="com.callx.app.ACTION_GROUP_JOIN_CALL"/>
+                <action android:name="com.callx.app.ACTION_GROUP_TOGGLE_MIC"/>
+                <action android:name="com.callx.app.ACTION_GROUP_TOGGLE_CAMERA"/>
             </intent-filter>
         </receiver>
     </application>

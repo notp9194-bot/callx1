@@ -230,6 +230,19 @@ public class Constants {
       // ── Missed call action ────────────────────────────────────────────────
       public static final String ACTION_CALL_BACK           = "com.callx.app.ACTION_CALL_BACK";
 
+      // ── Ongoing call actions (notification shade) ─────────────────────────
+      public static final String ACTION_TOGGLE_MIC          = "com.callx.app.ACTION_TOGGLE_MIC";
+      public static final String ACTION_TOGGLE_CAMERA       = "com.callx.app.ACTION_TOGGLE_CAMERA";
+      public static final String ACTION_GROUP_TOGGLE_MIC    = "com.callx.app.ACTION_GROUP_TOGGLE_MIC";
+      public static final String ACTION_GROUP_TOGGLE_CAMERA = "com.callx.app.ACTION_GROUP_TOGGLE_CAMERA";
+
+      // ── Missed call: reply as message ─────────────────────────────────────
+      public static final String ACTION_MISSED_CALL_MESSAGE = "com.callx.app.MISSED_CALL_MESSAGE";
+
+      // ── Ongoing call state extras (shared via broadcast / static field) ───
+      public static final String EXTRA_MIC_ON               = "extra_mic_on";
+      public static final String EXTRA_CAM_ON               = "extra_cam_on";
+
       // ── Status actions ────────────────────────────────────────────────────
       public static final String ACTION_STATUS_REACT        = "com.callx.app.STATUS_REACT";
       public static final String ACTION_STATUS_VIEW         = "com.callx.app.STATUS_VIEW";
