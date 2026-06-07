@@ -57,14 +57,42 @@
         <receiver android:name="com.callx.app.services.NotificationActionReceiver"
             android:exported="false">
             <intent-filter>
+                <!-- Call actions -->
                 <action android:name="com.callx.app.ACCEPT_CALL"/>
                 <action android:name="com.callx.app.DECLINE_CALL"/>
                 <action android:name="com.callx.app.END_CALL"/>
                 <action android:name="com.callx.app.ACTION_CALL_BACK"/>
                 <action android:name="com.callx.app.ACTION_TOGGLE_MIC"/>
                 <action android:name="com.callx.app.ACTION_TOGGLE_CAMERA"/>
+
+                <!-- Missed call actions (Feature 1–6) -->
                 <action android:name="com.callx.app.MISSED_CALL_MESSAGE"/>
+                <action android:name="com.callx.app.ACTION_VIDEO_CALL_BACK"/>
+                <action android:name="com.callx.app.QUICK_REPLY_1"/>
+                <action android:name="com.callx.app.QUICK_REPLY_2"/>
+                <action android:name="com.callx.app.QUICK_REPLY_3"/>
+                <action android:name="com.callx.app.MISSED_CALL_SNOOZE"/>
+
+                <!-- Message notification actions -->
+                <action android:name="com.callx.app.ACTION_REPLY"/>
+                <action android:name="com.callx.app.ACTION_MARK_READ"/>
+                <action android:name="com.callx.app.ACTION_MUTE"/>
+                <action android:name="com.callx.app.ACTION_BLOCK"/>
+                <action android:name="com.callx.app.ACTION_UNBLOCK"/>
+                <action android:name="com.callx.app.ACTION_PERMA_BLOCK"/>
                 <action android:name="com.callx.app.ACTION_SPECIAL_UNBLOCK"/>
+
+                <!-- Snooze actions -->
+                <action android:name="com.callx.app.SNOOZE_1H"/>
+                <action android:name="com.callx.app.SNOOZE_8H"/>
+                <action android:name="com.callx.app.SNOOZE_24H"/>
+
+                <!-- Group message actions -->
+                <action android:name="com.callx.app.ACTION_GROUP_REPLY"/>
+                <action android:name="com.callx.app.ACTION_GROUP_MARK_READ"/>
+                <action android:name="com.callx.app.ACTION_GROUP_MUTE"/>
+                <action android:name="com.callx.app.ACTION_GROUP_UNMUTE"/>
+                <action android:name="com.callx.app.ACTION_GROUP_LEAVE"/>
             </intent-filter>
         </receiver>
         <receiver android:name="com.callx.app.services.GroupCallActionReceiver"
