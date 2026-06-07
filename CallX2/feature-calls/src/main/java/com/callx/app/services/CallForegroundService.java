@@ -197,7 +197,7 @@ public class CallForegroundService extends android.app.Service {
             .setOngoing(true)
             .setContentIntent(openPi)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "End Call", endPi);
+            .addAction(com.callx.app.calls.R.drawable.ic_phone_off, "End Call", endPi);
 
         if (avatarBitmap != null) b.setLargeIcon(avatarBitmap);
 
