@@ -241,7 +241,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
               NotificationCompat.Builder b = new NotificationCompat.Builder(
                       this, Constants.CHANNEL_CALLS_INCOMING)
-                  // BUG-7 FIX: app icons instead of system drawables
                   .setSmallIcon(isVideo
                       ? R.drawable.ic_video_call
                       : R.drawable.ic_call_notification)
@@ -254,15 +253,13 @@ public class CallxMessagingService extends FirebaseMessagingService {
                   .setTimeoutAfter(Constants.CALL_TIMEOUT_MS)
                   .setFullScreenIntent(acceptPi, true)
                   .setContentIntent(acceptPi)
-                  .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                  // Decline left, Accept right — matches WhatsApp/Telegram convention
-                  .addAction(R.drawable.ic_phone_off, "Decline", declinePi)
-                  .addAction(R.drawable.ic_phone,     "Accept",  acceptPi);
+                  .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
               if (avatar != null) b.setLargeIcon(avatar);
 
-              // Android 12+ (API 31): CallStyle → system-level call UI
               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                  // Android 12+: CallStyle system UI — apne aap Decline + Answer lagata hai
+                  // Manual addAction() bilkul mat karo, duplicate ban jaata hai
                   Person.Builder pb = new Person.Builder()
                       .setName(fromName)
                       .setKey(fromUid)
@@ -271,6 +268,10 @@ public class CallxMessagingService extends FirebaseMessagingService {
                   Person caller = pb.build();
                   b.setStyle(NotificationCompat.CallStyle
                       .forIncomingCall(caller, declinePi, acceptPi));
+              } else {
+                  // Android 11 aur neeche: manually Decline + Accept lagao
+                  b.addAction(R.drawable.ic_phone_off, "Decline", declinePi)
+                   .addAction(R.drawable.ic_phone,     "Accept",  acceptPi);
               }
 
               NotificationManager nm = (NotificationManager)

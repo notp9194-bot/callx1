@@ -113,7 +113,7 @@ public class IncomingRingService extends Service {
 
         NotificationCompat.Builder b = new NotificationCompat.Builder(
                 this, Constants.CHANNEL_CALLS_INCOMING)
-            .setSmallIcon(R.drawable.ic_call_notification)   // BUG-7 FIX: app icon
+            .setSmallIcon(R.drawable.ic_call_notification)
             .setContentTitle(fromName)
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -123,13 +123,20 @@ public class IncomingRingService extends Service {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setTimeoutAfter(Constants.CALL_TIMEOUT_MS)
             .setFullScreenIntent(fullPi, true)
-            .setContentIntent(fullPi)
-            .addAction(R.drawable.ic_phone,     "Accept",  fullPi)    // BUG-7 FIX: app icon (core)
-            .addAction(R.drawable.ic_phone_off, "Decline", declinePi); // BUG-7 FIX: app icon (core)
+            .setContentIntent(fullPi);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Person caller = new Person.Builder().setName(fromName).setImportant(true).build();
+            // Android 12+: CallStyle system UI — apne aap Decline + Answer lagata hai
+            // Manual addAction() bilkul mat karo, duplicate ban jaata hai
+            Person caller = new Person.Builder()
+                .setName(fromName)
+                .setImportant(true)
+                .build();
             b.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, declinePi, fullPi));
+        } else {
+            // Android 11 aur neeche: manually Decline + Accept lagao
+            b.addAction(R.drawable.ic_phone_off, "Decline", declinePi)
+             .addAction(R.drawable.ic_phone,     "Accept",  fullPi);
         }
         return b.build();
     }
