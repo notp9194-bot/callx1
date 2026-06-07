@@ -1123,69 +1123,120 @@ public class GroupChatActivity extends AppCompatActivity {
                 });
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // ADMIN PANEL — BottomSheet (new clean implementation)
+    // ─────────────────────────────────────────────────────────────────────
+
     private void showAdminPanel() {
-        String[] sections = {
-            "── Group Management ──",
-            "🖼  Change Group Photo",
-            "📝  Edit Description",
-            "🔗  Invite Link Settings",
-            "── Member Controls ──",
-            "👁  Who Can See Members",
-            "📨  Who Can Add Members",
-            "👥  Manage Members",
-            "── Messaging Controls ──",
-            "🔇  Slow Mode",
-            "📵  Lock / Unlock Group",
-            "── Moderation ──",
-            "🚫  Mute a Member",
-            "📋  Join History"
-        };
-        // Items that are section headers (non-clickable)
-        boolean[] isHeader = {true,false,false,false,true,false,false,false,true,false,false,true,false,false};
+        com.google.android.material.bottomsheet.BottomSheetDialog sheet =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
 
-        android.widget.ListView lv = new android.widget.ListView(this);
-        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(
-                this, android.R.layout.simple_list_item_1, sections) {
-            @Override public boolean isEnabled(int pos) { return !isHeader[pos]; }
-            @Override public android.view.View getView(int pos, android.view.View cv, android.view.ViewGroup parent) {
-                android.widget.TextView tv = (android.widget.TextView) super.getView(pos, cv, parent);
-                if (isHeader[pos]) {
-                    tv.setTextColor(0xFF888888);
-                    tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
-                    tv.setPadding(dp(20), dp(12), dp(12), dp(4));
-                } else {
-                    tv.setTextColor(0xFFFFFFFF);
-                    tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
-                    tv.setPadding(dp(28), dp(14), dp(12), dp(14));
-                }
-                return tv;
-            }
-        };
-        lv.setAdapter(adapter);
-        lv.setBackgroundColor(0xFF1E1E1E);
+        android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+        root.setPadding(0, dp(8), 0, dp(24));
 
-        AlertDialog dlg = new AlertDialog.Builder(this)
-                .setTitle("👑 Admin Panel")
-                .setView(lv)
-                .setNegativeButton("Close", null)
-                .create();
+        // Title row
+        android.widget.TextView title = new android.widget.TextView(this);
+        title.setText("👑  Admin Panel");
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18f);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setPadding(dp(20), dp(12), dp(20), dp(16));
+        title.setTextColor(getThemeColor(android.R.attr.textColorPrimary));
+        root.addView(title);
 
-        lv.setOnItemClickListener((parent, view, pos, id) -> {
-            dlg.dismiss();
-            switch (pos) {
-                case 1:  adminChangeGroupPhoto();   break;
-                case 2:  adminEditDescription();    break;
-                case 3:  adminInviteLinkSettings(); break;
-                case 5:  adminWhoCanSeeMembers();   break;
-                case 6:  adminWhoCanAddMembers();   break;
-                case 7:  showMemberManagement();    break;
-                case 9:  adminSlowMode();           break;
-                case 10: adminLockGroup();          break;
-                case 12: adminMuteMember();         break;
-                case 13: adminJoinHistory();        break;
-            }
-        });
-        dlg.show();
+        // Divider
+        root.addView(makeDivider());
+
+        // ── Group Management ──
+        root.addView(makeSectionHeader("Group Management"));
+        root.addView(makeAdminRow("🖼", "Change Group Photo",  () -> { sheet.dismiss(); adminChangeGroupPhoto(); }));
+        root.addView(makeAdminRow("📝", "Edit Description",     () -> { sheet.dismiss(); adminEditDescription(); }));
+        root.addView(makeAdminRow("🔗", "Invite Link",          () -> { sheet.dismiss(); adminInviteLinkSettings(); }));
+        root.addView(makeAdminRow("✏", "Rename Group",         () -> { sheet.dismiss(); renameGroup(); }));
+        root.addView(makeDivider());
+
+        // ── Member Controls ──
+        root.addView(makeSectionHeader("Member Controls"));
+        root.addView(makeAdminRow("👥", "Manage Members",       () -> { sheet.dismiss(); showMemberManagement(); }));
+        root.addView(makeAdminRow("📨", "Who Can Add Members",  () -> { sheet.dismiss(); adminWhoCanAddMembers(); }));
+        root.addView(makeAdminRow("👁", "Who Can See Members",  () -> { sheet.dismiss(); adminWhoCanSeeMembers(); }));
+        root.addView(makeDivider());
+
+        // ── Messaging Controls ──
+        root.addView(makeSectionHeader("Messaging Controls"));
+        root.addView(makeAdminRow("🔇", "Slow Mode"  + (slowModeMs > 0 ? "  (ON)" : ""),
+                () -> { sheet.dismiss(); adminSlowMode(); }));
+        root.addView(makeAdminRow(isGroupLocked ? "🔓" : "🔒",
+                isGroupLocked ? "Unlock Group" : "Lock Group (admins only)",
+                () -> { sheet.dismiss(); adminLockGroup(); }));
+        root.addView(makeDivider());
+
+        // ── Moderation ──
+        root.addView(makeSectionHeader("Moderation"));
+        root.addView(makeAdminRow("🚫", "Mute a Member",        () -> { sheet.dismiss(); adminMuteMember(); }));
+        root.addView(makeAdminRow("📋", "Join History",          () -> { sheet.dismiss(); adminJoinHistory(); }));
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(root);
+        sheet.setContentView(sv);
+        sheet.show();
+    }
+
+    // ── Helper: section header label ──────────────────────────────────────
+    private android.widget.TextView makeSectionHeader(String text) {
+        android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(text.toUpperCase(java.util.Locale.getDefault()));
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
+        tv.setTextColor(0xFF5B8DEF);
+        tv.setTypeface(null, android.graphics.Typeface.BOLD);
+        tv.setLetterSpacing(0.08f);
+        tv.setPadding(dp(20), dp(14), dp(20), dp(4));
+        return tv;
+    }
+
+    // ── Helper: admin row ─────────────────────────────────────────────────
+    private android.widget.LinearLayout makeAdminRow(String icon, String label, Runnable action) {
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(20), dp(14), dp(20), dp(14));
+        row.setBackgroundResource(android.R.attr.selectableItemBackground != 0
+                ? obtainStyledAttributes(new int[]{android.R.attr.selectableItemBackground})
+                        .getResourceId(0, 0)
+                : 0);
+        android.widget.TextView icTv = new android.widget.TextView(this);
+        icTv.setText(icon);
+        icTv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18f);
+        icTv.setPadding(0, 0, dp(14), 0);
+
+        android.widget.TextView lbTv = new android.widget.TextView(this);
+        lbTv.setText(label);
+        lbTv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
+        lbTv.setTextColor(getThemeColor(android.R.attr.textColorPrimary));
+
+        row.addView(icTv);
+        row.addView(lbTv);
+        row.setOnClickListener(v -> action.run());
+        return row;
+    }
+
+    // ── Helper: thin divider ──────────────────────────────────────────────
+    private android.view.View makeDivider() {
+        android.view.View v = new android.view.View(this);
+        android.widget.LinearLayout.LayoutParams lp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        lp.setMargins(dp(16), dp(4), dp(16), dp(4));
+        v.setLayoutParams(lp);
+        v.setBackgroundColor(0x1A000000);
+        return v;
+    }
+
+    // ── Helper: read theme color attr ─────────────────────────────────────
+    private int getThemeColor(int attr) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        getTheme().resolveAttribute(attr, tv, true);
+        return tv.data;
     }
 
     // ─── ADMIN: Change Group Photo ────────────────────────────────────────
@@ -1202,7 +1253,6 @@ public class GroupChatActivity extends AppCompatActivity {
                                 groupPhoto = r.secureUrl;
                                 FirebaseUtils.getGroupsRef().child(groupId)
                                         .child("iconUrl").setValue(r.secureUrl);
-                                // Update header avatar
                                 com.bumptech.glide.Glide.with(GroupChatActivity.this)
                                         .load(r.secureUrl).circleCrop()
                                         .into(binding.ivPartnerAvatar);
@@ -1250,7 +1300,7 @@ public class GroupChatActivity extends AppCompatActivity {
         });
     }
 
-    // ─── ADMIN: Invite Link Settings ──────────────────────────────────────
+    // ─── ADMIN: Invite Link ───────────────────────────────────────────────
     private void adminInviteLinkSettings() {
         FirebaseUtils.getGroupsRef().child(groupId).child("inviteToken")
                 .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -1260,7 +1310,6 @@ public class GroupChatActivity extends AppCompatActivity {
                 String currentLink = enabled
                         ? (com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + token)
                         : "Link disabled";
-
                 String[] opts = {
                     enabled ? "🔗  Copy Link" : "—  (Link disabled)",
                     "🔁  Regenerate Link",
@@ -1271,33 +1320,23 @@ public class GroupChatActivity extends AppCompatActivity {
                         .setMessage(enabled ? "Current: " + currentLink : "Invite link disabled")
                         .setItems(opts, (d, which) -> {
                             if (which == 0 && enabled) {
-                                // Copy
                                 android.content.ClipboardManager cm =
                                     (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                                 if (cm != null) cm.setPrimaryClip(
                                     android.content.ClipData.newPlainText("invite", currentLink));
-                                Toast.makeText(GroupChatActivity.this,
-                                        "Link copied!", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(GroupChatActivity.this, "Link copied!", Toast.LENGTH_SHORT).show();
                             } else if (which == 1) {
-                                // Regenerate
                                 String newToken = java.util.UUID.randomUUID().toString().substring(0, 12);
-                                FirebaseUtils.getGroupsRef().child(groupId)
-                                        .child("inviteToken").setValue(newToken);
-                                Toast.makeText(GroupChatActivity.this,
-                                        "New invite link generated ✅", Toast.LENGTH_SHORT).show();
+                                FirebaseUtils.getGroupsRef().child(groupId).child("inviteToken").setValue(newToken);
+                                Toast.makeText(GroupChatActivity.this, "New invite link generated ✅", Toast.LENGTH_SHORT).show();
                             } else if (which == 2) {
-                                // Toggle enable/disable
                                 if (enabled) {
-                                    FirebaseUtils.getGroupsRef().child(groupId)
-                                            .child("inviteToken").removeValue();
-                                    Toast.makeText(GroupChatActivity.this,
-                                            "Invite link disabled", Toast.LENGTH_SHORT).show();
+                                    FirebaseUtils.getGroupsRef().child(groupId).child("inviteToken").removeValue();
+                                    Toast.makeText(GroupChatActivity.this, "Invite link disabled", Toast.LENGTH_SHORT).show();
                                 } else {
                                     String newToken = java.util.UUID.randomUUID().toString().substring(0, 12);
-                                    FirebaseUtils.getGroupsRef().child(groupId)
-                                            .child("inviteToken").setValue(newToken);
-                                    Toast.makeText(GroupChatActivity.this,
-                                            "Invite link enabled ✅", Toast.LENGTH_SHORT).show();
+                                    FirebaseUtils.getGroupsRef().child(groupId).child("inviteToken").setValue(newToken);
+                                    Toast.makeText(GroupChatActivity.this, "Invite link enabled ✅", Toast.LENGTH_SHORT).show();
                                 }
                             }
                         })
@@ -1307,7 +1346,7 @@ public class GroupChatActivity extends AppCompatActivity {
         });
     }
 
-    // ─── ADMIN: Who Can See Member List ──────────────────────────────────
+    // ─── ADMIN: Who Can See Members ───────────────────────────────────────
     private void adminWhoCanSeeMembers() {
         String[] opts = {"Everyone", "Admins only"};
         int current = canSeeMemberList ? 0 : 1;
@@ -1316,8 +1355,7 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setSingleChoiceItems(opts, current, (d, which) -> {
                     canSeeMemberList = (which == 0);
                     FirebaseUtils.getGroupsRef().child(groupId)
-                            .child("settings").child("canSeeMemberList")
-                            .setValue(canSeeMemberList);
+                            .child("settings").child("canSeeMemberList").setValue(canSeeMemberList);
                     d.dismiss();
                     Toast.makeText(this, "Setting saved ✅", Toast.LENGTH_SHORT).show();
                 })
@@ -1333,15 +1371,14 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setSingleChoiceItems(opts, current, (d, which) -> {
                     canAddMembers = (which == 0);
                     FirebaseUtils.getGroupsRef().child(groupId)
-                            .child("settings").child("canAddMembers")
-                            .setValue(canAddMembers);
+                            .child("settings").child("canAddMembers").setValue(canAddMembers);
                     d.dismiss();
                     Toast.makeText(this, "Setting saved ✅", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null).show();
     }
 
-    // ─── ADMIN: Manage Members (existing showAdminPanel logic) ────────────
+    // ─── ADMIN: Manage Members ────────────────────────────────────────────
     private void showMemberManagement() {
         List<String> display = new ArrayList<>(), uids = new ArrayList<>();
         for (Map.Entry<String, String> e : memberNames.entrySet()) {
@@ -1355,8 +1392,7 @@ public class GroupChatActivity extends AppCompatActivity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("👥 Group Members")
-                .setItems(display.toArray(new String[0]),
-                        (d, i) -> showMemberOptions(uids.get(i)))
+                .setItems(display.toArray(new String[0]), (d, i) -> showMemberOptions(uids.get(i)))
                 .show();
     }
 
@@ -1373,11 +1409,10 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setSingleChoiceItems(opts, current, (d, which) -> {
                     slowModeMs = vals[which];
                     FirebaseUtils.getGroupsRef().child(groupId)
-                            .child("settings").child("slowModeMs")
-                            .setValue(slowModeMs);
+                            .child("settings").child("slowModeMs").setValue(slowModeMs);
                     d.dismiss();
-                    String msg = which == 0 ? "Slow mode off" : "Slow mode: " + opts[which];
-                    Toast.makeText(this, msg + " ✅", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, which == 0 ? "Slow mode off ✅" : "Slow mode: " + opts[which] + " ✅",
+                            Toast.LENGTH_SHORT).show();
                     updateInputBarLockState();
                 })
                 .setNegativeButton("Cancel", null).show();
@@ -1385,15 +1420,15 @@ public class GroupChatActivity extends AppCompatActivity {
 
     // ─── ADMIN: Lock / Unlock Group ───────────────────────────────────────
     private void adminLockGroup() {
-        String action = isGroupLocked ? "Unlock group (allow all to message)?" : "Lock group (only admins can message)?";
         new AlertDialog.Builder(this)
-                .setTitle(isGroupLocked ? "📵 Unlock Group" : "📵 Lock Group")
-                .setMessage(action)
+                .setTitle(isGroupLocked ? "🔓 Unlock Group" : "🔒 Lock Group")
+                .setMessage(isGroupLocked
+                        ? "Unlock group — sab members message kar sakenge?"
+                        : "Lock group — sirf admins message kar sakenge?")
                 .setPositiveButton(isGroupLocked ? "Unlock" : "Lock", (d, w) -> {
                     isGroupLocked = !isGroupLocked;
                     FirebaseUtils.getGroupsRef().child(groupId)
-                            .child("settings").child("isLocked")
-                            .setValue(isGroupLocked);
+                            .child("settings").child("isLocked").setValue(isGroupLocked);
                     Toast.makeText(this,
                             isGroupLocked ? "Group locked 🔒" : "Group unlocked 🔓",
                             Toast.LENGTH_SHORT).show();
@@ -1402,7 +1437,6 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setNegativeButton("Cancel", null).show();
     }
 
-    /** Show/hide input bar based on lock + slow mode state */
     private void updateInputBarLockState() {
         if (isGroupLocked && !isAdmin) {
             binding.etMessage.setEnabled(false);
@@ -1434,34 +1468,31 @@ public class GroupChatActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle("🚫 Mute Member")
                 .setItems(display.toArray(new String[0]), (d, i) -> {
-                    String uid = uids.get(i);
+                    String uid  = uids.get(i);
                     String name = display.get(i);
-                    // Check if already muted
-                    FirebaseUtils.getGroupsRef().child(groupId)
-                            .child("muted").child(uid)
+                    FirebaseUtils.getGroupsRef().child(groupId).child("muted").child(uid)
                             .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                            Long muteUntil = snap.getValue(Long.class);
-                            boolean isMutedNow = muteUntil != null && muteUntil > now;
-                            String[] durOpts = isMutedNow
+                            Long muteUntil  = snap.getValue(Long.class);
+                            boolean isMuted = muteUntil != null && muteUntil > now;
+                            String[] durOpts = isMuted
                                 ? new String[]{"🔔 Unmute", "1 hour", "24 hours", "7 days"}
                                 : new String[]{"1 hour", "24 hours", "7 days"};
-                            long[] durations = isMutedNow
+                            long[] durations = isMuted
                                 ? new long[]{-1L, 3_600_000L, 86_400_000L, 604_800_000L}
                                 : new long[]{3_600_000L, 86_400_000L, 604_800_000L};
                             new AlertDialog.Builder(GroupChatActivity.this)
-                                    .setTitle("🚫 Mute " + name)
+                                    .setTitle("🚫 " + name)
                                     .setItems(durOpts, (d2, j) -> {
                                         if (durations[j] == -1L) {
-                                            // Unmute
                                             FirebaseUtils.getGroupsRef().child(groupId)
                                                     .child("muted").child(uid).removeValue();
                                             Toast.makeText(GroupChatActivity.this,
-                                                    name + " unmuted", Toast.LENGTH_SHORT).show();
+                                                    name + " unmuted 🔔", Toast.LENGTH_SHORT).show();
                                         } else {
-                                            long until = now + durations[j];
                                             FirebaseUtils.getGroupsRef().child(groupId)
-                                                    .child("muted").child(uid).setValue(until);
+                                                    .child("muted").child(uid)
+                                                    .setValue(now + durations[j]);
                                             Toast.makeText(GroupChatActivity.this,
                                                     name + " muted for " + durOpts[j] + " 🚫",
                                                     Toast.LENGTH_SHORT).show();
@@ -1481,19 +1512,17 @@ public class GroupChatActivity extends AppCompatActivity {
                 .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 List<String> entries = new ArrayList<>();
-                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                        "dd MMM, hh:mm a", java.util.Locale.getDefault());
+                java.text.SimpleDateFormat sdf =
+                        new java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault());
                 for (DataSnapshot c : snap.getChildren()) {
                     String name   = c.child("name").getValue(String.class);
                     Long   at     = c.child("at").getValue(Long.class);
-                    String action = c.child("action").getValue(String.class); // "joined"/"left"/"removed"
+                    String action = c.child("action").getValue(String.class);
                     String emoji  = "joined".equals(action) ? "➕" : "removed".equals(action) ? "🚫" : "➖";
-                    String time   = at != null ? sdf.format(new java.util.Date(at)) : "?";
-                    entries.add(emoji + "  " + (name != null ? name : "Unknown") + "  •  " + time);
+                    entries.add(emoji + "  " + (name != null ? name : "?")
+                            + "  •  " + (at != null ? sdf.format(new java.util.Date(at)) : "?"));
                 }
-                if (entries.isEmpty()) {
-                    entries.add("Koi log nahi mila");
-                }
+                if (entries.isEmpty()) entries.add("Koi join/leave log nahi mila");
                 new AlertDialog.Builder(GroupChatActivity.this)
                         .setTitle("📋 Join History")
                         .setItems(entries.toArray(new String[0]), null)
@@ -1503,34 +1532,33 @@ public class GroupChatActivity extends AppCompatActivity {
         });
     }
 
+    // ─── Member options ───────────────────────────────────────────────────
     private void showMemberOptions(String uid) {
         String name   = memberNames.getOrDefault(uid, "Member");
         boolean isAdm = "admin".equals(memberRoles.getOrDefault(uid, "member"));
-        String[] opts = { "Remove from group", isAdm ? "Revoke admin" : "Make admin" };
+        String[] opts = {"Remove from group", isAdm ? "Revoke admin 👑" : "Make admin 👑", "Cancel"};
         new AlertDialog.Builder(this)
                 .setTitle(name)
                 .setItems(opts, (d, which) -> {
                     if (which == 0) confirmRemoveMember(uid, name);
-                    else            toggleMemberAdmin(uid, name, isAdm);
+                    else if (which == 1) toggleMemberAdmin(uid, name, isAdm);
                 }).show();
     }
 
     private void confirmRemoveMember(String uid, String name) {
         new AlertDialog.Builder(this)
                 .setTitle("Remove " + name + "?")
+                .setMessage(name + " ko group se hata diya jayega.")
                 .setPositiveButton("Remove", (d, w) -> {
                     FirebaseUtils.getGroupMembersRef(groupId).child(uid).removeValue();
                     FirebaseUtils.db().getReference("users")
                             .child(uid).child("groups").child(groupId).removeValue();
-                    // Write join log entry
                     Map<String, Object> log = new HashMap<>();
-                    log.put("name", name);
-                    log.put("uid", uid);
-                    log.put("action", "removed");
-                    log.put("by", currentUid);
+                    log.put("name", name); log.put("uid", uid);
+                    log.put("action", "removed"); log.put("by", currentUid);
                     log.put("at", System.currentTimeMillis());
-                    FirebaseUtils.getGroupsRef().child(groupId)
-                            .child("joinLog").push().setValue(log);
+                    FirebaseUtils.getGroupsRef().child(groupId).child("joinLog").push().setValue(log);
+                    Toast.makeText(this, name + " removed", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null).show();
     }
@@ -1549,14 +1577,16 @@ public class GroupChatActivity extends AppCompatActivity {
         et.setSelection(et.getText().length());
         int p = dp(16); et.setPadding(p, p, p, p);
         new AlertDialog.Builder(this)
-                .setTitle("Rename Group")
+                .setTitle("✏ Rename Group")
                 .setView(et)
                 .setPositiveButton("Save", (d, w) -> {
                     String newName = et.getText().toString().trim();
                     if (newName.isEmpty()) return;
                     groupName = newName;
                     FirebaseUtils.getGroupsRef().child(groupId).child("name").setValue(newName);
+                    binding.tvPartnerName.setText(newName);
                     if (getSupportActionBar() != null) getSupportActionBar().setTitle(newName);
+                    Toast.makeText(this, "Group renamed ✅", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null).show();
     }
