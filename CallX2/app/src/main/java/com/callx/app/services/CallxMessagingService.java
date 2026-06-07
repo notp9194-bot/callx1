@@ -234,11 +234,13 @@ public class CallxMessagingService extends FirebaseMessagingService {
               Constants.CALL_RING_NOTIF_ID + 1, declineIntent,
               PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-          // 4. Build notification async (avatar downloaded off-thread)
-          bg.execute(() -> {
-              int net = getNetworkLevel();
-              Bitmap avatar = (net >= 2) ? circle(downloadBitmap(fromPhoto, 100, 100)) : null;
-
+          // FIX-RING: IncomingRingService already shows the ring notification via startForeground().
+          // Messaging service notification is only a BACKUP (for cases where service start is delayed).
+          // Build it IMMEDIATELY without waiting for avatar — show first, update with avatar after.
+          // bg.execute() avatar race condition removed: notification posts synchronously on FCM thread.
+          final NotificationManager nmCall = (NotificationManager)
+              getSystemService(Context.NOTIFICATION_SERVICE);
+          if (nmCall != null) {
               NotificationCompat.Builder b = new NotificationCompat.Builder(
                       this, Constants.CHANNEL_CALLS_INCOMING)
                   .setSmallIcon(isVideo
@@ -255,29 +257,34 @@ public class CallxMessagingService extends FirebaseMessagingService {
                   .setContentIntent(acceptPi)
                   .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
-              if (avatar != null) b.setLargeIcon(avatar);
-
               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                  // Android 12+: CallStyle system UI — apne aap Decline + Answer lagata hai
-                  // Manual addAction() bilkul mat karo, duplicate ban jaata hai
-                  Person.Builder pb = new Person.Builder()
-                      .setName(fromName)
-                      .setKey(fromUid)
-                      .setImportant(true);
-                  if (avatar != null) pb.setIcon(IconCompat.createWithBitmap(avatar));
-                  Person caller = pb.build();
+                  Person caller = new Person.Builder()
+                      .setName(fromName).setKey(fromUid).setImportant(true).build();
                   b.setStyle(NotificationCompat.CallStyle
                       .forIncomingCall(caller, declinePi, acceptPi));
               } else {
-                  // Android 11 aur neeche: manually Decline + Accept lagao
                   b.addAction(R.drawable.ic_phone_off, "Decline", declinePi)
                    .addAction(R.drawable.ic_phone,     "Accept",  acceptPi);
               }
+              // Post immediately — no avatar yet
+              nmCall.notify(Constants.CALL_RING_NOTIF_ID, b.build());
 
-              NotificationManager nm = (NotificationManager)
-                  getSystemService(Context.NOTIFICATION_SERVICE);
-              if (nm != null) nm.notify(Constants.CALL_RING_NOTIF_ID, b.build());
-          });
+              // Update with avatar in background (best-effort, non-blocking)
+              bg.execute(() -> {
+                  Bitmap avatar = circle(downloadBitmap(fromPhoto, 100, 100));
+                  if (avatar != null) {
+                      b.setLargeIcon(avatar);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                          Person callerWithAvatar = new Person.Builder()
+                              .setName(fromName).setKey(fromUid).setImportant(true)
+                              .setIcon(IconCompat.createWithBitmap(avatar)).build();
+                          b.setStyle(NotificationCompat.CallStyle
+                              .forIncomingCall(callerWithAvatar, declinePi, acceptPi));
+                      }
+                      nmCall.notify(Constants.CALL_RING_NOTIF_ID, b.build());
+                  }
+              });
+          }
       }
     // ── Group call: incoming (background/killed) ──────────────────────────
     private void showIncomingGroupCall(final Map<String, String> data) {
@@ -423,21 +430,27 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .addAction(msgAction)
               .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
 
-          // Download avatar async — final vars lambda me safely use ho sakti hain
-          new Thread(() -> {
-              try {
-                  if (!callerPhoto.isEmpty()) {
-                      java.net.HttpURLConnection c =
-                          (java.net.HttpURLConnection) new java.net.URL(callerPhoto).openConnection();
-                      c.setDoInput(true); c.connect();
-                      Bitmap bm = BitmapFactory.decodeStream(c.getInputStream());
-                      if (bm != null) b.setLargeIcon(bm);
-                  }
-              } catch (Exception ignored) {}
-              NotificationManager nm = (NotificationManager)
-                  getSystemService(Context.NOTIFICATION_SERVICE);
-              if (nm != null) nm.notify(notifId, b.build());
-          }).start();
+          // FIX-MISSED: Post notification IMMEDIATELY (no avatar yet) so it always shows
+          // in background/killed state. Then update with avatar best-effort in bg thread.
+          NotificationManager nmMissed = (NotificationManager)
+              getSystemService(Context.NOTIFICATION_SERVICE);
+          if (nmMissed != null) {
+              nmMissed.notify(notifId, b.build()); // immediate post — guaranteed show
+              if (!callerPhoto.isEmpty()) {
+                  bg.execute(() -> {
+                      try {
+                          java.net.HttpURLConnection c =
+                              (java.net.HttpURLConnection) new java.net.URL(callerPhoto).openConnection();
+                          c.setDoInput(true); c.connect();
+                          Bitmap bm = BitmapFactory.decodeStream(c.getInputStream());
+                          if (bm != null) {
+                              b.setLargeIcon(bm);
+                              nmMissed.notify(notifId, b.build()); // update with avatar
+                          }
+                      } catch (Exception ignored) {}
+                  });
+              }
+          }
 
           // Save to NotificationFirebaseStore
           com.callx.app.utils.NotificationFirebaseStore.save(

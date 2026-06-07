@@ -236,20 +236,26 @@ public class IncomingRingService extends Service {
                 .build();
             b.addAction(msgAction);
 
-            // Avatar async download
+            // FIX-MISSED-RING: Post notification IMMEDIATELY — don't wait for avatar.
+            // Service may be destroyed before avatar download completes → notification never showed.
+            nm.notify(notifId, b.build()); // guaranteed immediate post
+
+            // Best-effort avatar update in background thread
             final String photoUrl = savedFromPhoto;
-            new Thread(() -> {
-                try {
-                    if (!photoUrl.isEmpty()) {
+            if (!photoUrl.isEmpty()) {
+                new Thread(() -> {
+                    try {
                         java.net.HttpURLConnection c =
                             (java.net.HttpURLConnection) new java.net.URL(photoUrl).openConnection();
                         c.setDoInput(true); c.connect();
                         Bitmap bm = BitmapFactory.decodeStream(c.getInputStream());
-                        if (bm != null) b.setLargeIcon(bm);
-                    }
-                } catch (Exception ignored2) {}
-                nm.notify(notifId, b.build());
-            }).start();
+                        if (bm != null) {
+                            b.setLargeIcon(bm);
+                            nm.notify(notifId, b.build()); // update with avatar
+                        }
+                    } catch (Exception ignored2) {}
+                }).start();
+            }
 
         } catch (Exception ignored) {}
     }
