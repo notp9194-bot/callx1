@@ -71,6 +71,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
 
     // Views — Privacy
     private TextView    tvDisappearing;
+    private TextView    tvMsgTimer;
+    private TextView    tvAutoDeleteOld;
     private SwitchCompat swScreenshotLock;
 
     // Ringtone picker
@@ -120,6 +122,8 @@ public class GroupSettingsActivity extends AppCompatActivity {
         swApprovalRequired  = findViewById(R.id.sw_approval_required);
         swAdminAddOnly      = findViewById(R.id.sw_admin_add_only);
         tvDisappearing      = findViewById(R.id.tv_disappearing);
+        tvMsgTimer          = findViewById(R.id.tv_msg_timer);
+        tvAutoDeleteOld     = findViewById(R.id.tv_auto_delete_old);
         swScreenshotLock    = findViewById(R.id.sw_screenshot_lock);
     }
 
@@ -201,6 +205,12 @@ public class GroupSettingsActivity extends AppCompatActivity {
 
         // Disappearing messages
         findViewById(R.id.row_disappearing).setOnClickListener(v -> showDisappearingDialog());
+
+        // Message timer
+        findViewById(R.id.row_msg_timer).setOnClickListener(v -> showMsgTimerDialog());
+
+        // Auto-delete old messages
+        findViewById(R.id.row_auto_delete_old).setOnClickListener(v -> showAutoDeleteOldDialog());
 
         // Encryption info
         findViewById(R.id.row_encryption).setOnClickListener(v -> showEncryptionInfo());
@@ -443,6 +453,50 @@ public class GroupSettingsActivity extends AppCompatActivity {
     }
 
     // ── Encryption Info ───────────────────────────────────────────────────
+    // ── Message Timer Dialog ──────────────────────────────────────────────
+    private void showMsgTimerDialog() {
+        String[] labels = {"Off", "10 seconds", "30 seconds", "1 minute", "5 minutes", "1 hour"};
+        long[]   values = {0, 10_000L, 30_000L, 60_000L, 300_000L, 3_600_000L};
+        long current = prefs.getLong("msg_timer_ms", 0);
+        int checkedIdx = 0;
+        for (int i = 0; i < values.length; i++) { if (values[i] == current) { checkedIdx = i; break; } }
+        final int[] sel = {checkedIdx};
+        new AlertDialog.Builder(this)
+            .setTitle("⏱ Message Timer")
+            .setMessage("Messages in this group will auto-delete after this time once seen.")
+            .setSingleChoiceItems(labels, checkedIdx, (d, which) -> sel[0] = which)
+            .setPositiveButton("Set", (d, w) -> {
+                prefs.edit().putLong("msg_timer_ms", values[sel[0]]).apply();
+                tvMsgTimer.setText(labels[sel[0]]);
+                saveGroupSetting("msgTimerMs", String.valueOf(values[sel[0]]));
+                Toast.makeText(this, "Message timer: " + labels[sel[0]], Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    // ── Auto-Delete Old Messages Dialog ───────────────────────────────────
+    private void showAutoDeleteOldDialog() {
+        String[] labels = {"Never", "After 7 days", "After 30 days", "After 90 days", "After 6 months"};
+        long[]   days   = {0, 7, 30, 90, 180};
+        long current = prefs.getLong("auto_delete_days", 0);
+        int checkedIdx = 0;
+        for (int i = 0; i < days.length; i++) { if (days[i] == current) { checkedIdx = i; break; } }
+        final int[] sel = {checkedIdx};
+        new AlertDialog.Builder(this)
+            .setTitle("🗑 Auto-Delete Old Messages")
+            .setMessage("Messages older than the selected period will be removed from this group on your device.")
+            .setSingleChoiceItems(labels, checkedIdx, (d, which) -> sel[0] = which)
+            .setPositiveButton("Set", (d, w) -> {
+                prefs.edit().putLong("auto_delete_days", days[sel[0]]).apply();
+                tvAutoDeleteOld.setText(labels[sel[0]]);
+                saveGroupSetting("autoDeleteDays", String.valueOf(days[sel[0]]));
+                Toast.makeText(this, "Auto-delete: " + labels[sel[0]], Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
     private void showEncryptionInfo() {
         new AlertDialog.Builder(this)
                 .setTitle("End-to-End Encryption")

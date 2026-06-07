@@ -1323,6 +1323,8 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         menu.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization")
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        menu.add(0, R.id.action_chat_privacy, 5, "🛡 Chat Privacy")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         if (isAdmin) {
             menu.add(0, R.id.menu_admin_panel, 4, "👑 Admin Panel")
                     .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
@@ -1356,7 +1358,16 @@ public class GroupChatActivity extends AppCompatActivity {
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
         if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
+        if (id == R.id.action_chat_privacy) { showGroupChatPrivacySheet(); return true; }
         return super.onOptionsItemSelected(item);
+    }
+
+    private void showGroupChatPrivacySheet() {
+        com.callx.app.chat.ui.ChatPrivacyBottomSheet sheet =
+                com.callx.app.chat.ui.ChatPrivacyBottomSheet.newInstance(
+                        groupId, true, groupName != null ? groupName : "Group");
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.ChatPrivacyBottomSheet.TAG);
     }
 
     // ── Apply Chat Screen Theme ───────────────────────────────────────────

@@ -709,6 +709,100 @@
                     <View android:layout_width="match_parent" android:layout_height="1dp"
                         android:background="@color/divider" android:layout_marginStart="56dp"/>
 
+                    <!-- Message Timer -->
+                    <LinearLayout
+                        android:id="@+id/row_msg_timer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:padding="14dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <ImageView
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:src="@drawable/ic_timer"
+                            android:tint="@color/brand_primary"
+                            android:layout_marginEnd="16dp"/>
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Message Timer"
+                                android:textColor="@color/text_primary"
+                                android:textSize="15sp"/>
+                            <TextView
+                                android:id="@+id/tv_msg_timer"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Off"
+                                android:textColor="@color/text_muted"
+                                android:textSize="12sp"/>
+                        </LinearLayout>
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:src="@drawable/ic_back"
+                            android:tint="@color/text_muted"
+                            android:rotation="180"/>
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:background="@color/divider" android:layout_marginStart="56dp"/>
+
+                    <!-- Auto-Delete Old Messages -->
+                    <LinearLayout
+                        android:id="@+id/row_auto_delete_old"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:padding="14dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <ImageView
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:src="@drawable/ic_delete"
+                            android:tint="@color/brand_primary"
+                            android:layout_marginEnd="16dp"/>
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Auto-Delete Old Messages"
+                                android:textColor="@color/text_primary"
+                                android:textSize="15sp"/>
+                            <TextView
+                                android:id="@+id/tv_auto_delete_old"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Never"
+                                android:textColor="@color/text_muted"
+                                android:textSize="12sp"/>
+                        </LinearLayout>
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:src="@drawable/ic_back"
+                            android:tint="@color/text_muted"
+                            android:rotation="180"/>
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:background="@color/divider" android:layout_marginStart="56dp"/>
+
                     <!-- Screenshot lock -->
                     <LinearLayout
                         android:layout_width="match_parent"
