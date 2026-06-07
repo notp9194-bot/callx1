@@ -2795,6 +2795,39 @@ public class ChatActivity extends AppCompatActivity {
                 com.callx.app.chat.ui.BubbleShapeBottomSheet.TAG);
     }
 
+    // ── Chat Customization submenu ────────────────────────────────────────
+    private void showChatCustomizationMenu() {
+        String[] options = {
+            "🖼️  Wallpaper",
+            "🎨  Chat Theme",
+            "💬  Bubble Shape",
+            "✍️  Typing Style",
+            "🔤  Font Size"
+        };
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎨 Chat Customization")
+            .setItems(options, (dialog, which) -> {
+                switch (which) {
+                    case 0: showWallpaperPicker();    break;
+                    case 1: showThemePicker();        break;
+                    case 2: showBubbleShapePicker();  break;
+                    case 3: showTypingStylePicker();  break;
+                    case 4: showFontSizePicker();     break;
+                }
+            })
+            .show();
+    }
+
+    private void showFontSizePicker() {
+        com.callx.app.chat.ui.MessageFontSizeBottomSheet sheet =
+                com.callx.app.chat.ui.MessageFontSizeBottomSheet.newInstance();
+        sheet.setOnSizeSelectedListener(which -> {
+            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+        });
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.MessageFontSizeBottomSheet.TAG);
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // MENU
     // ─────────────────────────────────────────────────────────────────────
@@ -2829,10 +2862,7 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_mute)        { toggleMute();          return true; }
         if (id == R.id.action_block)       { confirmBlockUser();    return true; }
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
-        if (id == R.id.action_set_wallpaper) { showWallpaperPicker();     return true; }
-        if (id == R.id.action_chat_theme)   { showThemePicker();        return true; }
-        if (id == R.id.action_bubble_shape) { showBubbleShapePicker();  return true; }
-        if (id == R.id.action_typing_style) { showTypingStylePicker();   return true; }
+        if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
         if (id == R.id.action_media_links_docs) { openAllMediaLinksDocs(); return true; }
         return super.onOptionsItemSelected(item);
     }

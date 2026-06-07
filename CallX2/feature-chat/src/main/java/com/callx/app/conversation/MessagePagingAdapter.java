@@ -815,6 +815,9 @@ public class MessagePagingAdapter
                 if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
                 // ── Font Style: sender ke selected typing style ko receiver pe bhi apply karo ──
                 applyFontStyle(h.tvMessage, m.fontStyle);
+                // ── Font Size: globally selected message text size ──────────
+                h.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                    com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
                 // ── Clickable links: URLs, phone numbers, emails ────────────
                 android.text.SpannableString spanned = new android.text.SpannableString(txt);
                 android.text.util.Linkify.addLinks(spanned,

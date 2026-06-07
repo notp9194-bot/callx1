@@ -466,6 +466,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 h.tvMessage.setTextSize(15f);
                 // ── Font Style: sender ke selected typing style ko apply karo ──
                 applyFontStyle(h.tvMessage, m.fontStyle);
+                h.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                    com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
                 if (h.tvEdited != null && Boolean.TRUE.equals(m.edited))
                     h.tvEdited.setVisibility(View.VISIBLE);
                 // ── Clickable links: URLs, phone numbers, emails ────────────
