@@ -552,53 +552,21 @@ public class CallxMessagingService extends FirebaseMessagingService {
               // ── FEATURE 4: Fetch lastSeen async → update subText ─────────
               if (!callerUid.isEmpty()) {
                   bg.execute(() -> {
-                      // Fetch avatar + lastSeen together
-                      final java.util.concurrent.CountDownLatch latch =
-                          new java.util.concurrent.CountDownLatch(1);
-                      final String[] lastSeenStr = {null};
-                      com.callx.app.utils.FirebaseUtils.getUserRef(callerUid)
-                          .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                              @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
-                                  try {
-                                      Object online   = snap.child("online").getValue();
-                                      Object lastSeen = snap.child("lastSeen").getValue();
-                                      if (Boolean.TRUE.equals(online)) {
-                                          lastSeenStr[0] = "Online now";
-                                      } else if (lastSeen instanceof Long) {
-                                          long diff = System.currentTimeMillis() - (Long) lastSeen;
-                                          long mins = diff / 60000;
-                                          if (mins < 1)       lastSeenStr[0] = "Last seen just now";
-                                          else if (mins < 60) lastSeenStr[0] = "Last seen " + mins + " min ago";
-                                          else {
-                                              long hrs = mins / 60;
-                                              lastSeenStr[0] = hrs < 24
-                                                  ? "Last seen " + hrs + "h ago"
-                                                  : "Last seen yesterday";
-                                          }
-                                      }
-                                  } catch (Exception ignored) {}
-                                  latch.countDown();
-                              }
-                              @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {
-                                  latch.countDown();
-                              }
-                          });
-                      try { latch.await(4, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
+                      // Exact call time — always accurate, no stale data
+                      String missedAt = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                          .format(new java.util.Date());
+                      b.setSubText("Just missed \u2022 " + missedAt);
 
-                      // Avatar fetch
-                      Bitmap avatarBm = null;
+                      // Avatar only — best-effort
                       if (!callerPhoto.isEmpty()) {
                           try {
                               java.net.HttpURLConnection c =
                                   (java.net.HttpURLConnection) new java.net.URL(callerPhoto).openConnection();
                               c.setDoInput(true); c.connect();
-                              avatarBm = BitmapFactory.decodeStream(c.getInputStream());
+                              Bitmap avatarBm = BitmapFactory.decodeStream(c.getInputStream());
+                              if (avatarBm != null) b.setLargeIcon(avatarBm);
                           } catch (Exception ignored) {}
                       }
-
-                      // Update notification with avatar + lastSeen
-                      if (avatarBm != null) b.setLargeIcon(avatarBm);
-                      if (lastSeenStr[0] != null) b.setSubText(lastSeenStr[0]);
                       nmMissed.notify(notifId, b.build());
                   });
               }

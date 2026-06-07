@@ -314,51 +314,26 @@ public class IncomingRingService extends Service {
                 nm.notify(("summary_missed_" + callerUid).hashCode() & 0x7FFFFFFF, summary);
             }
 
-            // Feature 6 + avatar: async update with last seen + photo
-            new Thread(() -> {
-                Bitmap avatarBm = null;
-                if (!callerPhoto.isEmpty()) {
+            // Feature 6: Exact call time as subtext — always accurate, no async needed
+            String missedAt = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                .format(new java.util.Date());
+            b.setSubText("Just missed \u2022 " + missedAt);
+
+            // Avatar: best-effort async update only
+            if (!callerPhoto.isEmpty()) {
+                new Thread(() -> {
                     try {
                         java.net.HttpURLConnection c =
                             (java.net.HttpURLConnection) new java.net.URL(callerPhoto).openConnection();
                         c.setDoInput(true); c.connect();
-                        avatarBm = BitmapFactory.decodeStream(c.getInputStream());
+                        Bitmap avatarBm = BitmapFactory.decodeStream(c.getInputStream());
+                        if (avatarBm != null) {
+                            b.setLargeIcon(avatarBm);
+                            nm.notify(notifId, b.build());
+                        }
                     } catch (Exception ignored2) {}
-                }
-                final String[] lastSeenHolder = {null};
-                final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-                if (!callerUid.isEmpty()) {
-                    com.callx.app.utils.FirebaseUtils.getUserRef(callerUid)
-                        .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                            @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
-                                try {
-                                    Object online = snap.child("online").getValue();
-                                    Object ls = snap.child("lastSeen").getValue();
-                                    if (Boolean.TRUE.equals(online)) {
-                                        lastSeenHolder[0] = "Online now";
-                                    } else if (ls instanceof Long) {
-                                        long diff = System.currentTimeMillis() - (Long) ls;
-                                        long mins = diff / 60000;
-                                        if (mins < 1) lastSeenHolder[0] = "Last seen just now";
-                                        else if (mins < 60) lastSeenHolder[0] = "Last seen " + mins + " min ago";
-                                        else {
-                                            long hrs = mins / 60;
-                                            lastSeenHolder[0] = hrs < 24
-                                                ? "Last seen " + hrs + "h ago"
-                                                : "Last seen yesterday";
-                                        }
-                                    }
-                                } catch (Exception ignored3) {}
-                                latch.countDown();
-                            }
-                            @Override public void onCancelled(com.google.firebase.database.DatabaseError e) { latch.countDown(); }
-                        });
-                    try { latch.await(4, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored4) {}
-                }
-                if (avatarBm != null) b.setLargeIcon(avatarBm);
-                if (lastSeenHolder[0] != null) b.setSubText(lastSeenHolder[0]);
-                if (avatarBm != null || lastSeenHolder[0] != null) nm.notify(notifId, b.build());
-            }).start();
+                }).start();
+            }
 
         } catch (Exception ignored) {}
     }
