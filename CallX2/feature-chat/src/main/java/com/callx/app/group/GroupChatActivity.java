@@ -1409,25 +1409,24 @@ public class GroupChatActivity extends AppCompatActivity {
 
     // ── Chat Customization submenu ────────────────────────────────────────
     private void showChatCustomizationMenu() {
-        String[] options = {
-            "🖼️  Wallpaper",
-            "🎨  Chat Theme",
-            "💬  Bubble Shape",
-            "✍️  Typing Style",
-            "🔤  Font Size"
-        };
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("🎨 Chat Customization")
-            .setItems(options, (dialog, which) -> {
-                switch (which) {
-                    case 0: showWallpaperPicker();   break;
-                    case 1: showThemePicker();       break;
-                    case 2: showBubbleShapePicker(); break;
-                    case 3: showTypingStylePicker(); break;
-                    case 4: showFontSizePicker();    break;
-                }
-            })
-            .show();
+        com.callx.app.chat.ui.ChatCustomizationBottomSheet sheet =
+                com.callx.app.chat.ui.ChatCustomizationBottomSheet.newInstance();
+        sheet.setOnOptionSelectedListener(option -> {
+            switch (option) {
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_WALLPAPER:
+                    showWallpaperPicker();   break;
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_THEME:
+                    showThemePicker();       break;
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_BUBBLE:
+                    showBubbleShapePicker(); break;
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_TYPING:
+                    showTypingStylePicker(); break;
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_FONT_SIZE:
+                    showFontSizePicker();    break;
+            }
+        });
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.ChatCustomizationBottomSheet.TAG);
     }
 
     private void showFontSizePicker() {
