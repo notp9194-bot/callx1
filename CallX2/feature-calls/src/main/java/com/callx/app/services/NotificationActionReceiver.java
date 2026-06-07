@@ -1,5 +1,6 @@
 package com.callx.app.services;
 import android.app.NotificationManager;
+import androidx.core.app.NotificationCompat;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -248,17 +249,62 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               return;
           }
 
-          // ── Missed call → Open chat to send message ─────────────────────
+          // ── Missed call → Inline message reply ─────────────────────────
           if (Constants.ACTION_MISSED_CALL_MESSAGE.equals(action)) {
-              if (nm != null) nm.cancel(notifId);
-              if (partnerUid != null && !partnerUid.isEmpty()) {
-                  Intent msgIntent = new Intent();
-                  msgIntent.setClassName(context, "com.callx.app.conversation.ChatActivity");
-                  msgIntent.putExtra(Constants.EXTRA_PARTNER_UID,   partnerUid);
-                  msgIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  partnerName);
-                  msgIntent.putExtra("partnerPhoto",                 partnerPhoto != null ? partnerPhoto : "");
-                  msgIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                  context.startActivity(msgIntent);
+              // RemoteInput se typed text nikalo
+              Bundle remoteResults = RemoteInput.getResultsFromIntent(intent);
+              if (remoteResults != null) {
+                  // Inline reply — text notification se hi type hua
+                  CharSequence replyCs = remoteResults.getCharSequence(Constants.KEY_MISSED_CALL_REPLY);
+                  String replyText = replyCs != null ? replyCs.toString().trim() : "";
+                  if (!replyText.isEmpty() && partnerUid != null && !partnerUid.isEmpty()) {
+                      // chatId compute karo (same pattern jo app mein hai)
+                      String chatId2 = FirebaseUtils.getChatId(myUid, partnerUid);
+                      Data inputData = new Data.Builder()
+                          .putString("myUid",      myUid)
+                          .putString("myName",     myName != null ? myName : "")
+                          .putString("chatId",     chatId2)
+                          .putString("partnerUid", partnerUid)
+                          .putString("text",       replyText)
+                          .putInt("notifId",       notifId)
+                          .putBoolean("isGroup",   false)
+                          .build();
+                      OneTimeWorkRequest replyWork = new OneTimeWorkRequest.Builder(
+                              com.callx.app.workers.NotificationReplyWorker.class)
+                          .setInputData(inputData)
+                          .build();
+                      WorkManager.getInstance(context.getApplicationContext()).enqueue(replyWork);
+
+                      // Notification ko "Sent ✓" mein update karo — dismiss mat karo,
+                      // taaki user ko pata chale message gaya
+                      if (nm != null) {
+                          android.app.Notification updatedNotif =
+                              new NotificationCompat.Builder(context,
+                                      Constants.CHANNEL_CALLS_MISSED)
+                                  .setSmallIcon(android.R.drawable.ic_dialog_email)
+                                  .setContentTitle(partnerName != null ? partnerName : "")
+                                  .setContentText("Sent ✓")
+                                  .setPriority(NotificationCompat.PRIORITY_MIN)
+                                  .setAutoCancel(true)
+                                  .build();
+                          nm.notify(notifId, updatedNotif);
+                      }
+                  } else {
+                      // Empty text — sirf dismiss karo
+                      if (nm != null) nm.cancel(notifId);
+                  }
+              } else {
+                  // RemoteInput nahi mila — fallback: ChatActivity kholo
+                  if (nm != null) nm.cancel(notifId);
+                  if (partnerUid != null && !partnerUid.isEmpty()) {
+                      Intent msgOpenIntent = new Intent();
+                      msgOpenIntent.setClassName(context, "com.callx.app.conversation.ChatActivity");
+                      msgOpenIntent.putExtra(Constants.EXTRA_PARTNER_UID,   partnerUid);
+                      msgOpenIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  partnerName);
+                      msgOpenIntent.putExtra("partnerPhoto", partnerPhoto != null ? partnerPhoto : "");
+                      msgOpenIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                      context.startActivity(msgOpenIntent);
+                  }
               }
               pendingResult.finish();
               return;

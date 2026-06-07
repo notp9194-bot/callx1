@@ -19,6 +19,7 @@ import android.os.PowerManager;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.Person;
+import androidx.core.app.RemoteInput;
 import com.callx.app.calls.R;
 import com.callx.app.incoming.IncomingCallActivity;
 import com.callx.app.utils.Constants;
@@ -210,7 +211,11 @@ public class IncomingRingService extends Service {
                 .addAction(R.drawable.ic_phone, "📞 Call Back", callBackPi)
                 .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
 
-            // ── Message button — call nahi karna toh message bhejo ────────
+            // ── Inline Message reply (RemoteInput) ───────────────────────
+            // User notification shade se seedha type karke reply kar sakta hai
+            RemoteInput remoteInput = new RemoteInput.Builder(Constants.KEY_MISSED_CALL_REPLY)
+                .setLabel("Write a message…")
+                .build();
             Intent msgIntent = new Intent(this, NotificationActionReceiver.class)
                 .setAction(Constants.ACTION_MISSED_CALL_MESSAGE)
                 .putExtra(Constants.EXTRA_PARTNER_UID,   savedFromUid)
@@ -220,7 +225,13 @@ public class IncomingRingService extends Service {
             PendingIntent msgPi = PendingIntent.getBroadcast(this,
                 ("msg_" + savedFromUid).hashCode(), msgIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            b.addAction(R.drawable.ic_send, "💬 Message", msgPi);
+            NotificationCompat.Action msgAction =
+                new NotificationCompat.Action.Builder(
+                    R.drawable.ic_send, "💬 Message", msgPi)
+                .addRemoteInput(remoteInput)
+                .setAllowGeneratedReplies(true)
+                .build();
+            b.addAction(msgAction);
 
             // Avatar async download
             final String photoUrl = savedFromPhoto;

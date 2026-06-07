@@ -229,6 +229,7 @@ public class Constants {
 
       // ── Missed call action ────────────────────────────────────────────────
       public static final String ACTION_CALL_BACK           = "com.callx.app.ACTION_CALL_BACK";
+      public static final String KEY_MISSED_CALL_REPLY      = "key_missed_call_reply";
 
       // ── Ongoing call actions (notification shade) ─────────────────────────
       public static final String ACTION_TOGGLE_MIC          = "com.callx.app.ACTION_TOGGLE_MIC";
