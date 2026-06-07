@@ -1348,17 +1348,6 @@ public class ChatActivity extends AppCompatActivity {
             hideMultiSelectBar();
         });
 
-        // Select All
-        android.view.View btnSelectAll = binding.getRoot().findViewById(
-                com.callx.app.chat.R.id.btn_select_all);
-        if (btnSelectAll != null) btnSelectAll.setOnClickListener(v -> {
-            pagingAdapter.selectAll();
-            android.widget.TextView tvCount = binding.getRoot().findViewById(
-                    com.callx.app.chat.R.id.tv_selection_count);
-            if (tvCount != null)
-                tvCount.setText(String.valueOf(pagingAdapter.getSelectedMessages().size()));
-        });
-
         // Forward button
         android.view.View btnFwd = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.btn_selection_forward);
@@ -1367,11 +1356,6 @@ public class ChatActivity extends AppCompatActivity {
         // Delete button — bulk delete all selected messages
         android.view.View btnDel = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.btn_selection_delete);
-        if (btnDel != null) btnDel.setOnLongClickListener(v -> {
-            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
-            if (!sel.isEmpty()) confirmPermanentDelete(sel);
-            return true;
-        });
         if (btnDel != null) btnDel.setOnClickListener(v -> {
             java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
             if (sel.isEmpty()) return;
@@ -1436,28 +1420,6 @@ public class ChatActivity extends AppCompatActivity {
             pagingAdapter.exitMultiSelectMode();
             hideMultiSelectBar();
         });
-    }
-
-    private void confirmPermanentDelete(java.util.List<Message> sel) {
-        int count = sel.size();
-        String msg = count == 1
-            ? "This message will be permanently deleted from your device and Firebase. This cannot be undone."
-            : count + " messages will be permanently deleted from your device and Firebase. This cannot be undone.";
-        new AlertDialog.Builder(this)
-            .setTitle("⚠ Permanent Delete")
-            .setMessage(msg)
-            .setPositiveButton("Delete Permanently", (d, w) -> {
-                for (Message m : sel) {
-                    messagesRef.child(m.id).removeValue();
-                    final String mid = m.id;
-                    ioExecutor.execute(() -> db.messageDao().permanentDelete(mid));
-                }
-                pagingAdapter.exitMultiSelectMode();
-                hideMultiSelectBar();
-                android.widget.Toast.makeText(this, "Permanently deleted", android.widget.Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
     }
 
     private void showMultiSelectBar(int count) {

@@ -740,36 +740,12 @@ public class GroupChatActivity extends AppCompatActivity {
     private void confirmDelete(Message m) {
         new AlertDialog.Builder(this)
                 .setTitle("Delete message?")
-                .setPositiveButton("Delete for everyone", (d, w) -> {
+                .setPositiveButton("Delete", (d, w) -> {
                     groupMessagesRef.child(m.id).child("deleted").setValue(true);
                     groupMessagesRef.child(m.id).child("text").setValue("");
                     ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                 })
-                .setNeutralButton("Delete for me", (d, w) ->
-                    ioExecutor.execute(() -> db.messageDao().softDelete(m.id)))
                 .setNegativeButton("Cancel", null).show();
-    }
-
-    private void confirmPermanentDeleteGroup(java.util.List<Message> sel) {
-        int count = sel.size();
-        String msg = count == 1
-            ? "This message will be permanently deleted from your device and Firebase. This cannot be undone."
-            : count + " messages will be permanently deleted from your device and Firebase. This cannot be undone.";
-        new AlertDialog.Builder(this)
-            .setTitle("⚠ Permanent Delete")
-            .setMessage(msg)
-            .setPositiveButton("Delete Permanently", (d, w) -> {
-                for (Message m : sel) {
-                    groupMessagesRef.child(m.id).removeValue();
-                    final String mid = m.id;
-                    ioExecutor.execute(() -> db.messageDao().permanentDelete(mid));
-                }
-                pagingAdapter.exitMultiSelectMode();
-                hideMultiSelectBar();
-                Toast.makeText(this, "Permanently deleted", Toast.LENGTH_SHORT).show();
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
     }
 
     private void sendReaction(Message m, String emoji) {
@@ -841,19 +817,6 @@ public class GroupChatActivity extends AppCompatActivity {
             hideMultiSelectBar();
         });
 
-        // Select All
-        android.view.View btnSelectAll = binding.getRoot().findViewById(
-                com.callx.app.chat.R.id.btn_select_all);
-        if (btnSelectAll != null) btnSelectAll.setOnClickListener(v -> {
-            pagingAdapter.selectAll();
-            android.view.View selBar = binding.getRoot().findViewById(
-                    com.callx.app.chat.R.id.ll_selection_toolbar);
-            android.widget.TextView tvCount = binding.getRoot().findViewById(
-                    com.callx.app.chat.R.id.tv_selection_count);
-            if (tvCount != null)
-                tvCount.setText(String.valueOf(pagingAdapter.getSelectedMessages().size()));
-        });
-
         android.view.View btnFwd = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.btn_selection_forward);
         if (btnFwd != null) btnFwd.setOnClickListener(v -> forwardSelectedMessages());
@@ -862,42 +825,11 @@ public class GroupChatActivity extends AppCompatActivity {
                 com.callx.app.chat.R.id.btn_selection_delete);
         if (btnDel != null) btnDel.setOnClickListener(v -> {
             java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
-            if (sel.isEmpty()) return;
-            int count = sel.size();
-            String msg = count == 1 ? "Delete this message?" : "Delete " + count + " messages?";
-            new AlertDialog.Builder(this)
-                .setTitle("Delete messages")
-                .setMessage(msg)
-                .setPositiveButton("Delete for everyone", (d, w) -> {
-                    for (com.callx.app.models.Message m : sel) {
-                        groupMessagesRef.child(m.id).child("deleted").setValue(true);
-                        groupMessagesRef.child(m.id).child("text").setValue("");
-                        final String mid = m.id;
-                        ioExecutor.execute(() -> db.messageDao().softDelete(mid));
-                    }
-                    pagingAdapter.exitMultiSelectMode();
-                    hideMultiSelectBar();
-                })
-                .setNeutralButton("Delete for me", (d, w) -> {
-                    for (com.callx.app.models.Message m : sel) {
-                        final String mid = m.id;
-                        ioExecutor.execute(() -> db.messageDao().softDelete(mid));
-                    }
-                    pagingAdapter.exitMultiSelectMode();
-                    hideMultiSelectBar();
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-        });
-
-        // Long-press delete = permanent delete option
-        android.view.View btnDelView = binding.getRoot().findViewById(
-                com.callx.app.chat.R.id.btn_selection_delete);
-        if (btnDelView != null) btnDelView.setOnLongClickListener(v -> {
-            java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
-            if (sel.isEmpty()) return true;
-            confirmPermanentDeleteGroup(sel);
-            return true;
+            if (!sel.isEmpty()) {
+                confirmDelete(sel.get(0));
+                pagingAdapter.exitMultiSelectMode();
+                hideMultiSelectBar();
+            }
         });
 
         android.view.View btnStar = binding.getRoot().findViewById(
@@ -1785,7 +1717,7 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setMessage("All messages will be deleted from your device only. Other members won't be affected.")
                 .setPositiveButton("Clear", (d, w) -> {
                     ioExecutor.execute(() -> db.messageDao().deleteAllForChat(groupId));
-                    com.callx.app.cache.CacheManager.getInstance(this).invalidateMessages(groupId);
+                    com.callx.app.utils.CacheManager.getInstance(this).invalidateMessages(groupId);
                     Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
