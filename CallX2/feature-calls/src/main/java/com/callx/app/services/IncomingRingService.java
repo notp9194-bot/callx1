@@ -28,32 +28,14 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
 
-/**
- * Foreground service that rings on incoming call even from killed state.
- *
- * Feature 2 — BUSY SIGNAL:
- *   Jab yeh service start ho aur CallForegroundService already chal rahi ho
- *   (matlab user already ek call mein hai), toh ring karne ki bajaye Firebase
- *   mein "busy" likh do aur band ho jao. Doosre caller ko auto-missed call
- *   notification milegi.
- *
- * Feature 3 — AUTO CANCEL + MISSED CALL:
- *   Firebase mein activeCalls/{callId}/status watch karo.
- *   Agar caller ne kat diya (cancelled/ended) ya timeout hua toh:
- *     1. Ring notification turant cancel karo
- *     2. Missed call notification dikhao
- *     3. Service band karo
- */
 public class IncomingRingService extends Service {
     private MediaPlayer player;
     private PowerManager.WakeLock wakeLock;
     private final Handler stopHandler = new Handler(Looper.getMainLooper());
 
-    // Firebase listener — caller cancel detect karne ke liye
     private DatabaseReference callStatusRef;
     private ValueEventListener callStatusListener;
 
-    // Call info — missed call notif ke liye store karo
     private String savedCallId;
     private String savedFromUid;
     private String savedFromName;
@@ -71,39 +53,30 @@ public class IncomingRingService extends Service {
         if (fromPhoto == null) fromPhoto = "";
         if (fromThumb == null) fromThumb = "";
 
-        // Save for missed call notification
-        savedCallId   = callId;
-        savedFromUid  = fromUid;
-        savedFromName = fromName;
+        savedCallId    = callId;
+        savedFromUid   = fromUid;
+        savedFromName  = fromName;
         savedFromPhoto = fromPhoto;
-        savedIsVideo  = isVideo;
+        savedIsVideo   = isVideo;
 
-        // ── Feature 2: BUSY SIGNAL ────────────────────────────────────────
+        // BUSY SIGNAL: already in a call
         if (CallForegroundService.isRunning) {
             if (callId != null && !callId.isEmpty()) {
                 try {
                     com.callx.app.utils.FirebaseUtils.db()
-                        .getReference("activeCalls")
-                        .child(callId)
-                        .child("status")
-                        .setValue("busy");
+                        .getReference("activeCalls").child(callId).child("status").setValue("busy");
                 } catch (Exception ignored) {}
             }
             stopSelf();
             return START_NOT_STICKY;
         }
-        // ─────────────────────────────────────────────────────────────────
 
         startForeground(Constants.CALL_RING_NOTIF_ID,
             buildNotification(callId, fromUid, fromName, fromPhoto, fromThumb, isVideo));
         startRingtone();
         acquireWakeLock();
-
-        // ── Feature 3: Watch Firebase — caller cancel detect karo ─────────
         watchCallStatus(callId);
-        // ─────────────────────────────────────────────────────────────────
 
-        // Auto-stop after timeout — missed call bhi dikhao
         stopHandler.postDelayed(() -> {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.cancel(Constants.CALL_RING_NOTIF_ID);
@@ -114,20 +87,11 @@ public class IncomingRingService extends Service {
         return START_NOT_STICKY;
     }
 
-    /**
-     * Firebase mein activeCalls/{callId}/status watch karo.
-     * Agar "cancelled", "ended", "timeout", "busy" aaye toh:
-     *   - Ring notif cancel karo
-     *   - Missed call notif dikhao
-     *   - Service band karo
-     */
     private void watchCallStatus(String callId) {
         if (callId == null || callId.isEmpty()) return;
         try {
             callStatusRef = com.callx.app.utils.FirebaseUtils.db()
-                .getReference("activeCalls")
-                .child(callId)
-                .child("status");
+                .getReference("activeCalls").child(callId).child("status");
 
             callStatusListener = new ValueEventListener() {
                 @Override
@@ -139,7 +103,6 @@ public class IncomingRingService extends Service {
                         case "ended":
                         case "timeout":
                         case "busy":
-                            // Caller ne kat diya ya timeout — ring band karo, missed dikhao
                             stopHandler.removeCallbacksAndMessages(null);
                             NotificationManager nm =
                                 (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -149,7 +112,6 @@ public class IncomingRingService extends Service {
                             break;
                         case "accepted":
                         case "ongoing":
-                            // Callee ne kisi aur device se utha liya — sirf ring band karo
                             stopHandler.removeCallbacksAndMessages(null);
                             NotificationManager nm2 =
                                 (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -163,100 +125,240 @@ public class IncomingRingService extends Service {
                 @Override
                 public void onCancelled(DatabaseError error) {}
             };
-
             callStatusRef.addValueEventListener(callStatusListener);
         } catch (Exception ignored) {}
     }
 
-    /**
-     * Missed call notification — same style jaise CallxMessagingService mein hai.
-     * Background/killed state mein callee ko dikhao.
-     */
+    /** Full 8-feature missed call notification */
     private void showMissedCallNotification() {
         try {
+            final String callerUid   = savedFromUid   != null ? savedFromUid   : "";
+            final String callerName  = savedFromName  != null ? savedFromName  : "Unknown";
+            final String callerPhoto = savedFromPhoto != null ? savedFromPhoto : "";
+            final boolean missedIsVideo = savedIsVideo;
+
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm == null) return;
 
-            // Tap karne par ChatActivity khule
+            // Feature 8: Lock screen privacy
+            boolean appLockOn = false;
+            try {
+                android.content.SharedPreferences lp = getSharedPreferences("app_lock_prefs", MODE_PRIVATE);
+                appLockOn = lp.getBoolean("lock_enabled", false);
+            } catch (Exception ignored) {}
+            int lockVis = appLockOn
+                ? NotificationCompat.VISIBILITY_PRIVATE
+                : NotificationCompat.VISIBILITY_PUBLIC;
+
+            // Feature 5: Grouping — count same-caller missed calls
+            android.content.SharedPreferences countPrefs = getSharedPreferences("callx_missed_counts", MODE_PRIVATE);
+            String countKey = Constants.PREF_MISSED_CALL_COUNT + callerUid;
+            int missedCount = countPrefs.getInt(countKey, 0) + 1;
+            countPrefs.edit().putInt(countKey, missedCount).apply();
+
+            int notifId = ("missed_" + callerUid).hashCode() & 0x7FFFFFFF;
+            String callTypeStr = missedIsVideo ? "video call" : "voice call";
+
+            // Feature 7: BigText expanded content
+            String bigText = missedCount > 1
+                ? missedCount + " missed " + callTypeStr + "s from " + callerName
+                : "Missed " + callTypeStr + " \u2022 just now";
+            String notifTitle = missedCount > 1
+                ? missedCount + " missed calls from " + callerName
+                : (missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed call") + " from " + callerName;
+
+            // Tap -> ChatActivity
             android.content.Intent openIntent = new android.content.Intent();
             openIntent.setClassName(this, "com.callx.app.conversation.ChatActivity");
-            openIntent.putExtra(Constants.EXTRA_PARTNER_UID,  savedFromUid);
-            openIntent.putExtra(Constants.EXTRA_PARTNER_NAME, savedFromName);
-            openIntent.putExtra("partnerPhoto", savedFromPhoto);
+            openIntent.putExtra(Constants.EXTRA_PARTNER_UID,  callerUid);
+            openIntent.putExtra(Constants.EXTRA_PARTNER_NAME, callerName);
+            openIntent.putExtra("partnerPhoto", callerPhoto);
             openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            int notifId = ("missed_" + savedFromUid).hashCode() & 0x7FFFFFFF;
-            PendingIntent openPi = PendingIntent.getActivity(this, notifId, openIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            android.app.PendingIntent openPi = android.app.PendingIntent.getActivity(
+                this, notifId, openIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
-            // Call Back action
-            Intent callBackIntent = new Intent(this, NotificationActionReceiver.class)
+            // Feature 1a: Voice call back
+            android.content.Intent cbIntent = new android.content.Intent(this, NotificationActionReceiver.class)
                 .setAction(Constants.ACTION_CALL_BACK)
-                .putExtra(Constants.EXTRA_PARTNER_UID,   savedFromUid)
-                .putExtra(Constants.EXTRA_PARTNER_NAME,  savedFromName)
-                .putExtra(Constants.EXTRA_PARTNER_PHOTO, savedFromPhoto)
-                .putExtra(Constants.EXTRA_IS_VIDEO,      savedIsVideo)
+                .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
+                .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
+                .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
+                .putExtra(Constants.EXTRA_IS_VIDEO,      false)
                 .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
-            PendingIntent callBackPi = PendingIntent.getBroadcast(this,
-                ("cb_" + savedFromUid).hashCode(), callBackIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            android.app.PendingIntent callBackPi = android.app.PendingIntent.getBroadcast(
+                this, ("cb_" + callerUid).hashCode(), cbIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
-            // ── HUN-FIX: PRIORITY_HIGH → heads-up banner even from background/killed ──
-            NotificationCompat.Builder b = new NotificationCompat.Builder(this,
-                    Constants.CHANNEL_CALLS_MISSED)
-                .setSmallIcon(R.drawable.ic_call_notification)
-                .setContentTitle("Missed call from " + savedFromName)
-                .setContentText("Tap to call back")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)   // HUN-FIX
-                .setAutoCancel(true)
-                .setContentIntent(openPi)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .addAction(R.drawable.ic_phone, "📞 Call Back", callBackPi)
-                .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
+            // Feature 1b: Video call back (only if original was video)
+            android.app.PendingIntent videoCallBackPi = null;
+            if (missedIsVideo) {
+                android.content.Intent vcbIntent = new android.content.Intent(this, NotificationActionReceiver.class)
+                    .setAction(Constants.ACTION_VIDEO_CALL_BACK)
+                    .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
+                    .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
+                    .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
+                    .putExtra(Constants.EXTRA_IS_VIDEO,      true)
+                    .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+                videoCallBackPi = android.app.PendingIntent.getBroadcast(
+                    this, ("vcb_" + callerUid).hashCode(), vcbIntent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+            }
 
-            // ── Inline Message reply (RemoteInput) ───────────────────────────
-            // User notification shade se expand karke seedha type kar sakta hai.
+            // Feature 2: Quick reply chips
+            String[] quickReplies = {
+                "On my way \uD83D\uDE97",
+                "Call you later \uD83D\uDCDE",
+                "In a meeting \uD83E\uDD1D"
+            };
+            String[] quickActionStrs = {
+                Constants.ACTION_QUICK_REPLY_1,
+                Constants.ACTION_QUICK_REPLY_2,
+                Constants.ACTION_QUICK_REPLY_3
+            };
+            NotificationCompat.Action[] qrActions = new NotificationCompat.Action[3];
+            for (int i = 0; i < 3; i++) {
+                android.content.Intent qrIntent = new android.content.Intent(this, NotificationActionReceiver.class)
+                    .setAction(quickActionStrs[i])
+                    .putExtra(Constants.EXTRA_PARTNER_UID,      callerUid)
+                    .putExtra(Constants.EXTRA_PARTNER_NAME,     callerName)
+                    .putExtra(Constants.EXTRA_PARTNER_PHOTO,    callerPhoto)
+                    .putExtra(Constants.EXTRA_QUICK_REPLY_TEXT, quickReplies[i])
+                    .putExtra(Constants.EXTRA_NOTIF_ID,         notifId);
+                android.app.PendingIntent qrPi = android.app.PendingIntent.getBroadcast(
+                    this, ("qr" + i + "_" + callerUid).hashCode(), qrIntent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                qrActions[i] = new NotificationCompat.Action.Builder(
+                    R.drawable.ic_send, quickReplies[i], qrPi).build();
+            }
+
+            // Feature 3: Manual message (RemoteInput)
             RemoteInput remoteInput = new RemoteInput.Builder(Constants.KEY_MISSED_CALL_REPLY)
-                .setLabel("Write a message…")
-                .build();
-            Intent msgIntent = new Intent(this, NotificationActionReceiver.class)
+                .setLabel("Write a message\u2026").build();
+            android.content.Intent msgIntent = new android.content.Intent(this, NotificationActionReceiver.class)
                 .setAction(Constants.ACTION_MISSED_CALL_MESSAGE)
-                .putExtra(Constants.EXTRA_PARTNER_UID,   savedFromUid)
-                .putExtra(Constants.EXTRA_PARTNER_NAME,  savedFromName)
-                .putExtra(Constants.EXTRA_PARTNER_PHOTO, savedFromPhoto)
+                .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
+                .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
+                .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
                 .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
-            // FIX: RemoteInput requires FLAG_MUTABLE — FLAG_IMMUTABLE causes silent drop on API 31+
-            PendingIntent msgPi = PendingIntent.getBroadcast(this,
-                ("msg_" + savedFromUid).hashCode(), msgIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
-            NotificationCompat.Action msgAction =
-                new NotificationCompat.Action.Builder(
-                    R.drawable.ic_send, "💬 Message", msgPi)
+            android.app.PendingIntent msgPi = android.app.PendingIntent.getBroadcast(
+                this, ("mcmsg_" + callerUid).hashCode(), msgIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_MUTABLE);
+            NotificationCompat.Action msgAction = new NotificationCompat.Action.Builder(
+                    R.drawable.ic_send, "\uD83D\uDCAC Message", msgPi)
                 .addRemoteInput(remoteInput)
                 .setAllowGeneratedReplies(true)
                 .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
                 .build();
-            b.addAction(msgAction);
 
-            // FIX-MISSED-RING: Post notification IMMEDIATELY — don't wait for avatar.
-            // Service may be destroyed before avatar download completes → notification never showed.
-            nm.notify(notifId, b.build()); // guaranteed immediate post
+            // Feature 4: Snooze 10 min
+            android.content.Intent snoozeIntent = new android.content.Intent(this, NotificationActionReceiver.class)
+                .setAction(Constants.ACTION_MISSED_CALL_SNOOZE)
+                .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
+                .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
+                .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
+                .putExtra(Constants.EXTRA_IS_VIDEO,      missedIsVideo)
+                .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+            android.app.PendingIntent snoozePi = android.app.PendingIntent.getBroadcast(
+                this, ("snz_" + callerUid).hashCode(), snoozeIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+            NotificationCompat.Action snoozeAction = new NotificationCompat.Action.Builder(
+                R.drawable.ic_timer, "\u23F0 10 min", snoozePi).build();
 
-            // Best-effort avatar update in background thread
-            final String photoUrl = savedFromPhoto;
-            if (!photoUrl.isEmpty()) {
-                new Thread(() -> {
+            int callIcon = missedIsVideo ? R.drawable.ic_video_call : R.drawable.ic_call_notification;
+
+            // Build notification
+            // Collapsed view shows first 3 actions only:
+            //   Video call: [Video][Voice][10 min]  then Message + chips in expanded
+            //   Voice call: [Voice][Message][10 min] then chips in expanded
+            NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
+                .setSmallIcon(callIcon)
+                .setContentTitle(notifTitle)
+                .setContentText(bigText)
+                .setStyle(new NotificationCompat.BigTextStyle()
+                    .bigText(bigText)
+                    .setSummaryText(callTypeStr))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(openPi)
+                .setVisibility(lockVis)
+                .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+                .setGroup(Constants.GROUP_KEY_MISSED_CALLS);
+
+            if (missedIsVideo && videoCallBackPi != null) {
+                b.addAction(R.drawable.ic_video_call, "\uD83D\uDCF9 Video", videoCallBackPi); // 1st
+                b.addAction(R.drawable.ic_phone, "\uD83D\uDCDE Voice", callBackPi);           // 2nd
+                b.addAction(snoozeAction);                                                     // 3rd
+                b.addAction(msgAction);                                                        // expanded
+            } else {
+                b.addAction(R.drawable.ic_phone, "\uD83D\uDCDE Voice", callBackPi);           // 1st
+                b.addAction(msgAction);                                                        // 2nd
+                b.addAction(snoozeAction);                                                     // 3rd
+            }
+            // Feature 2: Quick reply chips (expanded only — 4th+ actions)
+            for (NotificationCompat.Action qra : qrActions) b.addAction(qra);
+
+            nm.notify(notifId, b.build());
+
+            // Feature 5: Group summary (2+ missed calls)
+            if (missedCount > 1) {
+                android.app.Notification summary = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
+                    .setSmallIcon(callIcon)
+                    .setContentTitle("Missed calls")
+                    .setContentText(missedCount + " missed calls from " + callerName)
+                    .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
+                    .setGroupSummary(true)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .build();
+                nm.notify(("summary_missed_" + callerUid).hashCode() & 0x7FFFFFFF, summary);
+            }
+
+            // Feature 6 + avatar: async update with last seen + photo
+            new Thread(() -> {
+                Bitmap avatarBm = null;
+                if (!callerPhoto.isEmpty()) {
                     try {
                         java.net.HttpURLConnection c =
-                            (java.net.HttpURLConnection) new java.net.URL(photoUrl).openConnection();
+                            (java.net.HttpURLConnection) new java.net.URL(callerPhoto).openConnection();
                         c.setDoInput(true); c.connect();
-                        Bitmap bm = BitmapFactory.decodeStream(c.getInputStream());
-                        if (bm != null) {
-                            b.setLargeIcon(bm);
-                            nm.notify(notifId, b.build()); // update with avatar
-                        }
+                        avatarBm = BitmapFactory.decodeStream(c.getInputStream());
                     } catch (Exception ignored2) {}
-                }).start();
-            }
+                }
+                final String[] lastSeenHolder = {null};
+                final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                if (!callerUid.isEmpty()) {
+                    com.callx.app.utils.FirebaseUtils.getUserRef(callerUid)
+                        .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                            @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
+                                try {
+                                    Object online = snap.child("online").getValue();
+                                    Object ls = snap.child("lastSeen").getValue();
+                                    if (Boolean.TRUE.equals(online)) {
+                                        lastSeenHolder[0] = "Online now";
+                                    } else if (ls instanceof Long) {
+                                        long diff = System.currentTimeMillis() - (Long) ls;
+                                        long mins = diff / 60000;
+                                        if (mins < 1) lastSeenHolder[0] = "Last seen just now";
+                                        else if (mins < 60) lastSeenHolder[0] = "Last seen " + mins + " min ago";
+                                        else {
+                                            long hrs = mins / 60;
+                                            lastSeenHolder[0] = hrs < 24
+                                                ? "Last seen " + hrs + "h ago"
+                                                : "Last seen yesterday";
+                                        }
+                                    }
+                                } catch (Exception ignored3) {}
+                                latch.countDown();
+                            }
+                            @Override public void onCancelled(com.google.firebase.database.DatabaseError e) { latch.countDown(); }
+                        });
+                    try { latch.await(4, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored4) {}
+                }
+                if (avatarBm != null) b.setLargeIcon(avatarBm);
+                if (lastSeenHolder[0] != null) b.setSubText(lastSeenHolder[0]);
+                if (avatarBm != null || lastSeenHolder[0] != null) nm.notify(notifId, b.build());
+            }).start();
 
         } catch (Exception ignored) {}
     }
@@ -265,8 +367,8 @@ public class IncomingRingService extends Service {
                                            String fromName, String fromPhoto,
                                            String fromThumb, boolean isVideo) {
         Intent fullIntent = new Intent(this, IncomingCallActivity.class);
-        fullIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-            | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        fullIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
+            | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         fullIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
         fullIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
         fullIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
@@ -291,39 +393,29 @@ public class IncomingRingService extends Service {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         String text = isVideo ? "Incoming video call" : "Incoming voice call";
+        int icon = isVideo ? R.drawable.ic_video_call : R.drawable.ic_call_notification;
 
-        NotificationCompat.Builder b = new NotificationCompat.Builder(
-                this, Constants.CHANNEL_CALLS_INCOMING)
-            .setSmallIcon(R.drawable.ic_call_notification)
+        return new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS)
+            .setSmallIcon(icon)
             .setContentTitle(fromName)
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setTimeoutAfter(Constants.CALL_TIMEOUT_MS)
+            .setContentIntent(fullPi)
             .setFullScreenIntent(fullPi, true)
-            .setContentIntent(fullPi);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Person caller = new Person.Builder()
-                .setName(fromName)
-                .setImportant(true)
-                .build();
-            b.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, declinePi, fullPi));
-        } else {
-            b.addAction(R.drawable.ic_phone_off, "Decline", declinePi)
-             .addAction(R.drawable.ic_phone,     "Accept",  fullPi);
-        }
-        return b.build();
+            .addAction(R.drawable.ic_phone_off, "Decline", declinePi)
+            .addAction(R.drawable.ic_phone, "Answer", fullPi)
+            .build();
     }
 
     private void startRingtone() {
         try {
-            Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-            player  = new MediaPlayer();
-            player.setDataSource(this, uri);
+            Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            player = new MediaPlayer();
+            player.setDataSource(this, ringtoneUri);
             player.setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -337,26 +429,20 @@ public class IncomingRingService extends Service {
     private void acquireWakeLock() {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm == null) return;
-            wakeLock = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "callx:incoming_ring");
-            wakeLock.acquire(Constants.CALL_TIMEOUT_MS + 5_000L);
+            if (pm != null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "callx:ring");
+                wakeLock.acquire(Constants.CALL_TIMEOUT_MS + 5_000L);
+            }
         } catch (Exception ignored) {}
     }
 
     @Override
     public void onDestroy() {
         stopHandler.removeCallbacksAndMessages(null);
-        // Firebase listener remove karo — memory leak nahi hoga
-        try {
-            if (callStatusRef != null && callStatusListener != null)
-                callStatusRef.removeEventListener(callStatusListener);
-        } catch (Exception ignored) {}
-        try { if (player != null) { player.stop(); player.release(); player = null; } }
-        catch (Exception ignored) {}
-        if (wakeLock != null && wakeLock.isHeld()) {
-            try { wakeLock.release(); } catch (Exception ignored) {}
+        if (player != null) { try { player.stop(); player.release(); } catch (Exception ignored) {} player = null; }
+        if (wakeLock != null && wakeLock.isHeld()) { try { wakeLock.release(); } catch (Exception ignored) {} }
+        if (callStatusRef != null && callStatusListener != null) {
+            try { callStatusRef.removeEventListener(callStatusListener); } catch (Exception ignored) {}
         }
         super.onDestroy();
     }
