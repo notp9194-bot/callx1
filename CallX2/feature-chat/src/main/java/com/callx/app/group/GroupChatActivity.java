@@ -1321,11 +1321,7 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         menu.add(0, R.id.menu_starred, 3, "⭐ Starred Messages")
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.action_chat_theme, 4, "🎨 Chat Theme")
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.action_bubble_shape, 5, "💬 Bubble Shape")
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.add(0, R.id.action_typing_style, 6, "✍️ Typing Style")
+        menu.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization")
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         if (isAdmin) {
             menu.add(0, R.id.menu_admin_panel, 4, "👑 Admin Panel")
@@ -1359,10 +1355,7 @@ public class GroupChatActivity extends AppCompatActivity {
         }
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
-        if (id == R.id.action_set_wallpaper) { showWallpaperPicker();    return true; }
-        if (id == R.id.action_chat_theme)   { showThemePicker();        return true; }
-        if (id == R.id.action_bubble_shape) { showBubbleShapePicker();  return true; }
-        if (id == R.id.action_typing_style) { showTypingStylePicker(); return true; }
+        if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
         return super.onOptionsItemSelected(item);
     }
 
@@ -1412,6 +1405,39 @@ public class GroupChatActivity extends AppCompatActivity {
                  .centerCrop()
                  .into(ivWall);
         }
+    }
+
+    // ── Chat Customization submenu ────────────────────────────────────────
+    private void showChatCustomizationMenu() {
+        String[] options = {
+            "🖼️  Wallpaper",
+            "🎨  Chat Theme",
+            "💬  Bubble Shape",
+            "✍️  Typing Style",
+            "🔤  Font Size"
+        };
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎨 Chat Customization")
+            .setItems(options, (dialog, which) -> {
+                switch (which) {
+                    case 0: showWallpaperPicker();   break;
+                    case 1: showThemePicker();       break;
+                    case 2: showBubbleShapePicker(); break;
+                    case 3: showTypingStylePicker(); break;
+                    case 4: showFontSizePicker();    break;
+                }
+            })
+            .show();
+    }
+
+    private void showFontSizePicker() {
+        com.callx.app.chat.ui.MessageFontSizeBottomSheet sheet =
+                com.callx.app.chat.ui.MessageFontSizeBottomSheet.newInstance();
+        sheet.setOnSizeSelectedListener(which -> {
+            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+        });
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.MessageFontSizeBottomSheet.TAG);
     }
 
     // ── Wallpaper Picker ──────────────────────────────────────────────────
