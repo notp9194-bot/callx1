@@ -308,7 +308,17 @@ public class GroupChatActivity extends AppCompatActivity {
 
         binding.btnMoreOptions.setOnClickListener(v -> {
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
-            popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
+            android.view.Menu m = popup.getMenu();
+            m.add(0, R.id.menu_group_info,           0, "ℹ Group Info").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_group_settings,       1, "⚙ Group Settings").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_invite,               2, "🔗 Invite Link").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_starred,              3, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_privacy,       5, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            if (isAdmin) {
+                m.add(0, R.id.menu_admin_panel, 6, "👑 Admin Panel").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+                m.add(0, R.id.menu_rename,      7, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            }
             popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
             popup.show();
         });

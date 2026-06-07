@@ -43,4 +43,8 @@
         android:title="🔒 Security"
         app:showAsAction="never"/>
 
+    <item android:id="@+id/action_chat_privacy"
+        android:title="🛡 Chat Privacy"
+        app:showAsAction="never"/>
+
 </menu>
