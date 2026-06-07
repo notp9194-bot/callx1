@@ -189,13 +189,6 @@ public class NewGroupActivity extends AppCompatActivity {
             .addOnSuccessListener(x -> {
                 for (String uid : allUids) {
                     FirebaseUtils.getUserGroupsRef(uid).child(groupId).setValue(true);
-                    // Write join log entry
-                    java.util.Map<String, Object> log = new java.util.HashMap<>();
-                    log.put("name", nameMap.getOrDefault(uid, "Member"));
-                    log.put("uid", uid);
-                    log.put("action", uid.equals(currentUid) ? "created" : "joined");
-                    log.put("at", System.currentTimeMillis());
-                    FirebaseUtils.getGroupsRef().child(groupId).child("joinLog").push().setValue(log);
                 }
                 Intent i = new Intent(this, GroupChatActivity.class);
                 i.putExtra("groupId",    groupId);

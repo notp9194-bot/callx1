@@ -601,7 +601,7 @@ public class GroupInfoActivity extends AppCompatActivity {
         pd.setMessage("Uploading icon…");
         pd.setCancelable(false);
         pd.show();
-        CloudinaryUploader.upload(this, uri, "callx_groups", "image",
+        CloudinaryUploader.upload(this, uri, "image", "callx_groups",
                 new CloudinaryUploader.UploadCallback() {
                     @Override
                     public void onSuccess(CloudinaryUploader.Result r) {

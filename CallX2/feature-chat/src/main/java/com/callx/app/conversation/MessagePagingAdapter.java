@@ -87,7 +87,6 @@ public class MessagePagingAdapter
     private final SimpleDateFormat dateLabelFmt =
             new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
 
-    private boolean isGroupAdmin = false; // set by GroupChatActivity for admin delete
     private ActionListener actionListener;
     private MediaPlayer player;
     private int playingPos = -1;
@@ -182,10 +181,6 @@ public class MessagePagingAdapter
 
     public void setActionListener(ActionListener l) {
         this.actionListener = l;
-    }
-
-    public void setGroupAdmin(boolean admin) {
-        this.isGroupAdmin = admin;
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -1118,8 +1113,8 @@ public class MessagePagingAdapter
         boolean isOwnMsg = currentUid != null && currentUid.equals(m.senderId);
 
         for (int idx = 0; idx < labels.length; idx++) {
-            // Skip Delete if not own message (unless admin in group)
-            if (labels[idx].contains("Delete") && !isOwnMsg && !isGroupAdmin) continue;
+            // Skip Delete if not own message
+            if (labels[idx].contains("Delete") && !isOwnMsg) continue;
 
             android.widget.TextView tv = new android.widget.TextView(ctx);
             tv.setText(labels[idx]);
@@ -1259,7 +1254,7 @@ public class MessagePagingAdapter
         optList.add(isPinned ? "Unpin" : "Pin");
         optList.add("Forward");
         if (canEdit) optList.add("Edit");
-        if (isOwnMsg || isGroupAdmin) optList.add("Delete");
+        optList.add("Delete");
         String[] options = optList.toArray(new String[0]);
 
         android.app.AlertDialog.Builder builder =
