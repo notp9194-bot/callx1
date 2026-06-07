@@ -2817,6 +2817,13 @@ public class ChatActivity extends AppCompatActivity {
                 com.callx.app.chat.ui.ChatCustomizationBottomSheet.TAG);
     }
 
+    private void showChatSecuritySheet() {
+        com.callx.app.chat.ui.ChatSecurityBottomSheet sheet =
+                com.callx.app.chat.ui.ChatSecurityBottomSheet.newInstance();
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.ChatSecurityBottomSheet.TAG);
+    }
+
     private void showFontSizePicker() {
         com.callx.app.chat.ui.MessageFontSizeBottomSheet sheet =
                 com.callx.app.chat.ui.MessageFontSizeBottomSheet.newInstance();
@@ -2863,6 +2870,7 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
         if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
         if (id == R.id.action_media_links_docs) { openAllMediaLinksDocs(); return true; }
+        if (id == R.id.action_security) { showChatSecuritySheet(); return true; }
         return super.onOptionsItemSelected(item);
     }
 

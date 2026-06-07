@@ -39,4 +39,8 @@
         android:title="📁 Media, Links &amp; Docs"
         app:showAsAction="never"/>
 
+    <item android:id="@+id/action_security"
+        android:title="🔒 Security"
+        app:showAsAction="never"/>
+
 </menu>
