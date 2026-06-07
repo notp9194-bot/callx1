@@ -242,6 +242,23 @@ public class Constants {
       // ── Missed call: reply as message ─────────────────────────────────────
       public static final String ACTION_MISSED_CALL_MESSAGE = "com.callx.app.MISSED_CALL_MESSAGE";
 
+      // ── Missed call: video call back ──────────────────────────────────────
+      public static final String ACTION_VIDEO_CALL_BACK     = "com.callx.app.ACTION_VIDEO_CALL_BACK";
+
+      // ── Missed call: quick reply suggestions ─────────────────────────────
+      public static final String ACTION_QUICK_REPLY_1       = "com.callx.app.QUICK_REPLY_1";
+      public static final String ACTION_QUICK_REPLY_2       = "com.callx.app.QUICK_REPLY_2";
+      public static final String ACTION_QUICK_REPLY_3       = "com.callx.app.QUICK_REPLY_3";
+      public static final String EXTRA_QUICK_REPLY_TEXT     = "extra_quick_reply_text";
+
+      // ── Missed call: snooze (10 min) ──────────────────────────────────────
+      public static final String ACTION_MISSED_CALL_SNOOZE  = "com.callx.app.MISSED_CALL_SNOOZE";
+      public static final long   MISSED_CALL_SNOOZE_MS      = 10 * 60 * 1000L;
+
+      // ── Missed call: notification grouping key ────────────────────────────
+      public static final String GROUP_KEY_MISSED_CALLS     = "callx_missed_calls_group";
+      public static final String PREF_MISSED_CALL_COUNT     = "missed_call_count_";
+
       // ── Ongoing call state extras (shared via broadcast / static field) ───
       public static final String EXTRA_MIC_ON               = "extra_mic_on";
       public static final String EXTRA_CAM_ON               = "extra_cam_on";

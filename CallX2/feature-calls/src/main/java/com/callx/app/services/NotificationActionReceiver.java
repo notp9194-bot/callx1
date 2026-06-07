@@ -131,8 +131,12 @@ public class NotificationActionReceiver extends BroadcastReceiver {
           // ── Call back (missed call) ────────────────────────────────────────
           if (Constants.ACTION_CALL_BACK.equals(action)) {
               if (nm != null) nm.cancel(notifId);
+              // Reset missed call count for this caller
               if (partnerUid != null && !partnerUid.isEmpty()) {
-                  // FIX-3: use actual call type from missed call payload (was hardcoded false)
+                  context.getSharedPreferences("callx_missed_counts", Context.MODE_PRIVATE)
+                      .edit().remove(Constants.PREF_MISSED_CALL_COUNT + partnerUid).apply();
+              }
+              if (partnerUid != null && !partnerUid.isEmpty()) {
                   boolean cbIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
                   String  cbPhoto   = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
                   Intent callIntent = new Intent(context,
@@ -140,11 +144,103 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                   callIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
                   callIntent.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
                   if (cbPhoto != null) callIntent.putExtra("partnerPhoto", cbPhoto);
-                  callIntent.putExtra(Constants.EXTRA_IS_VIDEO, cbIsVideo); // FIX-3
+                  callIntent.putExtra(Constants.EXTRA_IS_VIDEO, cbIsVideo);
                   callIntent.putExtra("isCaller", true);
                   callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
                       Intent.FLAG_ACTIVITY_CLEAR_TOP);
                   context.startActivity(callIntent);
+              }
+              pendingResult.finish();
+              return;
+          }
+
+          // ── FEATURE 1: Video Call Back ────────────────────────────────────
+          if (Constants.ACTION_VIDEO_CALL_BACK.equals(action)) {
+              if (nm != null) nm.cancel(notifId);
+              if (partnerUid != null && !partnerUid.isEmpty()) {
+                  context.getSharedPreferences("callx_missed_counts", Context.MODE_PRIVATE)
+                      .edit().remove(Constants.PREF_MISSED_CALL_COUNT + partnerUid).apply();
+                  String cbPhoto = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
+                  Intent vcIntent = new Intent(context, com.callx.app.call.CallActivity.class);
+                  vcIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
+                  vcIntent.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
+                  if (cbPhoto != null) vcIntent.putExtra("partnerPhoto", cbPhoto);
+                  vcIntent.putExtra(Constants.EXTRA_IS_VIDEO, true); // always video
+                  vcIntent.putExtra("isCaller", true);
+                  vcIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  context.startActivity(vcIntent);
+              }
+              pendingResult.finish();
+              return;
+          }
+
+          // ── FEATURE 2: Quick Reply chips ──────────────────────────────────
+          if (Constants.ACTION_QUICK_REPLY_1.equals(action) ||
+              Constants.ACTION_QUICK_REPLY_2.equals(action) ||
+              Constants.ACTION_QUICK_REPLY_3.equals(action)) {
+              String qrText = intent.getStringExtra(Constants.EXTRA_QUICK_REPLY_TEXT);
+              if (qrText != null && !qrText.isEmpty() &&
+                  partnerUid != null && !partnerUid.isEmpty()) {
+                  String chatId2 = FirebaseUtils.getChatId(myUid, partnerUid);
+                  Data inputData = new Data.Builder()
+                      .putString("myUid",      myUid)
+                      .putString("myName",     myName != null ? myName : "")
+                      .putString("chatId",     chatId2)
+                      .putString("partnerUid", partnerUid)
+                      .putString("text",       qrText)
+                      .putInt("notifId",       notifId)
+                      .putBoolean("isGroup",   false)
+                      .build();
+                  OneTimeWorkRequest replyWork = new OneTimeWorkRequest.Builder(
+                          com.callx.app.workers.NotificationReplyWorker.class)
+                      .setInputData(inputData)
+                      .build();
+                  WorkManager.getInstance(context.getApplicationContext()).enqueue(replyWork);
+              }
+              // Show "Sent ✓" update
+              if (nm != null && partnerName != null) {
+                  android.app.Notification sentNotif =
+                      new NotificationCompat.Builder(context, Constants.CHANNEL_CALLS_MISSED)
+                          .setSmallIcon(android.R.drawable.ic_dialog_email)
+                          .setContentTitle(partnerName)
+                          .setContentText("Sent ✓")
+                          .setPriority(NotificationCompat.PRIORITY_MIN)
+                          .setAutoCancel(true)
+                          .build();
+                  nm.notify(notifId, sentNotif);
+              }
+              pendingResult.finish();
+              return;
+          }
+
+          // ── FEATURE 6: Missed Call Snooze (10 min) ───────────────────────
+          if (Constants.ACTION_MISSED_CALL_SNOOZE.equals(action)) {
+              if (nm != null) nm.cancel(notifId);
+              android.app.AlarmManager am = (android.app.AlarmManager)
+                  context.getSystemService(android.content.Context.ALARM_SERVICE);
+              if (am != null && partnerUid != null) {
+                  // Re-fire missed call notification after 10 min via snooze receiver
+                  boolean snoozeIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
+                  String  snoozePhoto   = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
+                  Intent fireIntent = new Intent(context,
+                      com.callx.app.services.NotificationSnoozeReceiver.class)
+                      .setAction(com.callx.app.services.NotificationSnoozeReceiver.ACTION_SNOOZE_FIRE)
+                      .putExtra(com.callx.app.services.NotificationSnoozeReceiver.EXTRA_NOTIF_ID,     notifId)
+                      .putExtra(com.callx.app.services.NotificationSnoozeReceiver.EXTRA_PARTNER_UID,  partnerUid)
+                      .putExtra(com.callx.app.services.NotificationSnoozeReceiver.EXTRA_PARTNER_NAME, partnerName)
+                      .putExtra(com.callx.app.services.NotificationSnoozeReceiver.EXTRA_MESSAGE,
+                          (snoozeIsVideo ? "📹 " : "📞 ") + "Missed call reminder from " + partnerName)
+                      .putExtra(Constants.EXTRA_IS_VIDEO,      snoozeIsVideo)
+                      .putExtra(Constants.EXTRA_PARTNER_PHOTO, snoozePhoto != null ? snoozePhoto : "");
+                  android.app.PendingIntent firePi = android.app.PendingIntent.getBroadcast(
+                      context, ("snz_fire_" + partnerUid).hashCode(), fireIntent,
+                      android.app.PendingIntent.FLAG_UPDATE_CURRENT |
+                      android.app.PendingIntent.FLAG_IMMUTABLE);
+                  long triggerAt = System.currentTimeMillis() + Constants.MISSED_CALL_SNOOZE_MS;
+                  if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
+                      am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, firePi);
+                  else
+                      am.setExact(android.app.AlarmManager.RTC_WAKEUP, triggerAt, firePi);
               }
               pendingResult.finish();
               return;
