@@ -1,5 +1,6 @@
   package com.callx.app.incoming;
-  import android.app.NotificationManager;
+  import android.app.KeyguardManager;
+import android.app.NotificationManager;
   import android.content.Context;
   import android.animation.ObjectAnimator;
   import android.animation.AnimatorSet;
@@ -48,11 +49,19 @@ import com.callx.app.call.CallActivity;
           binding = ActivityIncomingCallBinding.inflate(getLayoutInflater());
           setContentView(binding.getRoot());
           // FIX: Window flags so screen turns on and shows on lock screen
-          getWindow().addFlags(
-              WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-              | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-              | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-              | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
+          // Lock screen pe call dikhao — Android 8.1+ deprecated flags use nahi karte
+          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+              setShowWhenLocked(true);
+              setTurnScreenOn(true);
+              KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+              if (km != null) km.requestDismissKeyguard(this, null);
+          } else {
+              getWindow().addFlags(
+                  WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                  | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                  | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
+          }
+          getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
           // Read extras — support both new Constants keys and legacy string keys
           callId   = getIntent().getStringExtra(Constants.EXTRA_CALL_ID);
           fromUid  = getIntent().getStringExtra(Constants.EXTRA_PARTNER_UID);
