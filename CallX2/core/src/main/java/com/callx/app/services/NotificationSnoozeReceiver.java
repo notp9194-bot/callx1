@@ -126,6 +126,11 @@ public class NotificationSnoozeReceiver extends BroadcastReceiver {
     }
 
     // ── Missed call notification reshow (full — with call-back actions) ──
+    // NOTE: Uses string-based Intents (setClassName / setAction only) to avoid
+    // circular dependency — core cannot reference feature-calls classes directly.
+    private static final String NAR_CLASS =
+        "com.callx.app.services.NotificationActionReceiver";
+
     private void reshowMissedCallNotification(Context ctx, int notifId,
                                                String callerName, String callerUid,
                                                String callerPhoto, boolean isVideo) {
@@ -140,14 +145,14 @@ public class NotificationSnoozeReceiver extends BroadcastReceiver {
         PendingIntent openPi = PendingIntent.getActivity(ctx, notifId, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Voice call back
-        Intent cbIntent = new Intent(ctx, com.callx.app.services.NotificationActionReceiver.class)
-            .setAction(Constants.ACTION_CALL_BACK)
-            .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid != null ? callerUid : "")
-            .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
-            .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
-            .putExtra(Constants.EXTRA_IS_VIDEO,      false)
-            .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+        // Voice call back — string-based, no class import needed
+        Intent cbIntent = new Intent(Constants.ACTION_CALL_BACK);
+        cbIntent.setClassName(ctx, NAR_CLASS);
+        cbIntent.putExtra(Constants.EXTRA_PARTNER_UID,   callerUid != null ? callerUid : "");
+        cbIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  callerName);
+        cbIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto);
+        cbIntent.putExtra(Constants.EXTRA_IS_VIDEO,      false);
+        cbIntent.putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
         PendingIntent callBackPi = PendingIntent.getBroadcast(ctx,
             ("snz_cb_" + callerUid).hashCode(), cbIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -155,13 +160,13 @@ public class NotificationSnoozeReceiver extends BroadcastReceiver {
         // Video call back (only for video)
         PendingIntent videoCallBackPi = null;
         if (isVideo) {
-            Intent vcbIntent = new Intent(ctx, com.callx.app.services.NotificationActionReceiver.class)
-                .setAction(Constants.ACTION_VIDEO_CALL_BACK)
-                .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid != null ? callerUid : "")
-                .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
-                .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
-                .putExtra(Constants.EXTRA_IS_VIDEO,      true)
-                .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+            Intent vcbIntent = new Intent(Constants.ACTION_VIDEO_CALL_BACK);
+            vcbIntent.setClassName(ctx, NAR_CLASS);
+            vcbIntent.putExtra(Constants.EXTRA_PARTNER_UID,   callerUid != null ? callerUid : "");
+            vcbIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  callerName);
+            vcbIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto);
+            vcbIntent.putExtra(Constants.EXTRA_IS_VIDEO,      true);
+            vcbIntent.putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
             videoCallBackPi = PendingIntent.getBroadcast(ctx,
                 ("snz_vcb_" + callerUid).hashCode(), vcbIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -172,12 +177,12 @@ public class NotificationSnoozeReceiver extends BroadcastReceiver {
                 Constants.KEY_MISSED_CALL_REPLY)
             .setLabel("Write a message…")
             .build();
-        Intent msgIntent = new Intent(ctx, com.callx.app.services.NotificationActionReceiver.class)
-            .setAction(Constants.ACTION_MISSED_CALL_MESSAGE)
-            .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid != null ? callerUid : "")
-            .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
-            .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
-            .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
+        Intent msgIntent = new Intent(Constants.ACTION_MISSED_CALL_MESSAGE);
+        msgIntent.setClassName(ctx, NAR_CLASS);
+        msgIntent.putExtra(Constants.EXTRA_PARTNER_UID,   callerUid != null ? callerUid : "");
+        msgIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  callerName);
+        msgIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto);
+        msgIntent.putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
         PendingIntent msgPi = PendingIntent.getBroadcast(ctx,
             ("snz_msg_" + callerUid).hashCode(), msgIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
