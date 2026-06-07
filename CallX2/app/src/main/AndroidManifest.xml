@@ -656,6 +656,8 @@
                   <action android:name="com.callx.app.SNOOZE_8H"/>
                   <action android:name="com.callx.app.SNOOZE_24H"/>
                   <action android:name="com.callx.app.SNOOZE_FIRE"/>
+                  <!-- Missed call snooze refire (10 min) -->
+                  <action android:name="com.callx.app.MISSED_CALL_SNOOZE_FIRE"/>
               </intent-filter>
           </receiver>
 

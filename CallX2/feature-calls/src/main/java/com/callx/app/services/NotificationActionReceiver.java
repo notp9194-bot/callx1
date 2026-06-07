@@ -216,31 +216,23 @@ public class NotificationActionReceiver extends BroadcastReceiver {
           // ── FEATURE 6: Missed Call Snooze (10 min) ───────────────────────
           if (Constants.ACTION_MISSED_CALL_SNOOZE.equals(action)) {
               if (nm != null) nm.cancel(notifId);
-              android.app.AlarmManager am = (android.app.AlarmManager)
-                  context.getSystemService(android.content.Context.ALARM_SERVICE);
-              if (am != null && partnerUid != null) {
-                  // Re-fire missed call notification after 10 min via snooze receiver
+              if (partnerUid != null && !partnerUid.isEmpty()) {
                   boolean snoozeIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
                   String  snoozePhoto   = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
-                  Intent fireIntent = new Intent(context,
-                      com.callx.app.services.NotificationSnoozeReceiver.class)
-                      .setAction(com.callx.app.services.NotificationSnoozeReceiver.ACTION_SNOOZE_FIRE)
-                      .putExtra(com.callx.app.services.NotificationSnoozeReceiver.EXTRA_NOTIF_ID,     notifId)
-                      .putExtra(com.callx.app.services.NotificationSnoozeReceiver.EXTRA_PARTNER_UID,  partnerUid)
-                      .putExtra(com.callx.app.services.NotificationSnoozeReceiver.EXTRA_PARTNER_NAME, partnerName)
-                      .putExtra(com.callx.app.services.NotificationSnoozeReceiver.EXTRA_MESSAGE,
-                          (snoozeIsVideo ? "📹 " : "📞 ") + "Missed call reminder from " + partnerName)
-                      .putExtra(Constants.EXTRA_IS_VIDEO,      snoozeIsVideo)
-                      .putExtra(Constants.EXTRA_PARTNER_PHOTO, snoozePhoto != null ? snoozePhoto : "");
-                  android.app.PendingIntent firePi = android.app.PendingIntent.getBroadcast(
-                      context, ("snz_fire_" + partnerUid).hashCode(), fireIntent,
-                      android.app.PendingIntent.FLAG_UPDATE_CURRENT |
-                      android.app.PendingIntent.FLAG_IMMUTABLE);
-                  long triggerAt = System.currentTimeMillis() + Constants.MISSED_CALL_SNOOZE_MS;
-                  if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
-                      am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, firePi);
-                  else
-                      am.setExact(android.app.AlarmManager.RTC_WAKEUP, triggerAt, firePi);
+                  // Use MISSED_CALL_SNOOZE_FIRE so snooze receiver reshows full missed call notif
+                  android.app.PendingIntent firePi =
+                      com.callx.app.services.NotificationSnoozeReceiver.missedCallSnoozePi(
+                          context, notifId, partnerUid, partnerName,
+                          snoozePhoto != null ? snoozePhoto : "", snoozeIsVideo);
+                  android.app.AlarmManager am = (android.app.AlarmManager)
+                      context.getSystemService(android.content.Context.ALARM_SERVICE);
+                  if (am != null) {
+                      long triggerAt = System.currentTimeMillis() + Constants.MISSED_CALL_SNOOZE_MS;
+                      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
+                          am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, firePi);
+                      else
+                          am.setExact(android.app.AlarmManager.RTC_WAKEUP, triggerAt, firePi);
+                  }
               }
               pendingResult.finish();
               return;
