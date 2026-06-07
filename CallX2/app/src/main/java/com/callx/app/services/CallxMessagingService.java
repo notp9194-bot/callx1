@@ -341,7 +341,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
           if (_callerPhoto == null || _callerPhoto.isEmpty()) _callerPhoto = safeGet(data, "fromPhoto");
           // FIX-3: read isVideo from missed call payload so Call Back uses correct media type
           final boolean missedIsVideo = "true".equalsIgnoreCase(safeGet(data, "isVideo"));
-          if (_callerName == null) return;
+          // FIX: callerName null hone par "Unknown" use karo — return mat karo
+          if (_callerName == null || _callerName.isEmpty()) _callerName = "Unknown";
 
           // Lambda ke liye final copies — reassigned vars lambda me use nahi ho sakti
           final String callerUid   = _callerUid   != null ? _callerUid   : "";
@@ -374,23 +375,49 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .setAction(com.callx.app.utils.Constants.ACTION_CALL_BACK)
               .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_UID,   callerUid)
               .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_NAME,  callerName)
-              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_PHOTO, callerPhoto) // FIX-3
-              .putExtra(com.callx.app.utils.Constants.EXTRA_IS_VIDEO,      missedIsVideo) // FIX-3
+              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_IS_VIDEO,      missedIsVideo)
               .putExtra(com.callx.app.utils.Constants.EXTRA_NOTIF_ID, notifId);
           android.app.PendingIntent callBackPi = android.app.PendingIntent.getBroadcast(
               this, ("cb_" + callerUid).hashCode(), callBackIntent,
               android.app.PendingIntent.FLAG_UPDATE_CURRENT |
               android.app.PendingIntent.FLAG_IMMUTABLE);
 
+          // MESSAGE inline reply action
+          android.content.Intent msgIntent = new android.content.Intent(this,
+              com.callx.app.services.NotificationActionReceiver.class)
+              .setAction(com.callx.app.utils.Constants.ACTION_MISSED_CALL_MESSAGE)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_UID,   callerUid)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_NAME,  callerName)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_IS_VIDEO,      missedIsVideo)
+              .putExtra(com.callx.app.utils.Constants.EXTRA_NOTIF_ID,      notifId);
+          android.app.PendingIntent msgPi = android.app.PendingIntent.getBroadcast(
+              this, ("msg_" + callerUid).hashCode(), msgIntent,
+              android.app.PendingIntent.FLAG_UPDATE_CURRENT |
+              android.app.PendingIntent.FLAG_IMMUTABLE);
+          androidx.core.app.RemoteInput remoteInput =
+              new androidx.core.app.RemoteInput.Builder(
+                  com.callx.app.utils.Constants.KEY_MISSED_CALL_REPLY)
+              .setLabel("Write a message…")
+              .build();
+          androidx.core.app.NotificationCompat.Action msgAction =
+              new androidx.core.app.NotificationCompat.Action.Builder(
+                  R.drawable.ic_send, "💬 Message", msgPi)
+              .addRemoteInput(remoteInput)
+              .setAllowGeneratedReplies(true)
+              .build();
+
           NotificationCompat.Builder b = new NotificationCompat.Builder(this,
-                  com.callx.app.utils.Constants.CHANNEL_CALLS_MISSED) // BUG-4 FIX: dedicated missed-call channel
+                  com.callx.app.utils.Constants.CHANNEL_CALLS_MISSED)
               .setSmallIcon(R.drawable.ic_call_notification)
               .setContentTitle("Missed call from " + callerName)
               .setContentText("Tap to call back")
-              .setPriority(NotificationCompat.PRIORITY_DEFAULT)   // BUG-4 FIX: HIGH nahi — ringtone nahi chahiye
+              .setPriority(NotificationCompat.PRIORITY_DEFAULT)
               .setAutoCancel(true)
               .setContentIntent(openPi)
-              .addAction(R.drawable.ic_call_answer, "📞 Call Back", callBackPi)
+              .addAction(R.drawable.ic_phone, "📞 Call Back", callBackPi)
+              .addAction(msgAction)
               .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
 
           // Download avatar async — final vars lambda me safely use ho sakti hain
