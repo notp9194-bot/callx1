@@ -1717,7 +1717,7 @@ public class GroupChatActivity extends AppCompatActivity {
                 .setMessage("All messages will be deleted from your device only. Other members won't be affected.")
                 .setPositiveButton("Clear", (d, w) -> {
                     ioExecutor.execute(() -> db.messageDao().deleteAllForChat(groupId));
-                    com.callx.app.utils.CacheManager.getInstance(this).invalidateMessages(groupId);
+                    com.callx.app.cache.CacheManager.getInstance(this).invalidateMessages(groupId);
                     Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
