@@ -522,19 +522,23 @@ public class CallxMessagingService extends FirebaseMessagingService {
               .setContentIntent(openPi)
               .setVisibility(lockScreenVis)
               .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
-              // Grouping
-              .setGroup(com.callx.app.utils.Constants.GROUP_KEY_MISSED_CALLS)
-              // Actions: voice call back always shown
-              .addAction(R.drawable.ic_phone, "📞 Voice", callBackPi)
-              .addAction(msgAction)
-              .addAction(snoozeAction);
+              // ACTION ORDER: Android collapsed view shows only first 3 actions.
+              // Video call: [📹 Video][📞 Voice][⏰ 10 min] then Message + chips in expanded
+              // Voice call: [📞 Voice][💬 Message][⏰ 10 min] then chips in expanded
+              .setGroup(com.callx.app.utils.Constants.GROUP_KEY_MISSED_CALLS);
 
-          // Video call back button — sirf agar original call video thi
           if (missedIsVideo && videoCallBackPi != null) {
               b.addAction(R.drawable.ic_video_call, "📹 Video", videoCallBackPi);
+              b.addAction(R.drawable.ic_phone, "📞 Voice", callBackPi);
+              b.addAction(snoozeAction);
+              b.addAction(msgAction); // expanded only for video
+          } else {
+              b.addAction(R.drawable.ic_phone, "📞 Voice", callBackPi);
+              b.addAction(msgAction);
+              b.addAction(snoozeAction);
           }
 
-          // Quick reply chips — expanded view mein dikhenge
+          // Quick reply chips — 4th+ actions, visible only in expanded view
           for (NotificationCompat.Action qra : quickReplyActions) {
               b.addAction(qra);
           }
