@@ -1511,8 +1511,11 @@ public class ChatActivity extends AppCompatActivity {
     private void markRead(Message m) {
         if (m == null || m.id == null) return;
         // Only mark received messages (not our own), and skip if already read
-        // — avoids hammering Firebase with redundant writes on every bind
         if (!currentUid.equals(m.senderId) && !"read".equals(m.status)) {
+            // Check OUR own readReceipts setting — agar off hai toh "read" mat bhejo
+            com.callx.app.utils.SecurityManager secMgr =
+                new com.callx.app.utils.SecurityManager(this);
+            if (!secMgr.isReadReceiptsEnabled()) return;
             messagesRef.child(m.id).child("status").setValue("read");
             ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "read"));
         }
@@ -1569,14 +1572,34 @@ public class ChatActivity extends AppCompatActivity {
         if (partnerUid == null || partnerUid.isEmpty()) return;
         onlineListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
+                if (binding.tvStatus == null) return;
+
+                // ── Privacy checks ────────────────────────────────────────
+                // Partner ka ghost mode check — ghost ON hai toh online/lastSeen bilkul mat dikhao
+                Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
+                if (Boolean.TRUE.equals(partnerGhost)) {
+                    binding.tvStatus.setVisibility(View.GONE);
+                    return;
+                }
+
+                // Partner ka lastSeenVisibility check
+                String lastSeenVis = s.child("privacy").child("lastSeenVisibility").getValue(String.class);
+                // "Nobody" = kisi ko bhi mat dikhao
+                boolean hideLastSeen = com.callx.app.utils.SecurityManager.VIS_NOBODY.equals(lastSeenVis);
+
                 Boolean online  = s.child("online").getValue(Boolean.class);
                 Long lastSeen   = s.child("lastSeen").getValue(Long.class);
-                if (binding.tvStatus == null) return;
 
                 String statusText;
                 if (Boolean.TRUE.equals(online)) {
-                    statusText = "online";
-                } else if (lastSeen != null && lastSeen > 0) {
+                    // Incognito check — incognito ON hai toh "online" mat dikhao
+                    Boolean partnerIncognito = s.child("privacy").child("incognito").getValue(Boolean.class);
+                    if (Boolean.TRUE.equals(partnerIncognito)) {
+                        statusText = "";
+                    } else {
+                        statusText = "online";
+                    }
+                } else if (!hideLastSeen && lastSeen != null && lastSeen > 0) {
                     statusText = formatLastSeenRelative(lastSeen);
                 } else {
                     statusText = "";

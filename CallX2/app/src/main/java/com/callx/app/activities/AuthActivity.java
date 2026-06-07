@@ -713,6 +713,8 @@ public class AuthActivity extends AppCompatActivity {
     private void goToMain() {
         // Mark user online immediately after login
         com.callx.app.utils.PresenceManager.getInstance().onLogin();
+        // Sync privacy settings to Firebase on login
+        try { new com.callx.app.utils.SecurityManager(this).syncAllPrivacyToFirebase(); } catch (Exception ignored) {}
         startActivity(new Intent(this, MainActivity.class));
         finish();
     }

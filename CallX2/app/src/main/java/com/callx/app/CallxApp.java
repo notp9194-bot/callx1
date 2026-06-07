@@ -86,6 +86,13 @@ public class CallxApp extends Application {
         // Activity lifecycle + AppLock wiring — must be main thread
         registerForegroundTracking();
 
+        // Sync privacy settings to Firebase (if user already logged in)
+        try {
+            if (com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null) {
+                new com.callx.app.utils.SecurityManager(this).syncAllPrivacyToFirebase();
+            }
+        } catch (Exception ignored) {}
+
         // Domain verification check — async internally, safe on main thread
         checkAndRequestDomainVerification();
 

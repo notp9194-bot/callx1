@@ -13,6 +13,11 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.database.DatabaseReference;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Central security utility manager.
@@ -79,24 +84,45 @@ public class SecurityManager {
     // ── Ghost / Incognito ─────────────────────────────────────────────────
 
     public boolean isGhostMode()        { return prefs.getBoolean(KEY_GHOST_MODE, false); }
-    public void setGhostMode(boolean v) { prefs.edit().putBoolean(KEY_GHOST_MODE, v).apply(); }
+    public void setGhostMode(boolean v) {
+        prefs.edit().putBoolean(KEY_GHOST_MODE, v).apply();
+        pushPrivacy("ghost", v);
+        if (v) {
+            // Ghost overrides online presence — push online=false so others see nothing
+            pushPresenceOverride(false);
+        } else {
+            pushPresenceOverride(true);
+        }
+    }
 
     public boolean isIncognitoMode()        { return prefs.getBoolean(KEY_INCOGNITO_MODE, false); }
-    public void setIncognitoMode(boolean v) { prefs.edit().putBoolean(KEY_INCOGNITO_MODE, v).apply(); }
+    public void setIncognitoMode(boolean v) {
+        prefs.edit().putBoolean(KEY_INCOGNITO_MODE, v).apply();
+        pushPrivacy("incognito", v);
+    }
 
     // ── Privacy settings ──────────────────────────────────────────────────
 
     public boolean isReadReceiptsEnabled()        { return prefs.getBoolean(KEY_READ_RECEIPTS, true); }
-    public void setReadReceipts(boolean v)        { prefs.edit().putBoolean(KEY_READ_RECEIPTS, v).apply(); }
+    public void setReadReceipts(boolean v) {
+        prefs.edit().putBoolean(KEY_READ_RECEIPTS, v).apply();
+        pushPrivacy("readReceipts", v);
+    }
 
     public boolean isScreenshotLockEnabled()      { return prefs.getBoolean(KEY_SCREENSHOT_LOCK, false); }
     public void setScreenshotLock(boolean v)      { prefs.edit().putBoolean(KEY_SCREENSHOT_LOCK, v).apply(); }
 
     public String getLastSeenVisibility()         { return prefs.getString(KEY_LAST_SEEN, VIS_EVERYONE); }
-    public void setLastSeenVisibility(String v)   { prefs.edit().putString(KEY_LAST_SEEN, v).apply(); }
+    public void setLastSeenVisibility(String v) {
+        prefs.edit().putString(KEY_LAST_SEEN, v).apply();
+        pushPrivacy("lastSeenVisibility", v);
+    }
 
     public String getProfilePhotoVisibility()     { return prefs.getString(KEY_PROFILE_PHOTO, VIS_EVERYONE); }
-    public void setProfilePhotoVisibility(String v){ prefs.edit().putString(KEY_PROFILE_PHOTO, v).apply(); }
+    public void setProfilePhotoVisibility(String v) {
+        prefs.edit().putString(KEY_PROFILE_PHOTO, v).apply();
+        pushPrivacy("profilePhotoVisibility", v);
+    }
 
     public String getStatusPrivacy()              { return prefs.getString(KEY_STATUS_PRIVACY, VIS_EVERYONE); }
     public void setStatusPrivacy(String v)        { prefs.edit().putString(KEY_STATUS_PRIVACY, v).apply(); }
@@ -215,6 +241,49 @@ public class SecurityManager {
 
     public void clearLoginHistory() {
         prefs.edit().putString(KEY_LOGIN_LOG, "[]").apply();
+    }
+
+
+    // ── Firebase privacy sync ─────────────────────────────────────────────
+
+    /** Push a single privacy key-value to users/{uid}/privacy/ */
+    private void pushPrivacy(String key, Object value) {
+        DatabaseReference ref = getPrivacyRef();
+        if (ref == null) return;
+        ref.child(key).setValue(value);
+    }
+
+    /**
+     * Sync all local privacy settings to Firebase in one shot.
+     * Call on app startup / login to ensure Firebase is in sync with local prefs.
+     */
+    public void syncAllPrivacyToFirebase() {
+        DatabaseReference ref = getPrivacyRef();
+        if (ref == null) return;
+        Map<String, Object> map = new HashMap<>();
+        map.put("readReceipts",           isReadReceiptsEnabled());
+        map.put("lastSeenVisibility",     getLastSeenVisibility());
+        map.put("profilePhotoVisibility", getProfilePhotoVisibility());
+        map.put("incognito",              isIncognitoMode());
+        map.put("ghost",                  isGhostMode());
+        ref.updateChildren(map);
+    }
+
+    /** Override online presence (used by ghost mode) */
+    private void pushPresenceOverride(boolean online) {
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null) return;
+        FirebaseUtils.getUserRef(user.getUid()).child("online").setValue(online);
+    }
+
+    private DatabaseReference getPrivacyRef() {
+        try {
+            FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+            if (user == null) return null;
+            return FirebaseUtils.getUserRef(user.getUid()).child("privacy");
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ── Crypto helpers ────────────────────────────────────────────────────
