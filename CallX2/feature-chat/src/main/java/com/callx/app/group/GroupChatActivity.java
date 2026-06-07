@@ -1030,11 +1030,26 @@ public class GroupChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     private void checkAdminStatus() {
+        // Primary: members/{uid}/role (written by NewGroupActivity)
         FirebaseUtils.getGroupMembersRef(groupId).child(currentUid).child("role")
                 .addValueEventListener(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot s) {
-                        isAdmin = "admin".equals(s.getValue(String.class));
-                        invalidateOptionsMenu();
+                        String role = s.getValue(String.class);
+                        if (role != null) {
+                            isAdmin = "admin".equals(role);
+                            invalidateOptionsMenu();
+                        } else {
+                            // Fallback for old groups: groups/{groupId}/admins/{uid}
+                            FirebaseUtils.getGroupsRef().child(groupId)
+                                    .child("admins").child(currentUid)
+                                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                                        @Override public void onDataChange(@NonNull DataSnapshot a) {
+                                            isAdmin = Boolean.TRUE.equals(a.getValue(Boolean.class));
+                                            invalidateOptionsMenu();
+                                        }
+                                        @Override public void onCancelled(@NonNull DatabaseError e) {}
+                                    });
+                        }
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {}
                 });
