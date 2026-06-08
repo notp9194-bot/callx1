@@ -35,6 +35,10 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
+import android.graphics.LinearGradient;
+import android.graphics.Shader;
+import android.graphics.RectF;
+import android.widget.RemoteViews;
 
 public class IncomingRingService extends Service {
     private MediaPlayer player;
@@ -52,6 +56,20 @@ public class IncomingRingService extends Service {
 
     // Brand color: #5B5BF6 (from colors.xml)
     private static final int BRAND_COLOR = 0xFF5B5BF6;
+
+    // ── Colour palette — per call type ────────────────────────────────────
+    // Feature 2: setColor() per type — tints small icon + action buttons (API 31+)
+    private static final int COLOR_VOICE_MISSED    = 0xFF6C63FF; // purple  — voice
+    private static final int COLOR_VIDEO_MISSED    = 0xFFFF6B35; // orange  — video
+    private static final int COLOR_MULTI_MISSED    = 0xFFEF4444; // red     — 2+ callers
+    // Avatar ring gradient colours (Feature 1)
+    private static final int RING_VOICE_START      = 0xFF6C63FF; // purple
+    private static final int RING_VOICE_END        = 0xFFA855F7; // violet
+    private static final int RING_VIDEO_START      = 0xFFF97316; // orange
+    private static final int RING_VIDEO_END        = 0xFFEF4444; // red
+    private static final int RING_MULTI_START      = 0xFFEF4444; // red
+    private static final int RING_MULTI_END        = 0xFFEC4899; // pink
+    private static final int RING_STROKE_DP        = 4;          // ring thickness
 
     // Custom missed-call vibration: 2 short pulses (distinct from ring)
     private static final long[] MISSED_VIBRATE = { 0, 300, 200, 300 };
@@ -325,53 +343,115 @@ public class IncomingRingService extends Service {
                 this, ("hu_" + callerUid).hashCode() & 0x7FFFFFFF, headsUpIntent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
+            // ── Feature 2: Per-type accent colour ─────────────────────────────
+            int accentColor;
+            if (missedCount > 1)       accentColor = COLOR_MULTI_MISSED;
+            else if (missedIsVideo)    accentColor = COLOR_VIDEO_MISSED;
+            else                       accentColor = COLOR_VOICE_MISSED;
+
+            // ── Feature 3: MessagingStyle — modern conversation bubble look ──
+            androidx.core.app.Person callerPerson = new androidx.core.app.Person.Builder()
+                .setName(callerName)
+                .build();  // avatar set later after bitmap loads (re-notify)
+            NotificationCompat.MessagingStyle messagingStyle =
+                new NotificationCompat.MessagingStyle(callerPerson)
+                    .setConversationTitle(notifTitle)
+                    .addMessage(bigText, System.currentTimeMillis(), callerPerson);
+
+            // ── Feature 4: Custom RemoteViews (colorful gradient bg) ─────────
+            // Pick bg drawable based on call type
+            int bgDrawable = missedIsVideo
+                ? R.drawable.bg_notif_missed_video
+                : R.drawable.bg_notif_missed_call;
+            RemoteViews customView = null;
+            try {
+                customView = new RemoteViews(getPackageName(),
+                    R.layout.notification_missed_call);
+                customView.setTextViewText(R.id.notif_caller_name, callerName);
+                customView.setTextViewText(R.id.notif_call_type,
+                    missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed voice call");
+                customView.setTextViewText(R.id.notif_time, missedAt);
+                // Show miss count line if > 1
+                if (missedCount > 1) {
+                    customView.setViewVisibility(R.id.notif_miss_count, android.view.View.VISIBLE);
+                    customView.setTextViewText(R.id.notif_miss_count,
+                        missedCount + " missed calls");
+                } else {
+                    customView.setViewVisibility(R.id.notif_miss_count, android.view.View.GONE);
+                }
+                // Avatar placeholder (will be updated when bitmap loads)
+                customView.setImageViewResource(R.id.notif_avatar,
+                    missedIsVideo ? R.drawable.ic_video_orange : R.drawable.ic_phone_green);
+            } catch (Exception rvEx) {
+                customView = null; // fallback to standard style
+            }
+
+            // ── Feature 5: Colored action button icons ───────────────────────
+            // Voice callback = green phone, video callback = orange camera,
+            // message = cyan chat, snooze = yellow clock
+            NotificationCompat.Action voiceAction = new NotificationCompat.Action.Builder(
+                    R.drawable.ic_phone_green, "\uD83D\uDCDE Voice", callBackPi).build();
+
             // ── Build notification ────────────────────────────────────────────
             // 3 actions max (Android hard limit)
-            // Video: [📹 Video][📞 Voice][⏰ 10 min]  — 💬 chips inside Message tap
-            // Voice: [📞 Voice][💬 Message][⏰ 10 min] — chips inside Message tap
             NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
                 .setSmallIcon(callIcon)
-                .setColor(BRAND_COLOR)                          // ← brand color on icon + actions
-                .setColorized(false)                            // tinted icon only, not full bg
+                .setColor(accentColor)                   // Feature 2: per-type colour
+                .setColorized(false)
                 .setContentTitle(notifTitle)
                 .setContentText(bigText)
-                .setStyle(new NotificationCompat.BigTextStyle()
-                    .bigText(bigText)
-                    .setSummaryText(callTypeStr))
+                .setStyle(messagingStyle)                // Feature 3: MessagingStyle
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(openPi)
-                .setFullScreenIntent(headsUpPi, false)          // ← heads-up banner (false = don't force full screen)
+                .setFullScreenIntent(headsUpPi, false)
                 .setVisibility(lockVis)
                 .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
                 .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
-                .setNumber(totalBadge)                          // ← app icon badge count
-                .setSubText("Just missed");
+                .setNumber(totalBadge)
+                .setSubText(missedCount > 1 ? missedCount + " missed" : "Just missed");
 
-            // DND: if active, suppress sound and vibration in notification
-            if (isDndActive) {
-                b.setSilent(true);
+            // Feature 4: Apply custom RemoteViews if built successfully
+            if (customView != null) {
+                b.setCustomBigContentView(customView);
             }
 
+            // DND: suppress sound and vibration
+            if (isDndActive) b.setSilent(true);
+
             if (missedIsVideo && videoCallBackPi != null) {
-                b.addAction(R.drawable.ic_video_call, "\uD83D\uDCF9 Video", videoCallBackPi); // 1st
-                b.addAction(R.drawable.ic_phone, "\uD83D\uDCDE Voice", callBackPi);           // 2nd
-                b.addAction(snoozeAction);                                                     // 3rd
-                b.addAction(msgAction);                                                        // chips inside
+                // Feature 5: orange video icon + green voice icon
+                NotificationCompat.Action videoAction = new NotificationCompat.Action.Builder(
+                    R.drawable.ic_video_orange, "\uD83D\uDCF9 Video", videoCallBackPi).build();
+                b.addAction(videoAction);        // 1st
+                b.addAction(voiceAction);        // 2nd
+                b.addAction(new NotificationCompat.Action.Builder(
+                    R.drawable.ic_snooze_yellow, "\u23F0 Snooze", snoozePi).build()); // 3rd
+                b.addAction(msgAction);          // chips inside
             } else {
-                b.addAction(R.drawable.ic_phone, "\uD83D\uDCDE Voice", callBackPi);           // 1st
-                b.addAction(msgAction);                                                        // 2nd — chips inside
-                b.addAction(snoozeAction);                                                     // 3rd
+                b.addAction(voiceAction);        // 1st — green phone
+                b.addAction(new NotificationCompat.Action.Builder(
+                    R.drawable.ic_message_cyan, "\uD83D\uDCAC Message", msgPi)
+                    .addRemoteInput(remoteInput)
+                    .setAllowGeneratedReplies(true)
+                    .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+                    .build());                   // 2nd — cyan message with chips
+                b.addAction(new NotificationCompat.Action.Builder(
+                    R.drawable.ic_snooze_yellow, "\u23F0 Snooze", snoozePi).build()); // 3rd
             }
             nm.notify(notifId, b.build());
 
             // ── Feature 3: TTL — 30 min baad auto-dismiss ────────────────────
             b.setTimeoutAfter(MISSED_CALL_TTL_MS);
 
-            // ── Feature 6: Avatar async load (circular crop) ─────────────────
-            // Best-effort: load caller photo, crop to circle, re-notify
+            // ── Feature 1 + 6: Colored ring avatar async load ────────────────
+            // Loads caller photo → circle crop → draws gradient ring → re-notify
             final NotificationCompat.Builder finalBuilder = b;
             final int finalNotifId = notifId;
+            final RemoteViews finalCustomView = customView;
+            final int finalAccentColor = accentColor;
+            final boolean finalMissedIsVideo = missedIsVideo;
+            final String finalCallerName = callerName;
             if (!callerPhoto.isEmpty()) {
                 new Thread(() -> {
                     try {
@@ -383,21 +463,51 @@ public class IncomingRingService extends Service {
                         c.connect();
                         Bitmap raw = BitmapFactory.decodeStream(c.getInputStream());
                         if (raw != null) {
+                            // Feature 6: circle crop
                             Bitmap circle = toCircleBitmap(raw);
-                            finalBuilder.setLargeIcon(circle);
+                            // Feature 1: draw colored gradient ring around avatar
+                            int ringStart = finalMissedIsVideo ? RING_VIDEO_START : RING_VOICE_START;
+                            int ringEnd   = finalMissedIsVideo ? RING_VIDEO_END   : RING_VOICE_END;
+                            Bitmap ringed = drawAvatarWithRing(circle, ringStart, ringEnd);
+
+                            // Update large icon (standard notification)
+                            finalBuilder.setLargeIcon(ringed);
+
+                            // Feature 3: Re-build MessagingStyle with avatar
+                            android.graphics.drawable.Icon personIcon =
+                                android.graphics.drawable.Icon.createWithBitmap(ringed);
+                            androidx.core.app.Person updatedPerson =
+                                new androidx.core.app.Person.Builder()
+                                    .setName(finalCallerName)
+                                    .setIcon(androidx.core.graphics.drawable.IconCompat
+                                        .createWithBitmap(ringed))
+                                    .build();
+                            NotificationCompat.MessagingStyle updatedStyle =
+                                new NotificationCompat.MessagingStyle(updatedPerson)
+                                    .setConversationTitle(finalBuilder.build()
+                                        .extras.getString(android.app.Notification.EXTRA_TITLE, ""))
+                                    .addMessage(
+                                        finalBuilder.build().extras.getString(
+                                            android.app.Notification.EXTRA_TEXT, ""),
+                                        System.currentTimeMillis(), updatedPerson);
+                            finalBuilder.setStyle(updatedStyle);
+
+                            // Feature 4: Update RemoteViews avatar
+                            if (finalCustomView != null) {
+                                finalCustomView.setImageViewBitmap(R.id.notif_avatar, ringed);
+                            }
+
                             nm.notify(finalNotifId, finalBuilder.build());
-                            // Multi-caller summary bhi update karo with avatar
+                            // Multi-caller summary update
                             updateMultiCallerSummary(nm, callIcon, callerUid, callerName,
-                                callerPhoto, missedIsVideo, totalBadge, circle);
+                                callerPhoto, missedIsVideo, totalBadge, ringed);
                         }
                     } catch (Exception ignored2) {
-                        // No avatar — still show multi-caller summary without icon
                         updateMultiCallerSummary(nm, callIcon, callerUid, callerName,
                             callerPhoto, missedIsVideo, totalBadge, null);
                     }
                 }).start();
             } else {
-                // No photo URL — still update summary
                 updateMultiCallerSummary(nm, callIcon, callerUid, callerName,
                     callerPhoto, missedIsVideo, totalBadge, null);
             }
@@ -444,6 +554,37 @@ public class IncomingRingService extends Service {
             return output;
         } catch (Exception e) {
             return src; // fallback: raw bitmap
+        }
+    }
+
+    // ── Feature 1: Draw gradient ring around circular avatar ─────────────────
+    // ringStart/ringEnd are ARGB colour ints for the sweep gradient
+    private static Bitmap drawAvatarWithRing(Bitmap circleBm, int ringStart, int ringEnd) {
+        try {
+            // Ring stroke in px (approx 4dp at mdpi baseline; good for notification icon)
+            int strokePx = Math.max(4, circleBm.getWidth() / 14);
+            int total = circleBm.getWidth() + strokePx * 2;
+            Bitmap output = Bitmap.createBitmap(total, total, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(output);
+
+            // Draw sweep gradient ring
+            Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            ringPaint.setStyle(Paint.Style.STROKE);
+            ringPaint.setStrokeWidth(strokePx);
+            android.graphics.SweepGradient sweep = new android.graphics.SweepGradient(
+                total / 2f, total / 2f,
+                new int[]{ ringStart, ringEnd, ringStart },
+                new float[]{ 0f, 0.5f, 1f });
+            ringPaint.setShader(sweep);
+            float r = (total - strokePx) / 2f;
+            canvas.drawCircle(total / 2f, total / 2f, r, ringPaint);
+
+            // Draw avatar in centre
+            Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            canvas.drawBitmap(circleBm, strokePx, strokePx, bitmapPaint);
+            return output;
+        } catch (Exception e) {
+            return circleBm; // fallback
         }
     }
 

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Custom big content view for missed call notification.
+    Used via setCustomBigContentView() in IncomingRingService.
+    Android wraps this in a standard notification card (rounded corners, shadow) on API 31+.
+    Max height: 256dp. Keep content within ~200dp to be safe.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_notif_missed_call"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="10dp">
+
+    <!-- Top row: avatar + name + type badge -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Avatar with colored ring — set programmatically via setImageViewBitmap -->
+        <ImageView
+            android:id="@+id/notif_avatar"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:scaleType="centerCrop"
+            android:src="@android:drawable/ic_menu_myplaces"/>
+
+        <!-- Name + subtitle -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="12dp">
+
+            <TextView
+                android:id="@+id/notif_caller_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Caller Name"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/notif_call_type"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📞 Missed voice call"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"/>
+
+        </LinearLayout>
+
+        <!-- Time badge (top-right) -->
+        <TextView
+            android:id="@+id/notif_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="5:30 PM"
+            android:textColor="#99FFFFFF"
+            android:textSize="11sp"
+            android:layout_marginStart="8dp"/>
+
+    </LinearLayout>
+
+    <!-- Divider: gradient rainbow line -->
+    <View
+        android:id="@+id/notif_divider"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_notif_rainbow_divider"/>
+
+    <!-- Miss count line (visible only when count > 1) -->
+    <TextView
+        android:id="@+id/notif_miss_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="3 missed calls"
+        android:textColor="#FFE57F"
+        android:textSize="12sp"
+        android:visibility="gone"
+        android:layout_marginBottom="6dp"/>
+
+</LinearLayout>
