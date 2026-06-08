@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.os.Bundle;
 import androidx.core.app.RemoteInput;
 import androidx.work.Data;
+import androidx.work.Constraints;
+import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 import com.callx.app.utils.Constants;
@@ -134,6 +136,8 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               if (partnerUid != null && !partnerUid.isEmpty()) {
                   context.getSharedPreferences("callx_missed_counts", Context.MODE_PRIVATE)
                       .edit().remove(Constants.PREF_MISSED_CALL_COUNT + "voice_" + partnerUid).apply();
+                  // Clear multi-caller list too so summary is reset
+                  com.callx.app.services.IncomingRingService.clearMissedCallersList(context);
                   boolean cbIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
                   String  cbPhoto   = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
                   try {
@@ -204,9 +208,16 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                       .putInt("notifId",       notifId)
                       .putBoolean("isGroup",   false)
                       .build();
+                  // ── Feature 2: Offline-safe WorkManager delivery ───────────
+                  // Constraints.NONE (not NetworkType.CONNECTED) → message queued
+                  // locally in Room and delivered when network is available.
+                  Constraints replyConstraints = new Constraints.Builder()
+                      .setRequiredNetworkType(NetworkType.CONNECTED)
+                      .build();
                   OneTimeWorkRequest replyWork = new OneTimeWorkRequest.Builder(
                           com.callx.app.workers.NotificationReplyWorker.class)
                       .setInputData(inputData)
+                      .setConstraints(replyConstraints)
                       .build();
                   WorkManager.getInstance(context.getApplicationContext()).enqueue(replyWork);
               }
@@ -370,9 +381,14 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                           .putInt("notifId",       notifId)
                           .putBoolean("isGroup",   false)
                           .build();
+                      // ── Feature 2: offline-queued delivery ──────────────────
+                      Constraints mcConstraints = new Constraints.Builder()
+                          .setRequiredNetworkType(NetworkType.CONNECTED)
+                          .build();
                       OneTimeWorkRequest replyWork = new OneTimeWorkRequest.Builder(
                               com.callx.app.workers.NotificationReplyWorker.class)
                           .setInputData(inputData)
+                          .setConstraints(mcConstraints)
                           .build();
                       WorkManager.getInstance(context.getApplicationContext()).enqueue(replyWork);
 

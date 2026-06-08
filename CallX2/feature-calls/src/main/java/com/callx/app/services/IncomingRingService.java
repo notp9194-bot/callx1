@@ -31,6 +31,10 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 
 public class IncomingRingService extends Service {
     private MediaPlayer player;
@@ -51,6 +55,11 @@ public class IncomingRingService extends Service {
 
     // Custom missed-call vibration: 2 short pulses (distinct from ring)
     private static final long[] MISSED_VIBRATE = { 0, 300, 200, 300 };
+
+    // SharedPrefs key for multi-caller grouping (JSON array of {uid,name,photo,ts})
+    private static final String PREF_MISSED_CALLERS = "callx_missed_callers_list";
+    // Notification TTL: 30 minutes
+    private static final long MISSED_CALL_TTL_MS = 30 * 60 * 1000L;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -356,24 +365,13 @@ public class IncomingRingService extends Service {
             }
             nm.notify(notifId, b.build());
 
-            // ── Feature: Group summary (2+ missed calls of same type) ─────────
-            if (missedCount > 1) {
-                android.app.Notification summary = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
-                    .setSmallIcon(callIcon)
-                    .setColor(BRAND_COLOR)
-                    .setContentTitle(missedIsVideo ? "Missed video calls" : "Missed voice calls")
-                    .setContentText(missedCount + " missed " + callTypeStr + "s from " + callerName)
-                    .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
-                    .setGroupSummary(true)
-                    .setAutoCancel(true)
-                    .setNumber(totalBadge)
-                    .setPriority(NotificationCompat.PRIORITY_LOW)
-                    .build();
-                nm.notify(("summary_missed_" + callTypeTag + "_" + callerUid).hashCode() & 0x7FFFFFFF, summary);
-            }
+            // ── Feature 3: TTL — 30 min baad auto-dismiss ────────────────────
+            b.setTimeoutAfter(MISSED_CALL_TTL_MS);
 
-            // ── Feature: Avatar async load ────────────────────────────────────
-            // Best-effort: load caller photo and re-notify with large icon
+            // ── Feature 6: Avatar async load (circular crop) ─────────────────
+            // Best-effort: load caller photo, crop to circle, re-notify
+            final NotificationCompat.Builder finalBuilder = b;
+            final int finalNotifId = notifId;
             if (!callerPhoto.isEmpty()) {
                 new Thread(() -> {
                     try {
@@ -383,16 +381,173 @@ public class IncomingRingService extends Service {
                         c.setReadTimeout(4000);
                         c.setDoInput(true);
                         c.connect();
-                        Bitmap avatarBm = BitmapFactory.decodeStream(c.getInputStream());
-                        if (avatarBm != null) {
-                            b.setLargeIcon(avatarBm);
-                            nm.notify(notifId, b.build());
+                        Bitmap raw = BitmapFactory.decodeStream(c.getInputStream());
+                        if (raw != null) {
+                            Bitmap circle = toCircleBitmap(raw);
+                            finalBuilder.setLargeIcon(circle);
+                            nm.notify(finalNotifId, finalBuilder.build());
+                            // Multi-caller summary bhi update karo with avatar
+                            updateMultiCallerSummary(nm, callIcon, callerUid, callerName,
+                                callerPhoto, missedIsVideo, totalBadge, circle);
                         }
-                    } catch (Exception ignored2) {}
+                    } catch (Exception ignored2) {
+                        // No avatar — still show multi-caller summary without icon
+                        updateMultiCallerSummary(nm, callIcon, callerUid, callerName,
+                            callerPhoto, missedIsVideo, totalBadge, null);
+                    }
                 }).start();
+            } else {
+                // No photo URL — still update summary
+                updateMultiCallerSummary(nm, callIcon, callerUid, callerName,
+                    callerPhoto, missedIsVideo, totalBadge, null);
             }
 
+            // ── Feature 2: Firebase call log write ───────────────────────────
+            // IncomingCallActivity handles accepted/declined; this covers timeout case
+            // where showMissedCallNotification fires from IncomingRingService directly.
+            // Also feeds MainActivity's missedCallsListener → nav_calls badge
+            try {
+                com.google.firebase.auth.FirebaseUser me =
+                    com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+                if (me != null && !callerUid.isEmpty()) {
+                    String myUid = me.getUid();
+                    long ts = System.currentTimeMillis();
+                    String media = missedIsVideo ? "video" : "audio";
+                    java.util.Map<String, Object> myMissed = new java.util.HashMap<>();
+                    myMissed.put("partnerUid",  callerUid);
+                    myMissed.put("partnerName", callerName);
+                    myMissed.put("direction",   "missed");
+                    myMissed.put("mediaType",   media);
+                    myMissed.put("timestamp",   ts);
+                    myMissed.put("duration",    0L);
+                    com.callx.app.utils.FirebaseUtils.getCallsRef(myUid).push()
+                        .setValue(myMissed);
+                }
+            } catch (Exception fbIgnored) {}
+
         } catch (Exception ignored) {}
+    }
+
+    // ── Circular bitmap crop utility ─────────────────────────────────────────
+    private static Bitmap toCircleBitmap(Bitmap src) {
+        try {
+            int size = Math.min(src.getWidth(), src.getHeight());
+            Bitmap output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(output);
+            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            paint.setColor(0xFF000000);
+            canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint);
+            paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+            int dx = (src.getWidth() - size) / 2;
+            int dy = (src.getHeight() - size) / 2;
+            canvas.drawBitmap(src, -dx, -dy, paint);
+            return output;
+        } catch (Exception e) {
+            return src; // fallback: raw bitmap
+        }
+    }
+
+    // ── Multi-caller grouping: InboxStyle summary notification ───────────────
+    // Tracks up to 5 unique callers in SharedPrefs JSON, builds InboxStyle summary.
+    private void updateMultiCallerSummary(NotificationManager nm, int callIcon,
+            String callerUid, String callerName, String callerPhoto,
+            boolean isVideo, int totalBadge, Bitmap callerAvatar) {
+        try {
+            android.content.SharedPreferences prefs =
+                getSharedPreferences("callx_missed_counts", MODE_PRIVATE);
+
+            // ── Load existing callers list ───────────────────────────────────
+            String json = prefs.getString(PREF_MISSED_CALLERS, "[]");
+            org.json.JSONArray arr;
+            try { arr = new org.json.JSONArray(json); }
+            catch (Exception e) { arr = new org.json.JSONArray(); }
+
+            // Upsert: caller already in list? bump timestamp. Else prepend.
+            boolean found = false;
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject obj = arr.optJSONObject(i);
+                if (obj != null && callerUid.equals(obj.optString("uid"))) {
+                    obj.put("ts", System.currentTimeMillis());
+                    obj.put("name", callerName);
+                    arr.put(i, obj);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                org.json.JSONObject entry = new org.json.JSONObject();
+                entry.put("uid",   callerUid);
+                entry.put("name",  callerName);
+                entry.put("photo", callerPhoto);
+                entry.put("ts",    System.currentTimeMillis());
+                // Prepend (most recent first)
+                org.json.JSONArray newArr = new org.json.JSONArray();
+                newArr.put(entry);
+                for (int i = 0; i < arr.length() && i < 4; i++) newArr.put(arr.get(i));
+                arr = newArr;
+            }
+            // Persist updated list
+            prefs.edit().putString(PREF_MISSED_CALLERS, arr.toString()).apply();
+
+            int callerCount = arr.length();
+
+            // Only show summary if 2+ distinct callers
+            if (callerCount < 2) return;
+
+            // ── Build InboxStyle lines (one per caller) ──────────────────────
+            String callTypeStr = isVideo ? "video call" : "voice call";
+            String missedAt = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                .format(new java.util.Date());
+
+            NotificationCompat.InboxStyle inbox = new NotificationCompat.InboxStyle();
+            int shown = 0;
+            for (int i = 0; i < arr.length() && i < 5; i++) {
+                org.json.JSONObject obj = arr.optJSONObject(i);
+                if (obj == null) continue;
+                String n = obj.optString("name", "Unknown");
+                inbox.addLine(n + "  •  missed " + callTypeStr);
+                shown++;
+            }
+            int extra = callerCount - shown;
+            if (extra > 0) inbox.setSummaryText("+" + extra + " more");
+
+            // Summary title: "3 people called"
+            String summaryTitle = callerCount + " missed calls";
+            // List names: "eyeg, rahul +1 more"
+            StringBuilder nameList = new StringBuilder();
+            for (int i = 0; i < arr.length() && i < 3; i++) {
+                org.json.JSONObject obj = arr.optJSONObject(i);
+                if (obj == null) continue;
+                if (nameList.length() > 0) nameList.append(", ");
+                nameList.append(obj.optString("name", "?"));
+            }
+            if (callerCount > 3) nameList.append(" +").append(callerCount - 3).append(" more");
+
+            NotificationCompat.Builder summary = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
+                .setSmallIcon(callIcon)
+                .setColor(BRAND_COLOR)
+                .setContentTitle(summaryTitle)
+                .setContentText(nameList.toString())
+                .setStyle(inbox)
+                .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
+                .setGroupSummary(true)
+                .setAutoCancel(true)
+                .setNumber(totalBadge)
+                .setTimeoutAfter(MISSED_CALL_TTL_MS)
+                .setPriority(NotificationCompat.PRIORITY_LOW);
+
+            if (callerAvatar != null) summary.setLargeIcon(callerAvatar);
+
+            nm.notify(Constants.MISSED_CALLS_SUMMARY_NOTIF_ID, summary.build());
+        } catch (Exception e) {
+            android.util.Log.w("IncomingRingService", "updateMultiCallerSummary failed", e);
+        }
+    }
+
+    // ── Clear multi-caller list (call when user opens Calls tab / clears notifs) ──
+    public static void clearMissedCallersList(android.content.Context ctx) {
+        ctx.getSharedPreferences("callx_missed_counts", android.content.Context.MODE_PRIVATE)
+            .edit().remove(PREF_MISSED_CALLERS).apply();
     }
 
     // ── Feature 7: Call-back result — re-show notification if call fails ─────

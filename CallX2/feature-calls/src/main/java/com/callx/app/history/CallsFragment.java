@@ -1084,6 +1084,22 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
     }
 
     // ── Selection ──────────────────────────────────────────────────────────
+    @Override
+    public void onResume() {
+        super.onResume();
+        // ── Feature: Clear multi-caller grouping when user views Calls tab ──
+        // Dismiss the InboxStyle summary notification and reset caller list
+        try {
+            android.app.NotificationManager nm =
+                (android.app.NotificationManager) requireContext()
+                    .getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.cancel(com.callx.app.utils.Constants.MISSED_CALLS_SUMMARY_NOTIF_ID);
+            }
+            com.callx.app.services.IncomingRingService.clearMissedCallersList(requireContext());
+        } catch (Exception ignored) {}
+    }
+
     @Override public void onSelectionStarted() {
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.VISIBLE);
         updateSelectionCount();

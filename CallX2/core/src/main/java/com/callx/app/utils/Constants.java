@@ -119,6 +119,8 @@ public class Constants {
 
     // ── 1:1 Call notification IDs ────────────────────────────────────────
     public static final int  CALL_RING_NOTIF_ID    = 1001;
+    // Missed calls multi-caller summary notification ID (fixed, always same ID so it updates in place)
+    public static final int  MISSED_CALLS_SUMMARY_NOTIF_ID = 5010;
     public static final int  CALL_ONGOING_NOTIF_ID = 9001;
 
     // ── Group call notification IDs ──────────────────────────────────────
