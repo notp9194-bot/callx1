@@ -718,9 +718,12 @@ public class GroupCallActivity extends AppCompatActivity {
                     // Also update foreground service for kill-cleanup accuracy
                     GroupCallForegroundService.connectedAt = callStartedAt;
                 }
+                // Quality: good unless we needed restarts to get here
+                updateParticipantQuality(uid, 3);
                 break;
             case DISCONNECTED:
-            case FAILED:
+                // Mark poor while attempting reconnect
+                updateParticipantQuality(uid, 1);
                 int count = iceRestartCounts.getOrDefault(uid, 0);
                 if (count < Constants.ICE_MAX_RESTARTS) {
                     iceRestartCounts.put(uid, count + 1);
@@ -730,6 +733,37 @@ public class GroupCallActivity extends AppCompatActivity {
                     closePeerConnection(uid);
                 }
                 break;
+            case FAILED:
+                // Mark poor then kick off restart
+                updateParticipantQuality(uid, 1);
+                int fcount = iceRestartCounts.getOrDefault(uid, 0);
+                if (fcount < Constants.ICE_MAX_RESTARTS) {
+                    iceRestartCounts.put(uid, fcount + 1);
+                    new Handler(Looper.getMainLooper()).postDelayed(
+                        () -> restartIce(uid), 2000);
+                } else {
+                    closePeerConnection(uid);
+                }
+                break;
+            case CHECKING:
+                // Reconnecting after a restart — show fair
+                if (iceRestartCounts.getOrDefault(uid, 0) > 0)
+                    updateParticipantQuality(uid, 2);
+                break;
+        }
+    }
+
+    /**
+     * Update network quality indicator for a peer participant and refresh their tile.
+     * quality: 0=unknown/hidden, 1=poor (red), 2=fair (orange), 3=good (green)
+     */
+    private void updateParticipantQuality(String uid, int quality) {
+        for (int i = 0; i < participants.size(); i++) {
+            if (participants.get(i).uid.equals(uid)) {
+                participants.get(i).networkQuality = quality;
+                adapter.notifyItemChanged(i);
+                return;
+            }
         }
     }
 
@@ -1363,6 +1397,8 @@ public class GroupCallActivity extends AppCompatActivity {
         public String uid, name;
         public VideoTrack videoTrack;
         public boolean micOn, camOn, handRaised;
+        /** 0=unknown (icon hidden), 1=poor, 2=fair, 3=good */
+        public int networkQuality = 0;
 
         public ParticipantInfo(String uid, String name, VideoTrack vt,
                                boolean mic, boolean cam, boolean hand) {

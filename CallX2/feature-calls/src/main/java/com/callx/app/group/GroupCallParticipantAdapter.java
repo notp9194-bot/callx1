@@ -59,6 +59,20 @@ public class GroupCallParticipantAdapter extends
         // Mic muted indicator
         h.ivMicOff.setVisibility(info.micOn ? View.GONE : View.VISIBLE);
 
+        // Network quality indicator
+        // 0 = unknown (hidden), 1 = poor (red 1-bar), 2 = fair (orange 2-bar), 3 = good (green 4-bar)
+        if (info.networkQuality == 0) {
+            h.ivNetworkQuality.setVisibility(View.GONE);
+        } else {
+            h.ivNetworkQuality.setVisibility(View.VISIBLE);
+            if (info.networkQuality == 1)
+                h.ivNetworkQuality.setImageResource(R.drawable.ic_signal_poor);
+            else if (info.networkQuality == 2)
+                h.ivNetworkQuality.setImageResource(R.drawable.ic_signal_fair);
+            else
+                h.ivNetworkQuality.setImageResource(R.drawable.ic_signal_good);
+        }
+
         if (info.videoTrack != null && info.camOn && eglBase != null) {
             // Show video tile
             h.videoRenderer.setVisibility(View.VISIBLE);
@@ -104,18 +118,19 @@ public class GroupCallParticipantAdapter extends
         SurfaceViewRenderer videoRenderer;
         FrameLayout avatarContainer;
         TextView tvInitials, tvName;
-        ImageView ivMicOff, ivHandRaised;
+        ImageView ivMicOff, ivHandRaised, ivNetworkQuality;
         // FIX-3: track whether renderer has been init()'d
         boolean rendererInitialized = false;
 
         VH(View v) {
             super(v);
-            videoRenderer   = v.findViewById(R.id.participantVideo);
-            avatarContainer = v.findViewById(R.id.participantAvatarContainer);
-            tvInitials      = v.findViewById(R.id.tvParticipantInitials);
-            tvName          = v.findViewById(R.id.tvParticipantName);
-            ivMicOff        = v.findViewById(R.id.ivParticipantMicOff);
-            ivHandRaised    = v.findViewById(R.id.ivParticipantHandRaised);
+            videoRenderer      = v.findViewById(R.id.participantVideo);
+            avatarContainer    = v.findViewById(R.id.participantAvatarContainer);
+            tvInitials         = v.findViewById(R.id.tvParticipantInitials);
+            tvName             = v.findViewById(R.id.tvParticipantName);
+            ivMicOff           = v.findViewById(R.id.ivParticipantMicOff);
+            ivHandRaised       = v.findViewById(R.id.ivParticipantHandRaised);
+            ivNetworkQuality   = v.findViewById(R.id.ivNetworkQuality);
         }
     }
 }
