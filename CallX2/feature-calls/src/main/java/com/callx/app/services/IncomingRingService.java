@@ -69,7 +69,7 @@ public class IncomingRingService extends Service {
     private static final int RING_VIDEO_END        = 0xFFEF4444; // red
     private static final int RING_MULTI_START      = 0xFFEF4444; // red
     private static final int RING_MULTI_END        = 0xFFEC4899; // pink
-    private static final int RING_STROKE_DP        = 4;          // ring thickness
+    private static final int RING_STROKE_DP        = 4;          // ring thickness (unused — see drawAvatarWithRing)
 
     // Custom missed-call vibration: 2 short pulses (distinct from ring)
     private static final long[] MISSED_VIBRATE = { 0, 300, 200, 300 };
@@ -410,7 +410,7 @@ public class IncomingRingService extends Service {
                 .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
                 .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
                 .setNumber(totalBadge)
-                .setSubText(missedCount > 1 ? missedCount + " missed" : "Just missed");
+                .setSubText(missedCount > 1 ? "\uD83D\uDD34 " + missedCount + " missed" : "\uD83D\uDD34 Missed");
 
             // Feature 4: Apply custom RemoteViews if built successfully
             if (customView != null) {
@@ -463,8 +463,11 @@ public class IncomingRingService extends Service {
                         c.connect();
                         Bitmap raw = BitmapFactory.decodeStream(c.getInputStream());
                         if (raw != null) {
+                            // Scale up to 256×256 — Android uses up to 256px for setLargeIcon
+                            // Larger = more detail visible + ring more prominent
+                            Bitmap scaled = Bitmap.createScaledBitmap(raw, 256, 256, true);
                             // Feature 6: circle crop
-                            Bitmap circle = toCircleBitmap(raw);
+                            Bitmap circle = toCircleBitmap(scaled);
                             // Feature 1: draw colored gradient ring around avatar
                             int ringStart = finalMissedIsVideo ? RING_VIDEO_START : RING_VOICE_START;
                             int ringEnd   = finalMissedIsVideo ? RING_VIDEO_END   : RING_VOICE_END;
@@ -545,7 +548,7 @@ public class IncomingRingService extends Service {
     private static Bitmap drawAvatarWithRing(Bitmap circleBm, int ringStart, int ringEnd) {
         try {
             // Ring stroke in px (approx 4dp at mdpi baseline; good for notification icon)
-            int strokePx = Math.max(4, circleBm.getWidth() / 14);
+            int strokePx = Math.max(8, circleBm.getWidth() / 5);  // thicker ring — clearly visible
             int total = circleBm.getWidth() + strokePx * 2;
             Bitmap output = Bitmap.createBitmap(total, total, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(output);
