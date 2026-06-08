@@ -383,19 +383,6 @@ public class IncomingRingService extends Service {
                 // Avatar placeholder (will be updated when bitmap loads)
                 customView.setImageViewResource(R.id.notif_avatar,
                     missedIsVideo ? R.drawable.ic_video_orange : R.drawable.ic_phone_green);
-
-                // ── Avatar click → status check → StatusViewer or ContactSheet ───
-                android.content.Intent avatarIntent = new android.content.Intent(this,
-                    com.callx.app.services.MissedCallAvatarReceiver.class)
-                    .setAction(Constants.ACTION_MISSED_CALL_AVATAR_CLICK)
-                    .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
-                    .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
-                    .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto);
-                android.app.PendingIntent avatarPi = android.app.PendingIntent.getBroadcast(
-                    this, ("avatar_" + callerUid).hashCode() & 0x7FFFFFFF, avatarIntent,
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
-                customView.setOnClickPendingIntent(R.id.notif_avatar, avatarPi);
-
             } catch (Exception rvEx) {
                 customView = null; // fallback to standard style
             }
@@ -759,7 +746,19 @@ public class IncomingRingService extends Service {
 
     private void startRingtone() {
         try {
-            Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            // ── Custom ringtone — user ne jo set kiya ho, woh bajao ──────────
+            android.content.SharedPreferences prefs = getSharedPreferences(
+                com.callx.app.utils.Constants.PREF_CALL_SETTINGS,
+                android.content.Context.MODE_PRIVATE);
+            String customUriStr = prefs.getString(
+                com.callx.app.utils.Constants.PREF_CALL_RINGTONE_URI, null);
+            Uri ringtoneUri;
+            if (customUriStr != null && !customUriStr.isEmpty()) {
+                try { ringtoneUri = Uri.parse(customUriStr); }
+                catch (Exception e) { ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE); }
+            } else {
+                ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            }
             player = new MediaPlayer();
             player.setDataSource(this, ringtoneUri);
             player.setAudioAttributes(new AudioAttributes.Builder()

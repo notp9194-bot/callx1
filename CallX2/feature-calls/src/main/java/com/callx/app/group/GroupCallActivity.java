@@ -390,6 +390,18 @@ public class GroupCallActivity extends AppCompatActivity {
         List<PeerConnection.IceServer> l = new ArrayList<>();
         l.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
         l.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2).createIceServer());
+        // Free TURN fallback — strict NAT ke peeche sirf STUN se call fail hoti hai
+        try {
+            l.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_1)
+                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
+                .createIceServer());
+            l.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_2)
+                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
+                .createIceServer());
+            l.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_TLS)
+                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
+                .createIceServer());
+        } catch (Exception ignored) {}
         return l;
     }
 

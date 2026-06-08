@@ -58,8 +58,6 @@ import com.callx.app.group.NewGroupActivity;
 import com.callx.app.services.CallForegroundService;
 import com.callx.app.compose.NewStatusActivity;
 import com.callx.app.hub.GamesHubActivity;
-import com.callx.app.chatlist.ChatsFragment;
-import com.callx.app.models.User;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -255,51 +253,6 @@ public class MainActivity extends AppCompatActivity {
             case "groups":       binding.viewPager.setCurrentItem(TAB_GROUPS, false); break;
             case "calls":        binding.viewPager.setCurrentItem(TAB_CALLS,  false); break;
         }
-
-        // Missed call avatar click: chats tab pe user ka ContactBottomSheet kholo
-        if (intent.getBooleanExtra("open_user_sheet", false)) {
-            String uid   = intent.getStringExtra(Constants.EXTRA_PARTNER_UID);
-            String name  = intent.getStringExtra(Constants.EXTRA_PARTNER_NAME);
-            String photo = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
-            if (uid != null && !uid.isEmpty()) {
-                openUserSheetInChats(uid, name, photo);
-            }
-        }
-    }
-
-    /**
-     * ChatsFragment mein User ka ContactBottomSheet open karo.
-     * Fragment ready hone ka wait karo — retry loop use karta hai (max 20 tries, 100ms interval).
-     */
-    private void openUserSheetInChats(String uid, String name, String photo) {
-        binding.viewPager.setCurrentItem(TAB_CHATS, false);
-        tryShowUserSheet(uid, name, photo, 0);
-    }
-
-    private void tryShowUserSheet(String uid, String name, String photo, int attempt) {
-        if (attempt > 20) return; // max ~2 seconds
-        binding.getRoot().postDelayed(() -> {
-            try {
-                if (binding.viewPager.getAdapter() == null) {
-                    tryShowUserSheet(uid, name, photo, attempt + 1);
-                    return;
-                }
-                androidx.fragment.app.Fragment frag = getSupportFragmentManager()
-                    .findFragmentByTag("f" + binding.viewPager.getAdapter().getItemId(TAB_CHATS));
-                if (frag instanceof ChatsFragment && frag.isAdded() && !frag.isDetached()) {
-                    User user = new User();
-                    user.uid      = uid;
-                    user.name     = name;
-                    user.photoUrl = photo;
-                    user.thumbUrl = photo;
-                    ((ChatsFragment) frag).showContactBottomSheetForUser(user);
-                } else {
-                    tryShowUserSheet(uid, name, photo, attempt + 1);
-                }
-            } catch (Exception ignored) {
-                tryShowUserSheet(uid, name, photo, attempt + 1);
-            }
-        }, 100);
     }
 
     /** Navigate to ReelNotificationsActivity when user taps the system

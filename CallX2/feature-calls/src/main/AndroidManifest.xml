@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ── Call Recording Permissions ── -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- WRITE_EXTERNAL_STORAGE required for Android 9 and below only -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
     <application>
         <activity android:name="com.callx.app.call.CallActivity"
             android:exported="false"
@@ -95,13 +101,6 @@
                 <action android:name="com.callx.app.ACTION_GROUP_LEAVE"/>
             </intent-filter>
         </receiver>
-        <receiver android:name="com.callx.app.services.MissedCallAvatarReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.callx.app.MISSED_CALL_AVATAR_CLICK"/>
-            </intent-filter>
-        </receiver>
-
         <receiver android:name="com.callx.app.services.GroupCallActionReceiver"
             android:exported="false">
             <intent-filter>
@@ -112,5 +111,10 @@
                 <action android:name="com.callx.app.ACTION_GROUP_TOGGLE_CAMERA"/>
             </intent-filter>
         </receiver>
+        <!-- ── Call Ringtone Picker ── -->
+        <activity android:name="com.callx.app.settings.CallRingtonePickerActivity"
+            android:exported="false"
+            android:label="Call Ringtone"
+            android:theme="@style/Theme.AppCompat.Translucent"/>
     </application>
 </manifest>
