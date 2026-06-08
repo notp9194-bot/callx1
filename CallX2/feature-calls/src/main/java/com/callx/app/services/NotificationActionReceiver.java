@@ -134,7 +134,7 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               // Reset missed call count for this caller
               if (partnerUid != null && !partnerUid.isEmpty()) {
                   context.getSharedPreferences("callx_missed_counts", Context.MODE_PRIVATE)
-                      .edit().remove(Constants.PREF_MISSED_CALL_COUNT + partnerUid).apply();
+                      .edit().remove(Constants.PREF_MISSED_CALL_COUNT + "voice_" + partnerUid).apply();
               }
               if (partnerUid != null && !partnerUid.isEmpty()) {
                   boolean cbIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
@@ -159,7 +159,7 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               if (nm != null) nm.cancel(notifId);
               if (partnerUid != null && !partnerUid.isEmpty()) {
                   context.getSharedPreferences("callx_missed_counts", Context.MODE_PRIVATE)
-                      .edit().remove(Constants.PREF_MISSED_CALL_COUNT + partnerUid).apply();
+                      .edit().remove(Constants.PREF_MISSED_CALL_COUNT + "video_" + partnerUid).apply();
                   String cbPhoto = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
                   Intent vcIntent = new Intent(context, com.callx.app.call.CallActivity.class);
                   vcIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);

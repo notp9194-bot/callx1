@@ -150,22 +150,26 @@ public class IncomingRingService extends Service {
                 ? NotificationCompat.VISIBILITY_PRIVATE
                 : NotificationCompat.VISIBILITY_PUBLIC;
 
-            // Feature 5: Grouping — count same-caller missed calls
+            // Feature 5: Grouping — count same-caller missed calls, SEPARATED by type
+            // Voice and video use different keys so they never mix counts
+            String callTypeStr = missedIsVideo ? "video call" : "voice call";
+            String callTypeTag = missedIsVideo ? "video" : "voice";   // used in keys below
+
             android.content.SharedPreferences countPrefs = getSharedPreferences("callx_missed_counts", MODE_PRIVATE);
-            String countKey = Constants.PREF_MISSED_CALL_COUNT + callerUid;
+            String countKey = Constants.PREF_MISSED_CALL_COUNT + callTypeTag + "_" + callerUid;
             int missedCount = countPrefs.getInt(countKey, 0) + 1;
             countPrefs.edit().putInt(countKey, missedCount).apply();
 
-            int notifId = ("missed_" + callerUid).hashCode() & 0x7FFFFFFF;
-            String callTypeStr = missedIsVideo ? "video call" : "voice call";
+            // notifId also separated by type → voice and video show as TWO distinct notifications
+            int notifId = ("missed_" + callTypeTag + "_" + callerUid).hashCode() & 0x7FFFFFFF;
 
             // Feature 7: BigText expanded content
             String bigText = missedCount > 1
                 ? missedCount + " missed " + callTypeStr + "s from " + callerName
                 : "Missed " + callTypeStr + " \u2022 just now";
             String notifTitle = missedCount > 1
-                ? missedCount + " missed calls from " + callerName
-                : (missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed call") + " from " + callerName;
+                ? missedCount + " missed " + callTypeStr + "s from " + callerName
+                : (missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed voice call") + " from " + callerName;
 
             // Tap -> ChatActivity
             android.content.Intent openIntent = new android.content.Intent();
@@ -205,36 +209,16 @@ public class IncomingRingService extends Service {
                     android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
             }
 
-            // Feature 2: Quick reply chips
-            String[] quickReplies = {
-                "On my way \uD83D\uDE97",
-                "Call you later \uD83D\uDCDE",
-                "In a meeting \uD83E\uDD1D"
-            };
-            String[] quickActionStrs = {
-                Constants.ACTION_QUICK_REPLY_1,
-                Constants.ACTION_QUICK_REPLY_2,
-                Constants.ACTION_QUICK_REPLY_3
-            };
-            NotificationCompat.Action[] qrActions = new NotificationCompat.Action[3];
-            for (int i = 0; i < 3; i++) {
-                android.content.Intent qrIntent = new android.content.Intent(this, NotificationActionReceiver.class)
-                    .setAction(quickActionStrs[i])
-                    .putExtra(Constants.EXTRA_PARTNER_UID,      callerUid)
-                    .putExtra(Constants.EXTRA_PARTNER_NAME,     callerName)
-                    .putExtra(Constants.EXTRA_PARTNER_PHOTO,    callerPhoto)
-                    .putExtra(Constants.EXTRA_QUICK_REPLY_TEXT, quickReplies[i])
-                    .putExtra(Constants.EXTRA_NOTIF_ID,         notifId);
-                android.app.PendingIntent qrPi = android.app.PendingIntent.getBroadcast(
-                    this, ("qr" + i + "_" + callerUid).hashCode(), qrIntent,
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
-                qrActions[i] = new NotificationCompat.Action.Builder(
-                    R.drawable.ic_send, quickReplies[i], qrPi).build();
-            }
-
-            // Feature 3: Manual message (RemoteInput)
+            // Feature 2+3: Quick reply chips merged into RemoteInput via setChoices()
+            // Android only shows 3 actions max — so chips live inside Message action, not as separate actions
             RemoteInput remoteInput = new RemoteInput.Builder(Constants.KEY_MISSED_CALL_REPLY)
-                .setLabel("Write a message\u2026").build();
+                .setLabel("Write a message\u2026")
+                .setChoices(new CharSequence[]{
+                    "On my way \uD83D\uDE97",
+                    "Call you later \uD83D\uDCDE",
+                    "In a meeting \uD83E\uDD1D"
+                })
+                .build();
             android.content.Intent msgIntent = new android.content.Intent(this, NotificationActionReceiver.class)
                 .setAction(Constants.ACTION_MISSED_CALL_MESSAGE)
                 .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
@@ -267,10 +251,9 @@ public class IncomingRingService extends Service {
 
             int callIcon = missedIsVideo ? R.drawable.ic_video_call : R.drawable.ic_call_notification;
 
-            // Build notification
-            // Collapsed view shows first 3 actions only:
-            //   Video call: [Video][Voice][10 min]  then Message + chips in expanded
-            //   Voice call: [Voice][Message][10 min] then chips in expanded
+            // Build notification — 3 actions max (Android hard limit)
+            // Video call: [📹 Video][📞 Voice][⏰ 10 min]  — Message+chips inside 💬 tap
+            // Voice call: [📞 Voice][💬 Message][⏰ 10 min] — chips inside 💬 tap
             NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
                 .setSmallIcon(callIcon)
                 .setContentTitle(notifTitle)
@@ -295,23 +278,20 @@ public class IncomingRingService extends Service {
                 b.addAction(msgAction);                                                        // 2nd
                 b.addAction(snoozeAction);                                                     // 3rd
             }
-            // Feature 2: Quick reply chips (expanded only — 4th+ actions)
-            for (NotificationCompat.Action qra : qrActions) b.addAction(qra);
-
             nm.notify(notifId, b.build());
 
-            // Feature 5: Group summary (2+ missed calls)
+            // Feature 5: Group summary (2+ missed calls of same type)
             if (missedCount > 1) {
                 android.app.Notification summary = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
                     .setSmallIcon(callIcon)
-                    .setContentTitle("Missed calls")
-                    .setContentText(missedCount + " missed calls from " + callerName)
+                    .setContentTitle(missedIsVideo ? "Missed video calls" : "Missed voice calls")
+                    .setContentText(missedCount + " missed " + callTypeStr + "s from " + callerName)
                     .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
                     .setGroupSummary(true)
                     .setAutoCancel(true)
                     .setPriority(NotificationCompat.PRIORITY_LOW)
                     .build();
-                nm.notify(("summary_missed_" + callerUid).hashCode() & 0x7FFFFFFF, summary);
+                nm.notify(("summary_missed_" + callTypeTag + "_" + callerUid).hashCode() & 0x7FFFFFFF, summary);
             }
 
             // Feature 6: Exact call time as subtext — always accurate, no async needed
