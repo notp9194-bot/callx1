@@ -163,13 +163,19 @@ public class IncomingRingService extends Service {
             // notifId also separated by type → voice and video show as TWO distinct notifications
             int notifId = ("missed_" + callTypeTag + "_" + callerUid).hashCode() & 0x7FFFFFFF;
 
-            // Feature 7: BigText expanded content
-            String bigText = missedCount > 1
-                ? missedCount + " missed " + callTypeStr + "s from " + callerName
-                : "Missed " + callTypeStr + " \u2022 just now";
+            // Current time for body text
+            String missedAt = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                .format(new java.util.Date());
+
+            // Title — clean, no repeat
             String notifTitle = missedCount > 1
                 ? missedCount + " missed " + callTypeStr + "s from " + callerName
                 : (missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed voice call") + " from " + callerName;
+
+            // Body — different from title, shows time or hint
+            String bigText = missedCount > 1
+                ? missedCount + " missed " + callTypeStr + "s \u2022 " + missedAt
+                : "Tap to call back \u2022 " + missedAt;
 
             // Tap -> ChatActivity
             android.content.Intent openIntent = new android.content.Intent();
@@ -294,10 +300,8 @@ public class IncomingRingService extends Service {
                 nm.notify(("summary_missed_" + callTypeTag + "_" + callerUid).hashCode() & 0x7FFFFFFF, summary);
             }
 
-            // Feature 6: Exact call time as subtext — always accurate, no async needed
-            String missedAt = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                .format(new java.util.Date());
-            b.setSubText("Just missed \u2022 " + missedAt);
+            // SubText — sirf "Just missed", system timestamp alag se dikhata hai
+            b.setSubText("Just missed");
 
             // Avatar: best-effort async update only
             if (!callerPhoto.isEmpty()) {
