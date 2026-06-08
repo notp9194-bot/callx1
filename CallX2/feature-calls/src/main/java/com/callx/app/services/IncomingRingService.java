@@ -349,12 +349,8 @@ public class IncomingRingService extends Service {
             else if (missedIsVideo)    accentColor = COLOR_VIDEO_MISSED;
             else                       accentColor = COLOR_VOICE_MISSED;
 
-            // ── Feature 3: BigTextStyle (MessagingStyle removed — it ignores
-            //    contentTitle/contentText causing blank notifications on many devices)
-            NotificationCompat.BigTextStyle notifStyle =
-                new NotificationCompat.BigTextStyle()
-                    .bigText(bigText)
-                    .setSummaryText(callTypeStr);
+            // NOTE: BigTextStyle intentionally removed — it overrides setCustomBigContentView.
+            // Custom RemoteViews handles the expanded layout directly.
 
             // ── Feature 4: Custom RemoteViews (colorful gradient bg + colored pill buttons) ──
             // Use separate layout for video vs voice (different button sets)
@@ -407,14 +403,13 @@ public class IncomingRingService extends Service {
                     R.drawable.ic_phone_green, "\uD83D\uDCDE Voice", callBackPi).build();
 
             // ── Build notification ────────────────────────────────────────────
-            // 3 actions max (Android hard limit)
             NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
                 .setSmallIcon(callIcon)
-                .setColor(accentColor)                   // Feature 2: per-type colour
-                .setColorized(false)
+                .setColor(accentColor)                   // per-type accent colour
+                .setColorized(true)                      // needed for custom bg to show
                 .setContentTitle(notifTitle)
                 .setContentText(bigText)
-                .setStyle(notifStyle)                    // BigTextStyle
+                // NO setStyle() — BigTextStyle overrides setCustomBigContentView
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(openPi)
