@@ -128,47 +128,60 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               return;
           }
 
-          // ── Call back (missed call) ────────────────────────────────────────
+          // ── Call back (missed call — voice) ───────────────────────────────
           if (Constants.ACTION_CALL_BACK.equals(action)) {
               if (nm != null) nm.cancel(notifId);
-              // Reset missed call count for this caller
               if (partnerUid != null && !partnerUid.isEmpty()) {
                   context.getSharedPreferences("callx_missed_counts", Context.MODE_PRIVATE)
                       .edit().remove(Constants.PREF_MISSED_CALL_COUNT + "voice_" + partnerUid).apply();
-              }
-              if (partnerUid != null && !partnerUid.isEmpty()) {
                   boolean cbIsVideo = intent.getBooleanExtra(Constants.EXTRA_IS_VIDEO, false);
                   String  cbPhoto   = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
-                  Intent callIntent = new Intent(context,
-                      com.callx.app.call.CallActivity.class);
-                  callIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
-                  callIntent.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
-                  if (cbPhoto != null) callIntent.putExtra("partnerPhoto", cbPhoto);
-                  callIntent.putExtra(Constants.EXTRA_IS_VIDEO, cbIsVideo);
-                  callIntent.putExtra("isCaller", true);
-                  callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
-                      Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                  context.startActivity(callIntent);
+                  try {
+                      Intent callIntent = new Intent(context, com.callx.app.call.CallActivity.class);
+                      callIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
+                      callIntent.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
+                      if (cbPhoto != null) callIntent.putExtra("partnerPhoto", cbPhoto);
+                      callIntent.putExtra(Constants.EXTRA_IS_VIDEO, cbIsVideo);
+                      callIntent.putExtra("isCaller", true);
+                      callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                      context.startActivity(callIntent);
+                  } catch (Exception callFailed) {
+                      // Feature 7: Call failed → re-show notification with failure message
+                      String missedAt = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                          .format(new java.util.Date());
+                      com.callx.app.services.IncomingRingService.onCallBackFailed(
+                          context, notifId, partnerName != null ? partnerName : "Unknown",
+                          "voice call", missedAt);
+                  }
               }
               pendingResult.finish();
               return;
           }
 
-          // ── FEATURE 1: Video Call Back ────────────────────────────────────
+          // ── Call back (missed call — video) ───────────────────────────────
           if (Constants.ACTION_VIDEO_CALL_BACK.equals(action)) {
               if (nm != null) nm.cancel(notifId);
               if (partnerUid != null && !partnerUid.isEmpty()) {
                   context.getSharedPreferences("callx_missed_counts", Context.MODE_PRIVATE)
                       .edit().remove(Constants.PREF_MISSED_CALL_COUNT + "video_" + partnerUid).apply();
                   String cbPhoto = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
-                  Intent vcIntent = new Intent(context, com.callx.app.call.CallActivity.class);
-                  vcIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
-                  vcIntent.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
-                  if (cbPhoto != null) vcIntent.putExtra("partnerPhoto", cbPhoto);
-                  vcIntent.putExtra(Constants.EXTRA_IS_VIDEO, true); // always video
-                  vcIntent.putExtra("isCaller", true);
-                  vcIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                  context.startActivity(vcIntent);
+                  try {
+                      Intent vcIntent = new Intent(context, com.callx.app.call.CallActivity.class);
+                      vcIntent.putExtra(Constants.EXTRA_PARTNER_UID,  partnerUid);
+                      vcIntent.putExtra(Constants.EXTRA_PARTNER_NAME, partnerName);
+                      if (cbPhoto != null) vcIntent.putExtra("partnerPhoto", cbPhoto);
+                      vcIntent.putExtra(Constants.EXTRA_IS_VIDEO, true);
+                      vcIntent.putExtra("isCaller", true);
+                      vcIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                      context.startActivity(vcIntent);
+                  } catch (Exception callFailed) {
+                      // Feature 7: Call failed → re-show notification with failure message
+                      String missedAt = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                          .format(new java.util.Date());
+                      com.callx.app.services.IncomingRingService.onCallBackFailed(
+                          context, notifId, partnerName != null ? partnerName : "Unknown",
+                          "video call", missedAt);
+                  }
               }
               pendingResult.finish();
               return;

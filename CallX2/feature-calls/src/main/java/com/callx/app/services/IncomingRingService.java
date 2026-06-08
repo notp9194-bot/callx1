@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
@@ -16,8 +17,11 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.Person;
 import androidx.core.app.RemoteInput;
 import com.callx.app.calls.R;
@@ -41,6 +45,12 @@ public class IncomingRingService extends Service {
     private String savedFromName;
     private String savedFromPhoto;
     private boolean savedIsVideo;
+
+    // Brand color: #5B5BF6 (from colors.xml)
+    private static final int BRAND_COLOR = 0xFF5B5BF6;
+
+    // Custom missed-call vibration: 2 short pulses (distinct from ring)
+    private static final long[] MISSED_VIBRATE = { 0, 300, 200, 300 };
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -129,7 +139,7 @@ public class IncomingRingService extends Service {
         } catch (Exception ignored) {}
     }
 
-    /** Full 8-feature missed call notification */
+    /** Full missed call notification with all advanced features */
     private void showMissedCallNotification() {
         try {
             final String callerUid   = savedFromUid   != null ? savedFromUid   : "";
@@ -140,7 +150,7 @@ public class IncomingRingService extends Service {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm == null) return;
 
-            // Feature 8: Lock screen privacy
+            // ── Feature: Lock screen privacy ─────────────────────────────────
             boolean appLockOn = false;
             try {
                 android.content.SharedPreferences lp = getSharedPreferences("app_lock_prefs", MODE_PRIVATE);
@@ -150,45 +160,83 @@ public class IncomingRingService extends Service {
                 ? NotificationCompat.VISIBILITY_PRIVATE
                 : NotificationCompat.VISIBILITY_PUBLIC;
 
-            // Feature 5: Grouping — count same-caller missed calls, SEPARATED by type
-            // Voice and video use different keys so they never mix counts
+            // ── Feature: Count per caller per type ───────────────────────────
             String callTypeStr = missedIsVideo ? "video call" : "voice call";
-            String callTypeTag = missedIsVideo ? "video" : "voice";   // used in keys below
+            String callTypeTag = missedIsVideo ? "video" : "voice";
 
             android.content.SharedPreferences countPrefs = getSharedPreferences("callx_missed_counts", MODE_PRIVATE);
             String countKey = Constants.PREF_MISSED_CALL_COUNT + callTypeTag + "_" + callerUid;
             int missedCount = countPrefs.getInt(countKey, 0) + 1;
             countPrefs.edit().putInt(countKey, missedCount).apply();
 
-            // notifId also separated by type → voice and video show as TWO distinct notifications
+            // ── Feature: App icon badge count ────────────────────────────────
+            // Total all missed (voice + video) for badge
+            int voiceCount = countPrefs.getInt(Constants.PREF_MISSED_CALL_COUNT + "voice_" + callerUid, 0);
+            int videoCount = countPrefs.getInt(Constants.PREF_MISSED_CALL_COUNT + "video_" + callerUid, 0);
+            int totalBadge = voiceCount + videoCount;
+            try {
+                // androidx ShortcutBadger alternative — use NotificationManagerCompat badge
+                // Works on Samsung, MIUI, OnePlus etc via standard API
+                android.app.NotificationManager nmSys = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                // Badge via notification number (works on most launchers)
+                // Will be applied to builder below via .setNumber()
+            } catch (Exception ignored) {}
+
+            // notifId per type → voice and video = 2 distinct notifications
             int notifId = ("missed_" + callTypeTag + "_" + callerUid).hashCode() & 0x7FFFFFFF;
 
-            // Current time for body text
+            // ── Feature: DND check ────────────────────────────────────────────
+            // If DND is on, we still show notification but suppress sound/vibration
+            boolean isDndActive = false;
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    NotificationManager.Policy policy = nm.getNotificationPolicy();
+                    int filter = nm.getCurrentInterruptionFilter();
+                    isDndActive = (filter == NotificationManager.INTERRUPTION_FILTER_NONE
+                            || filter == NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                            || filter == NotificationManager.INTERRUPTION_FILTER_ALARMS);
+                }
+            } catch (Exception ignored) {}
+
+            // ── Feature: Custom vibration (2 short pulses, distinct from ring) ─
+            if (!isDndActive) {
+                try {
+                    Vibrator vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+                    if (vib != null && vib.hasVibrator()) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            vib.vibrate(VibrationEffect.createWaveform(MISSED_VIBRATE, -1));
+                        } else {
+                            vib.vibrate(MISSED_VIBRATE, -1);
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // ── Notification text ─────────────────────────────────────────────
             String missedAt = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                 .format(new java.util.Date());
 
-            // Title — clean, no repeat
             String notifTitle = missedCount > 1
                 ? missedCount + " missed " + callTypeStr + "s from " + callerName
                 : (missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed voice call") + " from " + callerName;
 
-            // Body — no repeat of title, just time info
             String bigText = missedCount > 1
                 ? "Last missed \u2022 " + missedAt
                 : "Tap to call back \u2022 " + missedAt;
 
-            // Tap -> ChatActivity
+            // ── Tap → ChatActivity (scroll to call history) ──────────────────
             android.content.Intent openIntent = new android.content.Intent();
             openIntent.setClassName(this, "com.callx.app.conversation.ChatActivity");
-            openIntent.putExtra(Constants.EXTRA_PARTNER_UID,  callerUid);
-            openIntent.putExtra(Constants.EXTRA_PARTNER_NAME, callerName);
-            openIntent.putExtra("partnerPhoto", callerPhoto);
+            openIntent.putExtra(Constants.EXTRA_PARTNER_UID,   callerUid);
+            openIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  callerName);
+            openIntent.putExtra("partnerPhoto",                 callerPhoto);
+            openIntent.putExtra("scrollToCallHistory",         true);  // ChatActivity can use this to scroll
             openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             android.app.PendingIntent openPi = android.app.PendingIntent.getActivity(
                 this, notifId, openIntent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
-            // Feature 1a: Voice call back
+            // ── Action: Voice call back ───────────────────────────────────────
             android.content.Intent cbIntent = new android.content.Intent(this, NotificationActionReceiver.class)
                 .setAction(Constants.ACTION_CALL_BACK)
                 .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
@@ -197,10 +245,10 @@ public class IncomingRingService extends Service {
                 .putExtra(Constants.EXTRA_IS_VIDEO,      false)
                 .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
             android.app.PendingIntent callBackPi = android.app.PendingIntent.getBroadcast(
-                this, ("cb_" + callerUid).hashCode(), cbIntent,
+                this, ("cb_" + callTypeTag + "_" + callerUid).hashCode(), cbIntent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
-            // Feature 1b: Video call back (only if original was video)
+            // ── Action: Video call back (only if original was video) ──────────
             android.app.PendingIntent videoCallBackPi = null;
             if (missedIsVideo) {
                 android.content.Intent vcbIntent = new android.content.Intent(this, NotificationActionReceiver.class)
@@ -211,12 +259,11 @@ public class IncomingRingService extends Service {
                     .putExtra(Constants.EXTRA_IS_VIDEO,      true)
                     .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
                 videoCallBackPi = android.app.PendingIntent.getBroadcast(
-                    this, ("vcb_" + callerUid).hashCode(), vcbIntent,
+                    this, ("vcb_" + callTypeTag + "_" + callerUid).hashCode(), vcbIntent,
                     android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
             }
 
-            // Feature 2+3: Quick reply chips merged into RemoteInput via setChoices()
-            // Android only shows 3 actions max — so chips live inside Message action, not as separate actions
+            // ── Action: Message with quick reply chips ────────────────────────
             RemoteInput remoteInput = new RemoteInput.Builder(Constants.KEY_MISSED_CALL_REPLY)
                 .setLabel("Write a message\u2026")
                 .setChoices(new CharSequence[]{
@@ -232,7 +279,7 @@ public class IncomingRingService extends Service {
                 .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto)
                 .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
             android.app.PendingIntent msgPi = android.app.PendingIntent.getBroadcast(
-                this, ("mcmsg_" + callerUid).hashCode(), msgIntent,
+                this, ("mcmsg_" + callTypeTag + "_" + callerUid).hashCode(), msgIntent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_MUTABLE);
             NotificationCompat.Action msgAction = new NotificationCompat.Action.Builder(
                     R.drawable.ic_send, "\uD83D\uDCAC Message", msgPi)
@@ -241,7 +288,7 @@ public class IncomingRingService extends Service {
                 .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
                 .build();
 
-            // Feature 4: Snooze 10 min
+            // ── Action: Snooze 10 min ─────────────────────────────────────────
             android.content.Intent snoozeIntent = new android.content.Intent(this, NotificationActionReceiver.class)
                 .setAction(Constants.ACTION_MISSED_CALL_SNOOZE)
                 .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
@@ -250,18 +297,33 @@ public class IncomingRingService extends Service {
                 .putExtra(Constants.EXTRA_IS_VIDEO,      missedIsVideo)
                 .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
             android.app.PendingIntent snoozePi = android.app.PendingIntent.getBroadcast(
-                this, ("snz_" + callerUid).hashCode(), snoozeIntent,
+                this, ("snz_" + callTypeTag + "_" + callerUid).hashCode(), snoozeIntent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
             NotificationCompat.Action snoozeAction = new NotificationCompat.Action.Builder(
                 R.drawable.ic_timer, "\u23F0 10 min", snoozePi).build();
 
             int callIcon = missedIsVideo ? R.drawable.ic_video_call : R.drawable.ic_call_notification;
 
-            // Build notification — 3 actions max (Android hard limit)
-            // Video call: [📹 Video][📞 Voice][⏰ 10 min]  — Message+chips inside 💬 tap
-            // Voice call: [📞 Voice][💬 Message][⏰ 10 min] — chips inside 💬 tap
+            // ── Feature: heads-up fullScreenIntent (screen-on popup) ──────────
+            // Shows as banner even when screen is on and app is in background
+            android.content.Intent headsUpIntent = new android.content.Intent();
+            headsUpIntent.setClassName(this, "com.callx.app.conversation.ChatActivity");
+            headsUpIntent.putExtra(Constants.EXTRA_PARTNER_UID,  callerUid);
+            headsUpIntent.putExtra(Constants.EXTRA_PARTNER_NAME, callerName);
+            headsUpIntent.putExtra("partnerPhoto",               callerPhoto);
+            headsUpIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            android.app.PendingIntent headsUpPi = android.app.PendingIntent.getActivity(
+                this, ("hu_" + notifId), headsUpIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+            // ── Build notification ────────────────────────────────────────────
+            // 3 actions max (Android hard limit)
+            // Video: [📹 Video][📞 Voice][⏰ 10 min]  — 💬 chips inside Message tap
+            // Voice: [📞 Voice][💬 Message][⏰ 10 min] — chips inside Message tap
             NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
                 .setSmallIcon(callIcon)
+                .setColor(BRAND_COLOR)                          // ← brand color on icon + actions
+                .setColorized(false)                            // tinted icon only, not full bg
                 .setContentTitle(notifTitle)
                 .setContentText(bigText)
                 .setStyle(new NotificationCompat.BigTextStyle()
@@ -270,46 +332,57 @@ public class IncomingRingService extends Service {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(openPi)
+                .setFullScreenIntent(headsUpPi, false)          // ← heads-up banner (false = don't force full screen)
                 .setVisibility(lockVis)
                 .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
-                .setGroup(Constants.GROUP_KEY_MISSED_CALLS);
+                .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
+                .setNumber(totalBadge)                          // ← app icon badge count
+                .setSubText("Just missed");
+
+            // DND: if active, suppress sound and vibration in notification
+            if (isDndActive) {
+                b.setSilent(true);
+            }
 
             if (missedIsVideo && videoCallBackPi != null) {
                 b.addAction(R.drawable.ic_video_call, "\uD83D\uDCF9 Video", videoCallBackPi); // 1st
                 b.addAction(R.drawable.ic_phone, "\uD83D\uDCDE Voice", callBackPi);           // 2nd
                 b.addAction(snoozeAction);                                                     // 3rd
-                b.addAction(msgAction);                                                        // expanded
+                b.addAction(msgAction);                                                        // chips inside
             } else {
                 b.addAction(R.drawable.ic_phone, "\uD83D\uDCDE Voice", callBackPi);           // 1st
-                b.addAction(msgAction);                                                        // 2nd
+                b.addAction(msgAction);                                                        // 2nd — chips inside
                 b.addAction(snoozeAction);                                                     // 3rd
             }
             nm.notify(notifId, b.build());
 
-            // Feature 5: Group summary (2+ missed calls of same type)
+            // ── Feature: Group summary (2+ missed calls of same type) ─────────
             if (missedCount > 1) {
                 android.app.Notification summary = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
                     .setSmallIcon(callIcon)
+                    .setColor(BRAND_COLOR)
                     .setContentTitle(missedIsVideo ? "Missed video calls" : "Missed voice calls")
                     .setContentText(missedCount + " missed " + callTypeStr + "s from " + callerName)
                     .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
                     .setGroupSummary(true)
                     .setAutoCancel(true)
+                    .setNumber(totalBadge)
                     .setPriority(NotificationCompat.PRIORITY_LOW)
                     .build();
                 nm.notify(("summary_missed_" + callTypeTag + "_" + callerUid).hashCode() & 0x7FFFFFFF, summary);
             }
 
-            // SubText — sirf "Just missed", system timestamp alag se dikhata hai
-            b.setSubText("Just missed");
-
-            // Avatar: best-effort async update only
+            // ── Feature: Avatar async load ────────────────────────────────────
+            // Best-effort: load caller photo and re-notify with large icon
             if (!callerPhoto.isEmpty()) {
                 new Thread(() -> {
                     try {
                         java.net.HttpURLConnection c =
                             (java.net.HttpURLConnection) new java.net.URL(callerPhoto).openConnection();
-                        c.setDoInput(true); c.connect();
+                        c.setConnectTimeout(4000);
+                        c.setReadTimeout(4000);
+                        c.setDoInput(true);
+                        c.connect();
                         Bitmap avatarBm = BitmapFactory.decodeStream(c.getInputStream());
                         if (avatarBm != null) {
                             b.setLargeIcon(avatarBm);
@@ -319,6 +392,27 @@ public class IncomingRingService extends Service {
                 }).start();
             }
 
+        } catch (Exception ignored) {}
+    }
+
+    // ── Feature 7: Call-back result — re-show notification if call fails ─────
+    // Called from NotificationActionReceiver after call attempt (pass notifId + callerUid etc.)
+    public static void onCallBackFailed(Context ctx, int notifId, String callerName,
+                                        String callTypeStr, String missedAt) {
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            int callIcon = callTypeStr.contains("video")
+                ? R.drawable.ic_video_call : R.drawable.ic_call_notification;
+            android.app.Notification failNotif = new NotificationCompat.Builder(ctx, Constants.CHANNEL_CALLS_MISSED)
+                .setSmallIcon(callIcon)
+                .setColor(0xFF5B5BF6)
+                .setContentTitle("Call failed \u26A0\uFE0F")
+                .setContentText("Couldn't reach " + callerName + " \u2022 " + missedAt)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .build();
+            nm.notify(notifId, failNotif);
         } catch (Exception ignored) {}
     }
 
@@ -356,6 +450,7 @@ public class IncomingRingService extends Service {
 
         return new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS)
             .setSmallIcon(icon)
+            .setColor(BRAND_COLOR)
             .setContentTitle(fromName)
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_MAX)
