@@ -31,6 +31,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import com.bumptech.glide.Glide;
 import com.callx.app.calls.databinding.ActivityCallBinding;
+import com.callx.app.calls.R;
 import com.callx.app.services.CallForegroundService;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
@@ -366,6 +367,11 @@ public class CallActivity extends AppCompatActivity {
             for (int r : results) if (r != PackageManager.PERMISSION_GRANTED) { ok = false; break; }
             if (ok) fetchTurnThenInitWebRTC();
             else { Toast.makeText(this, "Mic/Camera permission required", Toast.LENGTH_LONG).show(); finish(); }
+        } else if (req == REQ_RECORD) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED)
+                startCallRecording();
+            else
+                Toast.makeText(this, "Mic permission chahiye recording ke liye", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1506,16 +1512,7 @@ public class CallActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(int code, @NonNull String[] perms, @NonNull int[] results) {
-        super.onRequestPermissionsResult(code, perms, results);
-        if (code == REQ_RECORD) {
-            if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED)
-                startCallRecording();
-            else
-                Toast.makeText(this, "Mic permission chahiye recording ke liye", Toast.LENGTH_SHORT).show();
-        }
-    }
+    // REQ_RECORD case handled in existing onRequestPermissionsResult above
     private SdpObserver noopSdp() {
         return new SdpObserver() {
             @Override public void onCreateSuccess(SessionDescription s) {}
