@@ -463,8 +463,8 @@ public class IncomingRingService extends Service {
                         c.connect();
                         Bitmap raw = BitmapFactory.decodeStream(c.getInputStream());
                         if (raw != null) {
-                            // Scale to 256×256 — matches incoming call notification largeIcon size
-                            Bitmap scaled = Bitmap.createScaledBitmap(raw, 256, 256, true);
+                            // Scale to 512×512 — larger bitmap renders bigger in RemoteViews
+                            Bitmap scaled = Bitmap.createScaledBitmap(raw, 512, 512, true);
                             // Feature 6: circle crop
                             Bitmap circle = toCircleBitmap(scaled);
                             // Feature 1: draw colored gradient ring around avatar
