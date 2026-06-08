@@ -59,6 +59,10 @@ public class GroupCallParticipantAdapter extends
         // Mic muted indicator
         h.ivMicOff.setVisibility(info.micOn ? View.GONE : View.VISIBLE);
 
+        // Screen-share badge — show when this participant is sharing their screen
+        if (h.tvScreenShareBadge != null)
+            h.tvScreenShareBadge.setVisibility(info.screenSharing ? View.VISIBLE : View.GONE);
+
         // Network quality indicator
         // 0 = unknown (hidden), 1 = poor (red 1-bar), 2 = fair (orange 2-bar), 3 = good (green 4-bar)
         if (info.networkQuality == 0) {
@@ -119,6 +123,7 @@ public class GroupCallParticipantAdapter extends
         FrameLayout avatarContainer;
         TextView tvInitials, tvName;
         ImageView ivMicOff, ivHandRaised, ivNetworkQuality;
+        TextView tvScreenShareBadge;
         // FIX-3: track whether renderer has been init()'d
         boolean rendererInitialized = false;
 
@@ -131,6 +136,7 @@ public class GroupCallParticipantAdapter extends
             ivMicOff           = v.findViewById(R.id.ivParticipantMicOff);
             ivHandRaised       = v.findViewById(R.id.ivParticipantHandRaised);
             ivNetworkQuality   = v.findViewById(R.id.ivNetworkQuality);
+            tvScreenShareBadge = v.findViewById(R.id.tvScreenShareBadge);
         }
     }
 }

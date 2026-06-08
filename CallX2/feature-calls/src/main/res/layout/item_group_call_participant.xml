@@ -33,6 +33,22 @@
             android:text="?"/>
     </FrameLayout>
 
+    <!-- Screen-share badge — centred near the top, visible only when this participant is sharing -->
+    <TextView
+        android:id="@+id/tvScreenShareBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="8dp"
+        android:background="#CC1565C0"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="3dp"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:text="📺 Sharing screen"
+        android:visibility="gone"/>
+
     <!-- Network quality indicator — top-right corner, visible once ICE connects -->
     <ImageView
         android:id="@+id/ivNetworkQuality"

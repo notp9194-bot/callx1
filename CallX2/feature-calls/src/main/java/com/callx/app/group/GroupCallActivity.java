@@ -308,8 +308,19 @@ public class GroupCallActivity extends AppCompatActivity {
 
     private void setupAdapter() {
         adapter = new GroupCallParticipantAdapter(participants, eglBase);
-        int spanCount = 2;
-        rvParticipants.setLayoutManager(new GridLayoutManager(this, spanCount));
+        GridLayoutManager glm = new GridLayoutManager(this, 2);
+        // SCREEN-SHARE: screen-sharing tile spans the full row width
+        glm.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                if (position >= 0 && position < participants.size()
+                        && participants.get(position).screenSharing) {
+                    return glm.getSpanCount(); // Full width for screen-sharing tile
+                }
+                return 1;
+            }
+        });
+        rvParticipants.setLayoutManager(glm);
         rvParticipants.setAdapter(adapter);
     }
 
@@ -317,7 +328,10 @@ public class GroupCallActivity extends AppCompatActivity {
         int count = participants.size();
         int span = (count <= 1) ? 1 : (count <= 4) ? 2 : (count <= 9) ? 3 : 3;
         if (rvParticipants.getLayoutManager() instanceof GridLayoutManager) {
-            ((GridLayoutManager) rvParticipants.getLayoutManager()).setSpanCount(span);
+            GridLayoutManager glm = (GridLayoutManager) rvParticipants.getLayoutManager();
+            glm.setSpanCount(span);
+            // Invalidate span size lookup so screen-sharing tiles recompute their full-width span
+            glm.getSpanSizeLookup().invalidateSpanIndexCache();
         }
         tvParticipantCount.setText(count + " participant" + (count == 1 ? "" : "s"));
     }
@@ -561,6 +575,7 @@ public class GroupCallActivity extends AppCompatActivity {
                     Boolean pMicOn = child.child("micOn").getValue(Boolean.class);
                     Boolean pCamOn = child.child("camOn").getValue(Boolean.class);
                     Boolean raised = child.child("handRaised").getValue(Boolean.class);
+                    Boolean screenShare = child.child("screenShare").getValue(Boolean.class);
 
                     if (uid == null || "left".equals(status) || "declined".equals(status)
                             || "full".equals(status))  // FIX-10: skip rejected-full participants
@@ -579,7 +594,8 @@ public class GroupCallActivity extends AppCompatActivity {
                     updateParticipantInfo(uid, name,
                         Boolean.TRUE.equals(pMicOn),
                         Boolean.TRUE.equals(pCamOn),
-                        Boolean.TRUE.equals(raised));
+                        Boolean.TRUE.equals(raised),
+                        Boolean.TRUE.equals(screenShare));
                 }
 
                 // Remove participants who left
@@ -640,10 +656,22 @@ public class GroupCallActivity extends AppCompatActivity {
     }
 
     private void updateParticipantInfo(String uid, String name,
-                                        boolean mic, boolean cam, boolean hand) {
-        for (ParticipantInfo p : participants) {
+                                        boolean mic, boolean cam, boolean hand,
+                                        boolean screenShare) {
+        for (int i = 0; i < participants.size(); i++) {
+            ParticipantInfo p = participants.get(i);
             if (p.uid.equals(uid)) {
-                p.name = name; p.micOn = mic; p.camOn = cam; p.handRaised = hand;
+                boolean wasSharing = p.screenSharing;
+                p.name = name; p.micOn = mic; p.camOn = cam;
+                p.handRaised = hand; p.screenSharing = screenShare;
+                // If screen-share toggled, refresh span sizes so this tile expands/collapses
+                if (wasSharing != screenShare) {
+                    final int idx = i;
+                    runOnUiThread(() -> {
+                        adapter.notifyItemChanged(idx);
+                        updateGridSpan();
+                    });
+                }
                 return;
             }
         }
@@ -1399,6 +1427,8 @@ public class GroupCallActivity extends AppCompatActivity {
         public boolean micOn, camOn, handRaised;
         /** 0=unknown (icon hidden), 1=poor, 2=fair, 3=good */
         public int networkQuality = 0;
+        /** true when this participant has screen-share active (Firebase screenShare flag) */
+        public boolean screenSharing = false;
 
         public ParticipantInfo(String uid, String name, VideoTrack vt,
                                boolean mic, boolean cam, boolean hand) {
