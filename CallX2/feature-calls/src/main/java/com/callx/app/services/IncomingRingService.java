@@ -313,7 +313,7 @@ public class IncomingRingService extends Service {
             headsUpIntent.putExtra("partnerPhoto",               callerPhoto);
             headsUpIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             android.app.PendingIntent headsUpPi = android.app.PendingIntent.getActivity(
-                this, ("hu_" + notifId), headsUpIntent,
+                this, ("hu_" + callerUid).hashCode() & 0x7FFFFFFF, headsUpIntent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
             // ── Build notification ────────────────────────────────────────────
