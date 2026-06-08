@@ -3,9 +3,8 @@
 
     <!-- ── Call Recording Permissions ── -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-    <!-- WRITE_EXTERNAL_STORAGE required for Android 9 and below only -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28"/>
+    <!-- WRITE_EXTERNAL_STORAGE is declared in app-level AndroidManifest.xml (maxSdkVersion=32).
+         Declaring it here too caused a manifest merger conflict. -->
     <application>
         <activity android:name="com.callx.app.call.CallActivity"
             android:exported="false"
