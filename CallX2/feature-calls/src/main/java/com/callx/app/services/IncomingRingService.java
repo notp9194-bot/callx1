@@ -349,14 +349,12 @@ public class IncomingRingService extends Service {
             else if (missedIsVideo)    accentColor = COLOR_VIDEO_MISSED;
             else                       accentColor = COLOR_VOICE_MISSED;
 
-            // ── Feature 3: MessagingStyle — modern conversation bubble look ──
-            androidx.core.app.Person callerPerson = new androidx.core.app.Person.Builder()
-                .setName(callerName)
-                .build();  // avatar set later after bitmap loads (re-notify)
-            NotificationCompat.MessagingStyle messagingStyle =
-                new NotificationCompat.MessagingStyle(callerPerson)
-                    .setConversationTitle(notifTitle)
-                    .addMessage(bigText, System.currentTimeMillis(), callerPerson);
+            // ── Feature 3: BigTextStyle (MessagingStyle removed — it ignores
+            //    contentTitle/contentText causing blank notifications on many devices)
+            NotificationCompat.BigTextStyle notifStyle =
+                new NotificationCompat.BigTextStyle()
+                    .bigText(bigText)
+                    .setSummaryText(callTypeStr);
 
             // ── Feature 4: Custom RemoteViews (colorful gradient bg) ─────────
             // Pick bg drawable based on call type
@@ -365,7 +363,10 @@ public class IncomingRingService extends Service {
                 : R.drawable.bg_notif_missed_call;
             RemoteViews customView = null;
             try {
-                customView = new RemoteViews(getPackageName(),
+                // RemoteViews needs the MODULE's namespace (com.callx.app.calls),
+                // not getPackageName() which returns the app's applicationId.
+                // R.layout.notification_missed_call lives in com.callx.app.calls.R
+                customView = new RemoteViews("com.callx.app.calls",
                     R.layout.notification_missed_call);
                 customView.setTextViewText(R.id.notif_caller_name, callerName);
                 customView.setTextViewText(R.id.notif_call_type,
@@ -400,7 +401,7 @@ public class IncomingRingService extends Service {
                 .setColorized(false)
                 .setContentTitle(notifTitle)
                 .setContentText(bigText)
-                .setStyle(messagingStyle)                // Feature 3: MessagingStyle
+                .setStyle(notifStyle)                    // BigTextStyle
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(openPi)
@@ -439,10 +440,9 @@ public class IncomingRingService extends Service {
                 b.addAction(new NotificationCompat.Action.Builder(
                     R.drawable.ic_snooze_yellow, "\u23F0 Snooze", snoozePi).build()); // 3rd
             }
-            nm.notify(notifId, b.build());
-
-            // ── Feature 3: TTL — 30 min baad auto-dismiss ────────────────────
+            // ── TTL — 30 min baad auto-dismiss (must be BEFORE notify) ─────
             b.setTimeoutAfter(MISSED_CALL_TTL_MS);
+            nm.notify(notifId, b.build());
 
             // ── Feature 1 + 6: Colored ring avatar async load ────────────────
             // Loads caller photo → circle crop → draws gradient ring → re-notify
@@ -473,24 +473,7 @@ public class IncomingRingService extends Service {
                             // Update large icon (standard notification)
                             finalBuilder.setLargeIcon(ringed);
 
-                            // Feature 3: Re-build MessagingStyle with avatar
-                            android.graphics.drawable.Icon personIcon =
-                                android.graphics.drawable.Icon.createWithBitmap(ringed);
-                            androidx.core.app.Person updatedPerson =
-                                new androidx.core.app.Person.Builder()
-                                    .setName(finalCallerName)
-                                    .setIcon(androidx.core.graphics.drawable.IconCompat
-                                        .createWithBitmap(ringed))
-                                    .build();
-                            NotificationCompat.MessagingStyle updatedStyle =
-                                new NotificationCompat.MessagingStyle(updatedPerson)
-                                    .setConversationTitle(finalBuilder.build()
-                                        .extras.getString(android.app.Notification.EXTRA_TITLE, ""))
-                                    .addMessage(
-                                        finalBuilder.build().extras.getString(
-                                            android.app.Notification.EXTRA_TEXT, ""),
-                                        System.currentTimeMillis(), updatedPerson);
-                            finalBuilder.setStyle(updatedStyle);
+                            // Large icon already set above; no style rebuild needed
 
                             // Feature 4: Update RemoteViews avatar
                             if (finalCustomView != null) {
