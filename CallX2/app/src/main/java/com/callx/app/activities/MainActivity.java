@@ -269,26 +269,37 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * ChatsFragment mein User ka ContactBottomSheet open karo.
-     * Fragment ready hone ka wait karo (ViewPager lazy load ke liye slight delay).
+     * Fragment ready hone ka wait karo — retry loop use karta hai (max 20 tries, 100ms interval).
      */
     private void openUserSheetInChats(String uid, String name, String photo) {
         binding.viewPager.setCurrentItem(TAB_CHATS, false);
-        // ViewPager2 fragment "f0" tag se milega (TAB_CHATS = 0)
+        tryShowUserSheet(uid, name, photo, 0);
+    }
+
+    private void tryShowUserSheet(String uid, String name, String photo, int attempt) {
+        if (attempt > 20) return; // max ~2 seconds
         binding.getRoot().postDelayed(() -> {
             try {
-                if (binding.viewPager.getAdapter() == null) return;
+                if (binding.viewPager.getAdapter() == null) {
+                    tryShowUserSheet(uid, name, photo, attempt + 1);
+                    return;
+                }
                 androidx.fragment.app.Fragment frag = getSupportFragmentManager()
                     .findFragmentByTag("f" + binding.viewPager.getAdapter().getItemId(TAB_CHATS));
-                if (frag instanceof ChatsFragment) {
+                if (frag instanceof ChatsFragment && frag.isAdded() && !frag.isDetached()) {
                     User user = new User();
                     user.uid      = uid;
                     user.name     = name;
                     user.photoUrl = photo;
                     user.thumbUrl = photo;
                     ((ChatsFragment) frag).showContactBottomSheetForUser(user);
+                } else {
+                    tryShowUserSheet(uid, name, photo, attempt + 1);
                 }
-            } catch (Exception ignored) {}
-        }, 350);
+            } catch (Exception ignored) {
+                tryShowUserSheet(uid, name, photo, attempt + 1);
+            }
+        }, 100);
     }
 
     /** Navigate to ReelNotificationsActivity when user taps the system
