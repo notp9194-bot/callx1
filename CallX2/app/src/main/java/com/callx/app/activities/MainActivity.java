@@ -58,6 +58,8 @@ import com.callx.app.group.NewGroupActivity;
 import com.callx.app.services.CallForegroundService;
 import com.callx.app.compose.NewStatusActivity;
 import com.callx.app.hub.GamesHubActivity;
+import com.callx.app.chatlist.ChatsFragment;
+import com.callx.app.models.User;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -253,6 +255,40 @@ public class MainActivity extends AppCompatActivity {
             case "groups":       binding.viewPager.setCurrentItem(TAB_GROUPS, false); break;
             case "calls":        binding.viewPager.setCurrentItem(TAB_CALLS,  false); break;
         }
+
+        // Missed call avatar click: chats tab pe user ka ContactBottomSheet kholo
+        if (intent.getBooleanExtra("open_user_sheet", false)) {
+            String uid   = intent.getStringExtra(Constants.EXTRA_PARTNER_UID);
+            String name  = intent.getStringExtra(Constants.EXTRA_PARTNER_NAME);
+            String photo = intent.getStringExtra(Constants.EXTRA_PARTNER_PHOTO);
+            if (uid != null && !uid.isEmpty()) {
+                openUserSheetInChats(uid, name, photo);
+            }
+        }
+    }
+
+    /**
+     * ChatsFragment mein User ka ContactBottomSheet open karo.
+     * Fragment ready hone ka wait karo (ViewPager lazy load ke liye slight delay).
+     */
+    private void openUserSheetInChats(String uid, String name, String photo) {
+        binding.viewPager.setCurrentItem(TAB_CHATS, false);
+        // ViewPager2 fragment "f0" tag se milega (TAB_CHATS = 0)
+        binding.getRoot().postDelayed(() -> {
+            try {
+                if (binding.viewPager.getAdapter() == null) return;
+                androidx.fragment.app.Fragment frag = getSupportFragmentManager()
+                    .findFragmentByTag("f" + binding.viewPager.getAdapter().getItemId(TAB_CHATS));
+                if (frag instanceof ChatsFragment) {
+                    User user = new User();
+                    user.uid      = uid;
+                    user.name     = name;
+                    user.photoUrl = photo;
+                    user.thumbUrl = photo;
+                    ((ChatsFragment) frag).showContactBottomSheetForUser(user);
+                }
+            } catch (Exception ignored) {}
+        }, 350);
     }
 
     /** Navigate to ReelNotificationsActivity when user taps the system

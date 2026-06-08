@@ -349,19 +349,25 @@ public class IncomingRingService extends Service {
             else if (missedIsVideo)    accentColor = COLOR_VIDEO_MISSED;
             else                       accentColor = COLOR_VOICE_MISSED;
 
-            // NOTE: BigTextStyle intentionally removed — it overrides setCustomBigContentView.
-            // Custom RemoteViews handles the expanded layout directly.
+            // ── Feature 3: BigTextStyle (MessagingStyle removed — it ignores
+            //    contentTitle/contentText causing blank notifications on many devices)
+            NotificationCompat.BigTextStyle notifStyle =
+                new NotificationCompat.BigTextStyle()
+                    .bigText(bigText)
+                    .setSummaryText(callTypeStr);
 
-            // ── Feature 4: Custom RemoteViews (colorful gradient bg + colored pill buttons) ──
-            // Use separate layout for video vs voice (different button sets)
+            // ── Feature 4: Custom RemoteViews (colorful gradient bg) ─────────
+            // Pick bg drawable based on call type
+            int bgDrawable = missedIsVideo
+                ? R.drawable.bg_notif_missed_video
+                : R.drawable.bg_notif_missed_call;
             RemoteViews customView = null;
             try {
                 // RemoteViews needs the MODULE's namespace (com.callx.app.calls),
                 // not getPackageName() which returns the app's applicationId.
-                int layoutRes = missedIsVideo
-                    ? R.layout.notification_missed_video
-                    : R.layout.notification_missed_call;
-                customView = new RemoteViews("com.callx.app.calls", layoutRes);
+                // R.layout.notification_missed_call lives in com.callx.app.calls.R
+                customView = new RemoteViews("com.callx.app.calls",
+                    R.layout.notification_missed_call);
                 customView.setTextViewText(R.id.notif_caller_name, callerName);
                 customView.setTextViewText(R.id.notif_call_type,
                     missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed voice call");
@@ -378,20 +384,18 @@ public class IncomingRingService extends Service {
                 customView.setImageViewResource(R.id.notif_avatar,
                     missedIsVideo ? R.drawable.ic_video_orange : R.drawable.ic_phone_green);
 
-                // ── Wire colored pill buttons to PendingIntents ───────────────
-                // Voice button (both layouts)
-                customView.setOnClickPendingIntent(R.id.notif_btn_voice, callBackPi);
-                // Snooze button (both layouts)
-                customView.setOnClickPendingIntent(R.id.notif_btn_snooze, snoozePi);
-                if (missedIsVideo) {
-                    // Video layout: Video + Voice + Snooze
-                    if (videoCallBackPi != null) {
-                        customView.setOnClickPendingIntent(R.id.notif_btn_video, videoCallBackPi);
-                    }
-                } else {
-                    // Voice layout: Voice + Message + Snooze
-                    customView.setOnClickPendingIntent(R.id.notif_btn_message, msgPi);
-                }
+                // ── Avatar click → status check → StatusViewer or ContactSheet ───
+                android.content.Intent avatarIntent = new android.content.Intent(this,
+                    com.callx.app.services.MissedCallAvatarReceiver.class)
+                    .setAction(Constants.ACTION_MISSED_CALL_AVATAR_CLICK)
+                    .putExtra(Constants.EXTRA_PARTNER_UID,   callerUid)
+                    .putExtra(Constants.EXTRA_PARTNER_NAME,  callerName)
+                    .putExtra(Constants.EXTRA_PARTNER_PHOTO, callerPhoto);
+                android.app.PendingIntent avatarPi = android.app.PendingIntent.getBroadcast(
+                    this, ("avatar_" + callerUid).hashCode() & 0x7FFFFFFF, avatarIntent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                customView.setOnClickPendingIntent(R.id.notif_avatar, avatarPi);
+
             } catch (Exception rvEx) {
                 customView = null; // fallback to standard style
             }
@@ -403,13 +407,14 @@ public class IncomingRingService extends Service {
                     R.drawable.ic_phone_green, "\uD83D\uDCDE Voice", callBackPi).build();
 
             // ── Build notification ────────────────────────────────────────────
+            // 3 actions max (Android hard limit)
             NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS_MISSED)
                 .setSmallIcon(callIcon)
-                .setColor(accentColor)                   // per-type accent colour
-                .setColorized(true)                      // needed for custom bg to show
+                .setColor(accentColor)                   // Feature 2: per-type colour
+                .setColorized(false)
                 .setContentTitle(notifTitle)
                 .setContentText(bigText)
-                // NO setStyle() — BigTextStyle overrides setCustomBigContentView
+                .setStyle(notifStyle)                    // BigTextStyle
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(openPi)

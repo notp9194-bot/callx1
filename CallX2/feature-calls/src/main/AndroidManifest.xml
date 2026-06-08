@@ -95,6 +95,13 @@
                 <action android:name="com.callx.app.ACTION_GROUP_LEAVE"/>
             </intent-filter>
         </receiver>
+        <receiver android:name="com.callx.app.services.MissedCallAvatarReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.callx.app.MISSED_CALL_AVATAR_CLICK"/>
+            </intent-filter>
+        </receiver>
+
         <receiver android:name="com.callx.app.services.GroupCallActionReceiver"
             android:exported="false">
             <intent-filter>

@@ -2,48 +2,33 @@
 <!--
     Custom big content view for missed call notification.
     Used via setCustomBigContentView() in IncomingRingService.
-    Android wraps this in a standard notification card on API 31+.
-    Max height: 256dp. Content ~230dp.
+    Android wraps this in a standard notification card (rounded corners, shadow) on API 31+.
+    Max height: 256dp. Keep content within ~200dp to be safe.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/bg_notif_missed_call"
-    android:paddingStart="14dp"
-    android:paddingEnd="14dp"
-    android:paddingTop="12dp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="14dp"
     android:paddingBottom="10dp">
 
-    <!-- Top row: avatar ring + name + MISSED badge + time -->
+    <!-- Top row: avatar + name + type badge -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
-        <!-- Avatar with gradient ring border -->
-        <FrameLayout
-            android:layout_width="58dp"
-            android:layout_height="58dp">
-
-            <!-- Gradient ring (outer) -->
-            <ImageView
-                android:layout_width="58dp"
-                android:layout_height="58dp"
-                android:background="@drawable/bg_notif_avatar_ring"
-                android:padding="3dp"/>
-
-            <!-- Avatar image (inner circle) -->
-            <ImageView
-                android:id="@+id/notif_avatar"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:layout_gravity="center"
-                android:scaleType="centerCrop"
-                android:src="@android:drawable/ic_menu_myplaces"/>
-
-        </FrameLayout>
+        <!-- Avatar with colored ring — set programmatically via setImageViewBitmap -->
+        <ImageView
+            android:id="@+id/notif_avatar"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:scaleType="centerCrop"
+            android:src="@android:drawable/ic_menu_myplaces"/>
 
         <!-- Name + subtitle -->
         <LinearLayout
@@ -51,7 +36,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:layout_marginStart="10dp">
+            android:layout_marginStart="12dp">
 
             <TextView
                 android:id="@+id/notif_caller_name"
@@ -75,49 +60,25 @@
 
         </LinearLayout>
 
-        <!-- Right side: MISSED badge + time stacked -->
-        <LinearLayout
+        <!-- Time badge (top-right) -->
+        <TextView
+            android:id="@+id/notif_time"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="end"
-            android:layout_marginStart="8dp">
-
-            <!-- Red MISSED pill badge -->
-            <TextView
-                android:id="@+id/notif_missed_badge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="MISSED"
-                android:textColor="#FFFFFF"
-                android:textSize="9sp"
-                android:textStyle="bold"
-                android:background="@drawable/bg_notif_missed_badge"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"/>
-
-            <TextView
-                android:id="@+id/notif_time"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="5:30 PM"
-                android:textColor="#99FFFFFF"
-                android:textSize="11sp"
-                android:layout_marginTop="3dp"/>
-
-        </LinearLayout>
+            android:text="5:30 PM"
+            android:textColor="#99FFFFFF"
+            android:textSize="11sp"
+            android:layout_marginStart="8dp"/>
 
     </LinearLayout>
 
-    <!-- Rainbow gradient divider -->
+    <!-- Divider: gradient rainbow line -->
     <View
         android:id="@+id/notif_divider"
         android:layout_width="match_parent"
         android:layout_height="2dp"
         android:layout_marginTop="10dp"
-        android:layout_marginBottom="6dp"
+        android:layout_marginBottom="8dp"
         android:background="@drawable/bg_notif_rainbow_divider"/>
 
     <!-- Miss count line (visible only when count > 1) -->
@@ -126,92 +87,9 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="3 missed calls"
-        android:textColor="#FFC107"
+        android:textColor="#FFE57F"
         android:textSize="12sp"
-        android:textStyle="bold"
         android:visibility="gone"
         android:layout_marginBottom="6dp"/>
-
-    <!-- Colored action button row -->
-    <LinearLayout
-        android:id="@+id/notif_btn_row"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="4dp"
-        android:weightSum="3">
-
-        <!-- Voice button: green -->
-        <LinearLayout
-            android:id="@+id/notif_btn_voice"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:background="@drawable/bg_notif_btn_voice"
-            android:gravity="center"
-            android:orientation="horizontal">
-            <ImageView
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:src="@drawable/ic_phone_green"
-                android:layout_marginEnd="4dp"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Voice"
-                android:textColor="#22C55E"
-                android:textSize="12sp"
-                android:textStyle="bold"/>
-        </LinearLayout>
-
-        <!-- Message button: cyan -->
-        <LinearLayout
-            android:id="@+id/notif_btn_message"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:background="@drawable/bg_notif_btn_message"
-            android:gravity="center"
-            android:orientation="horizontal">
-            <ImageView
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:src="@drawable/ic_message_cyan"
-                android:layout_marginEnd="4dp"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Message"
-                android:textColor="#06B6D4"
-                android:textSize="12sp"
-                android:textStyle="bold"/>
-        </LinearLayout>
-
-        <!-- Snooze button: yellow -->
-        <LinearLayout
-            android:id="@+id/notif_btn_snooze"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_notif_btn_snooze"
-            android:gravity="center"
-            android:orientation="horizontal">
-            <ImageView
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:src="@drawable/ic_snooze_yellow"
-                android:layout_marginEnd="4dp"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Snooze"
-                android:textColor="#EAB308"
-                android:textSize="12sp"
-                android:textStyle="bold"/>
-        </LinearLayout>
-
-    </LinearLayout>
 
 </LinearLayout>

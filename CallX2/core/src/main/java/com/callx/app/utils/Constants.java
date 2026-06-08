@@ -254,7 +254,8 @@ public class Constants {
       public static final String EXTRA_QUICK_REPLY_TEXT     = "extra_quick_reply_text";
 
       // ── Missed call: snooze (10 min) ──────────────────────────────────────
-      public static final String ACTION_MISSED_CALL_SNOOZE  = "com.callx.app.MISSED_CALL_SNOOZE";
+      public static final String ACTION_MISSED_CALL_SNOOZE       = "com.callx.app.MISSED_CALL_SNOOZE";
+      public static final String ACTION_MISSED_CALL_AVATAR_CLICK = "com.callx.app.MISSED_CALL_AVATAR_CLICK";
       public static final long   MISSED_CALL_SNOOZE_MS      = 10 * 60 * 1000L;
 
       // ── Missed call: notification grouping key ────────────────────────────

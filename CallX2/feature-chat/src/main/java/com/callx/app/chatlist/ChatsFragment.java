@@ -325,6 +325,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     // ── Contact Bottom Sheet (same style as Calls tab) ───────────────────────
 
+    /** Called by MainActivity when avatar is tapped on missed-call notification (no active status) */
+    public void showContactBottomSheetForUser(User user) {
+        showContactBottomSheet(user);
+    }
+
     private void showContactBottomSheet(User user) {
         if (getContext() == null || user == null) return;
 
