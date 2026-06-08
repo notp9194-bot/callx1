@@ -867,7 +867,6 @@ public class CallActivity extends AppCompatActivity {
 
         if (s == PeerConnection.IceConnectionState.CONNECTED ||
             s == PeerConnection.IceConnectionState.COMPLETED) {
-            stopCallRecording(true);  // Save recording on call end
         cancelPendingIceRestart();
             onCallConnected();
             binding.tvCallStatus.setAlpha(1f);
@@ -1204,6 +1203,7 @@ public class CallActivity extends AppCompatActivity {
     private void endCall() {
         if (finishing) return;
         finishing = true;
+        stopCallRecording(true); // Call end pe recording save karo
 
         cancelPendingIceRestart();
         if (ticker != null) tick.removeCallbacks(ticker);
