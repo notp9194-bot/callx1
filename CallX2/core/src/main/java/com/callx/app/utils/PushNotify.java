@@ -288,14 +288,22 @@ public class PushNotify {
     // Missed group call — group ke saare members ko batao
     public static void notifyMissedGroupCall(String groupId, String fromUid, String fromName,
                                              String callId, boolean isVideo) {
+        notifyMissedGroupCall(groupId, fromUid, fromName, callId, isVideo, "");
+    }
+
+    // FIX-GCALL-PHOTO: callerPhoto parameter add kiya — missed group call notification me avatar
+    public static void notifyMissedGroupCall(String groupId, String fromUid, String fromName,
+                                             String callId, boolean isVideo, String callerPhoto) {
         try {
             JSONObject body = new JSONObject()
-                .put("groupId",  groupId  == null ? "" : groupId)
-                .put("fromUid",  fromUid  == null ? "" : fromUid)
-                .put("fromName", fromName == null ? "" : fromName)
-                .put("callId",   callId   == null ? "" : callId)
-                .put("isVideo",  isVideo)
-                .put("type",     "missed_group_call");
+                .put("groupId",     groupId     == null ? "" : groupId)
+                .put("fromUid",     fromUid     == null ? "" : fromUid)
+                .put("fromName",    fromName    == null ? "" : fromName)
+                .put("callerPhoto", callerPhoto == null ? "" : callerPhoto) // FIX-GCALL-PHOTO
+                .put("gcallCallerPhoto", callerPhoto == null ? "" : callerPhoto) // Constants.GCALL_FCM_CALLER_PHOTO
+                .put("callId",      callId      == null ? "" : callId)
+                .put("isVideo",     isVideo)
+                .put("type",        "missed_group_call");
             postAsync(Constants.SERVER_URL + "/notify/group", body);
         } catch (Exception e) {
             Log.w("PushNotify", "notifyMissedGroupCall err: " + e.getMessage());
@@ -306,14 +314,23 @@ public class PushNotify {
 
     public static void notifyGroupCall(String groupId, String fromUid, String fromName,
                                        String callId, boolean isVideo) {
+        notifyGroupCall(groupId, fromUid, fromName, callId, isVideo, "");
+    }
+
+    // FIX-GCALL-PHOTO: callerPhoto parameter add kiya — incoming group call notification me avatar dikhane ke liye
+    // GroupCallRingService reads Constants.GCALL_FCM_CALLER_PHOTO ("gcallCallerPhoto") from FCM data
+    public static void notifyGroupCall(String groupId, String fromUid, String fromName,
+                                       String callId, boolean isVideo, String callerPhoto) {
         try {
             JSONObject body = new JSONObject()
-                .put("groupId",  groupId  == null ? "" : groupId)
-                .put("fromUid",  fromUid  == null ? "" : fromUid)
-                .put("fromName", fromName == null ? "" : fromName)
-                .put("callId",   callId   == null ? "" : callId)
-                .put("isVideo",  isVideo)
-                .put("type",     "group_call");
+                .put("groupId",     groupId     == null ? "" : groupId)
+                .put("fromUid",     fromUid     == null ? "" : fromUid)
+                .put("fromName",    fromName    == null ? "" : fromName)
+                .put("callerPhoto", callerPhoto == null ? "" : callerPhoto) // FIX-GCALL-PHOTO
+                .put("gcallCallerPhoto", callerPhoto == null ? "" : callerPhoto) // Constants.GCALL_FCM_CALLER_PHOTO
+                .put("callId",      callId      == null ? "" : callId)
+                .put("isVideo",     isVideo)
+                .put("type",        "group_call");
             postAsync(Constants.SERVER_URL + "/notify/group", body);
         } catch (Exception e) {
             Log.w("PushNotify", "notifyGroupCall err: " + e.getMessage());

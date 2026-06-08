@@ -52,7 +52,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
     private TextView tvSelectedCount;
 
     // Filter chips
-    private TextView chipAll, chipMissed, chipIncoming, chipOutgoing, chipContacts, chipNonspam, chipSpam;
+    private TextView chipAll, chipMissed, chipContacts, chipNonspam, chipSpam;
     private String activeFilter = "all";
 
     // Search
@@ -78,8 +78,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
 
         chipAll      = v.findViewById(R.id.chip_all);
         chipMissed   = v.findViewById(R.id.chip_missed);
-        chipIncoming = v.findViewById(R.id.chip_incoming);
-        chipOutgoing = v.findViewById(R.id.chip_outgoing);
         chipContacts = v.findViewById(R.id.chip_contacts);
         chipNonspam  = v.findViewById(R.id.chip_nonspam);
         chipSpam     = v.findViewById(R.id.chip_spam);
@@ -116,8 +114,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
 
         setupChip(chipAll,      "all");
         setupChip(chipMissed,   "missed");
-        setupChip(chipIncoming, "incoming");
-        setupChip(chipOutgoing, "outgoing");
         setupChip(chipContacts, "contacts");
         setupChip(chipNonspam,  "nonspam");
         setupChip(chipSpam,     "spam");
@@ -827,8 +823,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         if (getContext() == null) return;
         setChipState(chipAll,      "all");
         setChipState(chipMissed,   "missed");
-        setChipState(chipIncoming, "incoming");
-        setChipState(chipOutgoing, "outgoing");
         setChipState(chipContacts, "contacts");
         setChipState(chipNonspam,  "nonspam");
         setChipState(chipSpam,     "spam");
@@ -853,12 +847,6 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             switch (activeFilter) {
                 case "missed":
                     if (!dir.contains("missed")) continue;
-                    break;
-                case "incoming":
-                    if (!dir.equals("incoming")) continue;
-                    break;
-                case "outgoing":
-                    if (!dir.equals("outgoing")) continue;
                     break;
                 case "contacts":
                     if (l.partnerName == null || l.partnerName.isEmpty()) continue;

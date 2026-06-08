@@ -1,8 +1,6 @@
 package com.callx.app.call;
 
 import android.Manifest;
-import android.media.MediaRecorder;
-import android.widget.TextView;
 import android.app.PictureInPictureParams;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -31,7 +29,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import com.bumptech.glide.Glide;
 import com.callx.app.calls.databinding.ActivityCallBinding;
-import com.callx.app.calls.R;
 import com.callx.app.services.CallForegroundService;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
@@ -61,8 +58,6 @@ import org.webrtc.SessionDescription;
 import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
-import org.webrtc.StatsObserver;
-import org.webrtc.StatsReport;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -106,16 +101,6 @@ public class CallActivity extends AppCompatActivity {
     private final Handler iceRestartHandler = new Handler(Looper.getMainLooper());
     private Runnable iceRestartRunnable;
     private ValueEventListener iceRestartRequestListener;
-
-    // ── RTCStats quality polling ─────────────────────────────────────────
-    private final android.os.Handler statsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private Runnable statsRunnable;
-    private long prevBytesRx = 0, prevBytesTx = 0, prevStatsTimeMs = 0;
-
-    // ── Call Recording ─────────────────────────────────────────────────────
-    private CallRecorderHelper callRecorder;
-    private boolean isRecording = false;
-    private static final int REQ_RECORD = 201;
 
     // Wake lock
     private PowerManager.WakeLock wakeLock;
@@ -227,8 +212,6 @@ public class CallActivity extends AppCompatActivity {
         binding.btnToggleCamera.setOnClickListener(v -> toggleCamera());
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
-        if (binding.btnRecord != null)
-            binding.btnRecord.setOnClickListener(v -> toggleRecording());
 
         updateMicUI();
         updateCameraUI();
@@ -367,11 +350,6 @@ public class CallActivity extends AppCompatActivity {
             for (int r : results) if (r != PackageManager.PERMISSION_GRANTED) { ok = false; break; }
             if (ok) fetchTurnThenInitWebRTC();
             else { Toast.makeText(this, "Mic/Camera permission required", Toast.LENGTH_LONG).show(); finish(); }
-        } else if (req == REQ_RECORD) {
-            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED)
-                startCallRecording();
-            else
-                Toast.makeText(this, "Mic permission chahiye recording ke liye", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -411,18 +389,6 @@ public class CallActivity extends AppCompatActivity {
         List<PeerConnection.IceServer> list = new ArrayList<>();
         list.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
         list.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2).createIceServer());
-        // Free TURN fallback — strict NAT ke peeche sirf STUN se call fail hoti hai
-        try {
-            list.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_1)
-                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
-                .createIceServer());
-            list.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_2)
-                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
-                .createIceServer());
-            list.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_TLS)
-                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
-                .createIceServer());
-        } catch (Exception ignored) {}
         return list;
     }
 
@@ -867,7 +833,7 @@ public class CallActivity extends AppCompatActivity {
 
         if (s == PeerConnection.IceConnectionState.CONNECTED ||
             s == PeerConnection.IceConnectionState.COMPLETED) {
-        cancelPendingIceRestart();
+            cancelPendingIceRestart();
             onCallConnected();
             binding.tvCallStatus.setAlpha(1f);
             // Feature 3: Network kuch behtar hua → restore HD quality
@@ -1125,7 +1091,6 @@ public class CallActivity extends AppCompatActivity {
     private void onCallConnected() {
         if (callConnected) return;
         callConnected = true;
-        startRtcStatsPolling(); // RTCStats quality polling shuru karo
         iceRestartCount = 0;
         startedAt = System.currentTimeMillis();
 
@@ -1203,7 +1168,6 @@ public class CallActivity extends AppCompatActivity {
     private void endCall() {
         if (finishing) return;
         finishing = true;
-        stopCallRecording(true); // Call end pe recording save karo
 
         cancelPendingIceRestart();
         if (ticker != null) tick.removeCallbacks(ticker);
@@ -1367,152 +1331,12 @@ public class CallActivity extends AppCompatActivity {
             if (eglBase  != null) eglBase.release();
             if (factory  != null) factory.dispose();
         } catch (Exception ignored) {}
-        stopRtcStatsPolling(); // RTCStats polling band karo
         try { bgExecutor.shutdownNow(); } catch (Exception ignored) {}
         try {
             if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         } catch (Exception ignored) {}
     }
 
-    // ── RTCStats quality polling — real bitrate/packet-loss based ─────────
-    private void startRtcStatsPolling() {
-        prevBytesRx = 0; prevBytesTx = 0; prevStatsTimeMs = 0;
-        statsRunnable = new Runnable() {
-            @Override public void run() {
-                if (!callConnected || finishing) return;
-                pollRtcStats();
-                statsHandler.postDelayed(this, 4000);
-            }
-        };
-        statsHandler.postDelayed(statsRunnable, 4000);
-    }
-
-    private void stopRtcStatsPolling() {
-        if (statsRunnable != null) {
-            statsHandler.removeCallbacks(statsRunnable);
-            statsRunnable = null;
-        }
-    }
-
-    private void pollRtcStats() {
-        if (peerConnection == null || finishing) return;
-        try {
-            peerConnection.getStats(new StatsObserver() {
-                @Override
-                public void onComplete(StatsReport[] reports) {
-                    if (reports == null || finishing) return;
-                    long totalBytesRx = 0, totalBytesTx = 0;
-                    double maxPacketLoss = 0;
-                    for (StatsReport r : reports) {
-                        if (r.values == null) continue;
-                        for (StatsReport.Value v : r.values) {
-                            try {
-                                if ("bytesReceived".equals(v.name)) totalBytesRx += Long.parseLong(v.value);
-                                else if ("bytesSent".equals(v.name)) totalBytesTx += Long.parseLong(v.value);
-                                else if ("packetsLost".equals(v.name)) {
-                                    double lost = Double.parseDouble(v.value);
-                                    if (lost > 0) maxPacketLoss = Math.max(maxPacketLoss, lost / 100.0);
-                                }
-                            } catch (Exception ignored) {}
-                        }
-                    }
-                    long now = System.currentTimeMillis();
-                    int rxKbps = 0, txKbps = 0;
-                    if (prevStatsTimeMs > 0) {
-                        double sec = (now - prevStatsTimeMs) / 1000.0;
-                        if (sec > 0.1) {
-                            rxKbps = (int)(((totalBytesRx - prevBytesRx) * 8L) / sec / 1000);
-                            txKbps = (int)(((totalBytesTx - prevBytesTx) * 8L) / sec / 1000);
-                        }
-                    }
-                    prevBytesRx = totalBytesRx; prevBytesTx = totalBytesTx; prevStatsTimeMs = now;
-                    final int fRx = Math.max(0, rxKbps), fTx = Math.max(0, txKbps);
-                    final double fLoss = maxPacketLoss;
-                    runOnUiThread(() -> {
-                        if (finishing || binding.layoutQuality == null) return;
-                        int total = fRx + fTx;
-                        String lbl;
-                        if (total >= 200 && fLoss < 0.05) { lbl = "Good"; if (isVideo) applyVideoBitrate(false); }
-                        else if (total >= 60 || fLoss < 0.15) { lbl = "Weak"; if (isVideo) applyVideoBitrate(true); }
-                        else { lbl = "Poor"; if (isVideo) applyVideoBitrate(true); }
-                        binding.layoutQuality.setVisibility(android.view.View.VISIBLE);
-                        if (binding.tvQualityLabel != null)
-                            binding.tvQualityLabel.setText(fRx > 0 ? lbl + " • " + fRx + "↓ " + fTx + "↑ kbps" : lbl);
-                    });
-                }
-            }, null);
-        } catch (Exception ignored) {}
-    }
-    // ── Call Recording ─────────────────────────────────────────────────────
-    /**
-     * Record button tap handler.
-     * Pehle RECORD_AUDIO permission check hota hai, phir recording start/stop.
-     */
-    private void toggleRecording() {
-        if (!callConnected) {
-            Toast.makeText(this, "Recording sirf connected call mein hoti hai", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (isRecording) {
-            stopCallRecording(false);
-        } else {
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                startCallRecording();
-            } else {
-                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD);
-            }
-        }
-    }
-
-    private void startCallRecording() {
-        callRecorder = new CallRecorderHelper(this, partnerName, callId);
-        boolean ok = callRecorder.start();
-        if (ok) {
-            isRecording = true;
-            updateRecordUi(true);
-            Toast.makeText(this, "Recording shuru ho gayi", Toast.LENGTH_SHORT).show();
-        } else {
-            callRecorder = null;
-            Toast.makeText(this, "Recording shuru nahi hui — mic busy hai", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    /**
-     * Stop recording.
-     * @param silent true on call-end (no Toast), false on manual stop.
-     */
-    private void stopCallRecording(boolean silent) {
-        if (!isRecording || callRecorder == null) return;
-        String savedPath = callRecorder.stop();
-        callRecorder = null;
-        isRecording = false;
-        updateRecordUi(false);
-        if (!silent) {
-            if (savedPath != null) {
-                Toast.makeText(this, "Recording saved: " + new java.io.File(savedPath).getName(), Toast.LENGTH_LONG).show();
-            } else {
-                Toast.makeText(this, "Recording save nahi hui", Toast.LENGTH_SHORT).show();
-            }
-        }
-    }
-
-    private void updateRecordUi(boolean active) {
-        if (binding.btnRecord == null) return;
-        binding.btnRecord.setImageResource(
-            active ? android.R.drawable.presence_busy : R.drawable.ic_record);
-        binding.btnRecord.setAlpha(active ? 1.0f : 0.75f);
-        if (binding.tvRecordLabel != null)
-            binding.tvRecordLabel.setText(active ? "Stop" : "Record");
-        if (active) {
-            // Pulsing red tint to indicate recording
-            binding.btnRecord.setColorFilter(
-                android.graphics.Color.RED, android.graphics.PorterDuff.Mode.SRC_IN);
-        } else {
-            binding.btnRecord.clearColorFilter();
-        }
-    }
-
-    // REQ_RECORD case handled in existing onRequestPermissionsResult above
     private SdpObserver noopSdp() {
         return new SdpObserver() {
             @Override public void onCreateSuccess(SessionDescription s) {}

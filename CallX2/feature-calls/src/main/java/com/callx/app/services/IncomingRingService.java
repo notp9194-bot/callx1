@@ -746,19 +746,7 @@ public class IncomingRingService extends Service {
 
     private void startRingtone() {
         try {
-            // ── Custom ringtone — user ne jo set kiya ho, woh bajao ──────────
-            android.content.SharedPreferences prefs = getSharedPreferences(
-                com.callx.app.utils.Constants.PREF_CALL_SETTINGS,
-                android.content.Context.MODE_PRIVATE);
-            String customUriStr = prefs.getString(
-                com.callx.app.utils.Constants.PREF_CALL_RINGTONE_URI, null);
-            Uri ringtoneUri;
-            if (customUriStr != null && !customUriStr.isEmpty()) {
-                try { ringtoneUri = Uri.parse(customUriStr); }
-                catch (Exception e) { ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE); }
-            } else {
-                ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-            }
+            Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
             player = new MediaPlayer();
             player.setDataSource(this, ringtoneUri);
             player.setAudioAttributes(new AudioAttributes.Builder()

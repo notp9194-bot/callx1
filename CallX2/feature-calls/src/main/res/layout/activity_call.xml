@@ -139,7 +139,7 @@
         android:paddingBottom="36dp"
         android:gravity="center">
 
-        <!-- Row 1: Speaker | Record | Switch Camera -->
+        <!-- Row 1: Speaker | Switch Camera -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -167,29 +167,6 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Speaker"
-                    android:textColor="#AAFFFFFF"
-                    android:textSize="10sp"
-                    android:layout_marginTop="4dp"/>
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:layout_marginEnd="32dp">
-                <ImageButton
-                    android:id="@+id/btn_record"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:src="@drawable/ic_record"
-                    android:background="@drawable/circle_avatar_bg"
-                    android:contentDescription="Record Call"/>
-                <TextView
-                    android:id="@+id/tv_record_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Record"
                     android:textColor="#AAFFFFFF"
                     android:textSize="10sp"
                     android:layout_marginTop="4dp"/>

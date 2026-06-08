@@ -124,6 +124,7 @@ public class GroupCallActivity extends AppCompatActivity {
 
     // ── Call params ───────────────────────────────────────────────────────
     private String groupId, groupName, groupIcon, callId, myUid, myName;
+    private String myPhoto = ""; // FIX-GCALL-PHOTO: own profile photo URL for FCM caller avatar
     private boolean isVideo, isCaller;
     private boolean micOn = true, camOn = true, speakerOn = false;
     private boolean usingFrontCamera = true;
@@ -234,6 +235,21 @@ public class GroupCallActivity extends AppCompatActivity {
         myName = FirebaseUtils.getCurrentName();
 
         if (groupId == null || myUid == null) { finish(); return; }
+
+        // FIX-GCALL-PHOTO: fetch own profile photo so we can pass it in FCM group call notification
+        // This lets group call recipients see the caller's avatar in IncomingGroupCallActivity
+        FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(
+            new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    if (photo == null || photo.isEmpty())
+                        photo = snap.child("photo").getValue(String.class);
+                    if (photo == null || photo.isEmpty())
+                        photo = snap.child("profilePhoto").getValue(String.class);
+                    if (photo != null && !photo.isEmpty()) myPhoto = photo;
+                }
+                @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
+            });
 
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         // Volume buttons should control call volume, not media
@@ -390,18 +406,6 @@ public class GroupCallActivity extends AppCompatActivity {
         List<PeerConnection.IceServer> l = new ArrayList<>();
         l.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
         l.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2).createIceServer());
-        // Free TURN fallback — strict NAT ke peeche sirf STUN se call fail hoti hai
-        try {
-            l.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_1)
-                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
-                .createIceServer());
-            l.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_2)
-                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
-                .createIceServer());
-            l.add(PeerConnection.IceServer.builder(Constants.TURN_FREE_TLS)
-                .setUsername(Constants.TURN_FREE_USER).setPassword(Constants.TURN_FREE_CRED)
-                .createIceServer());
-        } catch (Exception ignored) {}
         return l;
     }
 
@@ -1041,13 +1045,15 @@ public class GroupCallActivity extends AppCompatActivity {
 
         // BUG-5 FIX: Agar caller koi nahi aaya toh group members ko missed notification bhejo
         // callStartedAt == 0 means call kabhi connected nahi hua (koi nahi aaya)
+        // FIX-GCALL-PHOTO: pass myPhoto so missed group call notification shows caller avatar
         if (isCaller && callStartedAt == 0 && groupId != null && myName != null) {
             com.callx.app.utils.PushNotify.notifyMissedGroupCall(
                 groupId,
                 myUid != null ? myUid : "",
                 myName,
                 callId != null ? callId : "",
-                isVideo
+                isVideo,
+                myPhoto != null ? myPhoto : ""
             );
         }
 
@@ -1209,8 +1215,9 @@ public class GroupCallActivity extends AppCompatActivity {
     // ── FCM notify group members ──────────────────────────────────────────
 
     private void notifyGroupMembers() {
+        // FIX-GCALL-PHOTO: pass myPhoto so recipients see caller avatar in group call notification
         PushNotify.notifyGroupCall(groupId, myUid, myName != null ? myName : "",
-            callId, isVideo);
+            callId, isVideo, myPhoto != null ? myPhoto : "");
     }
 
     // ── Call-end receiver (from notification) ─────────────────────────────

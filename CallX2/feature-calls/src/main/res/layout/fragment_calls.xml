@@ -164,36 +164,6 @@
                 android:focusable="true"/>
 
             <TextView
-                android:id="@+id/chip_incoming"
-                android:layout_width="wrap_content"
-                android:layout_height="34dp"
-                android:text="Incoming"
-                android:gravity="center"
-                android:paddingStart="18dp"
-                android:paddingEnd="18dp"
-                android:textSize="13sp"
-                android:background="@drawable/chip_unselected"
-                android:textColor="@color/text_primary"
-                android:layout_marginEnd="8dp"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <TextView
-                android:id="@+id/chip_outgoing"
-                android:layout_width="wrap_content"
-                android:layout_height="34dp"
-                android:text="Outgoing"
-                android:gravity="center"
-                android:paddingStart="18dp"
-                android:paddingEnd="18dp"
-                android:textSize="13sp"
-                android:background="@drawable/chip_unselected"
-                android:textColor="@color/text_primary"
-                android:layout_marginEnd="8dp"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <TextView
                 android:id="@+id/chip_contacts"
                 android:layout_width="wrap_content"
                 android:layout_height="34dp"

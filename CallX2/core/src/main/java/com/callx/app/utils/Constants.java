@@ -172,23 +172,6 @@ public class Constants {
     public static final String STUN_GOOGLE_1 = "stun:stun.l.google.com:19302";
     public static final String STUN_GOOGLE_2 = "stun:stun1.l.google.com:19302";
 
-    // ── Free TURN fallback servers (Metered open-relay — works behind strict NAT) ──
-    // Ye tab use hote hain jab SERVER_URL se TURN credentials na milein
-    public static final String TURN_FREE_1     = "turn:openrelay.metered.ca:80";
-    public static final String TURN_FREE_2     = "turn:openrelay.metered.ca:443";
-    public static final String TURN_FREE_TLS   = "turns:openrelay.metered.ca:443";
-    public static final String TURN_FREE_USER  = "openrelayproject";
-    public static final String TURN_FREE_CRED  = "openrelayproject";
-
-    // ── Call Ringtone Customization ──
-    public static final String PREF_CALL_SETTINGS     = "callx_call_settings";
-    public static final String PREF_CALL_RINGTONE_URI  = "call_ringtone_uri";
-
-    // ── Call Recording ──
-    // Directory name inside app-private external storage for saved recordings
-    public static final String RECORDING_DIR_NAME     = "CallRecordings";
-    public static final String RECORDING_FILE_PREFIX  = "CallX_";
-
     // ── Group message notification FCM payload keys ───────────────────────
     public static final String GROUP_NOTIF_KEY_MENTION  = "isMention";
     public static final String GROUP_NOTIF_KEY_PRIORITY = "isPriority";
