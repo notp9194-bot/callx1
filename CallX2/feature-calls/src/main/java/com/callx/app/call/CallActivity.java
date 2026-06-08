@@ -149,6 +149,17 @@ public class CallActivity extends AppCompatActivity {
     // Network callback
     private ConnectivityManager.NetworkCallback networkCallback;
 
+    // ── FIX: Hold/Resume state ─────────────────────────────────────────────
+    private boolean isOnHold = false;
+
+    // ── FIX: Remote video fullscreen toggle ────────────────────────────────
+    private boolean isRemoteVideoFullscreen = false;
+
+    // ── FIX: TURN credentials periodic refresh (for long calls) ───────────
+    private static final long TURN_REFRESH_INTERVAL_MS = 30 * 60 * 1000L; // 30 min
+    private final Handler turnRefreshHandler = new Handler(Looper.getMainLooper());
+    private Runnable turnRefreshRunnable;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -212,10 +223,13 @@ public class CallActivity extends AppCompatActivity {
         binding.btnToggleCamera.setOnClickListener(v -> toggleCamera());
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
+        // FIX: Hold/Resume button — null-safe (older layouts mein nahi hoga)
+        if (binding.btnHold != null) binding.btnHold.setOnClickListener(v -> toggleHold());
 
         updateMicUI();
         updateCameraUI();
         setupLocalVideoDrag();
+        setupRemoteVideoTap();
 
         // Feature 4: Caller ke liye 60s timeout — agar na uthaye toh cancel
         if (isCaller) {
@@ -309,6 +323,115 @@ public class CallActivity extends AppCompatActivity {
                 return false;
             }
         });
+    }
+
+    // ── FIX: Remote video full-screen tap ─────────────────────────────────
+    // User remote video pe tap kare → controls hide + fullscreen mode
+    // Dobara tap kare → wapas normal mode
+    private void setupRemoteVideoTap() {
+        if (!isVideo) return;
+        binding.remoteVideo.setOnClickListener(v -> toggleRemoteFullscreen());
+    }
+
+    private void toggleRemoteFullscreen() {
+        isRemoteVideoFullscreen = !isRemoteVideoFullscreen;
+        int controlsVis = isRemoteVideoFullscreen ? View.GONE : View.VISIBLE;
+        // Controls hide/show
+        binding.btnEndCall.setVisibility(controlsVis);
+        binding.btnToggleMic.setVisibility(controlsVis);
+        if (binding.tvMicLabel    != null) binding.tvMicLabel.setVisibility(controlsVis);
+        if (binding.tvCameraLabel != null) binding.tvCameraLabel.setVisibility(controlsVis);
+        if (binding.tvSpeakerLabel!= null) binding.tvSpeakerLabel.setVisibility(controlsVis);
+        binding.btnToggleCamera.setVisibility(controlsVis);
+        binding.btnToggleSpeaker.setVisibility(controlsVis);
+        binding.btnSwitchCamera.setVisibility(controlsVis);
+        binding.tvCallerName.setVisibility(controlsVis);
+        binding.tvCallStatus.setVisibility(controlsVis);
+        // Local PiP thumbnail — fullscreen mein hide karo
+        binding.localVideo.setVisibility(controlsVis);
+        if (binding.layoutLocalCamOffBadge != null)
+            binding.layoutLocalCamOffBadge.setVisibility(
+                (!isRemoteVideoFullscreen && !camOn) ? View.VISIBLE : View.GONE);
+        // Hold button bhi hide karo agar exists hai
+        if (binding.btnHold != null) binding.btnHold.setVisibility(controlsVis);
+    }
+
+    // ── FIX: Hold / Resume ────────────────────────────────────────────────
+    // Call hold karo — mic mute + video pause + Firebase mein state save
+    // Partner ko "on hold" dikhega uske UI mein (watchRemoteHoldState se)
+    private void toggleHold() {
+        isOnHold = !isOnHold;
+        // Mic mute/unmute
+        if (localAudioTrack != null) localAudioTrack.setEnabled(!isOnHold);
+        // Video pause/resume
+        if (isVideo && localVideoTrack != null) localVideoTrack.setEnabled(!isOnHold);
+        if (isVideo && videoCapturer != null) {
+            if (isOnHold && capturerRunning) {
+                try { videoCapturer.stopCapture(); capturerRunning = false; }
+                catch (Exception ignored) {}
+            } else if (!isOnHold && !capturerRunning && camOn) {
+                startCapture();
+            }
+        }
+        // Firebase mein hold state save karo taaki partner ko pata chale
+        if (callRef != null) {
+            String uid = FirebaseUtils.getCurrentUid();
+            if (uid != null) callRef.child("holdState").child(uid).setValue(isOnHold);
+        }
+        updateHoldUI();
+        // Status text update
+        if (isOnHold) {
+            if (ticker != null) tick.removeCallbacks(ticker);
+            binding.tvCallStatus.setText("Call on hold");
+        } else {
+            // Timer resume karo
+            if (startedAt > 0) {
+                if (ticker == null) ticker = new Runnable() {
+                    @Override public void run() {
+                        long e = (System.currentTimeMillis() - startedAt) / 1000;
+                        binding.tvCallStatus.setText(
+                            String.format("Connected \u2022 %d:%02d", e / 60, e % 60));
+                        tick.postDelayed(this, 1_000);
+                    }
+                };
+                tick.post(ticker);
+            }
+        }
+    }
+
+    private void updateHoldUI() {
+        if (binding.btnHold == null) return;
+        binding.btnHold.setAlpha(isOnHold ? 1f : 0.6f);
+        if (binding.tvHoldLabel != null)
+            binding.tvHoldLabel.setText(isOnHold ? "Resume" : "Hold");
+    }
+
+    // Partner ne hold kiya → "Aria is on hold" overlay dikhao
+    private ValueEventListener remoteHoldListener;
+    private void watchRemoteHoldState() {
+        if (callRef == null || partnerUid == null) return;
+        remoteHoldListener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot s) {
+                Boolean partnerOnHold = s.getValue(Boolean.class);
+                runOnUiThread(() -> {
+                    if (binding.layoutRemoteCamOff == null) return;
+                    boolean held = (partnerOnHold != null && partnerOnHold);
+                    // Reuse layoutRemoteCamOff to show "on hold" — or add separate overlay
+                    if (held) {
+                        binding.layoutRemoteCamOff.setVisibility(View.VISIBLE);
+                        if (binding.tvCallStatus != null && !binding.tvCallStatus.getText().toString().startsWith("Connected"))
+                            binding.tvCallStatus.setText(
+                                (partnerName != null ? partnerName : "Contact") + " is on hold");
+                    } else if (!remoteCamOn) {
+                        binding.layoutRemoteCamOff.setVisibility(View.VISIBLE);
+                    } else {
+                        binding.layoutRemoteCamOff.setVisibility(View.GONE);
+                    }
+                });
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        callRef.child("holdState").child(partnerUid).addValueEventListener(remoteHoldListener);
     }
 
     // ── Wake lock ──────────────────────────────────────────────────────────
@@ -602,14 +725,18 @@ public class CallActivity extends AppCompatActivity {
                     if (audioManager != null) {
                         audioManager.setBluetoothScoOn(true);
                         speakerOn = false;
-                        if (binding.tvSpeakerLabel != null)
-                            binding.tvSpeakerLabel.setText("Bluetooth");
+                        // BUG FIX: Speaker button UI update karo — pehle sirf label update hota tha
+                        runOnUiThread(() -> {
+                            binding.btnToggleSpeaker.setAlpha(1f);
+                            if (binding.tvSpeakerLabel != null)
+                                binding.tvSpeakerLabel.setText("Bluetooth");
+                        });
                     }
                 } else if (state == AudioManager.SCO_AUDIO_STATE_DISCONNECTED) {
                     if (audioManager != null) {
                         audioManager.setBluetoothScoOn(false);
                         audioManager.stopBluetoothSco();
-                        enableSpeaker(false);
+                        enableSpeaker(false); // earpiece fallback — also updates UI
                     }
                 }
             }
@@ -995,20 +1122,14 @@ public class CallActivity extends AppCompatActivity {
                             runOnUiThread(() ->
                                 binding.tvCallStatus.setText(
                                     (partnerName != null ? partnerName : "Contact") + " is on another call"));
-                        } else if ("rejected".equals(st) || "cancelled".equals(st)) {
-                            String myUid = FirebaseUtils.getCurrentUid();
-                            String myName = FirebaseUtils.getCurrentName();
-                            if (myUid != null) {
-                                // FIX: toUid = partnerUid (callee ko missed call notification)
-                                // Pehle toUid = myUid tha — caller apne aap ko notify kar raha tha
-                                PushNotify.notifyMissedCall(
-                                    partnerUid   != null ? partnerUid   : "",
-                                    myUid,
-                                    myName       != null ? myName       : "",
-                                    callId       != null ? callId       : "",
-                                    isVideo,
-                                    partnerPhoto != null ? partnerPhoto : "");
-                            }
+                        // FIX: "rejected" (actively declined) vs "cancelled" (no answer) — distinct UX
+                        } else if ("rejected".equals(st)) {
+                            // Partner ne decline kiya — caller ko "Call declined" dikhao
+                            runOnUiThread(() ->
+                                binding.tvCallStatus.setText("Call declined"));
+                        } else if ("cancelled".equals(st)) {
+                            // Partner ne nahi uthaya — caller ne cancel kiya
+                            // (timeout, caller ki cancel — no missed call shown to partner)
                         }
                     }
                     runOnUiThread(() -> endCall());
@@ -1127,6 +1248,29 @@ public class CallActivity extends AppCompatActivity {
             }
         };
         tick.post(ticker);
+
+        // FIX: Remote hold state watcher — partner pe hold/resume track karo
+        watchRemoteHoldState();
+
+        // FIX: TURN credentials periodic refresh — long calls (>30 min) ke liye
+        // ICE candidates mein TURN server credentials expire ho jaate hain.
+        // Har 30 min mein ICE restart trigger karo taaki fresh credentials milein.
+        scheduleTurnRefresh();
+    }
+
+    private void scheduleTurnRefresh() {
+        turnRefreshHandler.removeCallbacksAndMessages(null);
+        turnRefreshRunnable = new Runnable() {
+            @Override public void run() {
+                if (!finishing && callConnected && peerConnection != null) {
+                    // Force ICE restart to pick up fresh TURN credentials
+                    iceRestartCount = 0;
+                    performIceRestart();
+                    turnRefreshHandler.postDelayed(this, TURN_REFRESH_INTERVAL_MS);
+                }
+            }
+        };
+        turnRefreshHandler.postDelayed(turnRefreshRunnable, TURN_REFRESH_INTERVAL_MS);
     }
 
     // ── BUG-1 FIX: Audio Focus ────────────────────────────────────────────
@@ -1346,10 +1490,31 @@ public class CallActivity extends AppCompatActivity {
         };
     }
 
+    // ── BUG FIX #3: onNewIntent — FLAG_ACTIVITY_SINGLE_TOP se wapas aane par ──
+    // Jab MainActivity ka banner tap hota hai aur CallActivity already stack mein
+    // hai (SINGLE_TOP), toh onCreate() nahi chalta — sirf onNewIntent() chalta hai.
+    // Pehle isRestore restore flow kabhi nahi chala single-top case mein.
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // Activity already running hai active WebRTC ke saath — kuch reinit nahi karna.
+        // Bas UI state consistent karo (mic/cam/speaker) agar UI stale ho.
+        updateMicUI();
+        updateCameraUI();
+        if (isOnHold) updateHoldUI();
+    }
+
     @Override
     public void onBackPressed() {
-        // Back = call end karo silently nahi
-        endCall();
+        // BUG FIX: Back button = call end nahi karna chahiye
+        // Video call + connected = PiP mein minimize karo (WhatsApp jaisa)
+        // Audio call = back = end call (expected behavior — no PiP)
+        if (isVideo && callConnected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            enterPipMode();
+        } else {
+            endCall();
+        }
     }
 
     @Override
@@ -1358,6 +1523,14 @@ public class CallActivity extends AppCompatActivity {
         if (ticker != null) tick.removeCallbacks(ticker);
         cancelPendingIceRestart();
         if (timeoutRunnable != null) timeoutHandler.removeCallbacks(timeoutRunnable);
+        // FIX: TURN refresh cancel on destroy
+        turnRefreshHandler.removeCallbacksAndMessages(null);
+        // FIX: Remote hold listener cleanup
+        if (remoteHoldListener != null && callRef != null && partnerUid != null) {
+            try { callRef.child("holdState").child(partnerUid)
+                    .removeEventListener(remoteHoldListener); }
+            catch (Exception ignored) {}
+        }
         // Proximity wake lock release
         try {
             if (proximityWakeLock != null && proximityWakeLock.isHeld())
