@@ -223,8 +223,8 @@ public class CallActivity extends AppCompatActivity {
         binding.btnToggleCamera.setOnClickListener(v -> toggleCamera());
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
-        // FIX: Hold/Resume button — null-safe (older layouts mein nahi hoga)
-        if (binding.btnHold != null) binding.btnHold.setOnClickListener(v -> toggleHold());
+        // Hold/Resume button
+        binding.btnHold.setOnClickListener(v -> toggleHold());
 
         updateMicUI();
         updateCameraUI();
@@ -352,8 +352,8 @@ public class CallActivity extends AppCompatActivity {
         if (binding.layoutLocalCamOffBadge != null)
             binding.layoutLocalCamOffBadge.setVisibility(
                 (!isRemoteVideoFullscreen && !camOn) ? View.VISIBLE : View.GONE);
-        // Hold button bhi hide karo agar exists hai
-        if (binding.btnHold != null) binding.btnHold.setVisibility(controlsVis);
+        // Hold button visibility
+        binding.btnHold.setVisibility(controlsVis);
     }
 
     // ── FIX: Hold / Resume ────────────────────────────────────────────────
@@ -400,10 +400,8 @@ public class CallActivity extends AppCompatActivity {
     }
 
     private void updateHoldUI() {
-        if (binding.btnHold == null) return;
         binding.btnHold.setAlpha(isOnHold ? 1f : 0.6f);
-        if (binding.tvHoldLabel != null)
-            binding.tvHoldLabel.setText(isOnHold ? "Resume" : "Hold");
+        binding.tvHoldLabel.setText(isOnHold ? "Resume" : "Hold");
     }
 
     // Partner ne hold kiya → "Aria is on hold" overlay dikhao
