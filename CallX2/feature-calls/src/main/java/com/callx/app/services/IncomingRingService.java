@@ -69,7 +69,7 @@ public class IncomingRingService extends Service {
     private static final int RING_VIDEO_END        = 0xFFEF4444; // red
     private static final int RING_MULTI_START      = 0xFFEF4444; // red
     private static final int RING_MULTI_END        = 0xFFEC4899; // pink
-    private static final int RING_STROKE_DP        = 4;          // ring thickness (unused — see drawAvatarWithRing)
+    private static final int RING_STROKE_DP        = 4;          // ring thickness
 
     // Custom missed-call vibration: 2 short pulses (distinct from ring)
     private static final long[] MISSED_VIBRATE = { 0, 300, 200, 300 };
@@ -356,18 +356,16 @@ public class IncomingRingService extends Service {
                     .bigText(bigText)
                     .setSummaryText(callTypeStr);
 
-            // ── Feature 4: Custom RemoteViews (colorful gradient bg) ─────────
-            // Pick bg drawable based on call type
-            int bgDrawable = missedIsVideo
-                ? R.drawable.bg_notif_missed_video
-                : R.drawable.bg_notif_missed_call;
+            // ── Feature 4: Custom RemoteViews (colorful gradient bg + colored pill buttons) ──
+            // Use separate layout for video vs voice (different button sets)
             RemoteViews customView = null;
             try {
                 // RemoteViews needs the MODULE's namespace (com.callx.app.calls),
                 // not getPackageName() which returns the app's applicationId.
-                // R.layout.notification_missed_call lives in com.callx.app.calls.R
-                customView = new RemoteViews("com.callx.app.calls",
-                    R.layout.notification_missed_call);
+                int layoutRes = missedIsVideo
+                    ? R.layout.notification_missed_video
+                    : R.layout.notification_missed_call;
+                customView = new RemoteViews("com.callx.app.calls", layoutRes);
                 customView.setTextViewText(R.id.notif_caller_name, callerName);
                 customView.setTextViewText(R.id.notif_call_type,
                     missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed voice call");
@@ -383,6 +381,21 @@ public class IncomingRingService extends Service {
                 // Avatar placeholder (will be updated when bitmap loads)
                 customView.setImageViewResource(R.id.notif_avatar,
                     missedIsVideo ? R.drawable.ic_video_orange : R.drawable.ic_phone_green);
+
+                // ── Wire colored pill buttons to PendingIntents ───────────────
+                // Voice button (both layouts)
+                customView.setOnClickPendingIntent(R.id.notif_btn_voice, callBackPi);
+                // Snooze button (both layouts)
+                customView.setOnClickPendingIntent(R.id.notif_btn_snooze, snoozePi);
+                if (missedIsVideo) {
+                    // Video layout: Video + Voice + Snooze
+                    if (videoCallBackPi != null) {
+                        customView.setOnClickPendingIntent(R.id.notif_btn_video, videoCallBackPi);
+                    }
+                } else {
+                    // Voice layout: Voice + Message + Snooze
+                    customView.setOnClickPendingIntent(R.id.notif_btn_message, msgPi);
+                }
             } catch (Exception rvEx) {
                 customView = null; // fallback to standard style
             }
@@ -410,7 +423,7 @@ public class IncomingRingService extends Service {
                 .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
                 .setGroup(Constants.GROUP_KEY_MISSED_CALLS)
                 .setNumber(totalBadge)
-                .setSubText(missedCount > 1 ? "\uD83D\uDD34 " + missedCount + " missed" : "\uD83D\uDD34 Missed");
+                .setSubText(missedCount > 1 ? missedCount + " missed" : "Just missed");
 
             // Feature 4: Apply custom RemoteViews if built successfully
             if (customView != null) {
@@ -463,10 +476,8 @@ public class IncomingRingService extends Service {
                         c.connect();
                         Bitmap raw = BitmapFactory.decodeStream(c.getInputStream());
                         if (raw != null) {
-                            // Scale to 512×512 — larger bitmap renders bigger in RemoteViews
-                            Bitmap scaled = Bitmap.createScaledBitmap(raw, 512, 512, true);
                             // Feature 6: circle crop
-                            Bitmap circle = toCircleBitmap(scaled);
+                            Bitmap circle = toCircleBitmap(raw);
                             // Feature 1: draw colored gradient ring around avatar
                             int ringStart = finalMissedIsVideo ? RING_VIDEO_START : RING_VOICE_START;
                             int ringEnd   = finalMissedIsVideo ? RING_VIDEO_END   : RING_VOICE_END;
@@ -547,7 +558,7 @@ public class IncomingRingService extends Service {
     private static Bitmap drawAvatarWithRing(Bitmap circleBm, int ringStart, int ringEnd) {
         try {
             // Ring stroke in px (approx 4dp at mdpi baseline; good for notification icon)
-            int strokePx = Math.max(10, circleBm.getWidth() / 8);  // ring proportional to avatar (256/8=32px)
+            int strokePx = Math.max(4, circleBm.getWidth() / 14);
             int total = circleBm.getWidth() + strokePx * 2;
             Bitmap output = Bitmap.createBitmap(total, total, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(output);
@@ -729,10 +740,7 @@ public class IncomingRingService extends Service {
         String text = isVideo ? "Incoming video call" : "Incoming voice call";
         int icon = isVideo ? R.drawable.ic_video_call : R.drawable.ic_call_notification;
 
-        int ringStart = isVideo ? RING_VIDEO_START : RING_VOICE_START;
-        int ringEnd   = isVideo ? RING_VIDEO_END   : RING_VOICE_END;
-
-        final NotificationCompat.Builder builder = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS)
+        return new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS)
             .setSmallIcon(icon)
             .setColor(BRAND_COLOR)
             .setContentTitle(fromName)
@@ -745,34 +753,8 @@ public class IncomingRingService extends Service {
             .setContentIntent(fullPi)
             .setFullScreenIntent(fullPi, true)
             .addAction(R.drawable.ic_phone_off, "Decline", declinePi)
-            .addAction(R.drawable.ic_phone, "Answer", fullPi);
-
-        // Async avatar load with gradient ring — same size as missed call
-        if (!fromPhoto.isEmpty()) {
-            final String photoUrl = fromPhoto;
-            final int rs = ringStart, re = ringEnd;
-            new Thread(() -> {
-                try {
-                    java.net.HttpURLConnection c =
-                        (java.net.HttpURLConnection) new java.net.URL(photoUrl).openConnection();
-                    c.setConnectTimeout(4000);
-                    c.setReadTimeout(4000);
-                    c.setDoInput(true);
-                    c.connect();
-                    android.graphics.Bitmap raw = android.graphics.BitmapFactory.decodeStream(c.getInputStream());
-                    if (raw != null) {
-                        android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(raw, 192, 192, true);
-                        android.graphics.Bitmap circle = toCircleBitmap(scaled);
-                        android.graphics.Bitmap ringed = drawAvatarWithRing(circle, rs, re);
-                        builder.setLargeIcon(ringed);
-                        NotificationManager nm2 = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-                        if (nm2 != null) nm2.notify(Constants.CALL_RING_NOTIF_ID, builder.build());
-                    }
-                } catch (Exception ignored) {}
-            }).start();
-        }
-
-        return builder.build();
+            .addAction(R.drawable.ic_phone, "Answer", fullPi)
+            .build();
     }
 
     private void startRingtone() {

@@ -1,40 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Custom big content view for missed call notification.
-    Used via setCustomBigContentView() in IncomingRingService.
-    Android wraps this in a standard notification card on API 31+.
-    Max height: 256dp. Content ~230dp.
+    Custom big content view for MISSED VIDEO CALL notification.
+    Used via setCustomBigContentView() — video call variant.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@drawable/bg_notif_missed_call"
+    android:background="@drawable/bg_notif_missed_video"
     android:paddingStart="14dp"
     android:paddingEnd="14dp"
     android:paddingTop="12dp"
     android:paddingBottom="10dp">
 
-    <!-- Top row: avatar ring + name + MISSED badge + time -->
+    <!-- Top row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
-        <!-- Avatar with gradient ring border -->
         <FrameLayout
             android:layout_width="58dp"
             android:layout_height="58dp">
-
-            <!-- Gradient ring (outer) -->
             <ImageView
                 android:layout_width="58dp"
                 android:layout_height="58dp"
                 android:background="@drawable/bg_notif_avatar_ring"
                 android:padding="3dp"/>
-
-            <!-- Avatar image (inner circle) -->
             <ImageView
                 android:id="@+id/notif_avatar"
                 android:layout_width="52dp"
@@ -42,17 +35,14 @@
                 android:layout_gravity="center"
                 android:scaleType="centerCrop"
                 android:src="@android:drawable/ic_menu_myplaces"/>
-
         </FrameLayout>
 
-        <!-- Name + subtitle -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
             android:layout_marginStart="10dp">
-
             <TextView
                 android:id="@+id/notif_caller_name"
                 android:layout_width="wrap_content"
@@ -63,27 +53,22 @@
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="end"/>
-
             <TextView
                 android:id="@+id/notif_call_type"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="📞 Missed voice call"
+                android:text="📹 Missed video call"
                 android:textColor="#CCFFFFFF"
                 android:textSize="12sp"
                 android:layout_marginTop="2dp"/>
-
         </LinearLayout>
 
-        <!-- Right side: MISSED badge + time stacked -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="end"
             android:layout_marginStart="8dp">
-
-            <!-- Red MISSED pill badge -->
             <TextView
                 android:id="@+id/notif_missed_badge"
                 android:layout_width="wrap_content"
@@ -97,7 +82,6 @@
                 android:paddingEnd="6dp"
                 android:paddingTop="2dp"
                 android:paddingBottom="2dp"/>
-
             <TextView
                 android:id="@+id/notif_time"
                 android:layout_width="wrap_content"
@@ -106,21 +90,17 @@
                 android:textColor="#99FFFFFF"
                 android:textSize="11sp"
                 android:layout_marginTop="3dp"/>
-
         </LinearLayout>
 
     </LinearLayout>
 
-    <!-- Rainbow gradient divider -->
     <View
-        android:id="@+id/notif_divider"
         android:layout_width="match_parent"
         android:layout_height="2dp"
         android:layout_marginTop="10dp"
         android:layout_marginBottom="6dp"
         android:background="@drawable/bg_notif_rainbow_divider"/>
 
-    <!-- Miss count line (visible only when count > 1) -->
     <TextView
         android:id="@+id/notif_miss_count"
         android:layout_width="wrap_content"
@@ -132,14 +112,37 @@
         android:visibility="gone"
         android:layout_marginBottom="6dp"/>
 
-    <!-- Colored action button row -->
+    <!-- Video call: Video + Voice + Snooze -->
     <LinearLayout
-        android:id="@+id/notif_btn_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:layout_marginTop="4dp"
         android:weightSum="3">
+
+        <!-- Video button: orange -->
+        <LinearLayout
+            android:id="@+id/notif_btn_video"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_notif_btn_video"
+            android:gravity="center"
+            android:orientation="horizontal">
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_video_orange"
+                android:layout_marginEnd="4dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Video"
+                android:textColor="#F97316"
+                android:textSize="12sp"
+                android:textStyle="bold"/>
+        </LinearLayout>
 
         <!-- Voice button: green -->
         <LinearLayout
@@ -161,30 +164,6 @@
                 android:layout_height="wrap_content"
                 android:text="Voice"
                 android:textColor="#22C55E"
-                android:textSize="12sp"
-                android:textStyle="bold"/>
-        </LinearLayout>
-
-        <!-- Message button: cyan -->
-        <LinearLayout
-            android:id="@+id/notif_btn_message"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:background="@drawable/bg_notif_btn_message"
-            android:gravity="center"
-            android:orientation="horizontal">
-            <ImageView
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:src="@drawable/ic_message_cyan"
-                android:layout_marginEnd="4dp"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Message"
-                android:textColor="#06B6D4"
                 android:textSize="12sp"
                 android:textStyle="bold"/>
         </LinearLayout>

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Voice missed: deep purple → indigo gradient -->
+<!-- Voice missed: vibrant purple → deep violet gradient -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
         android:type="linear"
         android:angle="135"
-        android:startColor="#2D1B69"
-        android:centerColor="#1A1040"
-        android:endColor="#0F0A2E"/>
-    <corners android:radius="12dp"/>
+        android:startColor="#4A1D96"
+        android:centerColor="#2D1070"
+        android:endColor="#13063B"/>
+    <corners android:radius="16dp"/>
 </shape>
