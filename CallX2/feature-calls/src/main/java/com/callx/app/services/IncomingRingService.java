@@ -172,9 +172,9 @@ public class IncomingRingService extends Service {
                 ? missedCount + " missed " + callTypeStr + "s from " + callerName
                 : (missedIsVideo ? "\uD83D\uDCF9 Missed video call" : "\uD83D\uDCDE Missed voice call") + " from " + callerName;
 
-            // Body — different from title, shows time or hint
+            // Body — no repeat of title, just time info
             String bigText = missedCount > 1
-                ? missedCount + " missed " + callTypeStr + "s \u2022 " + missedAt
+                ? "Last missed \u2022 " + missedAt
                 : "Tap to call back \u2022 " + missedAt;
 
             // Tap -> ChatActivity
