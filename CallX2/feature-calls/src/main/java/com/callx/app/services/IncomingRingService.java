@@ -730,7 +730,10 @@ public class IncomingRingService extends Service {
         String text = isVideo ? "Incoming video call" : "Incoming voice call";
         int icon = isVideo ? R.drawable.ic_video_call : R.drawable.ic_call_notification;
 
-        return new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS)
+        int ringStart = isVideo ? RING_VIDEO_START : RING_VOICE_START;
+        int ringEnd   = isVideo ? RING_VIDEO_END   : RING_VOICE_END;
+
+        final NotificationCompat.Builder builder = new NotificationCompat.Builder(this, Constants.CHANNEL_CALLS)
             .setSmallIcon(icon)
             .setColor(BRAND_COLOR)
             .setContentTitle(fromName)
@@ -743,8 +746,34 @@ public class IncomingRingService extends Service {
             .setContentIntent(fullPi)
             .setFullScreenIntent(fullPi, true)
             .addAction(R.drawable.ic_phone_off, "Decline", declinePi)
-            .addAction(R.drawable.ic_phone, "Answer", fullPi)
-            .build();
+            .addAction(R.drawable.ic_phone, "Answer", fullPi);
+
+        // Async avatar load with gradient ring — same size as missed call
+        if (!fromPhoto.isEmpty()) {
+            final String photoUrl = fromPhoto;
+            final int rs = ringStart, re = ringEnd;
+            new Thread(() -> {
+                try {
+                    java.net.HttpURLConnection c =
+                        (java.net.HttpURLConnection) new java.net.URL(photoUrl).openConnection();
+                    c.setConnectTimeout(4000);
+                    c.setReadTimeout(4000);
+                    c.setDoInput(true);
+                    c.connect();
+                    android.graphics.Bitmap raw = android.graphics.BitmapFactory.decodeStream(c.getInputStream());
+                    if (raw != null) {
+                        android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(raw, 192, 192, true);
+                        android.graphics.Bitmap circle = toCircleBitmap(scaled);
+                        android.graphics.Bitmap ringed = drawAvatarWithRing(circle, rs, re);
+                        builder.setLargeIcon(ringed);
+                        NotificationManager nm2 = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                        if (nm2 != null) nm2.notify(Constants.CALL_RING_NOTIF_ID, builder.build());
+                    }
+                } catch (Exception ignored) {}
+            }).start();
+        }
+
+        return builder.build();
     }
 
     private void startRingtone() {
