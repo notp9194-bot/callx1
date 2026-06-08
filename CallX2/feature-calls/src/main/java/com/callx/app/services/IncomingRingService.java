@@ -463,9 +463,8 @@ public class IncomingRingService extends Service {
                         c.connect();
                         Bitmap raw = BitmapFactory.decodeStream(c.getInputStream());
                         if (raw != null) {
-                            // Scale up to 256×256 — Android uses up to 256px for setLargeIcon
-                            // Larger = more detail visible + ring more prominent
-                            Bitmap scaled = Bitmap.createScaledBitmap(raw, 192, 192, true);
+                            // Scale to 256×256 — matches incoming call notification largeIcon size
+                            Bitmap scaled = Bitmap.createScaledBitmap(raw, 256, 256, true);
                             // Feature 6: circle crop
                             Bitmap circle = toCircleBitmap(scaled);
                             // Feature 1: draw colored gradient ring around avatar
@@ -548,7 +547,7 @@ public class IncomingRingService extends Service {
     private static Bitmap drawAvatarWithRing(Bitmap circleBm, int ringStart, int ringEnd) {
         try {
             // Ring stroke in px (approx 4dp at mdpi baseline; good for notification icon)
-            int strokePx = Math.max(10, circleBm.getWidth() / 7);  // visible ring, not too thick (192/7≈27px)
+            int strokePx = Math.max(10, circleBm.getWidth() / 8);  // ring proportional to avatar (256/8=32px)
             int total = circleBm.getWidth() + strokePx * 2;
             Bitmap output = Bitmap.createBitmap(total, total, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(output);

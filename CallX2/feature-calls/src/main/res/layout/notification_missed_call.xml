@@ -10,9 +10,9 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/bg_notif_missed_call"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingTop="14dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="10dp"
     android:paddingBottom="10dp">
 
     <!-- Top row: avatar + name + type badge -->
@@ -22,11 +22,11 @@
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
-        <!-- Avatar with colored ring — set programmatically via setImageViewBitmap -->
+        <!-- Avatar with colored ring — same visual size as incoming call largeIcon -->
         <ImageView
             android:id="@+id/notif_avatar"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
             android:scaleType="fitCenter"
             android:src="@drawable/circle_avatar_bg"/>
 
@@ -44,7 +44,7 @@
                 android:layout_height="wrap_content"
                 android:text="Caller Name"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="end"/>
@@ -56,6 +56,17 @@
                 android:text="📞 Missed voice call"
                 android:textColor="#CCFFFFFF"
                 android:textSize="12sp"
+                android:layout_marginTop="3dp"/>
+
+            <!-- Miss count line (visible only when count > 1) -->
+            <TextView
+                android:id="@+id/notif_miss_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="3 missed calls"
+                android:textColor="#FFE57F"
+                android:textSize="12sp"
+                android:visibility="gone"
                 android:layout_marginTop="2dp"/>
 
         </LinearLayout>
@@ -68,7 +79,8 @@
             android:text="5:30 PM"
             android:textColor="#99FFFFFF"
             android:textSize="11sp"
-            android:layout_marginStart="8dp"/>
+            android:layout_marginStart="8dp"
+            android:gravity="top"/>
 
     </LinearLayout>
 
@@ -77,19 +89,7 @@
         android:id="@+id/notif_divider"
         android:layout_width="match_parent"
         android:layout_height="2dp"
-        android:layout_marginTop="10dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginTop="8dp"
         android:background="@drawable/bg_notif_rainbow_divider"/>
-
-    <!-- Miss count line (visible only when count > 1) -->
-    <TextView
-        android:id="@+id/notif_miss_count"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="3 missed calls"
-        android:textColor="#FFE57F"
-        android:textSize="12sp"
-        android:visibility="gone"
-        android:layout_marginBottom="6dp"/>
 
 </LinearLayout>
