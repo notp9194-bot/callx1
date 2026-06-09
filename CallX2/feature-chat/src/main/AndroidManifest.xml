@@ -21,5 +21,11 @@
         <activity android:name="com.callx.app.settings.MutedChatsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+
+        <!-- FIX: MessageInfoActivity — dedicated message info screen -->
+        <activity android:name="com.callx.app.conversation.MessageInfoActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
     </application>
 </manifest>

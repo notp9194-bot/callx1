@@ -160,6 +160,39 @@ public interface MessageDao {
     @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
     void updateText(String messageId, String newText, long editedAt);
 
+    /**
+     * FIX: Store deliveredAt timestamp in Room for offline Message Info screen.
+     * Called from ChatActivity.markDelivered() on the IO thread.
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET deliveredAt = :deliveredAt WHERE id = :messageId")
+    void updateDeliveredAt(String messageId, long deliveredAt);
+
+    /**
+     * FIX: Store readAt timestamp in Room for offline Message Info screen.
+     * Called from ChatActivity.markRead() on the IO thread.
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET readAt = :readAt WHERE id = :messageId")
+    void updateReadAt(String messageId, long readAt);
+
+    /**
+     * FIX: Update group readBy JSON in Room when a group member reads the message.
+     * Called from GroupChatActivity on the IO thread.
+     * JSON format: {"uid1":1700000001000,"uid2":1700000002000}
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET readByJson = :readByJson WHERE id = :messageId")
+    void updateReadByJson(String messageId, String readByJson);
+
+    /**
+     * FIX: Update group deliveredTo JSON in Room.
+     * Called from GroupChatActivity on the IO thread.
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET deliveredToJson = :deliveredToJson WHERE id = :messageId")
+    void updateDeliveredToJson(String messageId, String deliveredToJson);
+
     // ─────────────────────────────────────────────────────────────
     // PRUNING / CLEANUP
     // ─────────────────────────────────────────────────────────────

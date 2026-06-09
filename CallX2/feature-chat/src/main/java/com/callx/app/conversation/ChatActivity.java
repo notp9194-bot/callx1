@@ -2,7 +2,6 @@ package com.callx.app.conversation;
 
 import android.Manifest;
 import android.app.AlertDialog;
-import com.google.android.material.bottomsheet.BottomSheetDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ContentValues;
@@ -810,6 +809,19 @@ public class ChatActivity extends AppCompatActivity {
         m.reelId                = e.reelId;       // FIX: reel_seen bubble
         m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
         m.fontStyle             = e.fontStyle;    // FIX: typing style — Room se load hone par preserve karo
+        m.editedAt              = e.editedAt;     // FIX: was missing — not restored from Room
+
+        // FIX: Message info timestamps — restore from Room
+        m.deliveredAt           = e.deliveredAt;
+        m.readAt                = e.readAt;
+
+        // FIX: Group read maps — deserialize from JSON string
+        if (e.deliveredToJson != null && !e.deliveredToJson.isEmpty()) {
+            m.deliveredTo = MessageInfoActivity.parseReadMap(e.deliveredToJson);
+        }
+        if (e.readByJson != null && !e.readByJson.isEmpty()) {
+            m.readBy = MessageInfoActivity.parseReadMap(e.readByJson);
+        }
         return m;
     }
 
@@ -835,6 +847,7 @@ public class ChatActivity extends AppCompatActivity {
         e.replyToType             = m.replyToType;       // FIX: was missing — thumbnail type not saved
         e.replyToMediaUrl         = m.replyToMediaUrl;   // FIX: was missing — thumbnail URL not saved
         e.edited                  = m.edited;
+        e.editedAt                = m.editedAt;          // FIX: was missing — edit time not saved to Room
         e.deleted                 = m.deleted;
         e.forwardedFrom           = m.forwardedFrom;
         e.starred                 = Boolean.TRUE.equals(m.starred);
@@ -843,7 +856,34 @@ public class ChatActivity extends AppCompatActivity {
         e.reelThumbUrl            = m.reelThumbUrl;      // FIX: reel_seen bubble thumbnail
         e.fontStyle               = m.fontStyle;         // FIX: typing style preserve
         e.syncedAt                = System.currentTimeMillis();
+
+        // FIX: Message info timestamps — persist to Room for offline info screen
+        e.deliveredAt             = m.deliveredAt;
+        e.readAt                  = m.readAt;
+
+        // FIX: Group read maps — serialize Map<uid,Long> to JSON string for Room storage
+        if (m.deliveredTo != null && !m.deliveredTo.isEmpty()) {
+            e.deliveredToJson = mapToJson(m.deliveredTo);
+        }
+        if (m.readBy != null && !m.readBy.isEmpty()) {
+            e.readByJson = mapToJson(m.readBy);
+        }
         return e;
+    }
+
+    /** Serialize Map<String, Long> to compact JSON e.g. {"uid1":1700000001000} */
+    private static String mapToJson(java.util.Map<String, Long> map) {
+        if (map == null || map.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (java.util.Map.Entry<String, Long> e : map.entrySet()) {
+            if (!first) sb.append(',');
+            sb.append('"').append(e.getKey()).append('"')
+              .append(':').append(e.getValue());
+            first = false;
+        }
+        sb.append('}');
+        return sb.toString();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1448,111 +1488,20 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // MESSAGE INFO DIALOG — FIX: was calling onForward() as placeholder
-    // Now shows real delivery info: sent time, status, and recipient details.
+    // MESSAGE INFO — FIX: Replaced plain AlertDialog with dedicated Activity.
+    // MessageInfoActivity shows: sent time, deliveredAt, readAt, media details,
+    // edit history, and group per-member Delivered To / Read By lists.
     // ─────────────────────────────────────────────────────────────────────
 
     private void showMessageInfoDialog(Message m) {
         if (m == null) return;
-
-        BottomSheetDialog sheet = new BottomSheetDialog(this);
-        android.view.View iv = LayoutInflater.from(this)
-            .inflate(com.callx.app.chat.R.layout.bottom_sheet_message_info, null);
-
-        java.text.SimpleDateFormat timeFmt =
-            new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
-        java.text.SimpleDateFormat dateFmt =
-            new java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault());
-
-        // Message preview
-        android.widget.TextView tvText = iv.findViewById(com.callx.app.chat.R.id.tv_info_msg_text);
-        android.widget.TextView tvType = iv.findViewById(com.callx.app.chat.R.id.tv_info_msg_type);
-        if (tvText != null) {
-            if (Boolean.TRUE.equals(m.deleted)) {
-                tvText.setText("\uD83D\uDEAB Message deleted");
-                tvText.setAlpha(0.55f);
-            } else if (m.text != null && !m.text.isEmpty()) {
-                tvText.setText(m.text);
-            } else {
-                String tl = m.type != null ? m.type : "message";
-                tvText.setText("\uD83D\uDCCE " + tl.substring(0,1).toUpperCase() + tl.substring(1));
-                if (tvType != null) { tvType.setText(tl.toUpperCase()); tvType.setVisibility(android.view.View.VISIBLE); }
-            }
-        }
-
-        // Recipient avatar + name
-        android.widget.ImageView ivAvatar = iv.findViewById(com.callx.app.chat.R.id.iv_info_avatar);
-        if (ivAvatar != null && partnerPhoto != null && !partnerPhoto.isEmpty()) {
-            com.bumptech.glide.Glide.with(this).load(partnerPhoto)
-                .circleCrop().placeholder(com.callx.app.chat.R.drawable.ic_person).into(ivAvatar);
-        }
-        android.widget.TextView tvRecipient = iv.findViewById(com.callx.app.chat.R.id.tv_info_recipient);
-        if (tvRecipient != null) tvRecipient.setText(partnerName != null ? partnerName : partnerUid);
-
-        // Sent time
-        android.widget.TextView tvSentTime = iv.findViewById(com.callx.app.chat.R.id.tv_sent_time);
-        android.widget.TextView tvSentDate = iv.findViewById(com.callx.app.chat.R.id.tv_sent_date);
-        if (m.timestamp != null && m.timestamp > 0) {
-            java.util.Date sd = new java.util.Date(m.timestamp);
-            if (tvSentTime != null) tvSentTime.setText(timeFmt.format(sd));
-            if (tvSentDate != null) tvSentDate.setText(dateFmt.format(sd));
-        }
-
-        // Delivered
-        android.widget.TextView tvDelTime = iv.findViewById(com.callx.app.chat.R.id.tv_delivered_time);
-        android.widget.TextView tvDelDate = iv.findViewById(com.callx.app.chat.R.id.tv_delivered_date);
-        String status = m.status != null ? m.status : "sent";
-        boolean isDelivered = "delivered".equals(status) || "read".equals(status);
-        boolean isSeen      = "read".equals(status) || "seen".equals(status);
-
-        long deliveredTs = (m.deliveredAt != null && m.deliveredAt > 0) ? m.deliveredAt
-                         : (isDelivered && m.timestamp != null ? m.timestamp : 0L);
-        if (deliveredTs > 0) {
-            java.util.Date dd = new java.util.Date(deliveredTs);
-            if (tvDelTime != null) tvDelTime.setText(timeFmt.format(dd));
-            if (tvDelDate != null) tvDelDate.setText(dateFmt.format(dd));
-        } else {
-            if (tvDelTime != null) {
-                tvDelTime.setText("Waiting...");
-                tvDelTime.setTextColor(android.graphics.Color.parseColor("#94A3B8"));
-            }
-        }
-
-        // Seen
-        android.widget.TextView tvSeenTime = iv.findViewById(com.callx.app.chat.R.id.tv_seen_time);
-        android.widget.TextView tvSeenDate = iv.findViewById(com.callx.app.chat.R.id.tv_seen_date);
-        long seenTs = (m.seenAt != null && m.seenAt > 0) ? m.seenAt
-                    : (isSeen && m.timestamp != null ? m.timestamp : 0L);
-        if (seenTs > 0) {
-            java.util.Date seenDate = new java.util.Date(seenTs);
-            if (tvSeenTime != null) {
-                tvSeenTime.setText(timeFmt.format(seenDate));
-                tvSeenTime.setTextColor(android.graphics.Color.parseColor("#059669"));
-            }
-            if (tvSeenDate != null) tvSeenDate.setText(dateFmt.format(seenDate));
-        } else {
-            if (tvSeenTime != null) {
-                tvSeenTime.setText("Not seen yet");
-                tvSeenTime.setTextColor(android.graphics.Color.parseColor("#94A3B8"));
-            }
-        }
-
-        // Edited badge
-        android.view.View rowEdited = iv.findViewById(com.callx.app.chat.R.id.row_edited);
-        android.widget.TextView tvEdited = iv.findViewById(com.callx.app.chat.R.id.tv_edited_time);
-        if (Boolean.TRUE.equals(m.edited) && m.editedAt != null && m.editedAt > 0) {
-            if (rowEdited != null) rowEdited.setVisibility(android.view.View.VISIBLE);
-            if (tvEdited != null) tvEdited.setText(
-                timeFmt.format(new java.util.Date(m.editedAt))
-                + "  \u2022  " + dateFmt.format(new java.util.Date(m.editedAt)));
-        }
-
-        // Close
-        android.view.View btnClose = iv.findViewById(com.callx.app.chat.R.id.btn_info_close);
-        if (btnClose != null) btnClose.setOnClickListener(v -> sheet.dismiss());
-
-        sheet.setContentView(iv);
-        sheet.show();
+        android.content.Intent intent =
+                new android.content.Intent(this, MessageInfoActivity.class);
+        intent.putExtra("chatId",      chatId);
+        intent.putExtra("messageId",   m.id != null ? m.id : "");
+        intent.putExtra("isGroup",     m.isGroup);
+        intent.putExtra("partnerName", partnerName != null ? partnerName : "");
+        startActivity(intent);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1588,8 +1537,44 @@ public class ChatActivity extends AppCompatActivity {
             com.callx.app.utils.SecurityManager secMgr =
                 new com.callx.app.utils.SecurityManager(this);
             if (!secMgr.isReadReceiptsEnabled()) return;
+
+            long now = System.currentTimeMillis();
+
+            // FIX: Set readAt timestamp — sender ko exact time pata chalega
             messagesRef.child(m.id).child("status").setValue("read");
-            ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "read"));
+            messagesRef.child(m.id).child("readAt").setValue(now);
+
+            // FIX: Set deliveredAt only if not already set
+            if (m.deliveredAt == null || m.deliveredAt == 0) {
+                messagesRef.child(m.id).child("deliveredAt").setValue(now);
+            }
+
+            final long nowFinal = now;
+            ioExecutor.execute(() -> {
+                db.messageDao().updateStatus(m.id, "read");
+                // FIX: Persist readAt to Room so info screen works offline
+                db.messageDao().updateReadAt(m.id, nowFinal);
+            });
+        }
+    }
+
+    private void markDelivered(Message m) {
+        if (m == null || m.id == null) return;
+        // Mark received message as delivered if still "sent"
+        if (!currentUid.equals(m.senderId) && "sent".equals(m.status)) {
+            com.callx.app.utils.SecurityManager secMgr =
+                new com.callx.app.utils.SecurityManager(this);
+            if (!secMgr.isReadReceiptsEnabled()) return;
+
+            long now = System.currentTimeMillis();
+            messagesRef.child(m.id).child("status").setValue("delivered");
+            messagesRef.child(m.id).child("deliveredAt").setValue(now);
+
+            final long nowFinal = now;
+            ioExecutor.execute(() -> {
+                db.messageDao().updateStatus(m.id, "delivered");
+                db.messageDao().updateDeliveredAt(m.id, nowFinal);
+            });
         }
     }
 
