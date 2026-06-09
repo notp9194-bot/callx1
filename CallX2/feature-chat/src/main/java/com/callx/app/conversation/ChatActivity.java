@@ -2,6 +2,7 @@ package com.callx.app.conversation;
 
 import android.Manifest;
 import android.app.AlertDialog;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ContentValues;
@@ -1453,34 +1454,105 @@ public class ChatActivity extends AppCompatActivity {
 
     private void showMessageInfoDialog(Message m) {
         if (m == null) return;
-        java.text.SimpleDateFormat sdf =
-            new java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault());
-        String sentTime = m.timestamp != null && m.timestamp > 0
-                ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
 
-        String statusLabel;
-        switch (m.status != null ? m.status : "sent") {
-            case "read":
-            case "seen":   statusLabel = "✓✓  Read";       break;
-            case "delivered": statusLabel = "✓✓  Delivered"; break;
-            case "pending":   statusLabel = "🕐  Pending";   break;
-            case "failed":    statusLabel = "⚠  Failed";    break;
-            default:          statusLabel = "✓   Sent";      break;
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
+        android.view.View iv = LayoutInflater.from(this)
+            .inflate(com.callx.app.chat.R.layout.bottom_sheet_message_info, null);
+
+        java.text.SimpleDateFormat timeFmt =
+            new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
+        java.text.SimpleDateFormat dateFmt =
+            new java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault());
+
+        // Message preview
+        android.widget.TextView tvText = iv.findViewById(com.callx.app.chat.R.id.tv_info_msg_text);
+        android.widget.TextView tvType = iv.findViewById(com.callx.app.chat.R.id.tv_info_msg_type);
+        if (tvText != null) {
+            if (Boolean.TRUE.equals(m.deleted)) {
+                tvText.setText("\uD83D\uDEAB Message deleted");
+                tvText.setAlpha(0.55f);
+            } else if (m.text != null && !m.text.isEmpty()) {
+                tvText.setText(m.text);
+            } else {
+                String tl = m.type != null ? m.type : "message";
+                tvText.setText("\uD83D\uDCCE " + tl.substring(0,1).toUpperCase() + tl.substring(1));
+                if (tvType != null) { tvType.setText(tl.toUpperCase()); tvType.setVisibility(android.view.View.VISIBLE); }
+            }
         }
 
-        String typeLabel = m.type != null ? m.type.substring(0, 1).toUpperCase()
-                + m.type.substring(1) : "Text";
+        // Recipient avatar + name
+        android.widget.ImageView ivAvatar = iv.findViewById(com.callx.app.chat.R.id.iv_info_avatar);
+        if (ivAvatar != null && partnerPhoto != null && !partnerPhoto.isEmpty()) {
+            com.bumptech.glide.Glide.with(this).load(partnerPhoto)
+                .circleCrop().placeholder(com.callx.app.chat.R.drawable.ic_person).into(ivAvatar);
+        }
+        android.widget.TextView tvRecipient = iv.findViewById(com.callx.app.chat.R.id.tv_info_recipient);
+        if (tvRecipient != null) tvRecipient.setText(partnerName != null ? partnerName : partnerUid);
 
-        String info = "Sent:  " + sentTime + "\n"
-                    + "Status:  " + statusLabel + "\n"
-                    + "Type:  " + typeLabel + "\n"
-                    + "To:  " + (partnerName != null ? partnerName : partnerUid);
+        // Sent time
+        android.widget.TextView tvSentTime = iv.findViewById(com.callx.app.chat.R.id.tv_sent_time);
+        android.widget.TextView tvSentDate = iv.findViewById(com.callx.app.chat.R.id.tv_sent_date);
+        if (m.timestamp != null && m.timestamp > 0) {
+            java.util.Date sd = new java.util.Date(m.timestamp);
+            if (tvSentTime != null) tvSentTime.setText(timeFmt.format(sd));
+            if (tvSentDate != null) tvSentDate.setText(dateFmt.format(sd));
+        }
 
-        new AlertDialog.Builder(this)
-            .setTitle("ℹ Message Info")
-            .setMessage(info)
-            .setPositiveButton("OK", null)
-            .show();
+        // Delivered
+        android.widget.TextView tvDelTime = iv.findViewById(com.callx.app.chat.R.id.tv_delivered_time);
+        android.widget.TextView tvDelDate = iv.findViewById(com.callx.app.chat.R.id.tv_delivered_date);
+        String status = m.status != null ? m.status : "sent";
+        boolean isDelivered = "delivered".equals(status) || "read".equals(status);
+        boolean isSeen      = "read".equals(status) || "seen".equals(status);
+
+        long deliveredTs = (m.deliveredAt != null && m.deliveredAt > 0) ? m.deliveredAt
+                         : (isDelivered && m.timestamp != null ? m.timestamp : 0L);
+        if (deliveredTs > 0) {
+            java.util.Date dd = new java.util.Date(deliveredTs);
+            if (tvDelTime != null) tvDelTime.setText(timeFmt.format(dd));
+            if (tvDelDate != null) tvDelDate.setText(dateFmt.format(dd));
+        } else {
+            if (tvDelTime != null) {
+                tvDelTime.setText("Waiting...");
+                tvDelTime.setTextColor(android.graphics.Color.parseColor("#94A3B8"));
+            }
+        }
+
+        // Seen
+        android.widget.TextView tvSeenTime = iv.findViewById(com.callx.app.chat.R.id.tv_seen_time);
+        android.widget.TextView tvSeenDate = iv.findViewById(com.callx.app.chat.R.id.tv_seen_date);
+        long seenTs = (m.seenAt != null && m.seenAt > 0) ? m.seenAt
+                    : (isSeen && m.timestamp != null ? m.timestamp : 0L);
+        if (seenTs > 0) {
+            java.util.Date seenDate = new java.util.Date(seenTs);
+            if (tvSeenTime != null) {
+                tvSeenTime.setText(timeFmt.format(seenDate));
+                tvSeenTime.setTextColor(android.graphics.Color.parseColor("#059669"));
+            }
+            if (tvSeenDate != null) tvSeenDate.setText(dateFmt.format(seenDate));
+        } else {
+            if (tvSeenTime != null) {
+                tvSeenTime.setText("Not seen yet");
+                tvSeenTime.setTextColor(android.graphics.Color.parseColor("#94A3B8"));
+            }
+        }
+
+        // Edited badge
+        android.view.View rowEdited = iv.findViewById(com.callx.app.chat.R.id.row_edited);
+        android.widget.TextView tvEdited = iv.findViewById(com.callx.app.chat.R.id.tv_edited_time);
+        if (Boolean.TRUE.equals(m.edited) && m.editedAt != null && m.editedAt > 0) {
+            if (rowEdited != null) rowEdited.setVisibility(android.view.View.VISIBLE);
+            if (tvEdited != null) tvEdited.setText(
+                timeFmt.format(new java.util.Date(m.editedAt))
+                + "  \u2022  " + dateFmt.format(new java.util.Date(m.editedAt)));
+        }
+
+        // Close
+        android.view.View btnClose = iv.findViewById(com.callx.app.chat.R.id.btn_info_close);
+        if (btnClose != null) btnClose.setOnClickListener(v -> sheet.dismiss());
+
+        sheet.setContentView(iv);
+        sheet.show();
     }
 
     // ─────────────────────────────────────────────────────────────────────
