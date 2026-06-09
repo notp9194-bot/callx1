@@ -273,11 +273,24 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // FIX: Tell FCM service this chat is now visible — so it skips duplicate delivery marking.
+        // ChatActivity.markDelivered() handles delivery when chat is open;
+        // FCM service only marks delivered when chat is NOT open (background/killed).
+        if (chatId != null) {
+            com.callx.app.CallxApp.setActiveChatId(chatId);
+        }
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         saveDraft();              // v18 IMPROVEMENT 2: User navigate away — draft save
         clearOurTypingStatus();   // FIX: typing indicator stuck when app is backgrounded
         typingHandler.removeCallbacks(stopTypingRunnable);
+        // FIX: Clear active chat so FCM service knows this chat is no longer visible
+        com.callx.app.CallxApp.clearActiveChatId();
     }
 
     @Override
