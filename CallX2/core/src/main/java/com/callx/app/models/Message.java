@@ -48,6 +48,12 @@ public class Message {
     public Boolean edited;
     public Long    editedAt;
 
+    // ── Feature: Delivery Timestamps (for message info sheet) ────────────
+    /** Unix ms when message was delivered to recipient device. Firebase path: messages/{id}/deliveredAt */
+    public Long deliveredAt;
+    /** Unix ms when recipient opened/read the message. Firebase path: messages/{id}/seenAt */
+    public Long seenAt;
+
     // ── Feature 5: Delete for Everyone ───────────────────
     public Boolean deleted;
 

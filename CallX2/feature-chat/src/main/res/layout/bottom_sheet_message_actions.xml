@@ -3,60 +3,69 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingBottom="16dp">
+    android:background="@drawable/bg_msg_info_sheet"
+    android:paddingBottom="20dp">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_sheet_handle"/>
 
     <!-- Emoji reaction quick-pick row -->
     <LinearLayout
         android:id="@+id/ll_emoji_row"
         android:layout_width="match_parent"
-        android:layout_height="60dp"
+        android:layout_height="64dp"
         android:orientation="horizontal"
         android:gravity="center"
-        android:background="#F5F5F5"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp">
+        android:background="@drawable/bg_emoji_row"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="12dp">
         <TextView android:id="@+id/emoji_heart"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="❤️" android:textSize="28sp"
+            android:text="❤️" android:textSize="26sp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="4dp"/>
         <TextView android:id="@+id/emoji_thumb"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="👍" android:textSize="28sp"
+            android:text="👍" android:textSize="26sp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="4dp"/>
         <TextView android:id="@+id/emoji_laugh"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="😂" android:textSize="28sp"
+            android:text="😂" android:textSize="26sp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="4dp"/>
         <TextView android:id="@+id/emoji_wow"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="😮" android:textSize="28sp"
+            android:text="😮" android:textSize="26sp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="4dp"/>
         <TextView android:id="@+id/emoji_sad"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="😢" android:textSize="28sp"
+            android:text="😢" android:textSize="26sp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="4dp"/>
         <TextView android:id="@+id/emoji_pray"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="🙏" android:textSize="28sp"
+            android:text="🙏" android:textSize="26sp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="4dp"/>
-        <!-- FIX: "+" opens full emoji picker so user is not limited to 6 reactions -->
         <TextView android:id="@+id/emoji_more"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="+" android:textSize="22sp"
-            android:textColor="#555555"
+            android:text="＋" android:textSize="20sp"
+            android:textColor="#5B5BF6"
             android:textStyle="bold"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="4dp"
@@ -64,71 +73,153 @@
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#E0E0E0"/>
+        android:layout_marginHorizontal="16dp"
+        android:background="#F1F5F9"/>
 
-    <TextView android:id="@+id/action_reply"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="↩  Reply" android:textSize="15sp"
-        android:textColor="#212121"
-        android:background="?attr/selectableItemBackground"/>
-
-    <TextView android:id="@+id/action_edit"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="✏  Edit" android:textSize="15sp"
-        android:textColor="#212121"
+    <!-- Reply -->
+    <LinearLayout android:id="@+id/action_reply"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
         android:background="?attr/selectableItemBackground"
-        android:visibility="gone"/>
+        android:clickable="true" android:focusable="true">
+        <FrameLayout android:layout_width="36dp" android:layout_height="36dp"
+            android:background="@drawable/bg_action_chip_blue">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:text="↩" android:textSize="16sp" android:textColor="#FFFFFF"/>
+        </FrameLayout>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="14dp" android:text="Reply"
+            android:textSize="15sp" android:textColor="#0F172A" android:textStyle="bold"/>
+    </LinearLayout>
 
-    <!-- N4: Copy Message -->
-    <TextView android:id="@+id/action_copy"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="📋  Copy" android:textSize="15sp"
-        android:textColor="#212121"
+    <!-- Edit -->
+    <LinearLayout android:id="@+id/action_edit"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
         android:background="?attr/selectableItemBackground"
-        android:visibility="gone"/>
+        android:clickable="true" android:focusable="true"
+        android:visibility="gone">
+        <FrameLayout android:layout_width="36dp" android:layout_height="36dp"
+            android:background="@drawable/bg_action_chip_purple">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:text="✏" android:textSize="15sp" android:textColor="#FFFFFF"/>
+        </FrameLayout>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="14dp" android:text="Edit"
+            android:textSize="15sp" android:textColor="#0F172A" android:textStyle="bold"/>
+    </LinearLayout>
 
-    <TextView android:id="@+id/action_forward"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="↪  Forward" android:textSize="15sp"
-        android:textColor="#212121"
-        android:background="?attr/selectableItemBackground"/>
-
-    <TextView android:id="@+id/action_star"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="⭐  Star Message" android:textSize="15sp"
-        android:textColor="#212121"
-        android:background="?attr/selectableItemBackground"/>
-
-    <TextView android:id="@+id/action_pin"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="📌  Pin Message" android:textSize="15sp"
-        android:textColor="#212121"
-        android:background="?attr/selectableItemBackground"/>
-
-    <!-- N7: Message Info (sender only) -->
-    <TextView android:id="@+id/action_info"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="ℹ  Info" android:textSize="15sp"
-        android:textColor="#212121"
+    <!-- Copy -->
+    <LinearLayout android:id="@+id/action_copy"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
         android:background="?attr/selectableItemBackground"
-        android:visibility="gone"/>
+        android:clickable="true" android:focusable="true"
+        android:visibility="gone">
+        <FrameLayout android:layout_width="36dp" android:layout_height="36dp"
+            android:background="@drawable/bg_action_chip_teal">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:text="📋" android:textSize="15sp"/>
+        </FrameLayout>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="14dp" android:text="Copy"
+            android:textSize="15sp" android:textColor="#0F172A" android:textStyle="bold"/>
+    </LinearLayout>
+
+    <!-- Forward -->
+    <LinearLayout android:id="@+id/action_forward"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true" android:focusable="true">
+        <FrameLayout android:layout_width="36dp" android:layout_height="36dp"
+            android:background="@drawable/bg_action_chip_indigo">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:text="↪" android:textSize="16sp" android:textColor="#FFFFFF"/>
+        </FrameLayout>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="14dp" android:text="Forward"
+            android:textSize="15sp" android:textColor="#0F172A" android:textStyle="bold"/>
+    </LinearLayout>
+
+    <!-- Star -->
+    <LinearLayout android:id="@+id/action_star"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true" android:focusable="true">
+        <FrameLayout android:layout_width="36dp" android:layout_height="36dp"
+            android:background="@drawable/bg_action_chip_amber">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:text="⭐" android:textSize="15sp"/>
+        </FrameLayout>
+        <TextView android:id="@+id/action_star_text"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="14dp" android:text="Star Message"
+            android:textSize="15sp" android:textColor="#0F172A" android:textStyle="bold"/>
+    </LinearLayout>
+
+    <!-- Pin -->
+    <LinearLayout android:id="@+id/action_pin"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true" android:focusable="true">
+        <FrameLayout android:layout_width="36dp" android:layout_height="36dp"
+            android:background="@drawable/bg_action_chip_rose">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:text="📌" android:textSize="15sp"/>
+        </FrameLayout>
+        <TextView android:id="@+id/action_pin_text"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="14dp" android:text="Pin Message"
+            android:textSize="15sp" android:textColor="#0F172A" android:textStyle="bold"/>
+    </LinearLayout>
+
+    <!-- Info (sender only) -->
+    <LinearLayout android:id="@+id/action_info"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true" android:focusable="true"
+        android:visibility="gone">
+        <FrameLayout android:layout_width="36dp" android:layout_height="36dp"
+            android:background="@drawable/bg_action_chip_cyan">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:text="ℹ" android:textSize="16sp" android:textColor="#FFFFFF"/>
+        </FrameLayout>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="14dp" android:text="Message Info"
+            android:textSize="15sp" android:textColor="#0F172A" android:textStyle="bold"/>
+    </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#E0E0E0" android:layout_marginTop="4dp"/>
+        android:layout_marginHorizontal="16dp" android:layout_marginTop="4dp"
+        android:background="#FEE2E2"/>
 
-    <TextView android:id="@+id/action_delete"
-        android:layout_width="match_parent" android:layout_height="52dp"
-        android:gravity="center_vertical" android:paddingStart="20dp"
-        android:text="🗑  Delete" android:textSize="15sp"
-        android:textColor="#D32F2F"
+    <!-- Delete -->
+    <LinearLayout android:id="@+id/action_delete"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
         android:background="?attr/selectableItemBackground"
-        android:visibility="gone"/>
+        android:clickable="true" android:focusable="true"
+        android:visibility="gone">
+        <FrameLayout android:layout_width="36dp" android:layout_height="36dp"
+            android:background="@drawable/bg_action_chip_red">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:text="🗑" android:textSize="15sp"/>
+        </FrameLayout>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="14dp" android:text="Delete"
+            android:textSize="15sp" android:textColor="#EF4444" android:textStyle="bold"/>
+    </LinearLayout>
 
 </LinearLayout>

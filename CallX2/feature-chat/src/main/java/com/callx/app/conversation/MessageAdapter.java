@@ -863,19 +863,19 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 .inflate(R.layout.bottom_sheet_message_actions, null);
 
         // Emoji quick-react row
-        String[] emojis  = {"❤️", "👍", "😂", "😮", "😢", "🙏"};
+        String[] emojis  = {"\u2764\uFE0F", "\uD83D\uDC4D", "\uD83D\uDE02",
+                             "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE4F"};
         int[]    emojiIds = {
             R.id.emoji_heart, R.id.emoji_thumb, R.id.emoji_laugh,
             R.id.emoji_wow,   R.id.emoji_sad,   R.id.emoji_pray};
         for (int i = 0; i < emojiIds.length; i++) {
-            TextView et = sv.findViewById(emojiIds[i]);
+            View et = sv.findViewById(emojiIds[i]);
             final String emoji = emojis[i];
             if (et != null) {
-                boolean already = m.reactions != null &&
-                        emoji.equals(m.reactions.get(currentUid));
+                boolean already = m.reactions != null && emoji.equals(m.reactions.get(currentUid));
                 et.setAlpha(already ? 1.0f : 0.65f);
-                et.setScaleX(already ? 1.2f : 1.0f);
-                et.setScaleY(already ? 1.2f : 1.0f);
+                et.setScaleX(already ? 1.15f : 1.0f);
+                et.setScaleY(already ? 1.15f : 1.0f);
                 et.setOnClickListener(v -> {
                     sheet.dismiss();
                     if (actionListener != null) actionListener.onReact(m, emoji);
@@ -890,78 +890,83 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         });
 
         // Edit — sender only, text only, not deleted
-        TextView editBtn = sv.findViewById(R.id.action_edit);
+        View editRow = sv.findViewById(R.id.action_edit);
         if (sent && "text".equals(m.type) && !Boolean.TRUE.equals(m.deleted)) {
-            editBtn.setVisibility(View.VISIBLE);
-            editBtn.setOnClickListener(v -> {
+            editRow.setVisibility(View.VISIBLE);
+            editRow.setOnClickListener(v -> {
                 sheet.dismiss();
                 if (actionListener != null) actionListener.onEdit(m);
             });
+        } else {
+            if (editRow != null) editRow.setVisibility(View.GONE);
         }
 
-        // N4: Copy — text messages only
-        TextView copyBtn = sv.findViewById(R.id.action_copy);
-        if (copyBtn != null) {
+        // Copy — text messages only
+        View copyRow = sv.findViewById(R.id.action_copy);
+        if (copyRow != null) {
             boolean isText = "text".equals(m.type) || m.type == null;
             boolean hasText = m.text != null && !m.text.isEmpty();
             if (isText && hasText && !Boolean.TRUE.equals(m.deleted)) {
-                copyBtn.setVisibility(View.VISIBLE);
-                copyBtn.setOnClickListener(v -> {
+                copyRow.setVisibility(View.VISIBLE);
+                copyRow.setOnClickListener(v -> {
                     sheet.dismiss();
                     if (actionListener != null) actionListener.onCopy(m);
                 });
             } else {
-                copyBtn.setVisibility(View.GONE);
+                copyRow.setVisibility(View.GONE);
             }
         }
 
         // Forward
+        View fwdRow = sv.findViewById(R.id.action_forward);
         if (!Boolean.TRUE.equals(m.deleted)) {
-            sv.findViewById(R.id.action_forward).setOnClickListener(v -> {
+            fwdRow.setOnClickListener(v -> {
                 sheet.dismiss();
                 if (actionListener != null) actionListener.onForward(m);
             });
         } else {
-            sv.findViewById(R.id.action_forward).setVisibility(View.GONE);
+            if (fwdRow != null) fwdRow.setVisibility(View.GONE);
         }
 
-        // Star / Unstar
-        TextView starBtn = sv.findViewById(R.id.action_star);
-        starBtn.setText(Boolean.TRUE.equals(m.starred)
-                ? "\u2606  Unstar" : "\u2605  Star Message");
-        starBtn.setOnClickListener(v -> {
+        // Star / Unstar — update child label text
+        View starRow = sv.findViewById(R.id.action_star);
+        TextView starLabel = sv.findViewById(R.id.action_star_text);
+        if (starLabel != null)
+            starLabel.setText(Boolean.TRUE.equals(m.starred) ? "Unstar" : "Star Message");
+        if (starRow != null) starRow.setOnClickListener(v -> {
             sheet.dismiss();
             if (actionListener != null) actionListener.onStar(m);
         });
 
-        // Pin / Unpin
-        TextView pinBtn = sv.findViewById(R.id.action_pin);
-        pinBtn.setText(Boolean.TRUE.equals(m.pinned)
-                ? "\uD83D\uDCCC  Unpin" : "\uD83D\uDCCC  Pin Message");
-        pinBtn.setOnClickListener(v -> {
+        // Pin / Unpin — update child label text
+        View pinRow = sv.findViewById(R.id.action_pin);
+        TextView pinLabel = sv.findViewById(R.id.action_pin_text);
+        if (pinLabel != null)
+            pinLabel.setText(Boolean.TRUE.equals(m.pinned) ? "Unpin" : "Pin Message");
+        if (pinRow != null) pinRow.setOnClickListener(v -> {
             sheet.dismiss();
             if (actionListener != null) actionListener.onPin(m);
         });
 
-        // N7: Info (sender only)
-        TextView infoBtn = sv.findViewById(R.id.action_info);
-        if (infoBtn != null) {
+        // Info (sender only) — opens inline info sheet directly
+        View infoRow = sv.findViewById(R.id.action_info);
+        if (infoRow != null) {
             if (sent) {
-                infoBtn.setVisibility(View.VISIBLE);
-                infoBtn.setOnClickListener(v -> {
+                infoRow.setVisibility(View.VISIBLE);
+                infoRow.setOnClickListener(v -> {
                     sheet.dismiss();
-                    if (actionListener != null) actionListener.onInfo(m);
+                    showMessageInfoSheet(ctx, m);
                 });
             } else {
-                infoBtn.setVisibility(View.GONE);
+                infoRow.setVisibility(View.GONE);
             }
         }
 
         // Delete
-        TextView deleteBtn = sv.findViewById(R.id.action_delete);
+        View deleteRow = sv.findViewById(R.id.action_delete);
         if (!Boolean.TRUE.equals(m.deleted)) {
-            deleteBtn.setVisibility(View.VISIBLE);
-            deleteBtn.setOnClickListener(v -> {
+            deleteRow.setVisibility(View.VISIBLE);
+            deleteRow.setOnClickListener(v -> {
                 sheet.dismiss();
                 if (actionListener != null) actionListener.onDelete(m);
             });
@@ -969,6 +974,108 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
         sheet.setContentView(sv);
         sheet.show();
+    }
+
+    // ── Colorful Message Info Bottom Sheet ───────────────────────────────────
+    private void showMessageInfoSheet(Context ctx, Message m) {
+        com.google.android.material.bottomsheet.BottomSheetDialog infoSheet =
+            new com.google.android.material.bottomsheet.BottomSheetDialog(ctx);
+        View iv = LayoutInflater.from(ctx).inflate(R.layout.bottom_sheet_message_info, null);
+
+        java.text.SimpleDateFormat timeFmtFull =
+            new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
+        java.text.SimpleDateFormat dateFmt =
+            new java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault());
+
+        // ── Message preview ────────────────────────────────────────────────
+        android.widget.TextView tvText   = iv.findViewById(R.id.tv_info_msg_text);
+        android.widget.TextView tvType   = iv.findViewById(R.id.tv_info_msg_type);
+        if (tvText != null) {
+            if (Boolean.TRUE.equals(m.deleted)) {
+                tvText.setText("\uD83D\uDEAB Message deleted");
+                tvText.setAlpha(0.6f);
+            } else if (m.text != null && !m.text.isEmpty()) {
+                tvText.setText(m.text);
+            } else {
+                String typeLabel = m.type != null ? m.type : "message";
+                tvText.setText("\uD83D\uDCCE " + typeLabel.substring(0,1).toUpperCase() + typeLabel.substring(1));
+                if (tvType != null) {
+                    tvType.setText(typeLabel.toUpperCase());
+                    tvType.setVisibility(View.VISIBLE);
+                }
+            }
+        }
+
+        // ── Sent time (always available from timestamp) ────────────────────
+        android.widget.TextView tvSentTime = iv.findViewById(R.id.tv_sent_time);
+        android.widget.TextView tvSentDate = iv.findViewById(R.id.tv_sent_date);
+        if (m.timestamp != null && m.timestamp > 0) {
+            java.util.Date sentDate = new java.util.Date(m.timestamp);
+            if (tvSentTime != null) tvSentTime.setText(timeFmtFull.format(sentDate));
+            if (tvSentDate != null) tvSentDate.setText(dateFmt.format(sentDate));
+        } else {
+            if (tvSentTime != null) tvSentTime.setText("Unknown");
+        }
+
+        // ── Delivered & Seen ──────────────────────────────────────────────────
+        android.widget.TextView tvDelivered     = iv.findViewById(R.id.tv_delivered_time);
+        android.widget.TextView tvDeliveredDate = iv.findViewById(R.id.tv_delivered_date);
+        android.widget.TextView tvSeen          = iv.findViewById(R.id.tv_seen_time);
+        android.widget.TextView tvSeenDate      = iv.findViewById(R.id.tv_seen_date);
+
+        String status = m.status != null ? m.status : "sent";
+        boolean isDelivered = "delivered".equals(status) || "read".equals(status);
+        boolean isSeen      = "read".equals(status);
+
+        // Use deliveredAt timestamp if available, else fall back to sent timestamp
+        long deliveredTs = (m.deliveredAt != null && m.deliveredAt > 0) ? m.deliveredAt
+                         : (isDelivered && m.timestamp != null ? m.timestamp : 0L);
+
+        if (deliveredTs > 0) {
+            java.util.Date dd = new java.util.Date(deliveredTs);
+            if (tvDelivered != null)     tvDelivered.setText(timeFmtFull.format(dd));
+            if (tvDeliveredDate != null) tvDeliveredDate.setText(dateFmt.format(dd));
+        } else {
+            if (tvDelivered != null) {
+                tvDelivered.setText("Waiting...");
+                tvDelivered.setTextColor(android.graphics.Color.parseColor("#94A3B8"));
+            }
+        }
+
+        // Use seenAt timestamp if available, else fall back to sent timestamp
+        long seenTs = (m.seenAt != null && m.seenAt > 0) ? m.seenAt
+                    : (isSeen && m.timestamp != null ? m.timestamp : 0L);
+
+        if (seenTs > 0) {
+            java.util.Date sd = new java.util.Date(seenTs);
+            if (tvSeen != null) {
+                tvSeen.setText(timeFmtFull.format(sd));
+                tvSeen.setTextColor(android.graphics.Color.parseColor("#059669"));
+            }
+            if (tvSeenDate != null) tvSeenDate.setText(dateFmt.format(sd));
+        } else {
+            if (tvSeen != null) {
+                tvSeen.setText("Not seen yet");
+                tvSeen.setTextColor(android.graphics.Color.parseColor("#94A3B8"));
+            }
+        }
+
+        // ── Edited badge ───────────────────────────────────────────────────
+        View editedRow   = iv.findViewById(R.id.row_edited);
+        android.widget.TextView tvEdited = iv.findViewById(R.id.tv_edited_time);
+        if (Boolean.TRUE.equals(m.edited) && m.editedAt != null && m.editedAt > 0) {
+            if (editedRow != null) editedRow.setVisibility(View.VISIBLE);
+            if (tvEdited != null)
+                tvEdited.setText(timeFmtFull.format(new java.util.Date(m.editedAt))
+                    + "  \u2022  " + dateFmt.format(new java.util.Date(m.editedAt)));
+        }
+
+        // ── Close button ───────────────────────────────────────────────────
+        View closeBtn = iv.findViewById(R.id.btn_info_close);
+        if (closeBtn != null) closeBtn.setOnClickListener(v -> infoSheet.dismiss());
+
+        infoSheet.setContentView(iv);
+        infoSheet.show();
     }
 
     // ── Chrome Custom Tabs: force browser, block native app deep links ────────
