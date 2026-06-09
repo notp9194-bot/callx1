@@ -40,25 +40,8 @@ public class CallxApp extends Application {
     private static int    sActivityRefs  = 0;
     private static String sMyPhotoUrl    = "";
 
-    /**
-     * FIX: Active chat tracking — FCM delivery handler checks this before marking
-     * "delivered" so it doesn't fight with ChatActivity.markDelivered() (race condition).
-     * Set by ChatActivity.onResume(), cleared by ChatActivity.onPause().
-     * Thread-safe: volatile + only written on main thread.
-     */
-    private static volatile String sActiveChatId = null;
-
     public static boolean isAppInForeground()   { return sActivityRefs > 0; }
     public static String  getMyPhotoUrlCached() { return sMyPhotoUrl; }
-
-    /** Returns the chatId currently open in ChatActivity, or null if no chat is open. */
-    public static String getActiveChatId() { return sActiveChatId; }
-
-    /** Called by ChatActivity.onResume() — marks this chat as currently visible. */
-    public static void setActiveChatId(String chatId) { sActiveChatId = chatId; }
-
-    /** Called by ChatActivity.onPause() — clears the active chat. */
-    public static void clearActiveChatId() { sActiveChatId = null; }
 
     // ──────────────────────────────────────────────────────────────
     // FIX #STARTUP: Heavy init ko background thread pe daala gaya hai.

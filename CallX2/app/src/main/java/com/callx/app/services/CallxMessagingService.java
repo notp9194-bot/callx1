@@ -1125,8 +1125,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
         if (myUid.equals(fromUid)) return; // own message — skip
 
         // Rule: if chat is currently open, ChatActivity.markDelivered() handles it
-        String activeChatId = com.callx.app.CallxApp.getActiveChatId();
-        if (chatId.equals(activeChatId)) return;
+        if (com.callx.app.utils.ActiveChatTracker.isActive(chatId)) return;
 
         // Rule: check read receipts setting
         com.callx.app.utils.SecurityManager secMgr =

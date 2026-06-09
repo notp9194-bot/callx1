@@ -279,7 +279,7 @@ public class ChatActivity extends AppCompatActivity {
         // ChatActivity.markDelivered() handles delivery when chat is open;
         // FCM service only marks delivered when chat is NOT open (background/killed).
         if (chatId != null) {
-            com.callx.app.CallxApp.setActiveChatId(chatId);
+            com.callx.app.utils.ActiveChatTracker.set(chatId);
         }
     }
 
@@ -290,7 +290,7 @@ public class ChatActivity extends AppCompatActivity {
         clearOurTypingStatus();   // FIX: typing indicator stuck when app is backgrounded
         typingHandler.removeCallbacks(stopTypingRunnable);
         // FIX: Clear active chat so FCM service knows this chat is no longer visible
-        com.callx.app.CallxApp.clearActiveChatId();
+        com.callx.app.utils.ActiveChatTracker.clear();
     }
 
     @Override
