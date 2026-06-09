@@ -127,13 +127,11 @@ public class MessageInfoActivity extends AppCompatActivity {
     }
 
     private void loadMessageInfo() {
-        com.callx.app.utils.FirebaseUtils fb = null;
+        // FIX: Was using wrong path "chats/{chatId}/messages/{id}".
+        // Actual Firebase path is "messages/{chatId}/{messageId}" via FirebaseUtils.getMessagesRef().
         DatabaseReference base;
         try {
-            base = com.callx.app.utils.FirebaseUtils.db()
-                    .getReference("chats")
-                    .child(chatId)
-                    .child("messages")
+            base = com.callx.app.utils.FirebaseUtils.getMessagesRef(chatId)
                     .child(messageId);
         } catch (Exception e) {
             showError("Could not connect to database.");

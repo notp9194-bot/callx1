@@ -735,6 +735,10 @@ public class ChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 m.id = snapshot.getKey();
                 saveToRoom(m, false);
+                // FIX: Mark delivered first (sets deliveredAt), then read (sets readAt).
+                // Without markDelivered(), status jumped sent→read skipping "delivered" tick.
+                // Chat open hai toh immediately read ho jata hai — deliveredAt = readAt = now.
+                markDelivered(m);
                 markRead(m);
             }
 
