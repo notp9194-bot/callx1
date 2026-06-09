@@ -6,6 +6,7 @@ import android.app.KeyguardManager;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -16,15 +17,16 @@ import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
-import android.graphics.Color;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.bumptech.glide.Glide;
 import com.callx.app.calls.databinding.ActivityIncomingCallBinding;
 import com.callx.app.call.CallActivity;
@@ -51,6 +53,7 @@ public class IncomingCallActivity extends AppCompatActivity {
     private final Handler autoRejectHandler = new Handler(Looper.getMainLooper());
     private Vibrator vibrator;
     private static final int AUTO_REJECT_MS = 60_000;
+    private static final float SWIPE_THRESHOLD = 150f;
 
     // Ringing dots animation
     private final Handler dotsHandler = new Handler(Looper.getMainLooper());
@@ -59,31 +62,23 @@ public class IncomingCallActivity extends AppCompatActivity {
     // Ripple animation
     private AnimatorSet rippleSet;
 
-    // Arrow hint animators
-    private ObjectAnimator acceptArrowAnim;
-    private ObjectAnimator rejectArrowAnim;
+    // Swipe tracking
+    private float swipeTouchStartY = 0f;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // ── Edge-to-edge setup ──────────────────────────────────────────────
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        WindowInsetsControllerCompat insetsController =
+            WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        insetsController.setAppearanceLightStatusBars(false);
+        insetsController.setAppearanceLightNavigationBars(false);
+
         super.onCreate(savedInstanceState);
         binding = ActivityIncomingCallBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
-
-        // ── Edge-to-edge: transparent status bar + nav bar ──────────────
-        Window window = getWindow();
-        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
-        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
-        window.setStatusBarColor(Color.TRANSPARENT);
-        window.setNavigationBarColor(Color.TRANSPARENT);
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false);
-        } else {
-            window.getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
-        }
 
         // Show on lock screen
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
@@ -192,7 +187,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         startLoopingRingtone();
         startRippleAnimation();
         startRingingDotsAnimation();
-        startArrowHintAnimations();
         watchCallStatus();
 
         autoRejectHandler.postDelayed(() -> { if (!acted) reject(); }, AUTO_REJECT_MS);
@@ -200,11 +194,79 @@ public class IncomingCallActivity extends AppCompatActivity {
         binding.btnAccept.setOnClickListener(v -> accept());
         binding.btnReject.setOnClickListener(v -> reject());
 
+        // ── Swipe gesture on center phone button ───────────────────────────
+        if (binding.swipePhoneContainer != null) {
+            binding.swipePhoneContainer.setOnTouchListener((v, event) -> {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        swipeTouchStartY = event.getRawY();
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        float dy = event.getRawY() - swipeTouchStartY;
+                        // Move phone icon with finger (clamped)
+                        float clamp = Math.max(-120f, Math.min(120f, dy));
+                        if (binding.ivSwipePhone != null) {
+                            binding.ivSwipePhone.setTranslationY(clamp);
+                        }
+                        // Highlight hints
+                        if (binding.tvSwipeHintUp != null && binding.tvSwipeHintDown != null) {
+                            if (dy < -20) {
+                                binding.tvSwipeHintUp.setAlpha(1f);
+                                binding.tvSwipeHintDown.setAlpha(0.3f);
+                            } else if (dy > 20) {
+                                binding.tvSwipeHintDown.setAlpha(1f);
+                                binding.tvSwipeHintUp.setAlpha(0.3f);
+                            } else {
+                                binding.tvSwipeHintUp.setAlpha(0.7f);
+                                binding.tvSwipeHintDown.setAlpha(0.7f);
+                            }
+                        }
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        float totalDy = event.getRawY() - swipeTouchStartY;
+                        // Reset position
+                        if (binding.ivSwipePhone != null) {
+                            binding.ivSwipePhone.animate().translationY(0).setDuration(200).start();
+                        }
+                        if (binding.tvSwipeHintUp != null) binding.tvSwipeHintUp.setAlpha(0.7f);
+                        if (binding.tvSwipeHintDown != null) binding.tvSwipeHintDown.setAlpha(0.7f);
+                        if (totalDy < -SWIPE_THRESHOLD) {
+                            accept();
+                        } else if (totalDy > SWIPE_THRESHOLD) {
+                            reject();
+                        }
+                        return true;
+                }
+                return false;
+            });
+        }
+
         // ── Quick reply buttons ─────────────────────────────────────────────
-        // Reject call + send pre-set message to caller
         binding.btnQuickReply1.setOnClickListener(v -> sendQuickReply("Can't talk right now"));
         binding.btnQuickReply2.setOnClickListener(v -> sendQuickReply("I'll call you later"));
         binding.btnQuickReply3.setOnClickListener(v -> sendQuickReply("On my way!"));
+
+        // ── Start swipe hint pulsing animation ─────────────────────────────
+        startSwipeHintPulse();
+    }
+
+    // ── Swipe hint pulse animation ──────────────────────────────────────────
+    private void startSwipeHintPulse() {
+        try {
+            if (binding.tvSwipeHintUp == null || binding.tvSwipeHintDown == null) return;
+            ObjectAnimator upPulse = ObjectAnimator.ofFloat(binding.tvSwipeHintUp, "alpha", 0.4f, 1f, 0.4f);
+            upPulse.setDuration(1800);
+            upPulse.setRepeatCount(ObjectAnimator.INFINITE);
+            upPulse.setRepeatMode(ObjectAnimator.RESTART);
+            upPulse.start();
+            ObjectAnimator downPulse = ObjectAnimator.ofFloat(binding.tvSwipeHintDown, "alpha", 0.4f, 1f, 0.4f);
+            downPulse.setDuration(1800);
+            downPulse.setRepeatCount(ObjectAnimator.INFINITE);
+            downPulse.setRepeatMode(ObjectAnimator.RESTART);
+            downPulse.setStartDelay(900);
+            downPulse.start();
+        } catch (Exception ignored) {}
     }
 
     // ── Quick reply: reject + send message ─────────────────────────────────
@@ -216,7 +278,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopRippleAnimation();
         stopRingingDots();
-        stopArrowHintAnimations();
         stopIncomingRingService();
         cancelRingNotification();
 
@@ -225,13 +286,11 @@ public class IncomingCallActivity extends AppCompatActivity {
                 .child(callId).child("status").setValue("rejected");
         }
 
-        // Send quick reply message via Firebase chat
         String myUid = FirebaseUtils.getCurrentUid();
         if (myUid != null && fromUid != null && !fromUid.isEmpty()) {
             String chatId = myUid.compareTo(fromUid) < 0
                 ? myUid + "_" + fromUid
                 : fromUid + "_" + myUid;
-
             Map<String, Object> msg = new HashMap<>();
             msg.put("senderId", myUid);
             msg.put("text", message);
@@ -256,7 +315,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopRippleAnimation();
         stopRingingDots();
-        stopArrowHintAnimations();
         stopIncomingRingService();
         cancelRingNotification();
 
@@ -286,7 +344,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopRippleAnimation();
         stopRingingDots();
-        stopArrowHintAnimations();
         stopIncomingRingService();
         cancelRingNotification();
 
@@ -298,15 +355,12 @@ public class IncomingCallActivity extends AppCompatActivity {
         finish();
     }
 
-    // ── Missed call log — FIXED direction values ─────────────────────────
+    // ── Missed call log ──────────────────────────────────────────────────
     private void logMissedCall() {
         String myUid = FirebaseUtils.getCurrentUid();
         if (myUid == null || fromUid == null || fromUid.isEmpty()) return;
-
         long ts    = System.currentTimeMillis();
         String media = isVideo ? "video" : "audio";
-
-        // B (callee/us) → direction = "missed"
         Map<String, Object> myMissed = new HashMap<>();
         myMissed.put("partnerUid",  fromUid);
         myMissed.put("partnerName", fromName != null ? fromName : "");
@@ -316,15 +370,13 @@ public class IncomingCallActivity extends AppCompatActivity {
         myMissed.put("duration",    0L);
         FirebaseUtils.getCallsRef(myUid).push().setValue(myMissed)
             .addOnFailureListener(e -> android.util.Log.w("IncomingCall", "B missed-log failed", e));
-
-        // A (caller) → direction = "no_answer" (FIXED: was "missed" which was wrong)
         FirebaseUtils.getUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 String myName = snap.child("name").getValue(String.class);
                 Map<String, Object> callerLog = new HashMap<>();
                 callerLog.put("partnerUid",  myUid);
                 callerLog.put("partnerName", myName != null ? myName : "");
-                callerLog.put("direction",   "no_answer"); // FIXED: caller ke liye correct direction
+                callerLog.put("direction",   "no_answer");
                 callerLog.put("mediaType",   media);
                 callerLog.put("timestamp",   ts);
                 callerLog.put("duration",    0L);
@@ -333,8 +385,6 @@ public class IncomingCallActivity extends AppCompatActivity {
             }
             @Override public void onCancelled(DatabaseError e) {}
         });
-
-        // Room DB cache for callee
         Executors.newSingleThreadExecutor().execute(() -> {
             try {
                 CallLogEntity entity = new CallLogEntity();
@@ -376,11 +426,9 @@ public class IncomingCallActivity extends AppCompatActivity {
             View r2 = binding.rippleRing2;
             View r3 = binding.rippleRing3;
             if (r1 == null || r2 == null || r3 == null) return;
-
             AnimatorSet set1 = makeRipplePulse(r1, 0);
-            AnimatorSet set2 = makeRipplePulse(r2, 300);
-            AnimatorSet set3 = makeRipplePulse(r3, 600);
-
+            AnimatorSet set2 = makeRipplePulse(r2, 400);
+            AnimatorSet set3 = makeRipplePulse(r3, 800);
             rippleSet = new AnimatorSet();
             rippleSet.playTogether(set1, set2, set3);
             rippleSet.start();
@@ -388,9 +436,9 @@ public class IncomingCallActivity extends AppCompatActivity {
     }
 
     private AnimatorSet makeRipplePulse(View v, long delay) {
-        ObjectAnimator scaleX = ObjectAnimator.ofFloat(v, "scaleX", 0.8f, 1.2f, 0.8f);
-        ObjectAnimator scaleY = ObjectAnimator.ofFloat(v, "scaleY", 0.8f, 1.2f, 0.8f);
-        ObjectAnimator alpha  = ObjectAnimator.ofFloat(v, "alpha", 0.1f, 0.4f, 0.1f);
+        ObjectAnimator scaleX = ObjectAnimator.ofFloat(v, "scaleX", 0.85f, 1.15f, 0.85f);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(v, "scaleY", 0.85f, 1.15f, 0.85f);
+        ObjectAnimator alpha  = ObjectAnimator.ofFloat(v, "alpha", 0.08f, 0.35f, 0.08f);
         scaleX.setRepeatCount(ObjectAnimator.INFINITE);
         scaleY.setRepeatCount(ObjectAnimator.INFINITE);
         alpha.setRepeatCount(ObjectAnimator.INFINITE);
@@ -401,45 +449,13 @@ public class IncomingCallActivity extends AppCompatActivity {
         scaleY.setInterpolator(new DecelerateInterpolator());
         AnimatorSet set = new AnimatorSet();
         set.playTogether(scaleX, scaleY, alpha);
-        set.setDuration(1600);
+        set.setDuration(2000);
         set.setStartDelay(delay);
         return set;
     }
 
     private void stopRippleAnimation() {
         try { if (rippleSet != null) { rippleSet.cancel(); rippleSet = null; } }
-        catch (Exception ignored) {}
-    }
-
-    // ── Arrow hint bounce animation ────────────────────────────────────────
-    // Accept arrow bounces UP, Decline arrow bounces DOWN — visual affordance
-    private void startArrowHintAnimations() {
-        try {
-            if (binding.ivAcceptArrow != null) {
-                acceptArrowAnim = ObjectAnimator.ofFloat(
-                    binding.ivAcceptArrow, "translationY", 0f, -10f, 0f);
-                acceptArrowAnim.setDuration(900);
-                acceptArrowAnim.setRepeatCount(ObjectAnimator.INFINITE);
-                acceptArrowAnim.setRepeatMode(ObjectAnimator.RESTART);
-                acceptArrowAnim.setInterpolator(new AccelerateDecelerateInterpolator());
-                acceptArrowAnim.start();
-            }
-            if (binding.ivRejectArrow != null) {
-                rejectArrowAnim = ObjectAnimator.ofFloat(
-                    binding.ivRejectArrow, "translationY", 0f, 10f, 0f);
-                rejectArrowAnim.setDuration(900);
-                rejectArrowAnim.setRepeatCount(ObjectAnimator.INFINITE);
-                rejectArrowAnim.setRepeatMode(ObjectAnimator.RESTART);
-                rejectArrowAnim.setInterpolator(new AccelerateDecelerateInterpolator());
-                rejectArrowAnim.start();
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private void stopArrowHintAnimations() {
-        try { if (acceptArrowAnim != null) { acceptArrowAnim.cancel(); acceptArrowAnim = null; } }
-        catch (Exception ignored) {}
-        try { if (rejectArrowAnim != null) { rejectArrowAnim.cancel(); rejectArrowAnim = null; } }
         catch (Exception ignored) {}
     }
 
@@ -538,7 +554,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopRippleAnimation();
         stopRingingDots();
-        stopArrowHintAnimations();
         if (wakeLock != null && wakeLock.isHeld()) {
             try { wakeLock.release(); } catch (Exception ignored) {}
         }
