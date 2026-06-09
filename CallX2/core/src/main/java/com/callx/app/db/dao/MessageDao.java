@@ -131,6 +131,16 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :partnerUid AND (status IS NULL OR status != 'read') ORDER BY timestamp ASC")
     List<MessageEntity> getUnreadMessages(String chatId, String partnerUid);
 
+    /**
+     * FIX: Group notification "Mark as Read" — returns recent messages in groupId
+     * that were NOT sent by myUid and haven't been marked read yet.
+     * Used by NotificationActionReceiver to batch-set readBy/{myUid} on Firebase.
+     * Limit 50 so we don't overload Firebase on groups with huge history.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :groupId AND senderId != :myUid AND deleted != 1 ORDER BY timestamp DESC LIMIT 50")
+    List<MessageEntity> getGroupUnreadMessages(String groupId, String myUid);
+
     @WorkerThread
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertMessages(List<MessageEntity> messages);

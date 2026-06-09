@@ -41,12 +41,67 @@ public class NotificationActionReceiver extends BroadcastReceiver {
         NotificationManager nm = (NotificationManager)
             context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (Constants.ACTION_MARK_READ.equals(action)) {
-            if (partnerUid != null) {
+            // FIX: Was only resetting unread counter — never set status="read" or readAt on messages.
+            // Sender's tick stayed grey (✓✓ delivered) instead of turning blue (✓✓ read).
+            //
+            // Now:
+            //  1. Reset unread counter (existing)
+            //  2. Check read receipts setting — agar off hai toh quietly cancel only
+            //  3. Query Room DB for all unread msgs from partnerUid in this chat
+            //  4. For each: Firebase status="read" + readAt=now (atomic updateChildren)
+            //  5. Room DB: updateStatus + updateReadAt
+            if (partnerUid != null && chatId != null) {
                 FirebaseUtils.getContactsRef(myUid).child(partnerUid)
-                    .child("unread").setValue(0);
+                        .child("unread").setValue(0);
+
+                com.callx.app.utils.SecurityManager secMgr =
+                        new com.callx.app.utils.SecurityManager(context);
+                if (secMgr.isReadReceiptsEnabled()) {
+                    final long now = System.currentTimeMillis();
+                    final String fChatId     = chatId;
+                    final String fPartnerUid = partnerUid;
+
+                    java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+                        try {
+                            com.callx.app.db.AppDatabase db =
+                                    com.callx.app.db.AppDatabase.getInstance(context);
+                            // Get all unread messages from the partner in this chat
+                            java.util.List<com.callx.app.db.entity.MessageEntity> unread =
+                                    db.messageDao().getUnreadMessages(fChatId, fPartnerUid);
+
+                            for (com.callx.app.db.entity.MessageEntity e : unread) {
+                                if (e.id == null || e.id.isEmpty()) continue;
+
+                                // Firebase: atomic update of status + readAt + deliveredAt
+                                java.util.Map<String, Object> updates = new java.util.HashMap<>();
+                                updates.put("status",  "read");
+                                updates.put("readAt",  now);
+                                // Also set deliveredAt if not already set
+                                if (e.deliveredAt == null || e.deliveredAt == 0) {
+                                    updates.put("deliveredAt", now);
+                                }
+                                FirebaseUtils.getMessagesRef(fChatId)
+                                        .child(e.id).updateChildren(updates);
+
+                                // Room DB: persist so info screen works offline
+                                db.messageDao().updateStatus(e.id, "read");
+                                db.messageDao().updateReadAt(e.id, now);
+                                if (e.deliveredAt == null || e.deliveredAt == 0) {
+                                    db.messageDao().updateDeliveredAt(e.id, now);
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                        pendingResult.finish();
+                    });
+                } else {
+                    if (nm != null) nm.cancel(notifId);
+                    pendingResult.finish();
+                }
+            } else {
+                if (nm != null) nm.cancel(notifId);
+                pendingResult.finish();
             }
             if (nm != null) nm.cancel(notifId);
-            pendingResult.finish();
             return;
         }
         // (Feature 1) Mute — sound off. Future notifications silent show honge.
@@ -494,11 +549,51 @@ public class NotificationActionReceiver extends BroadcastReceiver {
         // Group: Mark as read — local notification cancel + server unread reset
         if (Constants.ACTION_GROUP_MARK_READ.equals(action)) {
             if (groupId != null && !groupId.isEmpty()) {
+                // Reset unread counter (existing)
                 FirebaseUtils.db().getReference("groups")
-                    .child(groupId).child("unread").child(myUid).setValue(0);
+                        .child(groupId).child("unread").child(myUid).setValue(0);
+
+                // FIX: Also set readBy/{myUid} = now on recent unread group messages
+                // so MessageInfoActivity shows who read it, and sender sees blue ticks.
+                com.callx.app.utils.SecurityManager secMgr =
+                        new com.callx.app.utils.SecurityManager(context);
+                if (secMgr.isReadReceiptsEnabled()) {
+                    final long now       = System.currentTimeMillis();
+                    final String fMyUid  = myUid;
+                    final String fGrpId  = groupId;
+
+                    java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+                        try {
+                            com.callx.app.db.AppDatabase db =
+                                    com.callx.app.db.AppDatabase.getInstance(context);
+
+                            // Get recent unread group messages (not sent by me)
+                            java.util.List<com.callx.app.db.entity.MessageEntity> msgs =
+                                    db.messageDao().getGroupUnreadMessages(fGrpId, fMyUid);
+
+                            for (com.callx.app.db.entity.MessageEntity e : msgs) {
+                                if (e.id == null || e.id.isEmpty()) continue;
+
+                                // Firebase: set readBy/{myUid} = now
+                                FirebaseUtils.getGroupMessagesRef(fGrpId)
+                                        .child(e.id)
+                                        .child("readBy")
+                                        .child(fMyUid)
+                                        .setValue(now);
+
+                                // Room DB: update readAt
+                                db.messageDao().updateReadAt(e.id, now);
+                            }
+                        } catch (Exception ignored) {}
+                        pendingResult.finish();
+                    });
+                } else {
+                    pendingResult.finish();
+                }
+            } else {
+                pendingResult.finish();
             }
             if (nm != null) nm.cancel(notifId);
-            pendingResult.finish();
             return;
         }
         // Group: Mute
