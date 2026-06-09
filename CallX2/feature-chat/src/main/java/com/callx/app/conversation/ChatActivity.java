@@ -1518,6 +1518,7 @@ public class ChatActivity extends AppCompatActivity {
         intent.putExtra("messageId",   m.id != null ? m.id : "");
         intent.putExtra("isGroup",     m.isGroup);
         intent.putExtra("partnerName", partnerName != null ? partnerName : "");
+        intent.putExtra("isSender",    currentUid != null && currentUid.equals(m.senderId));
         startActivity(intent);
     }
 

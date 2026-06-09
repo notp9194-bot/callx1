@@ -451,6 +451,7 @@ public class GroupChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 m.id = s.getKey();
                 saveToRoom(m);
+                markDelivered(m);
                 markRead(m);
             }
             @Override public void onChildChanged(DataSnapshot s, String prev) {
@@ -503,6 +504,18 @@ public class GroupChatActivity extends AppCompatActivity {
         m.starred           = e.starred;
         m.pinned            = e.pinned;
         m.fontStyle         = e.fontStyle;  // FIX: typing style — Room se load hone par preserve karo
+        m.isGroup           = true;
+        // FIX: Message info timestamps — Room se restore karo
+        m.editedAt          = e.editedAt;
+        m.deliveredAt       = e.deliveredAt;
+        m.readAt            = e.readAt;
+        // FIX: Group read maps — JSON → Map
+        if (e.deliveredToJson != null && !e.deliveredToJson.isEmpty()) {
+            m.deliveredTo = com.callx.app.conversation.MessageInfoActivity.parseReadMap(e.deliveredToJson);
+        }
+        if (e.readByJson != null && !e.readByJson.isEmpty()) {
+            m.readBy = com.callx.app.conversation.MessageInfoActivity.parseReadMap(e.readByJson);
+        }
         return m;
     }
 
@@ -532,7 +545,29 @@ public class GroupChatActivity extends AppCompatActivity {
         e.isGroup               = true;
         e.syncedAt              = System.currentTimeMillis();
         e.fontStyle             = m.fontStyle;
+        // FIX: Message info timestamps — Room mein persist karo
+        e.editedAt              = m.editedAt;
+        e.deliveredAt           = m.deliveredAt;
+        e.readAt                = m.readAt;
+        // FIX: Group read maps — Map → JSON string
+        if (m.deliveredTo != null && !m.deliveredTo.isEmpty()) {
+            e.deliveredToJson = mapToJson(m.deliveredTo);
+        }
+        if (m.readBy != null && !m.readBy.isEmpty()) {
+            e.readByJson = mapToJson(m.readBy);
+        }
         return e;
+    }
+
+    private static String mapToJson(java.util.Map<String, Long> map) {
+        if (map == null || map.isEmpty()) return "{}";
+        org.json.JSONObject obj = new org.json.JSONObject();
+        try {
+            for (java.util.Map.Entry<String, Long> entry : map.entrySet()) {
+                obj.put(entry.getKey(), entry.getValue());
+            }
+        } catch (org.json.JSONException ignored) {}
+        return obj.toString();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -687,10 +722,20 @@ public class GroupChatActivity extends AppCompatActivity {
         });
     }
 
+    private void markDelivered(Message m) {
+        if (m == null || m.id == null) return;
+        if (currentUid == null || currentUid.equals(m.senderId)) return;
+        long now = System.currentTimeMillis();
+        groupMessagesRef.child(m.id).child("deliveredTo").child(currentUid).setValue(now);
+        ioExecutor.execute(() -> db.messageDao().updateDeliveredAt(m.id, now));
+    }
+
     private void markRead(Message m) {
         if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
-        groupMessagesRef.child(m.id).child("readBy")
-                .child(currentUid).setValue(true);
+        long now = System.currentTimeMillis();
+        // FIX: Long timestamp (millis) — was Boolean true, MessageInfoActivity expects Long
+        groupMessagesRef.child(m.id).child("readBy").child(currentUid).setValue(now);
+        ioExecutor.execute(() -> db.messageDao().updateReadAt(m.id, now));
     }
 
     // ─────────────────────────────────────────────────────────────────────

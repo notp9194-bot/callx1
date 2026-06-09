@@ -13,7 +13,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
 import com.callx.app.models.Message;
-import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
@@ -32,14 +31,13 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * MessageInfoActivity — Dedicated Message Info Screen
+ * MessageInfoActivity — Dedicated Message Info Screen (FIXED VERSION)
  *
- * Dikhata hai:
- *  • Sent time
- *  • Delivered at timestamp (1-on-1 + group per-member)
- *  • Read at timestamp     (1-on-1 + group per-member)
- *  • Edit history (edited flag + editedAt)
- *  • Media details (fileSize, duration) for non-text messages
+ * FIXES:
+ *  1. addListenerForSingleValueEvent → addValueEventListener (real-time updates)
+ *  2. Listener onDestroy() mein remove hota hai (memory leak nahi)
+ *  3. Receiver ke liye "Received at" / "Read at" rows properly dikhte hain
+ *  4. isGroup check mein llDelivered/llRead hide hone ka bug fix
  *
  * Launch karo:
  *   Intent i = new Intent(ctx, MessageInfoActivity.class);
@@ -47,6 +45,7 @@ import java.util.Map;
  *   i.putExtra("messageId",   message.id);
  *   i.putExtra("isGroup",     message.isGroup);
  *   i.putExtra("partnerName", partnerName);   // 1-on-1 only
+ *   i.putExtra("isSender",    currentUid.equals(message.senderId));
  *   startActivity(i);
  */
 public class MessageInfoActivity extends AppCompatActivity {
@@ -64,6 +63,9 @@ public class MessageInfoActivity extends AppCompatActivity {
     private TextView tvEditedTime;
     private TextView tvType;
     private TextView tvMediaMeta;
+    // FIX: Label rows taaki "Delivered at" / "Received at" switch ho sake
+    private TextView tvDeliveredLabel;
+    private TextView tvReadLabel;
 
     private LinearLayout llDelivered;
     private LinearLayout llRead;
@@ -79,8 +81,12 @@ public class MessageInfoActivity extends AppCompatActivity {
     private String chatId;
     private String messageId;
     private boolean isGroup;
+    private boolean isSender;   // FIX: sender vs receiver ke liye alag labels
     private String partnerName;
     private DatabaseReference msgRef;
+
+    // FIX: Real-time listener reference — onDestroy() mein remove karna hai
+    private ValueEventListener realtimeListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -96,6 +102,7 @@ public class MessageInfoActivity extends AppCompatActivity {
         chatId      = in.getStringExtra("chatId");
         messageId   = in.getStringExtra("messageId");
         isGroup     = in.getBooleanExtra("isGroup", false);
+        isSender    = in.getBooleanExtra("isSender", true);
         partnerName = in.getStringExtra("partnerName");
 
         bindViews();
@@ -105,30 +112,31 @@ public class MessageInfoActivity extends AppCompatActivity {
             return;
         }
 
-        loadMessageInfo();
+        loadMessageInfoRealtime();   // FIX: was loadMessageInfo() with single-event
     }
 
     private void bindViews() {
-        tvSentTime      = findViewById(R.id.tv_sent_time);
-        tvStatus        = findViewById(R.id.tv_status);
-        tvDeliveredTime = findViewById(R.id.tv_delivered_time);
-        tvReadTime      = findViewById(R.id.tv_read_time);
-        tvEditedTime    = findViewById(R.id.tv_edited_time);
-        tvType          = findViewById(R.id.tv_msg_type);
-        tvMediaMeta     = findViewById(R.id.tv_media_meta);
+        tvSentTime       = findViewById(R.id.tv_sent_time);
+        tvStatus         = findViewById(R.id.tv_status);
+        tvDeliveredTime  = findViewById(R.id.tv_delivered_time);
+        tvReadTime       = findViewById(R.id.tv_read_time);
+        tvEditedTime     = findViewById(R.id.tv_edited_time);
+        tvType           = findViewById(R.id.tv_msg_type);
+        tvMediaMeta      = findViewById(R.id.tv_media_meta);
+        tvDeliveredLabel = findViewById(R.id.tv_delivered_label);  // optional
+        tvReadLabel      = findViewById(R.id.tv_read_label);       // optional
 
-        llDelivered  = findViewById(R.id.ll_delivered_row);
-        llRead       = findViewById(R.id.ll_read_row);
-        llEdited     = findViewById(R.id.ll_edited_row);
-        llMediaMeta  = findViewById(R.id.ll_media_meta_row);
+        llDelivered   = findViewById(R.id.ll_delivered_row);
+        llRead        = findViewById(R.id.ll_read_row);
+        llEdited      = findViewById(R.id.ll_edited_row);
+        llMediaMeta   = findViewById(R.id.ll_media_meta_row);
         llGroupSection = findViewById(R.id.ll_group_section);
-        rvDeliveredTo = findViewById(R.id.rv_delivered_to);
-        rvReadBy      = findViewById(R.id.rv_read_by);
+        rvDeliveredTo  = findViewById(R.id.rv_delivered_to);
+        rvReadBy       = findViewById(R.id.rv_read_by);
     }
 
-    private void loadMessageInfo() {
-        // FIX: Was using wrong path "chats/{chatId}/messages/{id}".
-        // Actual Firebase path is "messages/{chatId}/{messageId}" via FirebaseUtils.getMessagesRef().
+    // ── FIX: Real-time listener (was addListenerForSingleValueEvent) ──────
+    private void loadMessageInfoRealtime() {
         DatabaseReference base;
         try {
             base = com.callx.app.utils.FirebaseUtils.getMessagesRef(chatId)
@@ -137,19 +145,19 @@ public class MessageInfoActivity extends AppCompatActivity {
             showError("Could not connect to database.");
             return;
         }
+        msgRef = base;
 
-        base.addListenerForSingleValueEvent(new ValueEventListener() {
+        // FIX: addValueEventListener = live updates jab group members read karein
+        realtimeListener = new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snap) {
                 if (!snap.exists()) {
                     showError("Message not found.");
                     return;
                 }
-
                 Message m = snap.getValue(Message.class);
                 if (m == null) { showError("Could not read message."); return; }
                 m.id = snap.getKey();
-
                 populateUI(m, snap);
             }
 
@@ -157,81 +165,119 @@ public class MessageInfoActivity extends AppCompatActivity {
             public void onCancelled(DatabaseError error) {
                 showError("Error: " + error.getMessage());
             }
-        });
+        };
+        base.addValueEventListener(realtimeListener);
+    }
+
+    // ── FIX: onDestroy mein listener remove karo — memory leak band ───────
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (msgRef != null && realtimeListener != null) {
+            msgRef.removeEventListener(realtimeListener);
+        }
     }
 
     private void populateUI(Message m, DataSnapshot snap) {
+
         // ── Sent time ──────────────────────────────────────────────────────
         String sentStr = (m.timestamp != null && m.timestamp > 0)
                 ? dtFmt.format(new Date(m.timestamp)) : "—";
-        tvSentTime.setText(sentStr);
+        if (tvSentTime != null) tvSentTime.setText(sentStr);
 
         // ── Status label ───────────────────────────────────────────────────
-        String statusLabel = statusToLabel(m.status);
-        tvStatus.setText(statusLabel);
+        if (tvStatus != null) tvStatus.setText(statusToLabel(m.status));
 
-        // ── Delivered at ───────────────────────────────────────────────────
+        // ── 1-on-1 chat: Delivered at / Read at ───────────────────────────
         if (!isGroup) {
-            if (m.deliveredAt != null && m.deliveredAt > 0) {
-                llDelivered.setVisibility(View.VISIBLE);
-                tvDeliveredTime.setText(dtFmt.format(new Date(m.deliveredAt)));
+            // FIX: Sender ke liye "Delivered at" / "Read at"
+            //      Receiver ke liye "Received at" / "You read at"
+            if (isSender) {
+                if (tvDeliveredLabel != null) tvDeliveredLabel.setText("Delivered at");
+                if (tvReadLabel      != null) tvReadLabel.setText("Read at");
             } else {
-                llDelivered.setVisibility(View.GONE);
+                if (tvDeliveredLabel != null) tvDeliveredLabel.setText("Received at");
+                if (tvReadLabel      != null) tvReadLabel.setText("You read at");
             }
 
-            // ── Read at ────────────────────────────────────────────────────
-            if (m.readAt != null && m.readAt > 0) {
-                llRead.setVisibility(View.VISIBLE);
-                tvReadTime.setText(dtFmt.format(new Date(m.readAt)));
-            } else {
-                llRead.setVisibility(View.GONE);
+            // Delivered at timestamp
+            if (llDelivered != null) {
+                if (m.deliveredAt != null && m.deliveredAt > 0) {
+                    llDelivered.setVisibility(View.VISIBLE);
+                    if (tvDeliveredTime != null)
+                        tvDeliveredTime.setText(dtFmt.format(new Date(m.deliveredAt)));
+                } else {
+                    llDelivered.setVisibility(View.GONE);
+                }
             }
+
+            // Read at timestamp
+            if (llRead != null) {
+                if (m.readAt != null && m.readAt > 0) {
+                    llRead.setVisibility(View.VISIBLE);
+                    if (tvReadTime != null)
+                        tvReadTime.setText(dtFmt.format(new Date(m.readAt)));
+                } else {
+                    llRead.setVisibility(View.GONE);
+                }
+            }
+
+        } else {
+            // Group chat: 1-on-1 rows hide karo
+            if (llDelivered != null) llDelivered.setVisibility(View.GONE);
+            if (llRead      != null) llRead.setVisibility(View.GONE);
         }
 
         // ── Message type ───────────────────────────────────────────────────
-        String typeStr = m.type != null ? capitalize(m.type) : "Text";
-        tvType.setText(typeStr);
+        if (tvType != null) {
+            String typeStr = m.type != null ? capitalize(m.type) : "Text";
+            tvType.setText(typeStr);
+        }
 
         // ── Media meta: fileSize + duration ───────────────────────────────
-        String meta = buildMediaMeta(m);
-        if (meta != null) {
-            llMediaMeta.setVisibility(View.VISIBLE);
-            tvMediaMeta.setText(meta);
-        } else {
-            llMediaMeta.setVisibility(View.GONE);
+        if (llMediaMeta != null) {
+            String meta = buildMediaMeta(m);
+            if (meta != null) {
+                llMediaMeta.setVisibility(View.VISIBLE);
+                if (tvMediaMeta != null) tvMediaMeta.setText(meta);
+            } else {
+                llMediaMeta.setVisibility(View.GONE);
+            }
         }
 
         // ── Edit info ──────────────────────────────────────────────────────
-        if (Boolean.TRUE.equals(m.edited) && m.editedAt != null && m.editedAt > 0) {
-            llEdited.setVisibility(View.VISIBLE);
-            tvEditedTime.setText(dtFmt.format(new Date(m.editedAt)));
-        } else {
-            llEdited.setVisibility(View.GONE);
+        if (llEdited != null) {
+            if (Boolean.TRUE.equals(m.edited) && m.editedAt != null && m.editedAt > 0) {
+                llEdited.setVisibility(View.VISIBLE);
+                if (tvEditedTime != null)
+                    tvEditedTime.setText(dtFmt.format(new Date(m.editedAt)));
+            } else {
+                llEdited.setVisibility(View.GONE);
+            }
         }
 
         // ── Group section: Delivered To + Read By ─────────────────────────
-        if (isGroup) {
+        if (isGroup && llGroupSection != null) {
             llGroupSection.setVisibility(View.VISIBLE);
-            // Hide the 1-on-1 delivered/read rows
-            if (llDelivered != null) llDelivered.setVisibility(View.GONE);
-            if (llRead != null) llRead.setVisibility(View.GONE);
 
+            // FIX: Firebase se directly parse karo — Long timestamps expected hain
             Map<String, Long> deliveredTo = parseTimestampMap(snap, "deliveredTo");
             Map<String, Long> readBy      = parseTimestampMap(snap, "readBy");
 
-            // Delivered To list
-            loadGroupReceiptList(rvDeliveredTo, deliveredTo,
-                    R.id.tv_delivered_to_empty);
+            if (rvDeliveredTo != null)
+                loadGroupReceiptList(rvDeliveredTo, deliveredTo,
+                        R.id.tv_delivered_to_empty);
 
-            // Read By list
-            loadGroupReceiptList(rvReadBy, readBy,
-                    R.id.tv_read_by_empty);
-        } else {
+            if (rvReadBy != null)
+                loadGroupReceiptList(rvReadBy, readBy,
+                        R.id.tv_read_by_empty);
+        } else if (llGroupSection != null) {
             llGroupSection.setVisibility(View.GONE);
         }
     }
 
-    // ── Helper: parse group timestamp map from DataSnapshot ───────────────
+    // ── Helper: Firebase DataSnapshot se Map<uid, Long> parse karo ────────
+    // FIX: Boolean aur Number dono handle karta hai (backward compatibility)
     private Map<String, Long> parseTimestampMap(DataSnapshot snap, String child) {
         Map<String, Long> result = new HashMap<>();
         DataSnapshot node = snap.child(child);
@@ -239,16 +285,22 @@ public class MessageInfoActivity extends AppCompatActivity {
         for (DataSnapshot entry : node.getChildren()) {
             String uid = entry.getKey();
             Object val = entry.getValue();
-            if (uid != null && val instanceof Long) {
+            if (uid == null) continue;
+            if (val instanceof Long) {
                 result.put(uid, (Long) val);
-            } else if (uid != null && val instanceof Number) {
+            } else if (val instanceof Number) {
+                // Firebase sometimes returns Integer for small values
                 result.put(uid, ((Number) val).longValue());
+            } else if (Boolean.TRUE.equals(val)) {
+                // FIX backward compat: purana code Boolean true store karta tha
+                // Use current time as fallback — actual timestamp nahi pata
+                result.put(uid, 0L);
             }
         }
         return result;
     }
 
-    // ── Helper: parse a JSON string into Map<uid, timestamp> (Room fallback) ─
+    // ── Helper: Room ke JSON string ko Map mein convert karo ──────────────
     public static Map<String, Long> parseReadMap(String json) {
         Map<String, Long> result = new HashMap<>();
         if (json == null || json.isEmpty()) return result;
@@ -263,9 +315,9 @@ public class MessageInfoActivity extends AppCompatActivity {
         return result;
     }
 
-    // ── Load group receipt list into RecyclerView ──────────────────────────
+    // ── Group receipt list RecyclerView populate karo ─────────────────────
     private void loadGroupReceiptList(RecyclerView rv, Map<String, Long> map, int emptyViewId) {
-        View emptyView = rv.getRootView().findViewById(emptyViewId);
+        View emptyView = findViewById(emptyViewId);
 
         if (map.isEmpty()) {
             rv.setVisibility(View.GONE);
@@ -280,38 +332,36 @@ public class MessageInfoActivity extends AppCompatActivity {
         for (Map.Entry<String, Long> entry : map.entrySet()) {
             items.add(new GroupReceiptAdapter.ReceiptItem(entry.getKey(), entry.getValue()));
         }
+        // Sort: latest timestamp pehle
+        items.sort((a, b) -> Long.compare(b.ts, a.ts));
         rv.setAdapter(new GroupReceiptAdapter(items, dtFmt));
     }
 
-    // ── Build media meta string (size + duration) ──────────────────────────
+    // ── Media meta string build karo ──────────────────────────────────────
     private String buildMediaMeta(Message m) {
         if (m.type == null) return null;
         StringBuilder sb = new StringBuilder();
         switch (m.type) {
             case "image":
             case "gif":
-                if (m.fileSize != null && m.fileSize > 0) {
+                if (m.fileSize != null && m.fileSize > 0)
                     sb.append("Size: ").append(formatFileSize(m.fileSize));
-                }
                 break;
             case "video":
-                if (m.duration != null && m.duration > 0) {
+                if (m.duration != null && m.duration > 0)
                     sb.append("Duration: ").append(formatDuration(m.duration));
-                }
                 if (m.fileSize != null && m.fileSize > 0) {
                     if (sb.length() > 0) sb.append("   ");
                     sb.append("Size: ").append(formatFileSize(m.fileSize));
                 }
                 break;
             case "audio":
-                if (m.duration != null && m.duration > 0) {
+                if (m.duration != null && m.duration > 0)
                     sb.append("Duration: ").append(formatDuration(m.duration));
-                }
                 break;
             case "file":
-                if (m.fileName != null && !m.fileName.isEmpty()) {
+                if (m.fileName != null && !m.fileName.isEmpty())
                     sb.append("File: ").append(m.fileName);
-                }
                 if (m.fileSize != null && m.fileSize > 0) {
                     if (sb.length() > 0) sb.append("\n");
                     sb.append("Size: ").append(formatFileSize(m.fileSize));
@@ -323,38 +373,33 @@ public class MessageInfoActivity extends AppCompatActivity {
         return sb.length() > 0 ? sb.toString() : null;
     }
 
-    // ── Util: status → human label ─────────────────────────────────────────
+    // ── Status → human-readable label ────────────────────────────────────
     private String statusToLabel(String status) {
         if (status == null) return "✓  Sent";
         switch (status) {
             case "read":
             case "seen":      return "✓✓  Read";
             case "delivered": return "✓✓  Delivered";
-            case "pending":   return "⏳  Pending";
-            case "failed":    return "⚠  Failed — tap to retry";
+            case "pending":   return "⏳  Pending (sending...)";
+            case "failed":    return "⚠  Failed to send";
             default:          return "✓  Sent";
         }
     }
 
-    // ── Util: format file size ─────────────────────────────────────────────
     private String formatFileSize(long bytes) {
-        if (bytes < 1024)       return bytes + " B";
-        if (bytes < 1024*1024)  return String.format(Locale.US, "%.1f KB", bytes / 1024.0);
+        if (bytes < 1024)        return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format(Locale.US, "%.1f KB", bytes / 1024.0);
         return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024));
     }
 
-    // ── Util: format duration ms → "m:ss" ─────────────────────────────────
     private String formatDuration(long ms) {
         long sec = ms / 1000;
-        long min = sec / 60;
-        sec = sec % 60;
-        return String.format(Locale.US, "%d:%02d", min, sec);
+        return String.format(Locale.US, "%d:%02d", sec / 60, sec % 60);
     }
 
-    // ── Util: capitalize first letter ─────────────────────────────────────
     private String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
-        return s.substring(0, 1).toUpperCase() + s.substring(1);
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     private void showError(String msg) {
@@ -363,14 +408,17 @@ public class MessageInfoActivity extends AppCompatActivity {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        if (item.getItemId() == android.R.id.home) { onBackPressed(); return true; }
+        if (item.getItemId() == android.R.id.home) {
+            onBackPressed();
+            return true;
+        }
         return super.onOptionsItemSelected(item);
     }
 
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // GroupReceiptAdapter — inner adapter for Delivered To / Read By lists
-    // ─────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // GroupReceiptAdapter — Delivered To / Read By list adapter
+    // ══════════════════════════════════════════════════════════════════════
 
     static class GroupReceiptAdapter
             extends RecyclerView.Adapter<GroupReceiptAdapter.VH> {
@@ -437,40 +485,51 @@ public class MessageInfoActivity extends AppCompatActivity {
             de.hdodenhof.circleimageview.CircleImageView avatar =
                     h.itemView.findViewWithTag("avatar");
 
-            // Load user name + avatar from Firebase users node
+            // Name load karo
             com.callx.app.utils.FirebaseUtils.db()
-                    .getReference("users")
-                    .child(item.uid)
-                    .child("name")
-                    .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                        @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
-                            String name = s.getValue(String.class);
-                            if (tvName != null) tvName.setText(name != null ? name : item.uid);
-                        }
-                        @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {
-                            if (tvName != null) tvName.setText(item.uid);
-                        }
-                    });
-
-            com.callx.app.utils.FirebaseUtils.db()
-                    .getReference("users")
-                    .child(item.uid)
-                    .child("photoUrl")
-                    .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                        @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
-                            String url = s.getValue(String.class);
-                            if (avatar != null && url != null && !url.isEmpty()) {
-                                com.bumptech.glide.Glide.with(avatar.getContext())
-                                        .load(url)
-                                        .placeholder(com.callx.app.chat.R.drawable.bg_circle_white)
-                                        .into(avatar);
+                    .getReference("users").child(item.uid).child("name")
+                    .addListenerForSingleValueEvent(
+                        new com.google.firebase.database.ValueEventListener() {
+                            @Override public void onDataChange(
+                                    com.google.firebase.database.DataSnapshot s) {
+                                String name = s.getValue(String.class);
+                                if (tvName != null)
+                                    tvName.setText(name != null ? name : item.uid);
                             }
-                        }
-                        @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
-                    });
+                            @Override public void onCancelled(
+                                    com.google.firebase.database.DatabaseError e) {
+                                if (tvName != null) tvName.setText(item.uid);
+                            }
+                        });
 
+            // Avatar load karo
+            com.callx.app.utils.FirebaseUtils.db()
+                    .getReference("users").child(item.uid).child("photoUrl")
+                    .addListenerForSingleValueEvent(
+                        new com.google.firebase.database.ValueEventListener() {
+                            @Override public void onDataChange(
+                                    com.google.firebase.database.DataSnapshot s) {
+                                String url = s.getValue(String.class);
+                                if (avatar != null && url != null && !url.isEmpty()) {
+                                    com.bumptech.glide.Glide.with(avatar.getContext())
+                                            .load(url)
+                                            .placeholder(
+                                                com.callx.app.chat.R.drawable.bg_circle_white)
+                                            .into(avatar);
+                                }
+                            }
+                            @Override public void onCancelled(
+                                    com.google.firebase.database.DatabaseError e) {}
+                        });
+
+            // Timestamp dikhao
             if (tvTime != null) {
-                tvTime.setText(item.ts > 0 ? fmt.format(new java.util.Date(item.ts)) : "—");
+                if (item.ts > 0) {
+                    tvTime.setText(fmt.format(new java.util.Date(item.ts)));
+                } else {
+                    // FIX: 0L = backward compat (purana Boolean true tha)
+                    tvTime.setText("(time unavailable)");
+                }
             }
         }
 
