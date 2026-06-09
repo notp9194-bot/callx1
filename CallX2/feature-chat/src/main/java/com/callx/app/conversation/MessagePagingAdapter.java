@@ -112,6 +112,8 @@ public class MessagePagingAdapter
         default void onEdit(Message m) {}
         /** Called when user pins or unpins a message from the action sheet. */
         default void onPin(Message m) {}
+        /** Called when user taps the ℹ Info button on a message. */
+        default void onInfo(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
