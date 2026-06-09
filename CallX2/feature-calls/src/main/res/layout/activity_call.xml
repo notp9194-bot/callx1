@@ -192,31 +192,6 @@
                     android:textSize="10sp"
                     android:layout_marginTop="4dp"/>
             </LinearLayout>
-
-            <!-- Record button -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:layout_marginStart="32dp">
-                <ImageButton
-                    android:id="@+id/btn_record"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:src="@drawable/ic_record"
-                    android:background="@drawable/circle_avatar_bg"
-                    android:alpha="0.85"
-                    android:contentDescription="Record Call"/>
-                <TextView
-                    android:id="@+id/tv_record_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Record"
-                    android:textColor="#AAFFFFFF"
-                    android:textSize="10sp"
-                    android:layout_marginTop="4dp"/>
-            </LinearLayout>
         </LinearLayout>
 
         <!-- Row 2: Mic | End Call | Camera -->

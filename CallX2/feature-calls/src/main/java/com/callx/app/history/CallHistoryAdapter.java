@@ -81,8 +81,14 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         String typeLabel;
         int nameColor, dirIconColor, dirIconRes;
 
-        if (dir.contains("missed")) {
-            // Red — missed call
+        if (dir.contains("no_answer")) {
+            // Orange — outgoing call that was not answered
+            typeLabel    = isVideo ? "No Answer (Video)" : "No Answer";
+            nameColor    = Color.parseColor("#F97316");
+            dirIconRes   = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
+            dirIconColor = Color.parseColor("#F97316");
+        } else if (dir.contains("missed")) {
+            // Red — missed call (callee side)
             typeLabel    = isVideo ? "Missed Video Call" : "Missed Voice Call";
             nameColor    = Color.parseColor("#EF4444");
             dirIconRes   = isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone;
@@ -109,11 +115,13 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
 
         String meta = typeLabel + "  •  " + when + (dur.isEmpty() ? "" : "  •  " + dur);
         h.tvMeta.setText(meta);
-        h.tvMeta.setTextColor(dir.contains("missed")
-            ? Color.parseColor("#EF4444")
-            : dir.contains("incoming")
-                ? Color.parseColor("#F59E0B")
-                : Color.parseColor("#64748B"));
+        h.tvMeta.setTextColor(dir.contains("no_answer")
+            ? Color.parseColor("#F97316")
+            : dir.contains("missed")
+                ? Color.parseColor("#EF4444")
+                : dir.contains("incoming")
+                    ? Color.parseColor("#F59E0B")
+                    : Color.parseColor("#64748B"));
 
         // Load avatar — also cache resolved URL for bottom sheet
         if (l.partnerUid != null && !l.partnerUid.isEmpty() && h.ivAvatar != null) {

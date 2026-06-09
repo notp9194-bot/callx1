@@ -87,10 +87,6 @@ public class CallActivity extends AppCompatActivity {
     private boolean remoteCamOn = true;
     private boolean isRestore = false;
 
-    // ── Call Recording ────────────────────────────────────────────────────
-    private CallRecorder callRecorder;
-    private boolean isRecording = false;
-
     // Timer
     private final Handler tick = new Handler(Looper.getMainLooper());
     private Runnable ticker;
@@ -216,7 +212,6 @@ public class CallActivity extends AppCompatActivity {
         binding.btnToggleCamera.setOnClickListener(v -> toggleCamera());
         binding.btnSwitchCamera.setOnClickListener(v -> switchCamera());
         binding.btnToggleSpeaker.setOnClickListener(v -> toggleSpeaker());
-        binding.btnRecord.setOnClickListener(v -> toggleRecording());
 
         updateMicUI();
         updateCameraUI();
@@ -832,67 +827,7 @@ public class CallActivity extends AppCompatActivity {
             : com.callx.app.calls.R.drawable.circle_reject_light);
     }
 
-    // ── Call Recording ─────────────────────────────────────────────────────
-    private void toggleRecording() {
-        if (!callConnected) {
-            android.widget.Toast.makeText(this,
-                "Recording starts after call connects", android.widget.Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (!isRecording) {
-            startRecording();
-        } else {
-            stopRecording(true);
-        }
-    }
-
-    private void startRecording() {
-        // Always create a fresh instance for each recording session
-        if (callRecorder != null) {
-            try { callRecorder.stop(); } catch (Exception ignored) {}
-        }
-        callRecorder = new CallRecorder(CallActivity.this);
-        boolean started = callRecorder.start();
-        if (started) {
-            isRecording = true;
-            updateRecordUI();
-            android.widget.Toast.makeText(this, "Recording started", android.widget.Toast.LENGTH_SHORT).show();
-        } else {
-            android.widget.Toast.makeText(this, "Could not start recording", android.widget.Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void stopRecording(boolean showToast) {
-        if (callRecorder != null) {
-            callRecorder.stop();
-            if (showToast) {
-                String path = callRecorder.getOutputPath();
-                String msg = (path != null)
-                    ? "Recording saved"
-                    : "Recording stopped";
-                android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show();
-            }
-        }
-        isRecording = false;
-        updateRecordUI();
-    }
-
-    private void updateRecordUI() {
-        if (binding.btnRecord == null) return;
-        if (isRecording) {
-            binding.btnRecord.setBackgroundResource(
-                com.callx.app.calls.R.drawable.circle_reject_light);
-            binding.btnRecord.setAlpha(1f);
-        } else {
-            binding.btnRecord.setBackgroundResource(
-                com.callx.app.calls.R.drawable.circle_avatar_bg);
-            binding.btnRecord.setAlpha(0.85f);
-        }
-        if (binding.tvRecordLabel != null)
-            binding.tvRecordLabel.setText(isRecording ? "Stop Rec" : "Record");
-    }
-
-
+    // ── ICE state ─────────────────────────────────────────────────────────
     private void handleIceStateChange(PeerConnection.IceConnectionState s) {
         showQualityIndicator(s);
 
@@ -1167,8 +1102,6 @@ public class CallActivity extends AppCompatActivity {
 
         binding.tvCallStatus.setText("Connected \u2022 0:00");
         if (isVideo) binding.ivCallAvatar.setVisibility(View.GONE);
-        // Unlock record button now that call is live
-        updateRecordUI();
 
         Intent fg = new Intent(this, CallForegroundService.class);
         fg.putExtra("name",         partnerName  != null ? partnerName  : "");
@@ -1336,8 +1269,6 @@ public class CallActivity extends AppCompatActivity {
             // BUG-1 FIX: Audio focus release karo
             abandonCallAudioFocus();
         }
-        // Stop recording if active
-        if (isRecording) stopRecording(false);
         releaseWebRTC();
 
         // ── Launch AddNoteActivity for caller when call went unanswered ───────
@@ -1403,11 +1334,6 @@ public class CallActivity extends AppCompatActivity {
         try { bgExecutor.shutdownNow(); } catch (Exception ignored) {}
         try {
             if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
-        } catch (Exception ignored) {}
-        // Release recorder
-        try {
-            if (callRecorder != null && isRecording) { callRecorder.stop(); isRecording = false; }
-            callRecorder = null;
         } catch (Exception ignored) {}
     }
 
