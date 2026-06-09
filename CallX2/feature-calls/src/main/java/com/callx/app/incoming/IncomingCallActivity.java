@@ -16,8 +16,11 @@ import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
+import android.graphics.Color;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
+import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -56,11 +59,31 @@ public class IncomingCallActivity extends AppCompatActivity {
     // Ripple animation
     private AnimatorSet rippleSet;
 
+    // Arrow hint animators
+    private ObjectAnimator acceptArrowAnim;
+    private ObjectAnimator rejectArrowAnim;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = ActivityIncomingCallBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        // ── Edge-to-edge: transparent status bar + nav bar ──────────────
+        Window window = getWindow();
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+        } else {
+            window.getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
 
         // Show on lock screen
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
@@ -169,6 +192,7 @@ public class IncomingCallActivity extends AppCompatActivity {
         startLoopingRingtone();
         startRippleAnimation();
         startRingingDotsAnimation();
+        startArrowHintAnimations();
         watchCallStatus();
 
         autoRejectHandler.postDelayed(() -> { if (!acted) reject(); }, AUTO_REJECT_MS);
@@ -192,6 +216,7 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopRippleAnimation();
         stopRingingDots();
+        stopArrowHintAnimations();
         stopIncomingRingService();
         cancelRingNotification();
 
@@ -231,6 +256,7 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopRippleAnimation();
         stopRingingDots();
+        stopArrowHintAnimations();
         stopIncomingRingService();
         cancelRingNotification();
 
@@ -260,6 +286,7 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopRippleAnimation();
         stopRingingDots();
+        stopArrowHintAnimations();
         stopIncomingRingService();
         cancelRingNotification();
 
@@ -384,6 +411,38 @@ public class IncomingCallActivity extends AppCompatActivity {
         catch (Exception ignored) {}
     }
 
+    // ── Arrow hint bounce animation ────────────────────────────────────────
+    // Accept arrow bounces UP, Decline arrow bounces DOWN — visual affordance
+    private void startArrowHintAnimations() {
+        try {
+            if (binding.ivAcceptArrow != null) {
+                acceptArrowAnim = ObjectAnimator.ofFloat(
+                    binding.ivAcceptArrow, "translationY", 0f, -10f, 0f);
+                acceptArrowAnim.setDuration(900);
+                acceptArrowAnim.setRepeatCount(ObjectAnimator.INFINITE);
+                acceptArrowAnim.setRepeatMode(ObjectAnimator.RESTART);
+                acceptArrowAnim.setInterpolator(new AccelerateDecelerateInterpolator());
+                acceptArrowAnim.start();
+            }
+            if (binding.ivRejectArrow != null) {
+                rejectArrowAnim = ObjectAnimator.ofFloat(
+                    binding.ivRejectArrow, "translationY", 0f, 10f, 0f);
+                rejectArrowAnim.setDuration(900);
+                rejectArrowAnim.setRepeatCount(ObjectAnimator.INFINITE);
+                rejectArrowAnim.setRepeatMode(ObjectAnimator.RESTART);
+                rejectArrowAnim.setInterpolator(new AccelerateDecelerateInterpolator());
+                rejectArrowAnim.start();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void stopArrowHintAnimations() {
+        try { if (acceptArrowAnim != null) { acceptArrowAnim.cancel(); acceptArrowAnim = null; } }
+        catch (Exception ignored) {}
+        try { if (rejectArrowAnim != null) { rejectArrowAnim.cancel(); rejectArrowAnim = null; } }
+        catch (Exception ignored) {}
+    }
+
     // ── "Ringing..." animated dots ───────────────────────────────────────
     private void startRingingDotsAnimation() {
         dotsHandler.post(new Runnable() {
@@ -479,6 +538,7 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopRippleAnimation();
         stopRingingDots();
+        stopArrowHintAnimations();
         if (wakeLock != null && wakeLock.isHeld()) {
             try { wakeLock.release(); } catch (Exception ignored) {}
         }

@@ -1,122 +1,136 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  IncomingCallActivity — Edge-to-edge modern design
+  • Full-bleed gradient background, transparent status/nav bar
+  • Circular avatar with 3-ring animated glow
+  • Colorful Accept (green gradient) + Decline (red gradient) buttons
+  • Animated up/down arrows hint the swipe direction
+  • Colorful quick-reply chips (amber / cyan / purple)
+-->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root_incoming"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/gradient_brand">
+    android:background="@drawable/bg_incoming_call_gradient"
+    android:fitsSystemWindows="false">
 
-    <!-- ── Animated ripple rings behind avatar ── -->
-    <View
-        android:id="@+id/ripple_ring_3"
-        android:layout_width="220dp"
-        android:layout_height="220dp"
-        android:background="@drawable/bg_ripple_ring"
-        android:alpha="0.15"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/tv_caller_name"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintVertical_bias="0.38"/>
-
-    <View
-        android:id="@+id/ripple_ring_2"
-        android:layout_width="190dp"
-        android:layout_height="190dp"
-        android:background="@drawable/bg_ripple_ring"
-        android:alpha="0.25"
-        app:layout_constraintTop_toTopOf="@id/ripple_ring_3"
-        app:layout_constraintBottom_toBottomOf="@id/ripple_ring_3"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
-
-    <View
-        android:id="@+id/ripple_ring_1"
-        android:layout_width="160dp"
-        android:layout_height="160dp"
-        android:background="@drawable/bg_ripple_ring"
-        android:alpha="0.4"
-        app:layout_constraintTop_toTopOf="@id/ripple_ring_3"
-        app:layout_constraintBottom_toBottomOf="@id/ripple_ring_3"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
-
-    <!-- ── Call type badge (top-center) ── -->
+    <!-- ── Call type pill ── -->
     <LinearLayout
         android:id="@+id/layout_call_type"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#33FFFFFF"
-        android:paddingHorizontal="14dp"
-        android:paddingVertical="6dp"
-        android:layout_marginTop="56dp"
+        android:background="@drawable/bg_call_type_pill"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="7dp"
+        android:layout_marginTop="64dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
         <ImageView
             android:id="@+id/iv_call_type_icon"
-            android:layout_width="16dp"
-            android:layout_height="16dp"
+            android:layout_width="15dp"
+            android:layout_height="15dp"
             android:src="@drawable/ic_phone"
-            android:tint="#E0E7FF"
+            android:tint="#FFFFFF"
             android:layout_marginEnd="6dp"/>
 
         <TextView
             android:id="@+id/tv_caller_sub"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#E0E7FF"
-            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:letterSpacing="0.05"
             android:text="Incoming voice call"/>
     </LinearLayout>
 
-    <!-- ── Caller avatar ── -->
-    <de.hdodenhof.circleimageview.CircleImageView
-        android:id="@+id/iv_caller_avatar"
-        android:layout_width="140dp"
-        android:layout_height="140dp"
-        android:src="@drawable/ic_person"
-        android:background="?attr/colorSurface"
-        app:civ_border_color="#80FFFFFF"
-        app:civ_border_width="3dp"
-        app:layout_constraintTop_toTopOf="parent"
+    <!-- ── Outermost glow ring ── -->
+    <View
+        android:id="@+id/ripple_ring_3"
+        android:layout_width="234dp"
+        android:layout_height="234dp"
+        android:background="@drawable/bg_avatar_glow_outer"
+        android:alpha="0.12"
+        app:layout_constraintTop_toBottomOf="@id/layout_call_type"
         app:layout_constraintBottom_toTopOf="@id/tv_caller_name"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintVertical_bias="0.38"/>
+        app:layout_constraintVertical_bias="0.55"/>
+
+    <!-- ── Mid glow ring ── -->
+    <View
+        android:id="@+id/ripple_ring_2"
+        android:layout_width="196dp"
+        android:layout_height="196dp"
+        android:background="@drawable/bg_avatar_glow_mid"
+        android:alpha="0.22"
+        app:layout_constraintTop_toTopOf="@id/ripple_ring_3"
+        app:layout_constraintBottom_toBottomOf="@id/ripple_ring_3"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- ── Inner glow ring ── -->
+    <View
+        android:id="@+id/ripple_ring_1"
+        android:layout_width="162dp"
+        android:layout_height="162dp"
+        android:background="@drawable/bg_avatar_glow_inner"
+        android:alpha="0.45"
+        app:layout_constraintTop_toTopOf="@id/ripple_ring_3"
+        app:layout_constraintBottom_toBottomOf="@id/ripple_ring_3"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- ── Circular avatar ── -->
+    <de.hdodenhof.circleimageview.CircleImageView
+        android:id="@+id/iv_caller_avatar"
+        android:layout_width="138dp"
+        android:layout_height="138dp"
+        android:src="@drawable/ic_person"
+        app:civ_border_color="#FFFFFFFF"
+        app:civ_border_width="3dp"
+        app:layout_constraintTop_toTopOf="@id/ripple_ring_3"
+        app:layout_constraintBottom_toBottomOf="@id/ripple_ring_3"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
 
     <!-- ── Caller name ── -->
     <TextView
         android:id="@+id/tv_caller_name"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:textColor="@color/white"
-        android:textSize="30sp"
+        android:textColor="#FFFFFF"
+        android:textSize="32sp"
         android:textStyle="bold"
         android:gravity="center"
         android:layout_marginTop="20dp"
-        android:text="Caller"
-        app:layout_constraintTop_toBottomOf="@id/iv_caller_avatar"
+        android:layout_marginHorizontal="24dp"
+        android:text="Caller Name"
+        android:maxLines="2"
+        android:ellipsize="end"
+        app:layout_constraintTop_toBottomOf="@id/ripple_ring_3"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
-    <!-- ── Ringing... animated text ── -->
+    <!-- ── Ringing animated dots ── -->
     <TextView
         android:id="@+id/tv_ringing_status"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#AAFFFFFF"
-        android:textSize="13sp"
-        android:layout_marginTop="8dp"
+        android:textColor="#CCFFFFFF"
+        android:textSize="14sp"
+        android:layout_marginTop="6dp"
         android:text="Ringing..."
         app:layout_constraintTop_toBottomOf="@id/tv_caller_name"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
-    <!-- ── Quick reply buttons row ── -->
+    <!-- ── Quick reply chips ── -->
     <LinearLayout
         android:id="@+id/layout_quick_replies"
         android:layout_width="wrap_content"
@@ -131,12 +145,13 @@
             android:id="@+id/btn_quick_reply_1"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Can&#39;t talk"
+            android:text="Can't talk"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
-            android:background="#33FFFFFF"
+            android:textStyle="bold"
+            android:background="@drawable/bg_quick_reply_chip_amber"
             android:paddingHorizontal="14dp"
-            android:paddingVertical="7dp"
+            android:paddingVertical="8dp"
             android:layout_marginEnd="8dp"
             android:clickable="true"
             android:focusable="true"/>
@@ -148,9 +163,10 @@
             android:text="Call later"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
-            android:background="#33FFFFFF"
+            android:textStyle="bold"
+            android:background="@drawable/bg_quick_reply_chip_cyan"
             android:paddingHorizontal="14dp"
-            android:paddingVertical="7dp"
+            android:paddingVertical="8dp"
             android:layout_marginEnd="8dp"
             android:clickable="true"
             android:focusable="true"/>
@@ -162,76 +178,111 @@
             android:text="On my way"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
-            android:background="#33FFFFFF"
+            android:textStyle="bold"
+            android:background="@drawable/bg_quick_reply_chip_purple"
             android:paddingHorizontal="14dp"
-            android:paddingVertical="7dp"
+            android:paddingVertical="8dp"
             android:clickable="true"
             android:focusable="true"/>
     </LinearLayout>
 
-    <!-- ── Bottom action row: Reject | Accept ── -->
+    <!-- ═══════════════════════════════════════════════════════════
+         BOTTOM ACTIONS — Decline (left) | Accept (right)
+         Each has an animated arrow above it hinting slide direction
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!-- Decline column -->
     <LinearLayout
-        android:id="@+id/layout_actions"
-        android:layout_width="match_parent"
+        android:id="@+id/layout_reject_col"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:gravity="center"
-        android:layout_marginBottom="64dp"
+        android:layout_marginBottom="52dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/divider_actions">
+
+        <!-- Downward arrow pulses (animated in Java) -->
+        <ImageView
+            android:id="@+id/iv_reject_arrow"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_arrow_down_hint"
+            android:alpha="0.6"
+            android:layout_marginBottom="8dp"/>
+
+        <ImageButton
+            android:id="@+id/btn_reject"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_phone_off"
+            android:background="@drawable/bg_btn_decline_circle"
+            android:tint="@color/white"
+            android:padding="20dp"
+            android:elevation="8dp"
+            android:contentDescription="Decline call"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Decline"
+            android:textColor="#FFAAAA"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginTop="10dp"/>
+    </LinearLayout>
+
+    <!-- Invisible centre divider for equal column split -->
+    <View
+        android:id="@+id/divider_actions"
+        android:layout_width="1dp"
+        android:layout_height="0dp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"/>
+
+    <!-- Accept column -->
+    <LinearLayout
+        android:id="@+id/layout_accept_col"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_marginBottom="52dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toEndOf="@id/divider_actions"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Reject -->
-        <LinearLayout
-            android:layout_width="0dp"
+        <!-- Upward arrow pulses (animated in Java) -->
+        <ImageView
+            android:id="@+id/iv_accept_arrow"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_arrow_up_hint"
+            android:alpha="0.6"
+            android:layout_marginBottom="8dp"/>
+
+        <ImageButton
+            android:id="@+id/btn_accept"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_phone"
+            android:background="@drawable/bg_btn_accept_circle"
+            android:tint="@color/white"
+            android:padding="20dp"
+            android:elevation="8dp"
+            android:contentDescription="Accept call"/>
+
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:gravity="center">
-
-            <ImageButton
-                android:id="@+id/btn_reject"
-                android:layout_width="76dp"
-                android:layout_height="76dp"
-                android:src="@drawable/ic_phone_off"
-                android:background="@drawable/circle_reject"
-                android:tint="@color/white"
-                android:contentDescription="Reject call"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Reject"
-                android:textColor="@color/white"
-                android:textSize="13sp"
-                android:layout_marginTop="10dp"/>
-        </LinearLayout>
-
-        <!-- Accept -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:gravity="center">
-
-            <ImageButton
-                android:id="@+id/btn_accept"
-                android:layout_width="76dp"
-                android:layout_height="76dp"
-                android:src="@drawable/ic_phone"
-                android:background="@drawable/circle_accept"
-                android:tint="@color/white"
-                android:contentDescription="Accept call"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Accept"
-                android:textColor="@color/white"
-                android:textSize="13sp"
-                android:layout_marginTop="10dp"/>
-        </LinearLayout>
+            android:text="Accept"
+            android:textColor="#AAFFAA"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginTop="10dp"/>
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
