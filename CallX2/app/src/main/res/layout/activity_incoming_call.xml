@@ -4,28 +4,50 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="false"
-    android:background="@drawable/bg_incoming_call_screen">
+    android:fitsSystemWindows="false">
 
-    <!-- ── Animated ripple rings behind avatar ── -->
+    <!-- ── LAYER 1: Blurred caller photo as full background ── -->
+    <ImageView
+        android:id="@+id/iv_bg_blur"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:src="@drawable/ic_person"
+        android:scaleType="centerCrop"
+        android:contentDescription=""
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- ── LAYER 2: Dark scrim over blurred photo ── -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@drawable/bg_call_dark_scrim"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- ── Animated ripple rings (behind avatar) ── -->
     <View
         android:id="@+id/ripple_ring_3"
-        android:layout_width="280dp"
-        android:layout_height="280dp"
+        android:layout_width="290dp"
+        android:layout_height="290dp"
         android:background="@drawable/bg_ripple_ring_glow"
-        android:alpha="0.12"
+        android:alpha="0.10"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/tv_caller_name"
+        app:layout_constraintBottom_toTopOf="@id/glass_card"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintVertical_bias="0.36"/>
+        app:layout_constraintVertical_bias="0.42"/>
 
     <View
         android:id="@+id/ripple_ring_2"
-        android:layout_width="230dp"
-        android:layout_height="230dp"
+        android:layout_width="235dp"
+        android:layout_height="235dp"
         android:background="@drawable/bg_ripple_ring_glow"
-        android:alpha="0.22"
+        android:alpha="0.20"
         app:layout_constraintTop_toTopOf="@id/ripple_ring_3"
         app:layout_constraintBottom_toBottomOf="@id/ripple_ring_3"
         app:layout_constraintStart_toStartOf="parent"
@@ -36,13 +58,13 @@
         android:layout_width="185dp"
         android:layout_height="185dp"
         android:background="@drawable/bg_ripple_ring_glow"
-        android:alpha="0.35"
+        android:alpha="0.33"
         app:layout_constraintTop_toTopOf="@id/ripple_ring_3"
         app:layout_constraintBottom_toBottomOf="@id/ripple_ring_3"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
-    <!-- ── Call type badge (top-center pill) ── -->
+    <!-- ── Call type badge pill (top-center) ── -->
     <LinearLayout
         android:id="@+id/layout_call_type"
         android:layout_width="wrap_content"
@@ -52,15 +74,15 @@
         android:background="@drawable/bg_call_type_pill"
         android:paddingHorizontal="18dp"
         android:paddingVertical="8dp"
-        android:layout_marginTop="64dp"
+        android:layout_marginTop="60dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
         <ImageView
             android:id="@+id/iv_call_type_icon"
-            android:layout_width="15dp"
-            android:layout_height="15dp"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
             android:src="@drawable/ic_phone"
             android:tint="#FFFFFF"
             android:layout_marginEnd="7dp"/>
@@ -70,53 +92,73 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:letterSpacing="0.04"
+            android:textSize="12sp"
+            android:letterSpacing="0.06"
             android:text="Incoming voice call"/>
     </LinearLayout>
 
-    <!-- ── Caller avatar with glow ring ── -->
+    <!-- ── Caller avatar ── -->
     <de.hdodenhof.circleimageview.CircleImageView
         android:id="@+id/iv_caller_avatar"
-        android:layout_width="155dp"
-        android:layout_height="155dp"
+        android:layout_width="158dp"
+        android:layout_height="158dp"
         android:src="@drawable/ic_person"
-        app:civ_border_color="#7B61FF"
-        app:civ_border_width="4dp"
+        app:civ_border_color="#AAFFFFFF"
+        app:civ_border_width="3dp"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/tv_caller_name"
+        app:layout_constraintBottom_toTopOf="@id/glass_card"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintVertical_bias="0.36"/>
+        app:layout_constraintVertical_bias="0.42"/>
 
-    <!-- ── Caller name ── -->
-    <TextView
-        android:id="@+id/tv_caller_name"
-        android:layout_width="wrap_content"
+    <!-- ── Glassmorphism caller info card ── -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/glass_card"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:textColor="#FFFFFF"
-        android:textSize="32sp"
-        android:textStyle="bold"
-        android:gravity="center"
-        android:layout_marginTop="22dp"
-        android:text="Caller"
-        app:layout_constraintTop_toBottomOf="@id/iv_caller_avatar"
+        android:layout_marginHorizontal="28dp"
+        android:layout_marginBottom="24dp"
+        app:cardBackgroundColor="#00000000"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="0dp"
+        app:layout_constraintBottom_toTopOf="@id/layout_quick_replies"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
+        app:layout_constraintEnd_toEndOf="parent">
 
-    <!-- ── Ringing... animated text ── -->
-    <TextView
-        android:id="@+id/tv_ringing_status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textColor="#99FFFFFF"
-        android:textSize="14sp"
-        android:letterSpacing="0.06"
-        android:layout_marginTop="8dp"
-        android:text="Ringing..."
-        app:layout_constraintTop_toBottomOf="@id/tv_caller_name"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_glass_card"
+            android:paddingVertical="20dp"
+            android:paddingHorizontal="16dp">
+
+            <TextView
+                android:id="@+id/tv_caller_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textSize="30sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="2"
+                android:shadowRadius="6"
+                android:text="Caller"/>
+
+            <TextView
+                android:id="@+id/tv_ringing_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#CCF0E6FF"
+                android:textSize="13sp"
+                android:letterSpacing="0.08"
+                android:layout_marginTop="6dp"
+                android:text="Ringing..."/>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
 
     <!-- ── Quick reply chips row ── -->
     <LinearLayout
@@ -124,8 +166,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="18dp"
-        app:layout_constraintTop_toBottomOf="@id/tv_ringing_status"
+        android:layout_marginBottom="28dp"
+        app:layout_constraintBottom_toTopOf="@id/tv_swipe_hint_up"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -171,64 +213,76 @@
             android:focusable="true"/>
     </LinearLayout>
 
-    <!-- ── Swipe hint label (above swipe zone) ── -->
+    <!-- ── Swipe hint UP label ── -->
     <TextView
         android:id="@+id/tv_swipe_hint_up"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="↑  Accept"
+        android:text="▲   Swipe up to Accept"
         android:textColor="#4ADE80"
-        android:textSize="13sp"
+        android:textSize="12sp"
         android:textStyle="bold"
-        android:letterSpacing="0.05"
-        android:layout_marginBottom="8dp"
-        app:layout_constraintBottom_toTopOf="@id/swipe_phone_container"
+        android:letterSpacing="0.04"
+        android:alpha="0.7"
+        android:layout_marginBottom="10dp"
+        app:layout_constraintBottom_toTopOf="@id/swipe_rail"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
-    <!-- ── Central swipe phone button ── -->
+    <!-- ── Swipe rail track ── -->
     <FrameLayout
-        android:id="@+id/swipe_phone_container"
-        android:layout_width="80dp"
-        android:layout_height="80dp"
-        android:background="@drawable/bg_swipe_phone_btn"
-        app:layout_constraintBottom_toTopOf="@id/layout_actions"
+        android:id="@+id/swipe_rail"
+        android:layout_width="72dp"
+        android:layout_height="200dp"
+        android:background="@drawable/bg_swipe_rail"
+        android:layout_marginBottom="10dp"
+        app:layout_constraintBottom_toTopOf="@id/tv_swipe_hint_down"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginBottom="20dp">
+        app:layout_constraintEnd_toEndOf="parent">
 
-        <ImageView
-            android:id="@+id/iv_swipe_phone"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_phone"
-            android:tint="#FFFFFF"
-            android:layout_gravity="center"/>
+        <!-- swipe phone button inside the rail -->
+        <FrameLayout
+            android:id="@+id/swipe_phone_container"
+            android:layout_width="58dp"
+            android:layout_height="58dp"
+            android:layout_gravity="center_horizontal|center_vertical"
+            android:background="@drawable/bg_swipe_phone_btn"
+            android:elevation="4dp">
+
+            <ImageView
+                android:id="@+id/iv_swipe_phone"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:src="@drawable/ic_phone"
+                android:tint="#FFFFFF"
+                android:layout_gravity="center"/>
+        </FrameLayout>
     </FrameLayout>
 
-    <!-- ── Swipe hint label (below swipe zone) ── -->
+    <!-- ── Swipe hint DOWN label ── -->
     <TextView
         android:id="@+id/tv_swipe_hint_down"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="↓  Decline"
+        android:text="▼   Swipe down to Decline"
         android:textColor="#F87171"
-        android:textSize="13sp"
+        android:textSize="12sp"
         android:textStyle="bold"
-        android:letterSpacing="0.05"
-        android:layout_marginTop="8dp"
-        app:layout_constraintTop_toBottomOf="@id/swipe_phone_container"
+        android:letterSpacing="0.04"
+        android:alpha="0.7"
+        android:layout_marginBottom="12dp"
+        app:layout_constraintBottom_toTopOf="@id/layout_actions"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
-    <!-- ── Bottom action row: Reject | Accept ── -->
+    <!-- ── Bottom action row: Reject | Message | Accept ── -->
     <LinearLayout
         android:id="@+id/layout_actions"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center"
-        android:layout_marginBottom="52dp"
+        android:layout_marginBottom="48dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -243,21 +297,48 @@
 
             <ImageButton
                 android:id="@+id/btn_reject"
-                android:layout_width="78dp"
-                android:layout_height="78dp"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
                 android:src="@drawable/ic_phone_off"
                 android:background="@drawable/bg_btn_reject_gradient"
                 android:tint="@color/white"
-                android:elevation="6dp"
-                android:contentDescription="Reject call"/>
+                android:elevation="8dp"
+                android:contentDescription="Decline call"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Decline"
                 android:textColor="#F87171"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:textStyle="bold"
+                android:layout_marginTop="10dp"/>
+        </LinearLayout>
+
+        <!-- Message (decline with reply) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btn_message"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:src="@drawable/ic_send"
+                android:background="@drawable/bg_btn_message"
+                android:tint="@color/white"
+                android:elevation="4dp"
+                android:contentDescription="Message"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Message"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp"
                 android:layout_marginTop="10dp"/>
         </LinearLayout>
 
@@ -271,12 +352,12 @@
 
             <ImageButton
                 android:id="@+id/btn_accept"
-                android:layout_width="78dp"
-                android:layout_height="78dp"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
                 android:src="@drawable/ic_phone"
                 android:background="@drawable/bg_btn_accept_gradient"
                 android:tint="@color/white"
-                android:elevation="6dp"
+                android:elevation="8dp"
                 android:contentDescription="Accept call"/>
 
             <TextView
@@ -284,7 +365,7 @@
                 android:layout_height="wrap_content"
                 android:text="Accept"
                 android:textColor="#4ADE80"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:textStyle="bold"
                 android:layout_marginTop="10dp"/>
         </LinearLayout>
