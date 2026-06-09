@@ -38,8 +38,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         void onReactionTap(Message m);
         void onCopy(Message m);   // N4
         void onInfo(Message m);   // N7
-        /** Tap on failed ⚠ tick — retry sending */
-        default void onRetry(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────────────
@@ -775,69 +773,39 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     }
 
         private void bindFooter(VH h, Message m, boolean sent) {
-        // ── Time ──────────────────────────────────────────────────────────
         if (h.tvTime != null && m.timestamp != null)
             h.tvTime.setText(timeFmt.format(new Date(m.timestamp)));
 
-        // ── Starred icon ──────────────────────────────────────────────────
         if (h.tvStarredIcon != null)
             h.tvStarredIcon.setVisibility(
                     Boolean.TRUE.equals(m.starred) ? View.VISIBLE : View.GONE);
 
-        // ── Status ticks (sender side only) ───────────────────────────────
-        if (h.tvStatus == null) return;
-        if (!sent) { h.tvStatus.setVisibility(View.GONE); return; }
-
-        h.tvStatus.setVisibility(View.VISIBLE);
-        String tickStatus = m.status == null ? "sent" : m.status;
-        switch (tickStatus) {
-
-            // Blue double tick — Read
-            case "read":
-            case "seen":
-                h.tvStatus.setText("\u2713\u2713 ");
-                h.tvStatus.setTextSize(14f);
-                h.tvStatus.setTextColor(
-                    com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
-                h.tvStatus.setOnClickListener(null);
-                break;
-
-            // Grey double tick — Delivered
-            case "delivered":
-                h.tvStatus.setText("\u2713\u2713");
-                h.tvStatus.setTextSize(13f);
-                h.tvStatus.setTextColor(
-                    com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
-                h.tvStatus.setOnClickListener(null);
-                break;
-
-            // Clock — Pending / Sending
-            case "pending":
-                h.tvStatus.setText("\u23F3");
-                h.tvStatus.setTextSize(13f);
-                h.tvStatus.setTextColor(0xFFBDBDBD);
-                h.tvStatus.setOnClickListener(null);
-                break;
-
-            // Red warning — Failed (tap to retry)
-            case "failed":
-                h.tvStatus.setText("\u26A0");
-                h.tvStatus.setTextSize(14f);
-                h.tvStatus.setTextColor(0xFFE53935);
-                final Message retryM = m;
-                h.tvStatus.setOnClickListener(v -> {
-                    if (actionListener != null) actionListener.onRetry(retryM);
-                });
-                break;
-
-            // Single grey tick — Sent to server
-            default:
-                h.tvStatus.setText("\u2713");
-                h.tvStatus.setTextSize(13f);
-                h.tvStatus.setTextColor(
-                    com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
-                h.tvStatus.setOnClickListener(null);
-                break;
+        if (h.tvStatus != null) {
+            if (sent) {
+                h.tvStatus.setVisibility(View.VISIBLE);
+                switch (m.status == null ? "sent" : m.status) {
+                    case "read":
+                        h.tvStatus.setText("\u2713\u2713 ");
+                        h.tvStatus.setTextSize(14f);
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
+                        break;
+                    case "delivered":
+                        h.tvStatus.setText("\u2713\u2713");
+                        h.tvStatus.setTextSize(13f);
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                        break;
+                    default:
+                        h.tvStatus.setText("\u2713");
+                        h.tvStatus.setTextSize(13f);
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                        break;
+                }
+            } else {
+                h.tvStatus.setVisibility(View.GONE);
+            }
         }
     }
 

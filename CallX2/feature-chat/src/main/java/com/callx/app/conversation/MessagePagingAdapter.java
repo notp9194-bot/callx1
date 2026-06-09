@@ -55,18 +55,10 @@ public class MessagePagingAdapter
                     && a.edited == b.edited
                     && a.deleted == b.deleted
                     && a.fontStyle == b.fontStyle
-                    && reactionsEqual(a.reactions, b.reactions)  // FIX: reactions change pe rebind trigger
-                    && safeEqualsLong(a.deliveredAt, b.deliveredAt) // FIX: tick update on delivery
-                    && safeEqualsLong(a.readAt, b.readAt);          // FIX: tick update on read
+                    && reactionsEqual(a.reactions, b.reactions);  // FIX: reactions change pe rebind trigger
             }
 
             private boolean safeEquals(String x, String y) {
-                if (x == null && y == null) return true;
-                if (x == null || y == null) return false;
-                return x.equals(y);
-            }
-
-            private boolean safeEqualsLong(Long x, Long y) {
                 if (x == null && y == null) return true;
                 if (x == null || y == null) return false;
                 return x.equals(y);
