@@ -1,14 +1,11 @@
 package com.callx.app.call;
 
-import android.content.Context;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Environment;
 import android.util.Log;
-
-import org.webrtc.AudioTrackSink;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -19,299 +16,247 @@ import java.nio.ByteOrder;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Dual-side voice call recorder.
+ * Dual-side voice call recorder using Android AudioRecord.
  *
  * Strategy:
- *  - Local mic  → AudioRecord (16-bit PCM, 16kHz mono)
- *  - Remote     → WebRTC AudioTrackSink (same format, injected by CallActivity)
- *  Both streams are queued, mixed sample-by-sample, and written to a WAV file.
+ *   Primary   → AudioSource.VOICE_COMMUNICATION   (mic, with echo cancellation)
+ *   Secondary → AudioSource.VOICE_UPLINK or VOICE_DOWNLINK  (remote side)
  *
- * Usage:
- *   recorder = new CallRecorder(context);
- *   remoteTrack.addSink(recorder.getRemoteSink());   // before call connects
- *   recorder.start();                                 // when call connects
- *   recorder.stop();                                  // on endCall
- *   String path = recorder.getOutputPath();
+ * On most Android devices, VOICE_COMMUNICATION already captures a mix of
+ * local + remote audio during an active call (similar to WhatsApp behavior).
+ * We additionally attempt VOICE_DOWNLINK for the remote stream.
+ * Both streams are mixed sample-by-sample into a single mono WAV file.
+ *
+ * No WebRTC internal API required — works with stream-webrtc-android:1.1.2.
  */
 public class CallRecorder {
 
     private static final String TAG = "CallRecorder";
 
-    // Audio config — must match on both sides
-    private static final int SAMPLE_RATE   = 16000;
+    private static final int SAMPLE_RATE    = 16000;
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
-    private static final int AUDIO_FORMAT  = AudioFormat.ENCODING_PCM_16BIT;
-    private static final int BYTES_PER_SAMPLE = 2; // 16-bit
+    private static final int AUDIO_FORMAT   = AudioFormat.ENCODING_PCM_16BIT;
+    private static final int BYTES_PER_SAMPLE = 2;
 
-    private final Context context;
+    private final android.content.Context context;
     private final AtomicBoolean recording = new AtomicBoolean(false);
 
-    private AudioRecord audioRecord;
+    // Primary recorder: VOICE_COMMUNICATION (local mic + some remote bleed)
+    private AudioRecord primaryRecord;
+    // Secondary recorder: VOICE_DOWNLINK (remote stream, may not be available on all devices)
+    private AudioRecord secondaryRecord;
+
     private int bufferSizeBytes;
 
-    // Queues for local + remote PCM chunks (short arrays)
-    private final BlockingQueue<short[]> localQueue  = new ArrayBlockingQueue<>(512);
-    private final BlockingQueue<short[]> remoteQueue = new ArrayBlockingQueue<>(512);
+    private ExecutorService primaryExecutor;
+    private ExecutorService secondaryExecutor;
+    private ExecutorService writerExecutor;
 
-    private ExecutorService captureExecutor;
-    private ExecutorService mixerExecutor;
+    // Ring buffer for remote samples — short[], indexed by write/read pointers
+    private static final int REMOTE_BUF_CAPACITY = 512;
+    private final java.util.concurrent.ArrayBlockingQueue<short[]> remoteQueue =
+            new java.util.concurrent.ArrayBlockingQueue<>(REMOTE_BUF_CAPACITY);
 
     private File outputFile;
     private FileOutputStream fos;
     private long totalSamplesWritten = 0;
 
-    // ── Remote sink (WebRTC → queue) ──────────────────────────────────────
-    private final AudioTrackSink remoteSink = new AudioTrackSink() {
-        @Override
-        public void onData(ByteBuffer audioData, int bitsPerSample,
-                           int sampleRate, int numberOfChannels,
-                           int numberOfFrames, int absoluteCaptureTimestampMs) {
-            if (!recording.get()) return;
-            // Convert ByteBuffer → short[]
-            int numSamples = numberOfFrames * numberOfChannels;
-            short[] samples = new short[numSamples];
-            audioData.rewind();
-            ByteBuffer copy = ByteBuffer.allocate(audioData.remaining())
-                    .order(ByteOrder.LITTLE_ENDIAN);
-            copy.put(audioData);
-            copy.rewind();
-            for (int i = 0; i < numSamples && copy.remaining() >= 2; i++) {
-                samples[i] = copy.getShort();
-            }
-            // Down-mix to mono if stereo
-            if (numberOfChannels == 2) {
-                short[] mono = new short[numberOfFrames];
-                for (int i = 0; i < numberOfFrames; i++) {
-                    mono[i] = (short) ((samples[i * 2] + samples[i * 2 + 1]) / 2);
-                }
-                samples = mono;
-            }
-            if (!remoteQueue.offer(samples)) {
-                remoteQueue.poll(); // drop oldest if full
-                remoteQueue.offer(samples);
-            }
-        }
-    };
-
-    public CallRecorder(Context context) {
+    public CallRecorder(android.content.Context context) {
         this.context = context.getApplicationContext();
-    }
-
-    /** Return this to attach to remote AudioTrack BEFORE calling start(). */
-    public AudioTrackSink getRemoteSink() {
-        return remoteSink;
     }
 
     /**
      * Start recording. Call this when the call is confirmed connected.
-     * @return true if recording started successfully.
+     * @return true if recording started.
      */
     public boolean start() {
         if (recording.get()) return false;
 
         bufferSizeBytes = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
-        if (bufferSizeBytes <= 0) bufferSizeBytes = 3200; // 100ms fallback
+        if (bufferSizeBytes <= 0) bufferSizeBytes = 3200;
 
-        try {
-            audioRecord = new AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                    SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT,
-                    bufferSizeBytes * 4);
-        } catch (Exception e) {
-            Log.e(TAG, "AudioRecord create failed", e);
+        // Primary: VOICE_COMMUNICATION
+        primaryRecord = tryCreateAudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION);
+        if (primaryRecord == null) {
+            // Fallback to MIC
+            primaryRecord = tryCreateAudioRecord(MediaRecorder.AudioSource.MIC);
+        }
+        if (primaryRecord == null) {
+            Log.e(TAG, "Cannot create primary AudioRecord");
             return false;
         }
 
-        if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-            Log.e(TAG, "AudioRecord init failed");
-            audioRecord.release();
-            audioRecord = null;
-            return false;
+        // Secondary: VOICE_DOWNLINK (remote audio) — optional, may fail on some devices
+        secondaryRecord = tryCreateAudioRecord(MediaRecorder.AudioSource.VOICE_DOWNLINK);
+        // VOICE_UPLINK as another attempt if DOWNLINK fails
+        if (secondaryRecord == null) {
+            secondaryRecord = tryCreateAudioRecord(MediaRecorder.AudioSource.VOICE_UPLINK);
         }
+        // Not a hard failure — we proceed without secondary if unavailable
 
         outputFile = buildOutputFile();
         if (outputFile == null) {
-            Log.e(TAG, "Could not create output file");
-            audioRecord.release();
-            audioRecord = null;
+            Log.e(TAG, "Cannot create output file");
+            primaryRecord.release(); primaryRecord = null;
+            if (secondaryRecord != null) { secondaryRecord.release(); secondaryRecord = null; }
             return false;
         }
 
         try {
             fos = new FileOutputStream(outputFile);
-            writeWavHeader(fos, 0); // placeholder — updated on stop
+            writeWavHeader(fos, 0); // placeholder
         } catch (IOException e) {
-            Log.e(TAG, "Cannot open output file", e);
-            audioRecord.release();
-            audioRecord = null;
+            Log.e(TAG, "Cannot open output stream", e);
+            primaryRecord.release(); primaryRecord = null;
+            if (secondaryRecord != null) { secondaryRecord.release(); secondaryRecord = null; }
             return false;
         }
 
         recording.set(true);
-        localQueue.clear();
         remoteQueue.clear();
         totalSamplesWritten = 0;
 
-        captureExecutor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "CallRecorder-Capture");
+        primaryExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "CallRec-Primary");
             t.setPriority(Thread.MAX_PRIORITY);
             return t;
         });
-        mixerExecutor = Executors.newSingleThreadExecutor(r ->
-                new Thread(r, "CallRecorder-Mixer"));
+        writerExecutor = Executors.newSingleThreadExecutor(r ->
+                new Thread(r, "CallRec-Writer"));
 
-        captureExecutor.execute(this::captureLoop);
-        mixerExecutor.execute(this::mixerLoop);
+        primaryExecutor.execute(this::primaryCaptureLoop);
 
-        Log.i(TAG, "Recording started → " + outputFile.getAbsolutePath());
+        if (secondaryRecord != null) {
+            secondaryExecutor = Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "CallRec-Secondary");
+                t.setPriority(Thread.MAX_PRIORITY);
+                return t;
+            });
+            secondaryExecutor.execute(this::secondaryCaptureLoop);
+        }
+
+        Log.i(TAG, "Recording started → " + outputFile.getAbsolutePath()
+                + "  secondary=" + (secondaryRecord != null));
         return true;
     }
 
-    /** Stop recording and finalize the WAV file. */
+    /** Stop recording and finalize WAV header. */
     public void stop() {
         if (!recording.getAndSet(false)) return;
 
-        // Stop capture
-        try {
-            if (audioRecord != null) {
-                audioRecord.stop();
-                audioRecord.release();
-                audioRecord = null;
-            }
-        } catch (Exception ignored) {}
+        stopAudioRecord(primaryRecord);   primaryRecord = null;
+        stopAudioRecord(secondaryRecord); secondaryRecord = null;
 
-        // Shutdown executors — give them 3s to flush queues
-        try {
-            captureExecutor.shutdown();
-            captureExecutor.awaitTermination(3, TimeUnit.SECONDS);
-        } catch (InterruptedException ignored) {}
-        try {
-            mixerExecutor.shutdown();
-            mixerExecutor.awaitTermination(3, TimeUnit.SECONDS);
-        } catch (InterruptedException ignored) {}
+        shutdownExecutor(primaryExecutor);
+        shutdownExecutor(secondaryExecutor);
+        shutdownExecutor(writerExecutor);
+        primaryExecutor = secondaryExecutor = writerExecutor = null;
 
-        // Drain remaining queued remote audio
-        drainRemoteQueue();
-
-        // Update WAV header with actual data size
         finalizeWavHeader();
-
         try { if (fos != null) fos.close(); } catch (Exception ignored) {}
         fos = null;
 
-        Log.i(TAG, "Recording stopped. Samples written: " + totalSamplesWritten
-                + "  File: " + (outputFile != null ? outputFile.getAbsolutePath() : "null"));
+        Log.i(TAG, "Recording stopped. Samples=" + totalSamplesWritten
+                + "  path=" + getOutputPath());
     }
 
-    /** Path to the saved WAV file (available after stop()). */
+    /** Absolute path of saved WAV file (valid after stop()). */
     public String getOutputPath() {
         return outputFile != null ? outputFile.getAbsolutePath() : null;
     }
 
-    // ── Local mic capture loop ────────────────────────────────────────────
+    // ── Primary capture (local + bleed) ──────────────────────────────────
 
-    private void captureLoop() {
-        if (audioRecord == null) return;
-        audioRecord.startRecording();
+    private void primaryCaptureLoop() {
+        if (primaryRecord == null) return;
+        primaryRecord.startRecording();
         int samplesPerBuf = bufferSizeBytes / BYTES_PER_SAMPLE;
         short[] buf = new short[samplesPerBuf];
 
         while (recording.get()) {
-            int read = audioRecord.read(buf, 0, buf.length);
-            if (read > 0) {
-                short[] chunk = new short[read];
-                System.arraycopy(buf, 0, chunk, 0, read);
-                if (!localQueue.offer(chunk)) {
-                    localQueue.poll();
-                    localQueue.offer(chunk);
-                }
-            }
-        }
-    }
+            int read = primaryRecord.read(buf, 0, buf.length);
+            if (read <= 0) continue;
 
-    // ── Mixer loop: local + remote → WAV ─────────────────────────────────
-
-    private void mixerLoop() {
-        while (recording.get() || !localQueue.isEmpty()) {
-            short[] local = null;
-            try { local = localQueue.poll(80, TimeUnit.MILLISECONDS); }
-            catch (InterruptedException ignored) {}
-
-            if (local == null) continue;
-
-            // Get matching remote chunk (non-blocking)
+            // Pull matching remote chunk
             short[] remote = remoteQueue.poll();
 
-            short[] mixed = new short[local.length];
-            for (int i = 0; i < local.length; i++) {
-                int s = local[i];
+            // Mix
+            short[] mixed = new short[read];
+            for (int i = 0; i < read; i++) {
+                int s = buf[i];
                 if (remote != null && i < remote.length) s += remote[i];
-                // Clamp to int16 range
-                if (s > Short.MAX_VALUE)  s = Short.MAX_VALUE;
-                if (s < Short.MIN_VALUE)  s = Short.MIN_VALUE;
+                if (s >  Short.MAX_VALUE) s =  Short.MAX_VALUE;
+                if (s <  Short.MIN_VALUE) s =  Short.MIN_VALUE;
                 mixed[i] = (short) s;
             }
-
             writeSamples(mixed);
         }
     }
 
-    private void drainRemoteQueue() {
-        short[] chunk;
-        while ((chunk = remoteQueue.poll()) != null) {
-            writeSamples(chunk);
+    // ── Secondary capture (remote stream) ────────────────────────────────
+
+    private void secondaryCaptureLoop() {
+        if (secondaryRecord == null) return;
+        secondaryRecord.startRecording();
+        int samplesPerBuf = bufferSizeBytes / BYTES_PER_SAMPLE;
+        short[] buf = new short[samplesPerBuf];
+
+        while (recording.get()) {
+            int read = secondaryRecord.read(buf, 0, buf.length);
+            if (read <= 0) continue;
+            short[] chunk = new short[read];
+            System.arraycopy(buf, 0, chunk, 0, read);
+            if (!remoteQueue.offer(chunk)) {
+                remoteQueue.poll();
+                remoteQueue.offer(chunk);
+            }
         }
     }
 
+    // ── WAV write ─────────────────────────────────────────────────────────
+
     private synchronized void writeSamples(short[] samples) {
-        if (fos == null) return;
+        if (fos == null || samples == null) return;
         try {
-            byte[] bytes = new byte[samples.length * 2];
+            byte[] bytes = new byte[samples.length * BYTES_PER_SAMPLE];
             ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
                     .asShortBuffer().put(samples);
             fos.write(bytes);
             totalSamplesWritten += samples.length;
         } catch (IOException e) {
-            Log.e(TAG, "Write error", e);
+            Log.e(TAG, "writeSamples error", e);
         }
     }
 
-    // ── WAV helpers ───────────────────────────────────────────────────────
+    // ── WAV header ────────────────────────────────────────────────────────
 
     private static void writeWavHeader(FileOutputStream out, long numSamples)
             throws IOException {
-        int channels    = 1;
+        int channels      = 1;
         int bitsPerSample = 16;
-        int byteRate    = SAMPLE_RATE * channels * bitsPerSample / 8;
-        int blockAlign  = channels * bitsPerSample / 8;
-        long dataBytes  = numSamples * blockAlign;
-        long chunkSize  = 36 + dataBytes;
+        int byteRate      = SAMPLE_RATE * channels * bitsPerSample / 8;
+        int blockAlign    = channels * bitsPerSample / 8;
+        long dataBytes    = numSamples * blockAlign;
+        long chunkSize    = 36 + dataBytes;
 
-        // RIFF header (44 bytes total)
         byte[] h = new byte[44];
-        // "RIFF"
         h[0]='R'; h[1]='I'; h[2]='F'; h[3]='F';
         putInt32LE(h,  4, (int) chunkSize);
-        // "WAVE"
         h[8]='W'; h[9]='A'; h[10]='V'; h[11]='E';
-        // "fmt "
         h[12]='f'; h[13]='m'; h[14]='t'; h[15]=' ';
-        putInt32LE(h, 16, 16);           // subchunk1 size
-        putInt16LE(h, 20, 1);            // PCM
+        putInt32LE(h, 16, 16);
+        putInt16LE(h, 20, 1);
         putInt16LE(h, 22, channels);
         putInt32LE(h, 24, SAMPLE_RATE);
         putInt32LE(h, 28, byteRate);
         putInt16LE(h, 32, blockAlign);
         putInt16LE(h, 34, bitsPerSample);
-        // "data"
         h[36]='d'; h[37]='a'; h[38]='t'; h[39]='a';
         putInt32LE(h, 40, (int) dataBytes);
         out.write(h);
@@ -330,7 +275,7 @@ public class CallRecorder {
 
     private static void putInt32LE(byte[] b, int off, int v) {
         b[off]   = (byte)  v;
-        b[off+1] = (byte) (v >> 8);
+        b[off+1] = (byte) (v >>  8);
         b[off+2] = (byte) (v >> 16);
         b[off+3] = (byte) (v >> 24);
     }
@@ -342,18 +287,46 @@ public class CallRecorder {
 
     private static void writeInt32LE(RandomAccessFile raf, int v) throws IOException {
         raf.write(v & 0xFF);
-        raf.write((v >> 8) & 0xFF);
+        raf.write((v >> 8)  & 0xFF);
         raf.write((v >> 16) & 0xFF);
         raf.write((v >> 24) & 0xFF);
     }
 
-    // ── Output file path ──────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private AudioRecord tryCreateAudioRecord(int source) {
+        try {
+            AudioRecord ar = new AudioRecord(
+                    source, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT,
+                    bufferSizeBytes * 4);
+            if (ar.getState() == AudioRecord.STATE_INITIALIZED) return ar;
+            ar.release();
+        } catch (Exception e) {
+            Log.d(TAG, "AudioRecord source=" + source + " failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private static void stopAudioRecord(AudioRecord ar) {
+        if (ar == null) return;
+        try { ar.stop(); } catch (Exception ignored) {}
+        try { ar.release(); } catch (Exception ignored) {}
+    }
+
+    private static void shutdownExecutor(ExecutorService ex) {
+        if (ex == null) return;
+        try {
+            ex.shutdown();
+            ex.awaitTermination(3, TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {}
+    }
+
+    // ── Output file ───────────────────────────────────────────────────────
 
     private File buildOutputFile() {
         try {
             File dir;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Android 10+ — app-specific directory, no permission needed
                 dir = new File(context.getExternalFilesDir(
                         Environment.DIRECTORY_RECORDINGS), "CallRecordings");
             } else {
@@ -361,7 +334,6 @@ public class CallRecorder {
                         Environment.DIRECTORY_MUSIC), "CallX2/Recordings");
             }
             if (!dir.exists() && !dir.mkdirs()) {
-                // Fallback to internal storage
                 dir = new File(context.getFilesDir(), "Recordings");
                 dir.mkdirs();
             }

@@ -452,13 +452,6 @@ public class CallActivity extends AppCompatActivity {
                     VideoTrack t = (VideoTrack) r.track();
                     runOnUiThread(() -> { t.setEnabled(true); t.addSink(binding.remoteVideo); });
                 }
-                // Attach recorder sink to remote audio track
-                if (r.track() instanceof AudioTrack) {
-                    AudioTrack remoteAudio = (AudioTrack) r.track();
-                    if (callRecorder != null) {
-                        remoteAudio.addSink(callRecorder.getRemoteSink());
-                    }
-                }
             }
         });
 
