@@ -459,9 +459,6 @@ public class CallActivity extends AppCompatActivity {
         localAudioTrack = factory.createAudioTrack("audio0", audioSource);
         localAudioTrack.setEnabled(true);
 
-        // ── Recording: create recorder instance here ───────────────────────
-        callRecorder = new CallRecorder(this);
-
         if (isVideo) {
             videoSource   = factory.createVideoSource(false);
             surfaceHelper = SurfaceTextureHelper.create("CaptureThread",
@@ -850,7 +847,11 @@ public class CallActivity extends AppCompatActivity {
     }
 
     private void startRecording() {
-        if (callRecorder == null) callRecorder = new CallRecorder(this);
+        // Always create a fresh instance for each recording session
+        if (callRecorder != null) {
+            try { callRecorder.stop(); } catch (Exception ignored) {}
+        }
+        callRecorder = new CallRecorder(CallActivity.this);
         boolean started = callRecorder.start();
         if (started) {
             isRecording = true;
