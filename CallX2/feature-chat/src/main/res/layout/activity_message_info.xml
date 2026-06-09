@@ -95,6 +95,7 @@
             android:visibility="gone">
 
             <TextView
+                android:id="@+id/tv_delivered_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="DELIVERED"
@@ -129,6 +130,7 @@
             android:visibility="gone">
 
             <TextView
+                android:id="@+id/tv_read_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="READ"
