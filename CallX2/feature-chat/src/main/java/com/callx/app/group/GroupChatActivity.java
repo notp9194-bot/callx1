@@ -451,17 +451,12 @@ public class GroupChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 m.id = s.getKey();
                 saveToRoom(m);
-                markDelivered(m); // FIX: set deliveredTo/{uid} = timestamp
                 markRead(m);
             }
             @Override public void onChildChanged(DataSnapshot s, String prev) {
                 Message m = s.getValue(Message.class);
                 if (m == null) return;
                 m.id = s.getKey();
-                // FIX: if we sent this message, recompute tick from readBy/deliveredTo
-                if (currentUid != null && currentUid.equals(m.senderId)) {
-                    updateGroupTickStatus(s, m);
-                }
                 saveToRoom(m);
             }
             @Override public void onChildRemoved(DataSnapshot s) {
@@ -692,54 +687,10 @@ public class GroupChatActivity extends AppCompatActivity {
         });
     }
 
-    // FIX: use timestamp (millis) not boolean — MessageInfoActivity expects Long
     private void markRead(Message m) {
         if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
-        com.callx.app.utils.SecurityManager secMgr =
-                new com.callx.app.utils.SecurityManager(this);
-        if (!secMgr.isReadReceiptsEnabled()) return;
-        long now = System.currentTimeMillis();
         groupMessagesRef.child(m.id).child("readBy")
-                .child(currentUid).setValue(now);
-        final long nowFinal = now;
-        ioExecutor.execute(() -> {
-            db.messageDao().updateReadAt(m.id, nowFinal);
-        });
-    }
-
-    // FIX: mark delivered — set deliveredTo/{uid} = timestamp
-    private void markDelivered(Message m) {
-        if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
-        com.callx.app.utils.SecurityManager secMgr =
-                new com.callx.app.utils.SecurityManager(this);
-        if (!secMgr.isReadReceiptsEnabled()) return;
-        long now = System.currentTimeMillis();
-        groupMessagesRef.child(m.id).child("deliveredTo")
-                .child(currentUid).setValue(now);
-        final long nowFinal = now;
-        ioExecutor.execute(() -> {
-            db.messageDao().updateDeliveredAt(m.id, nowFinal);
-        });
-    }
-
-    // FIX: compute group tick — update local status based on readBy/deliveredTo counts.
-    // Called from onChildChanged when WE are the sender so tick updates in real-time.
-    private void updateGroupTickStatus(DataSnapshot snap, Message m) {
-        if (totalMembers < 2) return;
-        int needed = totalMembers - 1;
-        int readCount      = (int) snap.child("readBy").getChildrenCount();
-        int deliveredCount = (int) snap.child("deliveredTo").getChildrenCount();
-        String newStatus;
-        if (readCount >= needed) {
-            newStatus = "read";
-        } else if (deliveredCount >= needed) {
-            newStatus = "delivered";
-        } else {
-            newStatus = (m.status != null) ? m.status : "sent";
-        }
-        final String ns = newStatus;
-        final String id = m.id;
-        ioExecutor.execute(() -> db.messageDao().updateStatus(id, ns));
+                .child(currentUid).setValue(true);
     }
 
     // ─────────────────────────────────────────────────────────────────────

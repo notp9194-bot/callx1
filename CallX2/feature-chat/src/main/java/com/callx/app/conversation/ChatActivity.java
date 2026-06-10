@@ -1578,8 +1578,7 @@ public class ChatActivity extends AppCompatActivity {
     private void markDelivered(Message m) {
         if (m == null || m.id == null) return;
         // Mark received message as delivered if still "sent"
-        // FIX: also handle null status (brand-new messages with no status field yet)
-        if (!currentUid.equals(m.senderId) && (m.status == null || "sent".equals(m.status))) {
+        if (!currentUid.equals(m.senderId) && "sent".equals(m.status)) {
             com.callx.app.utils.SecurityManager secMgr =
                 new com.callx.app.utils.SecurityManager(this);
             if (!secMgr.isReadReceiptsEnabled()) return;

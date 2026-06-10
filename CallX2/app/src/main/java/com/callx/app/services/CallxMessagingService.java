@@ -1153,17 +1153,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
                         updates.put("deliveredAt", now);
                         msgRef.updateChildren(updates);
 
-                        // FIX: For group messages, also set deliveredTo/{myUid} = timestamp
-                        // so MessageInfoActivity "Delivered To" list works.
-                        // Group messages ref path: groupMessages/{groupId}/{msgId}
-                        // We detect group by checking if msgRef path contains "groupMessages"
-                        String refPath = msgRef.toString();
-                        if (refPath.contains("/groupMessages/")) {
-                            msgRef.getParent().getParent()
-                                    .child("deliveredTo")
-                                    .child(myUid).setValue(now);
-                        }
-
                         // FIX: Also update Room DB so MessageInfoActivity works offline
                         try {
                             com.callx.app.db.AppDatabase db =
