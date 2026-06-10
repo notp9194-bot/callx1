@@ -106,7 +106,7 @@ public class DuetReelActivity extends AppCompatActivity {
     private boolean isPaused        = false;
     private boolean discardOnStop   = false; // true = close-button stop, skip editor
     private int     layoutMode      = LAYOUT_SIDE_BY_SIDE;
-    private float   originalVol  = 0f; // original reel audio volume during monitoring
+    private float   originalVol  = 0.5f; // original reel audio volume (default 50%)
     private CountDownTimer recordTimer;
 
     // ── Reel metadata ─────────────────────────────────────────────────────────
@@ -218,8 +218,8 @@ public class DuetReelActivity extends AppCompatActivity {
     private void setupVolumeSlider() {
         if (seekOriginalVolume == null) return;
         seekOriginalVolume.setMax(100);
-        seekOriginalVolume.setProgress(0); // original muted by default
-        if (tvVolumeLabel != null) tvVolumeLabel.setText("Original: 0%");
+        seekOriginalVolume.setProgress(50); // 50% default
+        if (tvVolumeLabel != null) tvVolumeLabel.setText("Original: 50%");
 
         seekOriginalVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
@@ -305,7 +305,7 @@ public class DuetReelActivity extends AppCompatActivity {
 
         exoPlayer.setMediaItem(MediaItem.fromUri(videoUrl));
         exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
-        exoPlayer.setVolume(originalVol); // default 0 (muted) until slider moved
+        exoPlayer.setVolume(originalVol); // default 0.5 (50%) matches slider default
         exoPlayer.prepare();
 
         exoPlayer.addListener(new Player.Listener() {

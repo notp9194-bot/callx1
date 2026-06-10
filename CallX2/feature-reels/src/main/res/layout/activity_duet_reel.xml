@@ -205,7 +205,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:max="100"
-                android:progress="0"
+                android:progress="50"
                 android:layout_marginStart="6dp"
                 android:layout_marginEnd="6dp"
                 android:progressTint="@color/brand_primary"
@@ -222,7 +222,7 @@
             android:id="@+id/tv_volume_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Original audio: 0%"
+            android:text="Original audio: 50%"
             android:textColor="#CCFFFFFF"
             android:textSize="11sp"
             android:layout_marginBottom="10dp"/>
