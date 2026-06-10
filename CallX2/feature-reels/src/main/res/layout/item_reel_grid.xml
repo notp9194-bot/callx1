@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_reel_grid.xml
+    Used by DuetsByReelActivity.DuetsAdapter for the 3-column duet/reel grid.
+    IDs required: iv_reel_thumb, tv_reel_creator, tv_reel_views, badge_duet
+-->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#000000">
+
+    <!-- Thumbnail — square aspect via padding trick on FrameLayout child -->
+    <ImageView
+        android:id="@+id/iv_reel_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:adjustViewBounds="false"
+        android:minHeight="120dp"
+        android:scaleType="centerCrop"
+        android:background="@drawable/bg_skeleton_rect" />
+
+    <!-- Bottom gradient scrim for text legibility -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/gradient_reel_bottom" />
+
+    <!-- Creator name -->
+    <TextView
+        android:id="@+id/tv_reel_creator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="18dp"
+        android:paddingHorizontal="4dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold" />
+
+    <!-- View count — bottom-left -->
+    <TextView
+        android:id="@+id/tv_reel_views"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="4dp"
+        android:layout_marginBottom="4dp"
+        android:drawablePadding="2dp"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp" />
+
+    <!-- Duet badge — top-right corner -->
+    <TextView
+        android:id="@+id/badge_duet"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="4dp"
+        android:background="@drawable/bg_reel_count"
+        android:paddingHorizontal="5dp"
+        android:paddingVertical="2dp"
+        android:text="Duet"
+        android:textColor="#FFFFFF"
+        android:textSize="9sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+</FrameLayout>
