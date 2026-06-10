@@ -66,7 +66,6 @@
         <!-- ✅ FIX (GAP #2 — v8): StitchesByReelActivity registered -->
         <activity
             android:name=".social.StitchesByReelActivity"
-            android:theme="@style/Theme.Reels.Dark"
             android:screenOrientation="portrait"
             android:exported="false"/>
 
