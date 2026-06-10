@@ -55,6 +55,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_SPEED               = "speed";
     public static final String ACTION_DOWNLOAD            = "download";
     public static final String ACTION_DUET                = "duet";
+    public static final String ACTION_COLLAB_DUET         = "collab_duet";
     public static final String ACTION_STITCH              = "stitch";
     public static final String ACTION_VIDEO_REPLY         = "video_reply";
     public static final String ACTION_SHARE_TO_STORY      = "share_to_story";
@@ -103,6 +104,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private static final int CLR_TEAL     = 0xFF00E5FF;
     private static final int CLR_RED      = 0xFFFF4444;
     private static final int CLR_GOLD     = 0xFFFFE082;
+    private static final int CLR_MAGENTA  = 0xFFFF2D9B;
     private static final int CLR_DISABLED = 0x55FFFFFF; // semi-transparent white for locked items
 
     private OnItemClickListener listener;
@@ -271,6 +273,10 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         addDuetStitchItem(list, ACTION_DUET, "Duet", R.drawable.ic_video_call,
                           duetLevel, false);
 
+        // ── Collab Duet ──
+        addDuetStitchItem(list, ACTION_COLLAB_DUET, "👥 Collab Duet", R.drawable.ic_group,
+                          duetLevel, false);
+
         // ── Stitch ──
         addDuetStitchItem(list, ACTION_STITCH, "Stitch", R.drawable.ic_swap,
                           stitchLevel, false);
@@ -301,8 +307,9 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_PINNED_COMMENTS,      "Pinned Comments",      R.drawable.ic_pin,           CLR_TEAL,   true,  false));
 
         // Owner can always duet/stitch their own reel (duetLevel = current setting)
-        addDuetStitchItem(list, ACTION_DUET,   "Duet",   R.drawable.ic_video_call, duetLevel,   false);
-        addDuetStitchItem(list, ACTION_STITCH, "Stitch", R.drawable.ic_swap,       stitchLevel, false);
+        addDuetStitchItem(list, ACTION_DUET,        "Duet",          R.drawable.ic_video_call, duetLevel,   false);
+        addDuetStitchItem(list, ACTION_COLLAB_DUET, "👥 Collab Duet", R.drawable.ic_group,      duetLevel,   false);
+        addDuetStitchItem(list, ACTION_STITCH,      "Stitch",        R.drawable.ic_swap,       stitchLevel, false);
 
         list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story", R.drawable.ic_share_reel, CLR_GREEN,  true,  false));
         list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",        R.drawable.ic_qr_code,    CLR_ORANGE, false, false));
@@ -330,7 +337,10 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         String  label    = followersOnly && !isFollowing
                                ? baseLabel + " (followers only)"
                                : baseLabel;
-        int     color    = canUse ? CLR_PURPLE : CLR_DISABLED;
+
+        // Collab Duet gets its own distinct color
+        int baseColor = ACTION_COLLAB_DUET.equals(action) ? CLR_MAGENTA : CLR_PURPLE;
+        int     color    = canUse ? baseColor : CLR_DISABLED;
         boolean disabled = !canUse;
 
         list.add(new MenuItem(action, label, iconRes, color, dividerAfter, disabled));

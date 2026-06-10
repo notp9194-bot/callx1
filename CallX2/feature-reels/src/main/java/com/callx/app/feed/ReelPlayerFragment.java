@@ -1447,6 +1447,8 @@ public class ReelPlayerFragment extends Fragment
                 downloadReel(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_DUET:
                 openDuet(); break;
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_COLLAB_DUET:
+                openCollabDuet(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_STITCH:
                 openStitch(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_VIDEO_REPLY:
@@ -1628,6 +1630,7 @@ public class ReelPlayerFragment extends Fragment
         // Cannot collab duet your own reel (would be a solo)
         if (myUid.equals(reel.uid)) {
             Toast.makeText(getContext(), "Pick one of your followers to collab with on this reel", Toast.LENGTH_LONG).show();
+            return;
         }
 
         android.content.Intent i = new android.content.Intent(
