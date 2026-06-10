@@ -172,6 +172,71 @@
             android:layout_marginTop="4dp"/>
     </LinearLayout>
 
+    <!-- ── Volume slider overlay (floating above bottom bar) ────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:layout_marginBottom="180dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="#88000000">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Original Audio"
+            android:textColor="#CCFFFFFF"
+            android:textSize="11sp"
+            android:layout_marginBottom="4dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔇"
+                android:textSize="14sp"
+                android:layout_marginEnd="6dp"/>
+
+            <SeekBar
+                android:id="@+id/seek_original_volume"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="50"
+                android:progressTint="@color/brand_primary"
+                android:thumbTint="@color/brand_primary"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔊"
+                android:textSize="14sp"
+                android:layout_marginStart="6dp"/>
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_volume_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Original audio: 50%"
+            android:textColor="#CCFFFFFF"
+            android:textSize="10sp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="2dp"/>
+
+    </LinearLayout>
+
     <!-- ── Bottom controls ───────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -184,48 +249,6 @@
         android:paddingStart="24dp"
         android:paddingEnd="24dp"
         android:background="#66000000">
-
-        <!-- Original audio volume row -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
-
-            <ImageView
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:src="@drawable/ic_volume_off"
-                android:tint="#CCFFFFFF"/>
-
-            <SeekBar
-                android:id="@+id/seek_original_volume"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="100"
-                android:progress="50"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
-                android:progressTint="@color/brand_primary"
-                android:thumbTint="@color/brand_primary"/>
-
-            <ImageView
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:src="@drawable/ic_volume_on"
-                android:tint="#CCFFFFFF"/>
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/tv_volume_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Original audio: 50%"
-            android:textColor="#CCFFFFFF"
-            android:textSize="11sp"
-            android:layout_marginBottom="10dp"/>
 
         <!-- Timer -->
         <TextView
