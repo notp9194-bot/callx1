@@ -537,6 +537,61 @@ public class PushNotify {
                 "", "", "", "", "");
     }
 
+    // ── Reel Notification: Duet ──────────────────────────────────────────
+    /**
+     * Notify the original reel creator when someone duets their reel.
+     *
+     * Server: POST /notify/reel  {type: "duet", reel_notif_type routed by server}
+     * Android receiver: CallxMessagingService → ReelFCMNotificationHandler TYPE_DUET
+     * Background/killed-safe — FCM data-only, high priority.
+     *
+     * @param toUid      UID of the original reel creator (receives notification)
+     * @param fromUid    UID of the user who made the duet
+     * @param fromName   Display name of the duet creator
+     * @param fromPhoto  Avatar URL of the duet creator (shown as largeIcon)
+     * @param reelId     ID of the original reel that was dueted
+     * @param reelThumb  Thumbnail URL of the original reel (shown in BigPicture)
+     */
+    public static void notifyReelDuet(String toUid, String fromUid, String fromName,
+                                      String fromPhoto, String reelId, String reelThumb) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",      toUid     == null ? "" : toUid)
+                .put("fromUid",    fromUid   == null ? "" : fromUid)
+                .put("fromName",   fromName  == null ? "" : fromName)
+                .put("fromPhoto",  fromPhoto == null ? "" : fromPhoto)
+                .put("reelId",     reelId    == null ? "" : reelId)
+                .put("reelThumb",  reelThumb == null ? "" : reelThumb)
+                .put("type",       "duet");
+            postAsync(Constants.SERVER_URL + "/notify/reel", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyReelDuet err: " + e.getMessage());
+        }
+    }
+
+    // ── Reel Notification: Stitch ─────────────────────────────────────────
+    /**
+     * Notify the original reel creator when someone stitches their reel.
+     * Same routing as duet — server maps type: "stitch" → reel_notif_type: "stitch"
+     * → ReelFCMNotificationHandler TYPE_STITCH.
+     */
+    public static void notifyReelStitch(String toUid, String fromUid, String fromName,
+                                        String fromPhoto, String reelId, String reelThumb) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",      toUid     == null ? "" : toUid)
+                .put("fromUid",    fromUid   == null ? "" : fromUid)
+                .put("fromName",   fromName  == null ? "" : fromName)
+                .put("fromPhoto",  fromPhoto == null ? "" : fromPhoto)
+                .put("reelId",     reelId    == null ? "" : reelId)
+                .put("reelThumb",  reelThumb == null ? "" : reelThumb)
+                .put("type",       "stitch");
+            postAsync(Constants.SERVER_URL + "/notify/reel", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyReelStitch err: " + e.getMessage());
+        }
+    }
+
     // ── Reel Notification: Repost ─────────────────────────────────────────
 
     // ── Internal ──────────────────────────────────────────────────────────

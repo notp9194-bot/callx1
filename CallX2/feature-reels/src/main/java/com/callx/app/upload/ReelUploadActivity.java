@@ -108,7 +108,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private TextView          tvVideoInfo, tvCompressionSavings;
     private TextInputEditText etCaption, etMusic;
     private Button            btnPostReel;
-    private ChipGroup         chipQuality, chipAudience;
+    private ChipGroup         chipQuality, chipAudience, chipDuetLevel, chipStitchLevel;
     private View              btnTagPeople, btnLocationTag, btnPrivacySettings, btnSchedule, btnSaveDraft, btnProductTag;
     private TextView          tvTagSummary, tvLocationName, tvScheduleTime;
     private String            taggedUids = "", locationName = "", scheduleTime = "";
@@ -184,6 +184,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         btnPostReel          = findViewById(R.id.btn_post_reel);
         chipQuality          = findViewById(R.id.chip_quality);
         chipAudience         = findViewById(R.id.chip_audience);
+        chipDuetLevel        = findViewById(R.id.chip_duet_level);
+        chipStitchLevel      = findViewById(R.id.chip_stitch_level);
         btnTagPeople         = findViewById(R.id.btn_tag_people);
         btnLocationTag       = findViewById(R.id.btn_location_tag);
         btnPrivacySettings   = findViewById(R.id.btn_privacy_settings);
@@ -595,6 +597,15 @@ public class ReelUploadActivity extends AppCompatActivity {
                     System.currentTimeMillis(), durationMs, width, height);
 
                 reel.audienceType = audienceType;
+
+                // ✅ Duet & Stitch permission — set by creator at upload time
+                String duetLevel   = a.getDuetLevel();
+                String stitchLevel = a.getStitchLevel();
+                reel.allowDuetLevel   = duetLevel;
+                reel.allowDuet        = !"off".equals(duetLevel);   // legacy boolean
+                reel.allowStitchLevel = stitchLevel;
+                reel.allowStitch      = !"off".equals(stitchLevel); // legacy boolean
+
                 // Attach pre-selected sound if provided
                 if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
                 if (!a.preSelectedSoundUrl.isEmpty()) reel.musicUrl = a.preSelectedSoundUrl;
@@ -628,20 +639,20 @@ public class ReelUploadActivity extends AppCompatActivity {
                                 .child("duetCount")
                                 .setValue(ServerValue.increment(1));
 
-                            // Fix 6: push notification to original reel owner
+                            // ✅ FIXED: Full notification pipeline (FCM + in-app + queue fallback)
+                            // Fires only AFTER reel is confirmed published to Firebase.
+                            // DuetNotificationWorker → PushNotify.notifyReelDuet()
+                            //   → SERVER/notify/reel → FCM → CallxMessagingService
+                            //   → ReelFCMNotificationHandler TYPE_DUET (background/killed safe)
                             if (!b.duetOwnerUid.isEmpty() && !b.duetOwnerUid.equals(myUid)) {
-                                Map<String, Object> notif = new HashMap<>();
-                                notif.put("type",      "duet");
-                                notif.put("fromUid",   myUid);
-                                notif.put("fromName",  myName);
-                                notif.put("reelId",    b.duetOriginalId);
-                                notif.put("duetReelId",finalReelId);
-                                notif.put("timestamp", System.currentTimeMillis());
-                                com.google.firebase.database.FirebaseDatabase.getInstance()
-                                    .getReference("notifications")
-                                    .child(b.duetOwnerUid)
-                                    .push()
-                                    .setValue(notif);
+                                com.callx.app.workers.DuetNotificationWorker.enqueue(
+                                    b,
+                                    b.duetOriginalId, // original reel being dueted
+                                    myUid,            // duet creator UID
+                                    myName,           // duet creator name
+                                    safePhoto,        // duet creator avatar URL
+                                    b.duetOwnerUid,   // original reel owner UID
+                                    thumbUrl);        // new duet reel thumbnail
                             }
                         }
 
@@ -706,6 +717,29 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String getAudienceType() {
         int id = chipAudience.getCheckedChipId();
         return id == R.id.chip_contacts_only ? "contacts" : "everyone";
+    }
+
+    /**
+     * Returns "everyone" | "followers" | "off" based on the Duet chip selection.
+     * Default (everyone) is pre-checked in layout XML.
+     */
+    private String getDuetLevel() {
+        if (chipDuetLevel == null) return "everyone";
+        int id = chipDuetLevel.getCheckedChipId();
+        if (id == R.id.chip_duet_followers) return "followers";
+        if (id == R.id.chip_duet_off)       return "off";
+        return "everyone";
+    }
+
+    /**
+     * Returns "everyone" | "followers" | "off" based on the Stitch chip selection.
+     */
+    private String getStitchLevel() {
+        if (chipStitchLevel == null) return "everyone";
+        int id = chipStitchLevel.getCheckedChipId();
+        if (id == R.id.chip_stitch_followers) return "followers";
+        if (id == R.id.chip_stitch_off)        return "off";
+        return "everyone";
     }
 
     private void releasePreviewPlayer() {

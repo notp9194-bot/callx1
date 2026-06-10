@@ -257,6 +257,88 @@
                     style="@style/Widget.Material3.Chip.Filter"/>
             </com.google.android.material.chip.ChipGroup>
 
+            <!-- ── Who can Duet ── -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Who can Duet"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="6dp"
+                android:layout_marginTop="4dp"/>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chip_duet_level"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:singleSelection="true"
+                app:selectionRequired="true"
+                android:layout_marginBottom="16dp">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_duet_everyone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Everyone"
+                    android:checked="true"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_duet_followers"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Followers"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_duet_off"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Off"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+            </com.google.android.material.chip.ChipGroup>
+
+            <!-- ── Who can Stitch ── -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Who can Stitch"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="6dp"/>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chip_stitch_level"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:singleSelection="true"
+                app:selectionRequired="true"
+                android:layout_marginBottom="24dp">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_stitch_everyone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Everyone"
+                    android:checked="true"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_stitch_followers"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Followers"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_stitch_off"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Off"
+                    style="@style/Widget.Material3.Chip.Filter"/>
+            </com.google.android.material.chip.ChipGroup>
 
             <!-- Extra Details Divider -->
             <View android:layout_width="match_parent" android:layout_height="1dp"

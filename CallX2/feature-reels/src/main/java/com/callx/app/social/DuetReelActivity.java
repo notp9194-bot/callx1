@@ -677,39 +677,16 @@ public class DuetReelActivity extends AppCompatActivity {
                     progressDuet.setIndeterminate(false);
                     progressDuet.setVisibility(android.view.View.GONE);
                 }
-                incrementDuetCount();
-                fireDuetNotification();
+                // ✅ duetCount and notification are fired from ReelUploadActivity
+                // AFTER the reel is actually published — not here at compositor done.
                 openEditor(finalPath);
             });
         }, "duet-compositor").start();
     }
 
-    /** Increment duetCount on the original reel in Firebase. */
-    private void incrementDuetCount() {
-        if (reelId == null) return;
-        FirebaseUtils.db().getReference("reels").child(reelId).child("duetCount")
-            .runTransaction(new com.google.firebase.database.Transaction.Handler() {
-                @NonNull @Override
-                public com.google.firebase.database.Transaction.Result doTransaction(
-                        @NonNull com.google.firebase.database.MutableData d) {
-                    Integer c = d.getValue(Integer.class);
-                    d.setValue(c != null ? c + 1 : 1);
-                    return com.google.firebase.database.Transaction.success(d);
-                }
-                @Override
-                public void onComplete(com.google.firebase.database.DatabaseError e,
-                                       boolean b,
-                                       com.google.firebase.database.DataSnapshot s) {}
-            });
-    }
-
-    /** Enqueue a WorkManager job to notify the original creator. */
-    private void fireDuetNotification() {
-        String myUid  = FirebaseUtils.getCurrentUid();
-        String myName = FirebaseUtils.getCurrentName();
-        if (myUid == null || ownerUid == null || myUid.equals(ownerUid)) return;
-        DuetNotificationWorker.enqueue(this, reelId, myUid, myName, ownerUid);
-    }
+    // duetCount increment + notification are now handled in ReelUploadActivity.saveReelToFirebase()
+    // AFTER the reel is confirmed published to Firebase — not at compositor completion.
+    // This prevents double-counting and sending a notification for duets the user never posts.
 
     private void openEditor(String filePath) {
         Intent i = new Intent(this, ReelEditorActivity.class);

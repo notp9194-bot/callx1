@@ -145,8 +145,9 @@ public class ReelPlayerFragment extends Fragment
     private boolean   isMuted      = false;
     private boolean   isLiked      = false;
     private boolean   isSaved      = false;
-    private boolean   isFollowing  = false;
-    private boolean   isReposted   = false;  // FIX #5
+    private boolean   isFollowing      = false;
+    private boolean   followCheckLoaded = false; // true once first Firebase follow-check completes
+    private boolean   isReposted       = false;  // FIX #5
     private final java.util.Set<String> blockedUids = new java.util.HashSet<>();
     private boolean   isVisible    = false;
     private boolean   reactionsVisible = false;
@@ -187,6 +188,11 @@ public class ReelPlayerFragment extends Fragment
         args.putInt("views",         reel.viewsCount);
         args.putInt("reposts",       reel.repostCount);  // FIX #5
         args.putString("original_audio_url", reel.originalAudioUrl != null ? reel.originalAudioUrl : "");
+        // ✅ Duet/Stitch fields — needed for badge, permission checks, and DuetReelActivity
+        args.putString("duet_of",            reel.duetOf            != null ? reel.duetOf            : "");
+        args.putInt   ("duet_count",         reel.duetCount);
+        args.putString("allow_duet_level",   reel.allowDuetLevel    != null ? reel.allowDuetLevel    : "everyone");
+        args.putString("allow_stitch_level", reel.allowStitchLevel  != null ? reel.allowStitchLevel  : "everyone");
         f.setArguments(args);
         return f;
     }
@@ -217,8 +223,13 @@ public class ReelPlayerFragment extends Fragment
             reel.commentsCount = getArguments().getInt("comments");
             reel.sharesCount   = getArguments().getInt("shares");
             reel.viewsCount    = getArguments().getInt("views");
-            reel.repostCount   = getArguments().getInt("reposts");  // FIX #5
+            reel.repostCount      = getArguments().getInt("reposts");  // FIX #5
             reel.originalAudioUrl = getArguments().getString("original_audio_url", "");
+            // ✅ Duet/Stitch fields
+            reel.duetOf           = getArguments().getString("duet_of",            "");
+            reel.duetCount        = getArguments().getInt   ("duet_count",         0);
+            reel.allowDuetLevel   = getArguments().getString("allow_duet_level",   "everyone");
+            reel.allowStitchLevel = getArguments().getString("allow_stitch_level", "everyone");
         }
     }
 
@@ -357,7 +368,12 @@ public class ReelPlayerFragment extends Fragment
         if (reel == null) return;
 
         tvOwnerName.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
-        tvCaption.setText(reel.caption != null ? reel.caption : "");
+        // ✅ Duet badge — prepend "🔀 Duet · " to caption when this reel is a duet
+        String captionText = reel.caption != null ? reel.caption : "";
+        if (reel.duetOf != null && !reel.duetOf.isEmpty()) {
+            captionText = "🔀 Duet · " + captionText;
+        }
+        tvCaption.setText(captionText);
         // Bottom music ticker: title with artist suffix
         String musicDisplay = reel.musicName != null && !reel.musicName.isEmpty()
             ? reel.musicName : "Original Audio";
@@ -1301,12 +1317,14 @@ public class ReelPlayerFragment extends Fragment
         String  myUid      = safeMyUid();
         boolean isOwner    = myUid != null && myUid.equals(reel.uid);
         String  speedLabel = "Speed: " + SPEED_LABELS[speedIndex];
-        boolean allowDuet   = reel.allowDuet;   // respect creator's privacy setting
-        boolean allowStitch = true;              // can add allowStitch to ReelModel later
+        // ✅ Pass full level strings + isFollowing so BottomSheet can show
+        //    "Duet (followers only)" grayed-out instead of just hiding/showing
+        String duetLevel   = reel.allowDuetLevel   != null ? reel.allowDuetLevel   : "everyone";
+        String stitchLevel = reel.allowStitchLevel != null ? reel.allowStitchLevel : "everyone";
 
         com.callx.app.social.ReelMoreBottomSheet sheet =
             com.callx.app.social.ReelMoreBottomSheet.newInstance(isOwner, isSaved, speedLabel,
-                                                              allowDuet, allowStitch);
+                                                              duetLevel, stitchLevel, isFollowing);
         sheet.show(getChildFragmentManager(), com.callx.app.social.ReelMoreBottomSheet.TAG);
     }
 
@@ -1384,6 +1402,22 @@ public class ReelPlayerFragment extends Fragment
 
     private void openStitch() {
         if (!isAdded() || getActivity() == null || reel == null) return;
+        // ✅ Granular permission check using allowStitchLevel + race-condition guard
+        String stitchLevel = reel.allowStitchLevel != null ? reel.allowStitchLevel : "everyone";
+        if ("off".equals(stitchLevel)) {
+            Toast.makeText(getContext(), "This creator has disabled stitches", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if ("followers".equals(stitchLevel)) {
+            if (!followCheckLoaded) {
+                Toast.makeText(getContext(), "Checking permissions…", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!isFollowing) {
+                Toast.makeText(getContext(), "Only followers can stitch this reel", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
         Intent i = new Intent(getActivity(), StitchReelActivity.class);
         i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_REEL_ID,  reel.reelId);
         i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_REEL_URL, reel.videoUrl);
@@ -1421,17 +1455,37 @@ public class ReelPlayerFragment extends Fragment
 
     private void openDuet() {
         if (!isAdded() || getActivity() == null || reel == null) return;
-        // Respect creator's privacy setting
-        if (!reel.allowDuet) {
+
+        // ✅ Granular permission check using allowDuetLevel
+        String duetLevel = reel.allowDuetLevel != null ? reel.allowDuetLevel : "everyone";
+        if ("off".equals(duetLevel)) {
             Toast.makeText(getContext(), "This creator has disabled duets", Toast.LENGTH_SHORT).show();
             return;
         }
+        if ("followers".equals(duetLevel)) {
+            // Race-condition guard: follow-check loads async — don't block a real follower
+            // because isFollowing is still false on first render
+            if (!followCheckLoaded) {
+                Toast.makeText(getContext(), "Checking permissions…", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!isFollowing) {
+                Toast.makeText(getContext(), "Only followers can duet this reel", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+
         Intent i = new Intent(getActivity(), DuetReelActivity.class);
-        i.putExtra(DuetReelActivity.EXTRA_REEL_ID,        reel.reelId);
-        i.putExtra(DuetReelActivity.EXTRA_VIDEO_URL,      reel.videoUrl);
-        i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME,     reel.ownerName);
-        i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,      reel.uid);
-        i.putExtra(DuetReelActivity.EXTRA_DURATION_SEC,   reel.duration / 1000);
+        i.putExtra(DuetReelActivity.EXTRA_REEL_ID,          reel.reelId);
+        i.putExtra(DuetReelActivity.EXTRA_VIDEO_URL,        reel.videoUrl);
+        i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME,       reel.ownerName);
+        i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,        reel.uid);
+        i.putExtra(DuetReelActivity.EXTRA_DURATION_SEC,     reel.duration / 1000);
+        // ✅ NEW: Pass granular level + follow-state so DuetReelActivity can enforce too
+        i.putExtra(DuetReelActivity.EXTRA_ALLOW_DUET_LEVEL, duetLevel);
+        i.putExtra(DuetReelActivity.EXTRA_VIEWER_FOLLOWS,   isFollowing);
+        // Pass reel thumb for rich push notification preview
+        if (reel.thumbUrl != null) i.putExtra("duet_reel_thumb", reel.thumbUrl);
         // Pass cached local file path so compositor doesn't need network
         try {
             String cachedPath = com.callx.app.cache.ReelCacheManager.extractCachedVideoToFile(
@@ -1573,14 +1627,17 @@ public class ReelPlayerFragment extends Fragment
         };
         FirebaseUtils.getReelSavesRef(myUid).child(reel.reelId).addValueEventListener(saveListener);
 
-        // Follow status
+        // Follow status — sets followCheckLoaded so openDuet/openStitch race condition is safe
         followListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
                 if (!isAdded() || getContext() == null) return;
-                isFollowing = s.exists();
+                isFollowing      = s.exists();
+                followCheckLoaded = true;
                 updateFollowUI(isFollowing);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                followCheckLoaded = true; // treat error as "not following" but unblock UI
+            }
         };
         if (reel.uid != null && !reel.uid.equals(myUid)) {
             FirebaseUtils.getReelFollowsRef(myUid).child(reel.uid).addValueEventListener(followListener);
