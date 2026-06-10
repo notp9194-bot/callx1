@@ -506,19 +506,49 @@ public class DuetReelActivity extends AppCompatActivity {
         }.start();
     }
 
-    // ── Post-recording: open editor ───────────────────────────────────────────
+    // ── Post-recording: composite (FFmpeg) then open editor ─────────────────
 
     private void onRecordingDone(String cameraFilePath) {
         if (exoPlayer != null) exoPlayer.pause();
-        // DuetVideoCompositor (MediaCodec frame-by-frame) causes infinite hangs:
-        //  - lockHardwareCanvas() on bg thread crashes on most devices
-        //  - MediaExtractor.setDataSource(http) blocks bg thread unpredictably
-        // So we skip compositing and pass camera file directly to editor.
-        // Duet metadata (originalId, ownerUid, label) goes via Intent extras so
-        // ReelUploadActivity tags the Firebase node as a duet correctly.
-        incrementDuetCount();
-        fireDuetNotification();
-        openEditor(cameraFilePath);
+
+        // Show non-cancelable progress dialog during FFmpeg compositing
+        android.app.ProgressDialog pd = new android.app.ProgressDialog(this);
+        pd.setMessage("Creating duet\u2026");
+        pd.setProgressStyle(android.app.ProgressDialog.STYLE_SPINNER);
+        pd.setCancelable(false);
+        pd.show();
+
+        ExecutorService exec = Executors.newSingleThreadExecutor();
+        exec.execute(() -> {
+            String finalPath = cameraFilePath; // fallback if composite fails
+            try {
+                java.io.File outFile = new java.io.File(
+                    getCacheDir(), "duet_final_" + System.currentTimeMillis() + ".mp4");
+
+                DuetVideoCompositor compositor = new DuetVideoCompositor();
+                boolean ok = compositor.composite(
+                    cameraFilePath,
+                    videoUrl,
+                    outFile.getAbsolutePath(),
+                    layoutMode,
+                    originalVol
+                );
+                if (ok && outFile.exists() && outFile.length() > 0) {
+                    finalPath = outFile.getAbsolutePath();
+                }
+            } catch (Exception e) {
+                android.util.Log.e(TAG, "Composite failed, using camera file: " + e.getMessage());
+            }
+
+            final String pathToOpen = finalPath;
+            runOnUiThread(() -> {
+                pd.dismiss();
+                incrementDuetCount();
+                fireDuetNotification();
+                openEditor(pathToOpen);
+            });
+            exec.shutdown();
+        });
     }
 
     /** Increment duetCount on the original reel in Firebase. */
