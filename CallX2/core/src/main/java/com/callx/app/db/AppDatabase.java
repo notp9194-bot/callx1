@@ -51,10 +51,10 @@ import net.sqlcipher.database.SupportFactory;
  *     This mirrors WhatsApp / Signal behaviour.
  *
  * HOW TO ADD A NEW COLUMN:
- *   1. Bump version = N+1.
+ *   1. Bump version = 2.
  *   2. Add field to Entity.
- *   3. Write MIGRATION_N_(N+1) (see existing examples below).
- *   4. Add .addMigrations(MIGRATION_N_(N+1)) to buildDatabase().
+ *   3. Write MIGRATION_1_2 (see template below).
+ *   4. Add .addMigrations(MIGRATION_1_2) to buildDatabase().
  *   5. Commit the auto-generated app/schemas/.../<version>.json.
  */
 @Database(
@@ -64,9 +64,9 @@ import net.sqlcipher.database.SupportFactory;
         ChatEntity.class,
         CallLogEntity.class,
         GroupEntity.class,
-        StatusEntity.class
+        StatusEntity.class     // v17: status cache
     },
-    version = 10,
+    version = 9,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -80,32 +80,18 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract ChatDao    chatDao();
     public abstract CallLogDao callLogDao();
     public abstract GroupDao   groupDao();
-    public abstract StatusDao  statusDao();
+    public abstract StatusDao  statusDao();    // v17
 
     // ──────────────────────────────────────────────────────────────
     // MIGRATIONS
     // ──────────────────────────────────────────────────────────────
 
-    /**
-     * FIX: v9 → v10 — Message Info timestamps.
-     *
-     * Adds 4 new columns to the messages table required by MessageInfoActivity:
-     *   deliveredAt     — kab message receiver ke device pe pahuncha (millis)
-     *   readAt          — kab receiver ne message padha (millis)
-     *   deliveredToJson — group chats: uid→deliveredAt JSON map
-     *   readByJson      — group chats: uid→readAt JSON map
-     *
-     * Without this migration, existing installs crash on startup with:
-     *   IllegalStateException: Room cannot verify the data integrity.
-     *   Expected identity hash differs from the one last used.
-     */
-    static final Migration MIGRATION_9_10 = new Migration(9, 10) {
+    /** v7 → v8: reelId + reelThumbUrl — reel_seen bubble in chat. */
+    static final Migration MIGRATION_7_8 = new Migration(7, 8) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase db) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN deliveredAt INTEGER DEFAULT NULL");
-            db.execSQL("ALTER TABLE messages ADD COLUMN readAt INTEGER DEFAULT NULL");
-            db.execSQL("ALTER TABLE messages ADD COLUMN deliveredToJson TEXT DEFAULT NULL");
-            db.execSQL("ALTER TABLE messages ADD COLUMN readByJson TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN reelId TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN reelThumbUrl TEXT DEFAULT NULL");
         }
     };
 
@@ -114,15 +100,6 @@ public abstract class AppDatabase extends RoomDatabase {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase db) {
             db.execSQL("ALTER TABLE messages ADD COLUMN fontStyle INTEGER NOT NULL DEFAULT 0");
-        }
-    };
-
-    /** v7 → v8: reelId + reelThumbUrl — reel_seen bubble in chat. */
-    static final Migration MIGRATION_7_8 = new Migration(7, 8) {
-        @Override
-        public void migrate(@NonNull SupportSQLiteDatabase db) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN reelId TEXT DEFAULT NULL");
-            db.execSQL("ALTER TABLE messages ADD COLUMN reelThumbUrl TEXT DEFAULT NULL");
         }
     };
 
@@ -152,13 +129,17 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
-    /** v3 → v4: v18 offline improvements — draft, pendingMarkRead, mediaLocalPath, mediaResourceType. */
+        /** v3 → v4: v18 offline improvements — draft, pendingMarkRead, mediaLocalPath, mediaResourceType. */
     static final Migration MIGRATION_3_4 = new Migration(3, 4) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // ChatEntity: draft column (IMPROVEMENT 2)
             db.execSQL("ALTER TABLE chats ADD COLUMN draft TEXT DEFAULT NULL");
+            // ChatEntity: pendingMarkRead column (IMPROVEMENT 4)
             db.execSQL("ALTER TABLE chats ADD COLUMN pendingMarkRead INTEGER DEFAULT 0");
+            // MessageEntity: mediaLocalPath column (IMPROVEMENT 5)
             db.execSQL("ALTER TABLE messages ADD COLUMN mediaLocalPath TEXT DEFAULT NULL");
+            // MessageEntity: mediaResourceType column (IMPROVEMENT 5)
             db.execSQL("ALTER TABLE messages ADD COLUMN mediaResourceType TEXT DEFAULT NULL");
         }
     };
@@ -238,6 +219,23 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    // ──────────────────────────────────────────────────────────────
+    // MIGRATIONS — add one per version bump
+    //
+    // Example (v1 → v2, add 'reactions' column to messages):
+    //
+    //   static final Migration MIGRATION_1_2 = new Migration(1, 2) {
+    //       @Override
+    //       public void migrate(@NonNull SupportSQLiteDatabase db) {
+    //           db.execSQL(
+    //               "ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT NULL"
+    //           );
+    //       }
+    //   };
+    //
+    //   Then: .addMigrations(MIGRATION_1_2) in buildDatabase()
+    // ──────────────────────────────────────────────────────────────
+
     public static AppDatabase getInstance(Context ctx) {
         if (sInstance == null) {
             synchronized (AppDatabase.class) {
@@ -250,6 +248,10 @@ public abstract class AppDatabase extends RoomDatabase {
     }
 
     private static AppDatabase buildDatabase(Context ctx) {
+        // FIX #1: No try/catch — let SQLCipher failures propagate as a crash.
+        // A crash is intentional: losing encryption silently is unacceptable
+        // in a production messaging app.
+
         SQLiteDatabase.loadLibs(ctx);
 
         byte[] passphrase = EncryptedDbKeyStore
@@ -257,6 +259,7 @@ public abstract class AppDatabase extends RoomDatabase {
                 .getDbKeyBytes();
 
         if (passphrase == null || passphrase.length == 0) {
+            // FIX #1: Key generation failed → explicit crash, not silent fallback
             throw new RuntimeException(
                 "[SECURITY] DB encryption key could not be retrieved from " +
                 "EncryptedSharedPreferences. Refusing to open unencrypted DB. " +
@@ -268,21 +271,11 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(
-                    MIGRATION_1_2,
-                    MIGRATION_2_3,
-                    MIGRATION_3_4,
-                    MIGRATION_4_5,
-                    MIGRATION_5_6,
-                    MIGRATION_6_7,
-                    MIGRATION_7_8,
-                    MIGRATION_8_9,
-                    MIGRATION_9_10
-                )
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle)
                 .fallbackToDestructiveMigration()
                 .build();
 
-        Log.d(TAG, "AppDatabase (SQLCipher encrypted, v10, exportSchema=true) ready");
+        Log.d(TAG, "AppDatabase (SQLCipher encrypted, exportSchema=true) ready");
         return db;
     }
 }

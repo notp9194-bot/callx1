@@ -51,10 +51,7 @@ import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
-import com.callx.app.conversation.MessageInfoActivity;
 import com.callx.app.starred.StarredMessagesActivity;
-import org.json.JSONException;
-import org.json.JSONObject;
 import com.callx.app.chat.ui.GifAwareEditText;
 import androidx.core.view.inputmethod.InputContentInfoCompat;
 import com.callx.app.conversation.MessageAdapter;
@@ -353,16 +350,6 @@ public class GroupChatActivity extends AppCompatActivity {
             @Override public void onStar(Message m)                { toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
-            @Override public void onInfo(Message m) {
-                // FIX: Group chat se MessageInfoActivity open karo
-                if (m == null || m.id == null) return;
-                android.content.Intent infoIntent =
-                        new android.content.Intent(GroupChatActivity.this, MessageInfoActivity.class);
-                infoIntent.putExtra("chatId",    groupId);
-                infoIntent.putExtra("messageId", m.id);
-                infoIntent.putExtra("isGroup",   true);
-                startActivity(infoIntent);
-            }
             @Override public void onNavigateToOriginal(String messageId) {
                 if (messageId == null || messageId.isEmpty()) return;
                 for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
@@ -464,7 +451,6 @@ public class GroupChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 m.id = s.getKey();
                 saveToRoom(m);
-                markDelivered(m); // FIX: deliveredTo set karo
                 markRead(m);
             }
             @Override public void onChildChanged(DataSnapshot s, String prev) {
@@ -544,19 +530,10 @@ public class GroupChatActivity extends AppCompatActivity {
         e.starred               = Boolean.TRUE.equals(m.starred);
         e.pinned                = Boolean.TRUE.equals(m.pinned);
         e.isGroup               = true;
-          e.syncedAt              = System.currentTimeMillis();
-          e.fontStyle             = m.fontStyle;
-          // FIX: Message Info timestamps persist karo Room mein
-          e.deliveredAt           = m.deliveredAt;
-          e.readAt                = m.readAt;
-          if (m.deliveredTo != null && !m.deliveredTo.isEmpty()) {
-              e.deliveredToJson = MessageInfoActivity.mapToJson(m.deliveredTo);
-          }
-          if (m.readBy != null && !m.readBy.isEmpty()) {
-              e.readByJson = MessageInfoActivity.mapToJson(m.readBy);
-          }
-          return e;
-      }
+        e.syncedAt              = System.currentTimeMillis();
+        e.fontStyle             = m.fontStyle;
+        return e;
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // INPUT BAR
@@ -710,72 +687,13 @@ public class GroupChatActivity extends AppCompatActivity {
         });
     }
 
-      private void markRead(Message m) {
-          if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
-          // FIX: Long timestamp store karo (boolean true nahi).
-          // MessageInfoActivity.parseReadMap() expects Map<String,Long> — true se parse fail hota tha.
-          long now = System.currentTimeMillis();
-          groupMessagesRef.child(m.id).child("readBy")
-                  .child(currentUid).setValue(now);
-          // FIX: Room DB bhi update karo — offline info screen ke liye
-          final long nowFinal = now;
-          final String msgId  = m.id;
-          ioExecutor.execute(() -> {
-              try {
-                  com.callx.app.db.entity.MessageEntity existing =
-                          db.messageDao().getMessageById(msgId);
-                  String updatedJson = addEntryToJson(
-                          existing != null ? existing.readByJson : null,
-                          currentUid, nowFinal);
-                  db.messageDao().updateReadByJson(msgId, updatedJson);
-                  db.messageDao().updateStatus(msgId, "read");
-                  db.messageDao().updateReadAt(msgId, nowFinal);
-              } catch (Exception ignored) {}
-          });
-      }
+    private void markRead(Message m) {
+        if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
+        groupMessagesRef.child(m.id).child("readBy")
+                .child(currentUid).setValue(true);
+    }
 
-      private void markDelivered(Message m) {
-          // FIX: Group message receive hone par deliveredTo mein apna uid + timestamp set karo.
-          // Pehle ye method exist hi nahi karta tha — group Delivered To hamesha empty tha.
-          if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
-          if (m.status == null || "sent".equals(m.status)) {
-              long now = System.currentTimeMillis();
-              groupMessagesRef.child(m.id).child("deliveredTo")
-                      .child(currentUid).setValue(now);
-              final long nowFinal = now;
-              final String msgId  = m.id;
-              ioExecutor.execute(() -> {
-                  try {
-                      com.callx.app.db.entity.MessageEntity existing =
-                              db.messageDao().getMessageById(msgId);
-                      String updatedJson = addEntryToJson(
-                              existing != null ? existing.deliveredToJson : null,
-                              currentUid, nowFinal);
-                      db.messageDao().updateDeliveredToJson(msgId, updatedJson);
-                      db.messageDao().updateDeliveredAt(msgId, nowFinal);
-                  } catch (Exception ignored) {}
-              });
-          }
-      }
-
-      /**
-       * Helper: existing JSON map mein ek uid→timestamp entry add/update karta hai.
-       * Input:  {"uid1":1700000001000}  or null
-       * Output: {"uid1":1700000001000,"uid2":1700000002000}
-       */
-      private String addEntryToJson(String existingJson, String uid, long tsMillis) {
-          try {
-              JSONObject obj = (existingJson != null && !existingJson.isEmpty())
-                      ? new JSONObject(existingJson)
-                      : new JSONObject();
-              obj.put(uid, tsMillis);
-              return obj.toString();
-          } catch (JSONException e) {
-              return "{\"" + uid + "\":" + tsMillis + "}";
-          }
-      }
-
-      // ─────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
     // REPLY (Feature 2)
     // ─────────────────────────────────────────────────────────────────────
 

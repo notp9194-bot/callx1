@@ -133,6 +133,9 @@ public class ChatActivity extends AppCompatActivity {
     private String currentName;
 
     // ── State flags ────────────────────────────────────────────────────────
+    // FIX: Cache SecurityManager — avoid new instance on every incoming message
+    private com.callx.app.utils.SecurityManager securityManager;
+
     private boolean isMuted              = false;
     private boolean isBlocked            = false;
     private boolean isRecording          = false;
@@ -205,6 +208,7 @@ public class ChatActivity extends AppCompatActivity {
         recorder = new VoiceRecorder();
 
         db = AppDatabase.getInstance(this);
+        securityManager = new com.callx.app.utils.SecurityManager(this);
 
         // ── Core Paging 3 setup ──
         setupPagingRecyclerView();   // [FIX-1]  wire adapter
@@ -748,11 +752,13 @@ public class ChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 m.id = snapshot.getKey();
                 saveToRoom(m, false);
-                // FIX: Mark delivered first (sets deliveredAt), then read (sets readAt).
-                // Without markDelivered(), status jumped sent→read skipping "delivered" tick.
-                // Chat open hai toh immediately read ho jata hai — deliveredAt = readAt = now.
+                // FIX: markDelivered sets delivered first; markRead is delayed 800ms
+                // so sender sees ✓✓ grey (delivered) before it flips to ✓✓ blue (read).
+                // Without delay, status jumped sent→read instantly, delivered was never visible.
                 markDelivered(m);
-                markRead(m);
+                final Message mFinal = m;
+                new android.os.Handler(android.os.Looper.getMainLooper())
+                        .postDelayed(() -> markRead(mFinal), 800);
             }
 
             @Override
@@ -1550,21 +1556,20 @@ public class ChatActivity extends AppCompatActivity {
         if (m == null || m.id == null) return;
         // Only mark received messages (not our own), and skip if already read
         if (!currentUid.equals(m.senderId) && !"read".equals(m.status)) {
-            // Check OUR own readReceipts setting — agar off hai toh "read" mat bhejo
-            com.callx.app.utils.SecurityManager secMgr =
-                new com.callx.app.utils.SecurityManager(this);
-            if (!secMgr.isReadReceiptsEnabled()) return;
+            // FIX: Use cached securityManager — avoid new instance on every call
+            if (!securityManager.isReadReceiptsEnabled()) return;
 
             long now = System.currentTimeMillis();
 
-            // FIX: Set readAt timestamp — sender ko exact time pata chalega
-            messagesRef.child(m.id).child("status").setValue("read");
-            messagesRef.child(m.id).child("readAt").setValue(now);
-
-            // FIX: Set deliveredAt only if not already set
+            // Atomic update: status + readAt together
+            Map<String, Object> updates = new HashMap<>();
+            updates.put("status", "read");
+            updates.put("readAt", now);
+            // Set deliveredAt only if not already set
             if (m.deliveredAt == null || m.deliveredAt == 0) {
-                messagesRef.child(m.id).child("deliveredAt").setValue(now);
+                updates.put("deliveredAt", now);
             }
+            messagesRef.child(m.id).updateChildren(updates);
 
             final long nowFinal = now;
             ioExecutor.execute(() -> {
@@ -1579,13 +1584,14 @@ public class ChatActivity extends AppCompatActivity {
         if (m == null || m.id == null) return;
         // Mark received message as delivered if still "sent"
         if (!currentUid.equals(m.senderId) && "sent".equals(m.status)) {
-            com.callx.app.utils.SecurityManager secMgr =
-                new com.callx.app.utils.SecurityManager(this);
-            if (!secMgr.isReadReceiptsEnabled()) return;
+            // FIX: Use cached securityManager — avoid new instance on every call
+            if (!securityManager.isReadReceiptsEnabled()) return;
 
             long now = System.currentTimeMillis();
-            messagesRef.child(m.id).child("status").setValue("delivered");
-            messagesRef.child(m.id).child("deliveredAt").setValue(now);
+            Map<String, Object> updates = new HashMap<>();
+            updates.put("status", "delivered");
+            updates.put("deliveredAt", now);
+            messagesRef.child(m.id).updateChildren(updates);
 
             final long nowFinal = now;
             ioExecutor.execute(() -> {

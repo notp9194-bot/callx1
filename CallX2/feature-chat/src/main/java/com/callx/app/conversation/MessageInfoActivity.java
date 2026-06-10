@@ -249,24 +249,9 @@ public class MessageInfoActivity extends AppCompatActivity {
     }
 
     // ── Helper: parse a JSON string into Map<uid, timestamp> (Room fallback) ─
-    public static Map<String, Long> mapToJson(Map<String, Long> map) {
-          if (map == null || map.isEmpty()) return null;
-          try {
-              JSONObject obj = new JSONObject();
-              for (Map.Entry<String, Long> entry : map.entrySet()) {
-                  if (entry.getKey() != null && entry.getValue() != null) {
-                      obj.put(entry.getKey(), entry.getValue());
-                  }
-              }
-              return obj.toString();
-          } catch (JSONException e) {
-              return null;
-          }
-      }
-
-      public static Map<String, Long> parseReadMap(String json) {
-          Map<String, Long> result = new HashMap<>();
-          if (json == null || json.isEmpty()) return result;
+    public static Map<String, Long> parseReadMap(String json) {
+        Map<String, Long> result = new HashMap<>();
+        if (json == null || json.isEmpty()) return result;
         try {
             JSONObject obj = new JSONObject(json);
             Iterator<String> keys = obj.keys();

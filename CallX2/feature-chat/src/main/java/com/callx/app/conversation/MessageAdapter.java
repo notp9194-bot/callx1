@@ -796,7 +796,14 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                         h.tvStatus.setTextColor(
                             com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
                         break;
-                    default:
+                    case "pending":
+                        // FIX: Clock icon for messages not yet sent to Firebase (offline)
+                        h.tvStatus.setText("\uD83D\uDD52");  // 🕒
+                        h.tvStatus.setTextSize(11f);
+                        h.tvStatus.setTextColor(
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                        break;
+                    default: // "sent"
                         h.tvStatus.setText("\u2713");
                         h.tvStatus.setTextSize(13f);
                         h.tvStatus.setTextColor(
