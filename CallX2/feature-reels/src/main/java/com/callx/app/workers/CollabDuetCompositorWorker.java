@@ -6,8 +6,11 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.work.*;
 
+import com.callx.app.social.collab.CollabVideoCompositor;
 import com.callx.app.utils.FirebaseUtils;
+import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.database.ServerValue;
+import android.net.Uri;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -164,13 +167,11 @@ public class CollabDuetCompositorWorker extends Worker {
     private String uploadToStorage(File file, String path) throws Exception {
         com.google.firebase.storage.StorageReference ref =
             com.google.firebase.storage.FirebaseStorage.getInstance().getReference(path);
-
-        // Synchronous upload using Tasks.await
-        com.google.android.gms.tasks.Task<android.net.Uri> task =
-            ref.putFile(android.net.Uri.fromFile(file))
-               .continueWithTask(t -> ref.getDownloadUrl());
-
-        return com.google.android.gms.tasks.Tasks.await(task).toString();
+        // Synchronous upload using Tasks.await on background thread (WorkManager thread)
+        com.google.firebase.storage.UploadTask upload = ref.putFile(Uri.fromFile(file));
+        Tasks.await(upload);
+        Uri downloadUri = Tasks.await(ref.getDownloadUrl());
+        return downloadUri.toString();
     }
 
     // ── Write reel ────────────────────────────────────────────────────────────

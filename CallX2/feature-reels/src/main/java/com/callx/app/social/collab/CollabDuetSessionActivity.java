@@ -11,7 +11,9 @@ import android.os.Looper;
 import android.util.Base64;
 import android.view.View;
 import android.widget.*;
+import android.net.Uri;
 import androidx.annotation.NonNull;
+import com.google.android.material.button.MaterialButton;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.*;
 import androidx.camera.lifecycle.ProcessCameraProvider;
@@ -79,7 +81,7 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
     private LinearLayout layoutPartnerWaiting;
     private TextView    tvPartnerStatus, tvPartnerNameLabel;
     private PreviewView previewSelf;
-    private Button      btnReady, btnStop;
+    private MaterialButton btnReady, btnStop;
     private TextView    tvCountdown, tvRecordingTime, tvSessionInfo;
     private View        layoutRecordingIndicator, dotRecording;
     private ImageButton btnBack;
@@ -364,7 +366,7 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
         layoutRecordingIndicator.setVisibility(View.VISIBLE);
 
         // Blink recording dot
-        mainHandler.post(new Runnable() {
+        Runnable blinkRunnable = new Runnable() {
             boolean visible = true;
             @Override public void run() {
                 if (!isRecording) return;
@@ -372,7 +374,8 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
                 visible = !visible;
                 mainHandler.postDelayed(this, 700);
             }
-        });
+        };
+        mainHandler.post(blinkRunnable);
 
         // Recording timer
         recordingStartMs = System.currentTimeMillis();
@@ -382,9 +385,8 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
                 long elapsed = System.currentTimeMillis() - recordingStartMs;
                 long sec = elapsed / 1000;
                 tvRecordingTime.setText(String.format(Locale.ROOT, "%d:%02d", sec / 60, sec % 60));
-                // Auto-stop at durationMs
                 if (session != null && session.durationMs > 0 && elapsed >= session.durationMs) {
-                    stopRecording();
+                    CollabDuetSessionActivity.this.stopRecording();
                     return;
                 }
                 mainHandler.postDelayed(this, 1000);
@@ -449,6 +451,7 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
 
     private void captureAndUploadFrame(DatabaseReference ref) {
         try {
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return;
             Bitmap bm = previewSelf.getBitmap();
             if (bm == null) return;
             // Scale down + compress
@@ -481,7 +484,7 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
 
         com.google.firebase.storage.FirebaseStorage.getInstance()
             .getReference(storagePath)
-            .putFile(android.net.Uri.fromFile(file))
+            .putFile(Uri.fromFile(file))
             .addOnSuccessListener(task ->
                 task.getStorage().getDownloadUrl().addOnSuccessListener(uri -> {
                     String url = uri.toString();
@@ -491,14 +494,14 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
                     // Mark done if both uploaded
                     sessionRef.child("status").setValue(CollabDuetSession.STATUS_DONE);
                     runOnUiThread(() -> {
-                        btnStop.setText("✅ Uploaded!");
-                        Toast.makeText(this, "Your recording uploaded. Compositing…",
+                        btnStop.setText("Uploaded!");
+                        Toast.makeText(CollabDuetSessionActivity.this, "Your recording uploaded. Compositing...",
                             Toast.LENGTH_LONG).show();
                     });
                 })
             )
             .addOnFailureListener(e -> runOnUiThread(() ->
-                Toast.makeText(this, "Upload failed: " + e.getMessage(),
+                Toast.makeText(CollabDuetSessionActivity.this, "Upload failed: " + e.getMessage(),
                     Toast.LENGTH_LONG).show()));
     }
 
@@ -551,10 +554,14 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
             new android.app.AlertDialog.Builder(this)
                 .setTitle("Leave session?")
                 .setMessage("Recording will be cancelled.")
-                .setPositiveButton("Leave", (d, w) -> { stopRecording(); super.onBackPressed(); })
+                .setPositiveButton("Leave", (d, w) -> { stopRecording(); leaveSession(); })
                 .setNegativeButton("Stay", null).show();
         } else {
-            super.onBackPressed();
+            leaveSession();
         }
+    }
+
+    private void leaveSession() {
+        super.onBackPressed();
     }
 }

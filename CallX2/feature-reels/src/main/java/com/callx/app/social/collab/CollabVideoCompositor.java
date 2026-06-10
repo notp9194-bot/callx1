@@ -3,6 +3,7 @@ package com.callx.app.social.collab;
 import android.graphics.*;
 import android.media.*;
 import android.util.Log;
+import android.view.Surface;
 
 import java.io.File;
 import java.io.IOException;
@@ -56,7 +57,7 @@ public class CollabVideoCompositor {
 
         MediaCodec encoder = MediaCodec.createEncoderByType(MIME);
         encoder.configure(encFmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-        android.view.Surface inputSurface = encoder.createInputSurface();
+        Surface inputSurface = encoder.createInputSurface();
         encoder.start();
 
         // ── Setup decoders ─────────────────────────────────────────────────────
@@ -72,8 +73,8 @@ public class CollabVideoCompositor {
 
         SurfaceTexture stHost = new SurfaceTexture(0);
         SurfaceTexture stPart = new SurfaceTexture(1);
-        android.view.Surface hostSurf = new android.view.Surface(stHost);
-        android.view.Surface partSurf = new android.view.Surface(stPart);
+        Surface hostSurf = new android.view.Surface(stHost);
+        Surface partSurf = new android.view.Surface(stPart);
 
         MediaCodec hostDec = buildDecoder(hostFmt, hostSurf);
         MediaCodec partDec = buildDecoder(partFmt, partSurf);
@@ -191,7 +192,7 @@ public class CollabVideoCompositor {
         return -1;
     }
 
-    private MediaCodec buildDecoder(MediaFormat fmt, android.view.Surface surface) throws IOException {
+    private MediaCodec buildDecoder(MediaFormat fmt, Surface surface) throws IOException {
         String mime = fmt.getString(MediaFormat.KEY_MIME);
         MediaCodec dec = MediaCodec.createDecoderByType(mime != null ? mime : MIME);
         dec.configure(fmt, surface, null, 0);
