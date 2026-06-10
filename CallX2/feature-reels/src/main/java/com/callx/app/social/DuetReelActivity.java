@@ -506,51 +506,19 @@ public class DuetReelActivity extends AppCompatActivity {
         }.start();
     }
 
-    // ── Post-recording: composite + open editor ───────────────────────────────
+    // ── Post-recording: open editor ───────────────────────────────────────────
 
     private void onRecordingDone(String cameraFilePath) {
         if (exoPlayer != null) exoPlayer.pause();
-
-        // Show progress dialog — compositing can take 5-30s
-        android.app.ProgressDialog pd = new android.app.ProgressDialog(this);
-        pd.setMessage("Processing duet…");
-        pd.setProgressStyle(android.app.ProgressDialog.STYLE_SPINNER);
-        pd.setCancelable(false);
-        pd.show();
-
-        ExecutorService exec = Executors.newSingleThreadExecutor();
-        exec.execute(() -> {
-            try {
-                File outFile = new File(getCacheDir(),
-                    "duet_final_" + System.currentTimeMillis() + ".mp4");
-
-                // ── Actual side-by-side video compositing ──────────────────
-                DuetVideoCompositor compositor = new DuetVideoCompositor();
-                boolean composited = compositor.composite(
-                    cameraFilePath,   // user's camera recording
-                    videoUrl,         // original reel (streamed/local)
-                    outFile.getAbsolutePath(),
-                    layoutMode,
-                    originalVol       // mix original audio at this volume (0..1)
-                );
-
-                String finalPath = composited ? outFile.getAbsolutePath() : cameraFilePath;
-                runOnUiThread(() -> {
-                    pd.dismiss();
-                    incrementDuetCount();
-                    fireDuetNotification();
-                    openEditor(finalPath);
-                });
-            } catch (Exception e) {
-                Log.e(TAG, "Composite failed, using camera file alone", e);
-                runOnUiThread(() -> {
-                    pd.dismiss();
-                    openEditor(cameraFilePath);
-                });
-            } finally {
-                exec.shutdown();
-            }
-        });
+        // DuetVideoCompositor (MediaCodec frame-by-frame) causes infinite hangs:
+        //  - lockHardwareCanvas() on bg thread crashes on most devices
+        //  - MediaExtractor.setDataSource(http) blocks bg thread unpredictably
+        // So we skip compositing and pass camera file directly to editor.
+        // Duet metadata (originalId, ownerUid, label) goes via Intent extras so
+        // ReelUploadActivity tags the Firebase node as a duet correctly.
+        incrementDuetCount();
+        fireDuetNotification();
+        openEditor(cameraFilePath);
     }
 
     /** Increment duetCount on the original reel in Firebase. */
