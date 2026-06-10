@@ -389,12 +389,12 @@
                 android:textColor="@color/chat_time_color"
                 android:textSize="10sp"/>
             <TextView
-                android:id="@+id/iv_tick"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
+                android:id="@+id/tv_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="10sp"
                 android:paddingStart="3dp"
-                android:visibility="gone"
-                android:scaleType="fitCenter"/>
+                android:visibility="gone"/>
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

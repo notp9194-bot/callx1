@@ -780,60 +780,25 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             h.tvStarredIcon.setVisibility(
                     Boolean.TRUE.equals(m.starred) ? View.VISIBLE : View.GONE);
 
-        if (h.ivTick != null) {
-            // FIX: Use proper drawable tick icons instead of Unicode characters
-            if (sent) {
-                h.ivTick.setVisibility(View.VISIBLE);
-                Context ctx = h.itemView.getContext();
-                switch (m.status == null ? "sent" : m.status) {
-                    case "read":
-                        h.ivTick.setImageResource(com.callx.app.chat.R.drawable.ic_double_tick_blue);
-                        h.ivTick.clearColorFilter();
-                        break;
-                    case "delivered":
-                        h.ivTick.setImageResource(com.callx.app.chat.R.drawable.ic_double_tick);
-                        h.ivTick.setColorFilter(
-                            com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false),
-                            android.graphics.PorterDuff.Mode.SRC_IN);
-                        break;
-                    case "pending":
-                        // FIX: Clock icon for offline/unsent messages
-                        h.ivTick.setImageResource(com.callx.app.chat.R.drawable.ic_single_tick);
-                        h.ivTick.setColorFilter(
-                            android.graphics.Color.parseColor("#AAAAAA"),
-                            android.graphics.PorterDuff.Mode.SRC_IN);
-                        break;
-                    default: // "sent"
-                        h.ivTick.setImageResource(com.callx.app.chat.R.drawable.ic_single_tick);
-                        h.ivTick.setColorFilter(
-                            com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false),
-                            android.graphics.PorterDuff.Mode.SRC_IN);
-                        break;
-                }
-            } else {
-                h.ivTick.setVisibility(View.GONE);
-            }
-        } else if (h.tvStatus != null) {
-            // Fallback for layouts that still use tv_status (e.g. group received items)
+        if (h.tvStatus != null) {
             if (sent) {
                 h.tvStatus.setVisibility(View.VISIBLE);
                 switch (m.status == null ? "sent" : m.status) {
                     case "read":
                         h.tvStatus.setText("\u2713\u2713 ");
+                        h.tvStatus.setTextSize(14f);
                         h.tvStatus.setTextColor(
                             com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
                         break;
                     case "delivered":
                         h.tvStatus.setText("\u2713\u2713");
+                        h.tvStatus.setTextSize(13f);
                         h.tvStatus.setTextColor(
                             com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
                         break;
-                    case "pending":
-                        h.tvStatus.setText("\uD83D\uDD52");
-                        h.tvStatus.setTextColor(android.graphics.Color.parseColor("#AAAAAA"));
-                        break;
                     default:
                         h.tvStatus.setText("\u2713");
+                        h.tvStatus.setTextSize(13f);
                         h.tvStatus.setTextColor(
                             com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
                         break;
@@ -1308,8 +1273,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         LinearLayout llFile;
         TextView     tvFileName, tvFileMeta;
         ImageButton  ivDownload; // FIX: Download button for received file messages
-        TextView     tvStatus; // kept for backward compat (received items may use it)
-        ImageView    ivTick;   // FIX: proper drawable tick for sent messages
+        TextView     tvStatus;
         LinearLayout llReplyPreview;
         TextView     tvReplySender, tvReplyText;
         LinearLayout llReactions;
@@ -1340,8 +1304,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvFileName   = v.findViewById(R.id.tv_file_name);
             tvFileMeta   = v.findViewById(R.id.tv_file_meta);
             ivDownload   = v.findViewById(R.id.btn_download); // FIX: bind download button
-            tvStatus     = v.findViewById(R.id.tv_status);    // may be null on sent items
-            ivTick       = v.findViewById(R.id.iv_tick);      // FIX: drawable tick icon
+            tvStatus     = v.findViewById(R.id.tv_status);
             llReplyPreview = v.findViewById(R.id.ll_reply_preview);
             tvReplySender  = v.findViewById(R.id.tv_reply_sender);
             tvReplyText    = v.findViewById(R.id.tv_reply_text);

@@ -414,10 +414,6 @@ public class IncomingRingService extends Service {
 
             // Feature 4: Apply custom RemoteViews if built successfully
             if (customView != null) {
-                // FIX: Set BOTH collapsed + expanded views.
-                // Without setCustomContentView, collapsed state falls back to system default
-                // which ignores our layout and shows a tiny avatar via LargeIcon only.
-                b.setCustomContentView(customView);
                 b.setCustomBigContentView(customView);
             }
 

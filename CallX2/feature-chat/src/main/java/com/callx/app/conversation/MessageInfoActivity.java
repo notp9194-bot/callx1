@@ -127,12 +127,17 @@ public class MessageInfoActivity extends AppCompatActivity {
     }
 
     private void loadMessageInfo() {
-        // FIX: Was using wrong path "chats/{chatId}/messages/{id}".
-        // Actual Firebase path is "messages/{chatId}/{messageId}" via FirebaseUtils.getMessagesRef().
+        // FIX: group messages are at "groupMessages/{groupId}/{msgId}",
+        //      1-on-1 messages are at "messages/{chatId}/{msgId}".
         DatabaseReference base;
         try {
-            base = com.callx.app.utils.FirebaseUtils.getMessagesRef(chatId)
-                    .child(messageId);
+            if (isGroup) {
+                base = com.callx.app.utils.FirebaseUtils.getGroupMessagesRef(chatId)
+                        .child(messageId);
+            } else {
+                base = com.callx.app.utils.FirebaseUtils.getMessagesRef(chatId)
+                        .child(messageId);
+            }
         } catch (Exception e) {
             showError("Could not connect to database.");
             return;

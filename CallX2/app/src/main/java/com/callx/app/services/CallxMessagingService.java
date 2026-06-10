@@ -1153,6 +1153,17 @@ public class CallxMessagingService extends FirebaseMessagingService {
                         updates.put("deliveredAt", now);
                         msgRef.updateChildren(updates);
 
+                        // FIX: For group messages, also set deliveredTo/{myUid} = timestamp
+                        // so MessageInfoActivity "Delivered To" list works.
+                        // Group messages ref path: groupMessages/{groupId}/{msgId}
+                        // We detect group by checking if msgRef path contains "groupMessages"
+                        String refPath = msgRef.toString();
+                        if (refPath.contains("/groupMessages/")) {
+                            msgRef.getParent().getParent()
+                                    .child("deliveredTo")
+                                    .child(myUid).setValue(now);
+                        }
+
                         // FIX: Also update Room DB so MessageInfoActivity works offline
                         try {
                             com.callx.app.db.AppDatabase db =
@@ -1162,88 +1173,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
                         } catch (Exception ignored) {}
                     }
                     @Override public void onCancelled(DatabaseError e) {}
-                });
-            } catch (Exception ignored) {}
-        });
-    }
-
-    /**
-     * FIX: Group background delivery marking.
-     * Sets deliveredTo/{uid} = timestamp on groupMessages path.
-     * Upgrades top-level status to "delivered" when all members have delivered.
-     */
-    private void markGroupDeliveredBackground(final String msgId,
-                                               final String groupId,
-                                               final String fromUid) {
-        if (msgId == null || msgId.isEmpty()) return;
-        if (groupId == null || groupId.isEmpty()) return;
-
-        final com.google.firebase.auth.FirebaseUser me =
-                FirebaseAuth.getInstance().getCurrentUser();
-        if (me == null) return;
-        final String myUid = me.getUid();
-        if (myUid.equals(fromUid)) return; // own message — skip
-
-        if (com.callx.app.utils.ActiveChatTracker.isActive(groupId)) return;
-
-        com.callx.app.utils.SecurityManager secMgr =
-                new com.callx.app.utils.SecurityManager(getApplicationContext());
-        if (!secMgr.isReadReceiptsEnabled()) return;
-
-        bg.execute(() -> {
-            try {
-                com.google.firebase.database.DatabaseReference msgRef =
-                        FirebaseUtils.getGroupMessagesRef(groupId).child(msgId);
-
-                final long now = System.currentTimeMillis();
-
-                // Step 1: Set deliveredTo/{myUid} = timestamp
-                msgRef.child("deliveredTo").child(myUid).setValue(now);
-
-                // Step 2: Check if all members delivered → upgrade status
-                msgRef.child("status").addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
-                        String cur = s.getValue(String.class);
-                        // Don't downgrade from read
-                        if ("read".equals(cur)) return;
-                        if ("delivered".equals(cur)) return;
-
-                        // Count deliveredTo entries vs group size
-                        // We set our own entry above; check total count from deliveredTo
-                        msgRef.child("deliveredTo").addListenerForSingleValueEvent(
-                                new ValueEventListener() {
-                            @Override public void onDataChange(
-                                    com.google.firebase.database.DataSnapshot snap) {
-                                // Get group member count from Firebase
-                                FirebaseUtils.getGroupMembersRef(groupId)
-                                        .addListenerForSingleValueEvent(new ValueEventListener() {
-                                    @Override public void onDataChange(
-                                            com.google.firebase.database.DataSnapshot membersSnap) {
-                                        int totalMembers = (int) membersSnap.getChildrenCount();
-                                        int delivered    = (int) snap.getChildrenCount();
-                                        int needed = totalMembers > 0 ? totalMembers - 1 : 1;
-                                        if (delivered >= needed) {
-                                            java.util.Map<String, Object> upd = new java.util.HashMap<>();
-                                            upd.put("status",      "delivered");
-                                            upd.put("deliveredAt", now);
-                                            msgRef.updateChildren(upd);
-                                            try {
-                                                com.callx.app.db.AppDatabase db =
-                                                        AppDatabase.getInstance(getApplicationContext());
-                                                db.messageDao().updateStatus(msgId, "delivered");
-                                                db.messageDao().updateDeliveredAt(msgId, now);
-                                            } catch (Exception ignored) {}
-                                        }
-                                    }
-                                    @Override public void onCancelled(
-                                            com.google.firebase.database.DatabaseError e) {}
-                                });
-                            }
-                            @Override public void onCancelled(
-                                    com.google.firebase.database.DatabaseError e) {}
-                        });
-                    }
-                    @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
                 });
             } catch (Exception ignored) {}
         });
@@ -1561,8 +1490,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
         // FIX: Background group delivery marking — same rules as 1-on-1.
         // GroupChatActivity handles it when open; FCM handles it in background/killed state.
         // Uses groupMessages/{groupId}/{msgId} path via FirebaseUtils.getGroupMessagesRef().
-        // FIX: Group background delivery — use group-specific path + deliveredTo map
-        markGroupDeliveredBackground(grpMsgId, groupId, fromUid);
+        markDeliveredBackground(grpMsgId, groupId, fromUid);
 
         // ── @Mention detection ───────────────────────────────────────────────
         // Check FCM flag first; fall back to scanning text for "@name" / "@everyone"

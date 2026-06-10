@@ -25,8 +25,8 @@
         <!-- Avatar with colored ring — set programmatically via setImageViewBitmap -->
         <ImageView
             android:id="@+id/notif_avatar"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:scaleType="centerCrop"
             android:src="@android:drawable/ic_menu_myplaces"/>
 

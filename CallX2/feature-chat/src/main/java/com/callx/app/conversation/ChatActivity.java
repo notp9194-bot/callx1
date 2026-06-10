@@ -133,9 +133,6 @@ public class ChatActivity extends AppCompatActivity {
     private String currentName;
 
     // ── State flags ────────────────────────────────────────────────────────
-    // FIX: Cache SecurityManager — avoid new instance on every incoming message
-    private com.callx.app.utils.SecurityManager securityManager;
-
     private boolean isMuted              = false;
     private boolean isBlocked            = false;
     private boolean isRecording          = false;
@@ -208,7 +205,6 @@ public class ChatActivity extends AppCompatActivity {
         recorder = new VoiceRecorder();
 
         db = AppDatabase.getInstance(this);
-        securityManager = new com.callx.app.utils.SecurityManager(this);
 
         // ── Core Paging 3 setup ──
         setupPagingRecyclerView();   // [FIX-1]  wire adapter
@@ -355,10 +351,6 @@ public class ChatActivity extends AppCompatActivity {
                     // FIX [P2-2]: Reconnect par missed messages sync karo —
                     // background mein network drop hua toh new messages miss ho jaate the
                     ChatRepository.getInstance(getApplicationContext()).syncMessagesDelta(chatId);
-                    // FIX: Reconnect pe stale "sent" messages refresh karo —
-                    // agar receiver ne offline hote hue delivered/read kiya toh
-                    // sender ka Room DB update nahi hota. Yahan Firebase se re-query karo.
-                    refreshStaleSentStatuses();
                 });
             }
             @Override public void onLost(Network n) {
@@ -756,13 +748,11 @@ public class ChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 m.id = snapshot.getKey();
                 saveToRoom(m, false);
-                // FIX: markDelivered sets delivered first; markRead is delayed 800ms
-                // so sender sees ✓✓ grey (delivered) before it flips to ✓✓ blue (read).
-                // Without delay, status jumped sent→read instantly, delivered was never visible.
+                // FIX: Mark delivered first (sets deliveredAt), then read (sets readAt).
+                // Without markDelivered(), status jumped sent→read skipping "delivered" tick.
+                // Chat open hai toh immediately read ho jata hai — deliveredAt = readAt = now.
                 markDelivered(m);
-                final Message mFinal = m;
-                new android.os.Handler(android.os.Looper.getMainLooper())
-                        .postDelayed(() -> markRead(mFinal), 800);
+                markRead(m);
             }
 
             @Override
@@ -1142,39 +1132,6 @@ public class ChatActivity extends AppCompatActivity {
                 String preview = pe.text != null ? pe.text : "[" + pe.type + "]";
                 runOnUiThread(() -> firebasePushMessage(m, pe.id, preview));
             }
-        });
-    }
-
-    /**
-     * FIX: Reconnect pe stale "sent" messages refresh karo.
-     * Agar receiver ne offline hote hue read/deliver kiya toh sender ka Room stale rehta hai.
-     * Yahan sirf apne sent messages ke last 50 ko Firebase se re-check karo.
-     */
-    private void refreshStaleSentStatuses() {
-        if (messagesRef == null || currentUid == null || chatId == null) return;
-        ioExecutor.execute(() -> {
-            try {
-                AppDatabase localDb = AppDatabase.getInstance(getApplicationContext());
-                // Room se sirf "sent" status wale apne messages lao
-                List<com.callx.app.db.entity.MessageEntity> stale =
-                        localDb.messageDao().getSentMessagesByUser(chatId, currentUid, 50);
-                if (stale == null || stale.isEmpty()) return;
-                for (com.callx.app.db.entity.MessageEntity e : stale) {
-                    final String msgId = e.id;
-                    messagesRef.child(msgId).child("status")
-                            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                        @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
-                            String remoteStatus = s.getValue(String.class);
-                            if (remoteStatus == null) return;
-                            // Only upgrade, never downgrade
-                            if ("delivered".equals(remoteStatus) || "read".equals(remoteStatus)) {
-                                ioExecutor.execute(() -> localDb.messageDao().updateStatus(msgId, remoteStatus));
-                            }
-                        }
-                        @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
-                    });
-                }
-            } catch (Exception ignored) {}
         });
     }
 
@@ -1593,20 +1550,21 @@ public class ChatActivity extends AppCompatActivity {
         if (m == null || m.id == null) return;
         // Only mark received messages (not our own), and skip if already read
         if (!currentUid.equals(m.senderId) && !"read".equals(m.status)) {
-            // FIX: Use cached securityManager — avoid new instance on every call
-            if (!securityManager.isReadReceiptsEnabled()) return;
+            // Check OUR own readReceipts setting — agar off hai toh "read" mat bhejo
+            com.callx.app.utils.SecurityManager secMgr =
+                new com.callx.app.utils.SecurityManager(this);
+            if (!secMgr.isReadReceiptsEnabled()) return;
 
             long now = System.currentTimeMillis();
 
-            // Atomic update: status + readAt together
-            Map<String, Object> updates = new HashMap<>();
-            updates.put("status", "read");
-            updates.put("readAt", now);
-            // Set deliveredAt only if not already set
+            // FIX: Set readAt timestamp — sender ko exact time pata chalega
+            messagesRef.child(m.id).child("status").setValue("read");
+            messagesRef.child(m.id).child("readAt").setValue(now);
+
+            // FIX: Set deliveredAt only if not already set
             if (m.deliveredAt == null || m.deliveredAt == 0) {
-                updates.put("deliveredAt", now);
+                messagesRef.child(m.id).child("deliveredAt").setValue(now);
             }
-            messagesRef.child(m.id).updateChildren(updates);
 
             final long nowFinal = now;
             ioExecutor.execute(() -> {
@@ -1620,15 +1578,15 @@ public class ChatActivity extends AppCompatActivity {
     private void markDelivered(Message m) {
         if (m == null || m.id == null) return;
         // Mark received message as delivered if still "sent"
-        if (!currentUid.equals(m.senderId) && "sent".equals(m.status)) {
-            // FIX: Use cached securityManager — avoid new instance on every call
-            if (!securityManager.isReadReceiptsEnabled()) return;
+        // FIX: also handle null status (brand-new messages with no status field yet)
+        if (!currentUid.equals(m.senderId) && (m.status == null || "sent".equals(m.status))) {
+            com.callx.app.utils.SecurityManager secMgr =
+                new com.callx.app.utils.SecurityManager(this);
+            if (!secMgr.isReadReceiptsEnabled()) return;
 
             long now = System.currentTimeMillis();
-            Map<String, Object> updates = new HashMap<>();
-            updates.put("status", "delivered");
-            updates.put("deliveredAt", now);
-            messagesRef.child(m.id).updateChildren(updates);
+            messagesRef.child(m.id).child("status").setValue("delivered");
+            messagesRef.child(m.id).child("deliveredAt").setValue(now);
 
             final long nowFinal = now;
             ioExecutor.execute(() -> {
