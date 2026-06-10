@@ -1446,9 +1446,7 @@ public class ReelPlayerFragment extends Fragment
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_DOWNLOAD:
                 downloadReel(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_DUET:
-                openDuet(); break;
-            case com.callx.app.social.ReelMoreBottomSheet.ACTION_COLLAB_DUET:
-                openCollabDuet(); break;
+                showDuetTypeDialog(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_STITCH:
                 openStitch(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_VIDEO_REPLY:
@@ -1561,6 +1559,31 @@ public class ReelPlayerFragment extends Fragment
         } catch (ClassNotFoundException e) {
             openUserReels(); // fallback
         }
+    }
+
+    /**
+     * ✅ FIX (v9 — Collab Duet): Shows an AlertDialog asking the user to choose
+     * between a Solo Duet (records alone, side-by-side with reel) or a
+     * Collab Duet (invites a follower to record simultaneously in real time).
+     *
+     * Called when the user taps "Duet" in the More options bottom sheet.
+     */
+    private void showDuetTypeDialog() {
+        if (!isAdded() || getContext() == null) return;
+        new android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Choose Duet Type")
+            .setItems(new String[]{
+                "Solo Duet",
+                "👥 Collab Duet (invite a friend)"
+            }, (dialog, which) -> {
+                if (which == 0) {
+                    openDuet();
+                } else {
+                    openCollabDuet();
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     private void openDuet() {
