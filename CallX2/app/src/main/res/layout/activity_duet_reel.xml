@@ -122,6 +122,26 @@
             android:text="Original: 50%"
             android:textColor="#AAFFFFFF"
             android:textSize="10sp"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Mic gain slider -->
+        <SeekBar
+            android:id="@+id/seek_mic_gain"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="200"
+            android:progress="100"
+            android:progressTint="#FF4081"
+            android:thumbTint="#FF4081"
+            android:layout_marginBottom="2dp"/>
+
+        <TextView
+            android:id="@+id/tv_mic_gain_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Mic: 100%"
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp"
             android:layout_marginBottom="10dp"/>
 
         <TextView

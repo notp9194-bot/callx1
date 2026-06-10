@@ -89,6 +89,8 @@ public class DuetReelActivity extends AppCompatActivity {
     private TextView     tvDuetTimer, tvDuetLabel, tvCountdown;
     private SeekBar      seekOriginalVolume;
     private TextView     tvVolumeLabel;
+    private SeekBar      seekMicGain;
+    private TextView     tvMicGainLabel;
 
     /** Layout selector buttons */
     private View       btnLayoutSideBySide, btnLayoutTopBottom, btnLayoutPip;
@@ -107,6 +109,7 @@ public class DuetReelActivity extends AppCompatActivity {
     private boolean discardOnStop   = false; // true = close-button stop, skip editor
     private int     layoutMode      = LAYOUT_SIDE_BY_SIDE;
     private float   originalVol  = 0.5f; // original reel audio volume (default 50%)
+    private float   micGain      = 1.0f; // mic gain multiplier (default 100% = no boost)
     private CountDownTimer recordTimer;
 
     // ── Reel metadata ─────────────────────────────────────────────────────────
@@ -174,6 +177,7 @@ public class DuetReelActivity extends AppCompatActivity {
         progressDuet.setMax(durationSec);
 
         setupVolumeSlider();
+        setupMicGainSlider();
         setupLayoutSelector();
 
         playerViewOriginal.post(this::setupOriginalPlayer);
@@ -205,6 +209,8 @@ public class DuetReelActivity extends AppCompatActivity {
         tvCountdown         = findViewById(R.id.tv_duet_countdown);
         seekOriginalVolume  = findViewById(R.id.seek_original_volume);
         tvVolumeLabel       = findViewById(R.id.tv_volume_label);
+        seekMicGain         = findViewById(R.id.seek_mic_gain);
+        tvMicGainLabel      = findViewById(R.id.tv_mic_gain_label);
         layoutSelector      = findViewById(R.id.layout_duet_selector);
         btnLayoutSideBySide = findViewById(R.id.btn_layout_side_by_side);
         btnLayoutTopBottom  = findViewById(R.id.btn_layout_top_bottom);
@@ -224,8 +230,31 @@ public class DuetReelActivity extends AppCompatActivity {
         seekOriginalVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 originalVol = progress / 100f;
-                if (exoPlayer != null) exoPlayer.setVolume(originalVol);
+                // ✅ Only update ExoPlayer volume when NOT recording.
+                // During recording ExoPlayer stays muted (0f) to prevent mic bleed.
+                // The compositor uses originalVol in post-processing instead.
+                if (exoPlayer != null && !isRecording) {
+                    exoPlayer.setVolume(originalVol);
+                }
                 if (tvVolumeLabel != null) tvVolumeLabel.setText("Original: " + progress + "%");
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
+    }
+
+    // ── Mic gain slider ───────────────────────────────────────────────────────
+
+    private void setupMicGainSlider() {
+        if (seekMicGain == null) return;
+        seekMicGain.setMax(200);       // 0–200 → 0.0–2.0x gain
+        seekMicGain.setProgress(100);  // default 100 = 1.0x (no change)
+        if (tvMicGainLabel != null) tvMicGainLabel.setText("Mic: 100%");
+
+        seekMicGain.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                micGain = progress / 100f; // 0.0–2.0
+                if (tvMicGainLabel != null) tvMicGainLabel.setText("Mic: " + progress + "%");
             }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
@@ -429,6 +458,11 @@ public class DuetReelActivity extends AppCompatActivity {
                     isPaused    = false;
                     runOnUiThread(() -> {
                         exoPlayer.seekTo(0);
+                        // ✅ FIX: Mute ExoPlayer during recording so original audio
+                        // does NOT bleed into the mic. DuetVideoCompositor will mix
+                        // the original audio at origVolume in post-processing.
+                        // Without this, original audio plays twice (mic bleed + mix).
+                        exoPlayer.setVolume(0f);
                         exoPlayer.play();
                         btnDuetRecord.setImageResource(R.drawable.ic_pause);
                         startCountdownTimer();
@@ -437,6 +471,10 @@ public class DuetReelActivity extends AppCompatActivity {
                     VideoRecordEvent.Finalize fin = (VideoRecordEvent.Finalize) event;
                     isRecording = false;
                     isPaused    = false;
+                    runOnUiThread(() -> {
+                        // ✅ Restore ExoPlayer volume to slider value after recording ends
+                        if (exoPlayer != null) exoPlayer.setVolume(originalVol);
+                    });
                     if (!fin.hasError() && !discardOnStop) {
                         runOnUiThread(() -> onRecordingDone(recordedCameraFile.getAbsolutePath()));
                     } else if (fin.hasError()) {
@@ -528,18 +566,20 @@ public class DuetReelActivity extends AppCompatActivity {
         final String outputPath = new java.io.File(getCacheDir(),
             "duet_composite_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
 
-        final int capturedLayout = layoutMode;
+        final int   capturedLayout   = layoutMode;
         // Prefer local cached file — no network dependency
         final String capturedOriginal = (cachedOriginalPath != null)
             ? cachedOriginalPath : videoUrl;
-        final float  capturedVol = originalVol;
+        final float  capturedVol     = originalVol;
+        final float  capturedMicGain = micGain;
 
         // Use a SEPARATE thread — cameraExecutor is single-threaded and still
         // used by CameraX internally; running compositing on it causes a deadlock.
         new Thread(() -> {
             DuetVideoCompositor compositor = new DuetVideoCompositor();
             boolean ok = compositor.composite(
-                cameraFilePath, capturedOriginal, outputPath, capturedLayout, capturedVol);
+                cameraFilePath, capturedOriginal, outputPath,
+                capturedLayout, capturedVol, capturedMicGain);
 
             final String finalPath = ok ? outputPath : cameraFilePath;
 

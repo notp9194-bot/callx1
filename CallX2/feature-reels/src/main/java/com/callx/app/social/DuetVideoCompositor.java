@@ -78,11 +78,14 @@ public class DuetVideoCompositor {
      * @param outputPath   absolute path for the composited output MP4
      * @param layoutMode   0=side-by-side, 1=top-bottom, 2=PiP
      * @param origVolume   0.0–1.0 volume of original reel audio in the mix
+     * @param micGain      0.0–2.0 gain multiplier for camera mic audio (1.0 = no change)
      * @return true on success
      */
     public boolean composite(String cameraPath, String originalUrl,
-                             String outputPath, int layoutMode, float origVolume) {
-        Log.d(TAG, "start layout=" + layoutMode + " cam=" + cameraPath);
+                             String outputPath, int layoutMode,
+                             float origVolume, float micGain) {
+        Log.d(TAG, "start layout=" + layoutMode + " cam=" + cameraPath
+                + " origVol=" + origVolume + " micGain=" + micGain);
 
         if (cameraPath == null || !new File(cameraPath).exists()) {
             Log.e(TAG, "camera file missing"); return false;
@@ -92,7 +95,7 @@ public class DuetVideoCompositor {
         }
 
         try {
-            return pipeline(cameraPath, originalUrl, outputPath, layoutMode, origVolume);
+            return pipeline(cameraPath, originalUrl, outputPath, layoutMode, origVolume, micGain);
         } catch (Exception e) {
             Log.e(TAG, "composite failed: " + e.getMessage(), e);
             return false;
@@ -106,13 +109,14 @@ public class DuetVideoCompositor {
     // ─────────────────────────────────────────────────────────────────────────
 
     private boolean pipeline(String camPath, String origUrl,
-                              String outPath, int layout, float origVolume) throws Exception {
+                              String outPath, int layout,
+                              float origVolume, float micGain) throws Exception {
 
         // ── 1. Pre-encode audio FIRST (before muxer is created) ───────────
         // This gives us the audio MediaFormat so we can add BOTH tracks to the
         // muxer before calling muxer.start() — the only legal MediaMuxer order.
         String      audioTempPath = outPath + ".audio.mp4";
-        MediaFormat audioOutFmt   = preEncodeAudio(camPath, origUrl, origVolume, audioTempPath);
+        MediaFormat audioOutFmt   = preEncodeAudio(camPath, origUrl, origVolume, micGain, audioTempPath);
 
         // ── 2. Encoder ────────────────────────────────────────────────────
         MediaFormat encFmt = MediaFormat.createVideoFormat(
@@ -518,7 +522,7 @@ public class DuetVideoCompositor {
      * format and then muxer.start().
      */
     private MediaFormat preEncodeAudio(String camPath, String origUrl,
-                                        float origVolume, String tempPath) {
+                                        float origVolume, float micGain, String tempPath) {
         try {
             short[] camPcm  = decodeAudioToPcm(camPath);
             short[] origPcm = decodeAudioToPcm(origUrl);
@@ -545,14 +549,15 @@ public class DuetVideoCompositor {
                 probe.release();
             }
 
-            // Mix PCM: camera (full volume) + original (scaled by slider)
+            // Mix PCM: camera (scaled by micGain) + original (scaled by origVolume)
             int outLen = camPcm.length;
             short[] mixed = new short[outLen];
             for (int i = 0; i < outLen; i++) {
-                float cam  = camPcm[i] / 32768f;
+                float cam  = (camPcm[i] / 32768f) * micGain;   // mic gain applied here
                 float orig = (origPcm != null && origPcm.length > 0)
-                             ? (origPcm[i % origPcm.length] / 32768f) : 0f;
-                float sum  = cam + orig * origVolume;
+                             ? (origPcm[i % origPcm.length] / 32768f) * origVolume : 0f;
+                float sum  = cam + orig;
+                // Hard clamp to prevent clipping
                 sum = Math.max(-1f, Math.min(1f, sum));
                 mixed[i] = (short)(sum * 32767f);
             }
