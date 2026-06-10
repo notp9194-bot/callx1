@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    activity_duet_reel.xml  — v28 (All Fixes Applied)
+
+    NEW views added vs original:
+      • view_duet_preview_overlay  (Fix 5)  — DuetPreviewOverlayView live layout indicator
+      • tv_chain_duet_banner       (Fix 10) — "Chain Duet (depth N)" banner
+      • btn_invite_duet            (Fix 11) — owner-only "Invite to Duet" button
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -73,6 +81,17 @@
         </FrameLayout>
     </LinearLayout>
 
+    <!-- ── Fix 5: Real-time composite preview overlay ─────────────────────
+         DuetPreviewOverlayView draws divider lines + labels showing what
+         the final composited video will look like in each layout mode.
+         Sits on top of the video area but under all controls.             -->
+    <com.callx.app.social.DuetPreviewOverlayView
+        android:id="@+id/view_duet_preview_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:focusable="false"/>
+
     <!-- ── Top controls bar ──────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -104,7 +123,18 @@
             android:fontFamily="sans-serif-medium"
             android:gravity="center"/>
 
-        <!-- View Duets button (shows all duets of this reel) -->
+        <!-- Fix 11: Invite button — shown only to reel owner (code sets visibility) -->
+        <ImageButton
+            android:id="@+id/btn_invite_duet"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_group"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#A855F7"
+            android:contentDescription="Invite to Duet"
+            android:visibility="gone"/>
+
+        <!-- View Duets button -->
         <ImageButton
             android:id="@+id/btn_view_duets"
             android:layout_width="44dp"
@@ -124,7 +154,27 @@
             android:contentDescription="Flip camera"/>
     </LinearLayout>
 
-    <!-- ── Layout mode selector (side-by-side / top-bottom / pip) ────────── -->
+    <!-- ── Fix 10: Chain Duet banner ──────────────────────────────────────
+         Shown below top bar when user is dueting a reel that is itself a duet.
+         Code: tvChainDuetBanner.setText("Chain Duet (depth N)").          -->
+    <TextView
+        android:id="@+id/tv_chain_duet_banner"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="96dp"
+        android:text="Chain Duet"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:fontFamily="sans-serif-medium"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:background="#BB7C3AED"
+        android:visibility="gone"/>
+
+    <!-- ── Layout mode selector (side-by-side / top-bottom / pip / bubble) -->
     <LinearLayout
         android:id="@+id/layout_duet_selector"
         android:layout_width="wrap_content"
@@ -136,7 +186,6 @@
         android:background="#55000000"
         android:padding="6dp">
 
-        <!-- Side-by-side -->
         <ImageButton
             android:id="@+id/btn_layout_side_by_side"
             android:layout_width="40dp"
@@ -147,7 +196,6 @@
             android:contentDescription="Side by Side"
             android:alpha="1.0"/>
 
-        <!-- Top-Bottom -->
         <ImageButton
             android:id="@+id/btn_layout_top_bottom"
             android:layout_width="40dp"
@@ -159,7 +207,6 @@
             android:alpha="0.4"
             android:layout_marginTop="4dp"/>
 
-        <!-- PiP / React -->
         <ImageButton
             android:id="@+id/btn_layout_pip"
             android:layout_width="40dp"
@@ -171,7 +218,6 @@
             android:alpha="0.4"
             android:layout_marginTop="4dp"/>
 
-        <!-- Reaction Bubble -->
         <ImageButton
             android:id="@+id/btn_layout_reaction_bubble"
             android:layout_width="40dp"
@@ -184,12 +230,9 @@
             android:layout_marginTop="4dp"/>
     </LinearLayout>
 
-    <!-- ── Reaction Bubble draggable overlay ─────────────────────────────── -->
-    <!--
-        Circular FrameLayout that the user drags to position the bubble.
-        Shown only in LAYOUT_REACTION_BUBBLE mode (visibility toggled in code).
-        ShapeAppearance circle is handled via clipToOutline in Activity.
-    -->
+    <!-- ── Fix 2: Reaction Bubble draggable overlay ───────────────────────
+         OnTouchListener in DuetReelActivity.setupBubbleDragListener()
+         handles ACTION_DOWN + ACTION_MOVE for free drag with clamping.    -->
     <FrameLayout
         android:id="@+id/view_bubble_overlay"
         android:layout_width="120dp"
@@ -203,14 +246,12 @@
         android:outlineProvider="background"
         android:elevation="8dp">
 
-        <!-- Camera preview mirrored into bubble -->
         <androidx.camera.view.PreviewView
             android:id="@+id/preview_view_bubble"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             app:scaleType="fillCenter"/>
 
-        <!-- Drag handle hint -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -240,7 +281,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="4dp">
 
             <ImageView
                 android:layout_width="18dp"
@@ -271,7 +312,7 @@
             android:id="@+id/tv_volume_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Original audio: 50%"
+            android:text="Original: 50%"
             android:textColor="#CCFFFFFF"
             android:textSize="11sp"
             android:layout_marginBottom="6dp"/>
@@ -318,7 +359,7 @@
             android:textSize="11sp"
             android:layout_marginBottom="10dp"/>
 
-        <!-- Timer -->
+        <!-- Timer + progress -->
         <TextView
             android:id="@+id/tv_duet_timer"
             android:layout_width="wrap_content"
@@ -329,7 +370,6 @@
             android:fontFamily="sans-serif-medium"
             android:layout_marginBottom="8dp"/>
 
-        <!-- Progress bar -->
         <ProgressBar
             android:id="@+id/progress_duet"
             style="@style/Widget.AppCompat.ProgressBar.Horizontal"
@@ -353,7 +393,7 @@
             android:contentDescription="Record duet"/>
     </LinearLayout>
 
-    <!-- ── 3-2-1 Countdown overlay (shown over everything) ───────────────── -->
+    <!-- ── 3-2-1 Countdown overlay ────────────────────────────────────────── -->
     <TextView
         android:id="@+id/tv_duet_countdown"
         android:layout_width="wrap_content"

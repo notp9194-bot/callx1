@@ -1,260 +1,194 @@
-# CallX X System — v10 Production Update
+# CallX Duet System — All 11 Fixes
 
-## Summary
-Complete production-level overhaul of the X (Twitter-like) feature module.
-All 8 critical bugs fixed, 15+ missing features implemented, performance
-optimized, and Firebase security rules added.
+Date: June 10, 2026
 
 ---
 
-## 🔴 Critical Bug Fixes
+## Fix 1 — SingleReelPlayerActivity (NEW CLASS)
+**File:** `feature-reels/.../player/SingleReelPlayerActivity.java`
 
-### 1. Race Condition: likeCount / retweetCount / replyCount / viewCount / followerCount / followingCount / bookmarkCount / pollVotes
-**Files:** XTweetAdapter, XHomeFragment, XTweetDetailActivity, XProfileActivity, XDMConversationActivity  
-**Fix:** Every counter increment/decrement now uses `runTransaction()` instead of
-`get() + setValue(old + 1)`. This guarantees atomicity when multiple users
-interact simultaneously.
+DuetsByReelActivity referenced this class but it didn't exist anywhere — instant crash when tapping any duet thumbnail.
 
-### 2. Scheduled Posts — Dead Feature Fix
-**Files:** XComposeActivity, XScheduledPostWorker (NEW)  
-**Fix:** Scheduled posts are now enqueued via Android WorkManager with
-`ExistingWorkPolicy.REPLACE`. The worker fires at the exact scheduled time,
-reads the draft from Firebase, publishes it, fans it out to followers, and
-removes the draft — all in a background thread.
-
-### 3. Block / Mute Feed Filtering
-**Files:** XHomeFragment  
-**Fix:** `loadBlockMuteLists()` pre-loads blocked/muted UID sets before feed loads.
-Every incoming tweet is filtered if its `authorUid` is in either set. Muting
-a user also immediately removes their tweets from the current list (optimistic).
-
-### 4. Fan-out Scalability
-**Files:** XComposeActivity  
-**Fix:** Fan-out now uses a single multi-path `updateChildren()` batch write
-instead of individual `setValue()` calls per follower. Limited to 500 followers
-per batch (production apps should move this to Cloud Functions for >10K followers).
-
-### 5. Poll Vote Race Condition
-**Files:** XTweetAdapter.castVoteTx()  
-**Fix:** `voteCounts/{option}` incremented via `runTransaction()`. A separate
-`userVotes/{uid}` node prevents double-voting.
-
-### 6. viewCount Non-atomic Increment
-**Files:** XTweetDetailActivity.incrementViewCount()  
-**Fix:** Uses `runTransaction()` — guaranteed unique count even with concurrent viewers.
-
-### 7. N+1 Query in Replies
-**Files:** XTweetDetailActivity.loadRepliesBatch()  
-**Fix:** Single Firebase query `orderByChild("replyToTweetId").equalTo(tweetId)`
-fetches all replies in one round-trip instead of per-reply individual fetches.
-
-### 8. Search Partial Fix (Prefix Search)
-**Files:** XExploreFragment  
-**Note:** Firebase RTDB doesn't support full-text search. Current prefix search
-is now case-normalized. For production full-text search, integrate Algolia:
-add `algolia_app_id` and `algolia_search_key` to secrets, index tweets
-on `XFirebaseUtils.tweetsRef()` write via Cloud Function.
+- Loads reel by Firebase reelId
+- Loops video with ExoPlayer
+- Shows owner name + caption
+- "Duet this" button (honours allowDuetLevel)
+- Back button
 
 ---
 
-## 🟠 New Features
+## Fix 2 — Reaction Bubble Drag Touch Listener
+**File:** `feature-reels/.../social/DuetReelActivity.java`
 
-### Profile Tabs: Posts / Replies / Media / Likes
-**File:** XProfileActivity  
-Each tab loads data from a separate Firebase index:
-- Posts → `user_tweets/{uid}`
-- Replies → `user_replies/{uid}` → batch fetch each tweet
-- Media → `user_tweets/{uid}` filtered for `isMedia()`
-- Likes → `user_likes/{uid}` → batch fetch each liked tweet
+bubbleOverlay had no OnTouchListener — users could see the bubble but not move it.
 
-### Notification Tabs: All / Mentions / Likes / Reposts / Follows
-**File:** XNotificationsFragment  
-Single Firebase fetch loads all notifications; client-side filter applies
-per-tab. Tab bar auto-scrollable. Marks all read on open.
-
-### DM Typing Indicator
-**File:** XDMConversationActivity  
-Firebase node: `x/dm_typing/{convId}/{uid}` = timestamp.
-Debounced: sets typing=timestamp while typing, removes after 2s of no input.
-Listener on other participant's typing state shows "X is typing…" banner.
-Cleaned up in `onPause()` and `onDestroy()`.
-
-### DM Emoji Reactions
-**File:** XDMConversationActivity, XDMAdapter  
-Long-press on any message shows picker (❤️ 😂 😮 😢 😠 👍). Reactions stored at
-`x/dm_reactions/{convId}/{msgId}/{emoji}/{uid}`. XDMAdapter renders reaction
-chips with count, highlighted if I reacted.
-
-### DM Video Messages
-**File:** XDMConversationActivity  
-Video icon in toolbar launches video picker. Upload via Cloudinary; plays in
-XVideoPlayerActivity on tap.
-
-### DM Reply-to Message
-**File:** XDMConversationActivity, XDMMessage model  
-Long-press → "↩ Reply" attaches reply-to preview to next message. Stored as
-`replyToMsgId` + `replyToText` snippet in XDMMessage.
-
-### DM Read Receipts (✓✓ Seen)
-**File:** XDMAdapter  
-Sent messages show "✓ Sent" or "✓✓ Seen" in accent color. `seenAt` timestamp
-now also stored alongside `seen`.
-
-### Multi-Image Support (up to 4)
-**File:** XComposeActivity  
-Image button opens multi-select gallery picker. Up to 4 images shown as
-thumbnails with per-image alt-text fields. Published as `mediaUrls[]`,
-`mediaTypes[]`, `mediaAltTexts[]` arrays. XTweetAdapter renders a GridLayout.
-
-### Thread Composer
-**File:** XComposeActivity (Add thread button), XThreadComposerActivity (NEW)  
-XComposeActivity: "➕" button adds thread entries inline.
-XThreadComposerActivity: dedicated full-screen thread editor with
-drag-to-reorder, per-entry character counter, and atomic batch publish.
-
-### GIF Picker
-**File:** XGifPickerActivity (NEW)  
-Full Tenor GIF search with infinite trending grid. Returns `gif_url` and
-`gif_preview_url` to caller. Add `tenor_api_key` string resource to enable.
-Falls back to demo key if not configured (rate-limited).
-
-### Audience Selector
-**File:** XComposeActivity  
-Dialog to select Public / Followers only / Circle. Stored in `tweet.audience`.
-"Followers only" tweets filtered from "For You" tab for non-followers.
-
-### Edit Tweet
-**File:** XComposeActivity, XHomeFragment  
-"Edit post" in More menu opens XComposeActivity with pre-filled text.
-Saves `editedAt` + `editedText` (original) to tweet. "Edited" label shown in adapter.
-
-### Link Preview Cards
-**File:** XLinkPreviewHelper (NEW), XComposeActivity, XTweetAdapter  
-Auto-detects URLs in compose text, fetches OG meta tags (title/description/image)
-from a background thread, caches in Firebase `x/link_previews/{urlKey}`,
-and shows a card below tweet text in the feed.
-
-### Block List Screen
-**File:** XBlockedUsersActivity (NEW)  
-Settings → Privacy → Blocked users shows a RecyclerView of all blocked users
-with profile photos. "Unblock" removes from both `user_blocked/{me}` and
-`user_blocked/{them}`.
-
-### Mute List Screen
-**File:** XMutedUsersActivity (NEW)  
-Same pattern as blocked users — lists muted accounts with "Unmute" action.
-
-### Like Animation (Scale Burst)
-**File:** XTweetAdapter  
-AnimatorSet scales the heart icon up to 1.5× then back to 1× with OvershootInterpolator
-on like. No library needed — pure Android Animator.
-
-### DiffUtil in All Adapters
-**Files:** XTweetAdapter, XDMAdapter  
-`setTweets()` / `setMessages()` now use `DiffUtil.calculateDiff()` with item
-and content equality checks. No more `notifyDataSetChanged()` causing full redraws.
-
-### Profile View Count
-**File:** XProfileActivity  
-Profile visits atomically increment `x/users/{uid}/profileViews` via Transaction.
-
-### Tweet Pin / Unpin
-**File:** XHomeFragment, XProfileActivity  
-"Pin to profile" / "Unpin" in More menu sets `tweet.isPinned` and updates
-`x/users/{uid}/pinnedTweetId`. Profile Posts tab sorts pinned tweet first.
-
-### Haptic Feedback
-**File:** XTweetAdapter (inside animateLike)  
-Standard practice: add `v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)`
-in the like `setOnClickListener` to provide tactile response.
+- ACTION_DOWN: captures touch offset from bubble corner
+- ACTION_MOVE: updates view X/Y with parent-bounds clamping
+- Tracks bubbleViewX/Y for bubbleToNdc() conversion
 
 ---
 
-## 🔵 Firebase Security Rules (NEW)
-**File:** firebase_rules/firebase_x_rules.json  
-Complete RTDB rules for all X paths:
-- Tweets only deletable/editable by author
-- User feeds readable only by owner
-- DM messages readable only by conversation participants (convId contains uid)
-- Typing, reactions, bookmarks, notifications — scoped per user
-- Handles index: once claimed, only the owner can overwrite
-- Poll votes: only voter can write their own vote
+## Fix 3 — bubbleToNdc() Method
+**File:** `feature-reels/.../social/DuetReelActivity.java`
 
-**To deploy:**
-```
-firebase database:rules:update firebase_rules/firebase_x_rules.json --project YOUR_PROJECT
-```
+Method was called in onRecordingDone() but never defined — compile error.
+
+- Converts dragged bubble VIEW position → OpenGL NDC coords
+- Handles "not dragged yet" default (bottom-left area)
+- Flips Y axis (GL is bottom-up, Android is top-down)
 
 ---
 
-## 🟡 Performance Improvements
+## Fix 4 — Original Reel Music Track in Duet Audio
+**File:** `feature-reels/.../social/DuetVideoCompositor.java`
+**File:** `feature-reels/.../social/DuetReelActivity.java`
 
-| Before | After |
-|--------|-------|
-| `notifyDataSetChanged()` everywhere | `DiffUtil.calculateDiff()` in XTweetAdapter + XDMAdapter |
-| Quote tweet fetched on every bind | Cache map in XTweetAdapter; fetch only on cache miss |
-| Poll fetched on every bind | Cache map in XTweetAdapter; fetch only on cache miss |
-| Replies loaded N+1 | Single `orderByChild("replyToTweetId")` batch query |
-| Fan-out: N individual Firebase writes | Single `updateChildren()` multi-path batch |
-| `limitToLast(50)` hardcoded | Cursor-based pagination (PAGE_SIZE=30, `oldestTimestamp` cursor) |
-| Full tweet objects in user feeds | Still in user feeds (full fan-out) — NOTE: for >100K users, switch to ID-only fan-out + Cloud Function |
+If original reel had a separate music track (soundUrl in Firebase), it was never included in the duet audio mix — only embedded video audio was decoded.
 
----
-
-## Files Changed / Added
-
-### Updated
-- `models/XTweet.java` — multi-image fields, edit history, audience, link preview, thread, alt-text
-- `models/XDMMessage.java` — reactions, reply-to, forwarded, seenAt
-- `utils/XFirebaseUtils.java` — new refs: typing, group DMs, link previews, profile views, edit history
-- `adapters/XTweetAdapter.java` — DiffUtil, like animation, multi-image grid, link preview card, audience label
-- `adapters/XDMAdapter.java` — DiffUtil, read receipts (✓✓), emoji reactions, reply preview, video tap
-- `fragments/XHomeFragment.java` — block/mute filtering, cursor pagination, Transaction for all counts
-- `fragments/XNotificationsFragment.java` — 5 filter tabs (All/Mentions/Likes/Reposts/Follows)
-- `activities/XProfileActivity.java` — 4 profile tabs (Posts/Replies/Media/Likes), profile view count, Transaction follow counts
-- `activities/XTweetDetailActivity.java` — viewCount Transaction, batch reply load, all counts via Transaction
-- `activities/XDMConversationActivity.java` — typing indicator, video DMs, reactions, reply-to, read receipts
-- `activities/XComposeActivity.java` — multi-image, thread mode, GIF picker, audience selector, link preview, edit tweet, alt text, scheduled posts WorkManager
-
-### New
-- `activities/XBlockedUsersActivity.java` — manage blocked users
-- `activities/XMutedUsersActivity.java` — manage muted users
-- `activities/XGifPickerActivity.java` — Tenor GIF search + picker
-- `activities/XThreadComposerActivity.java` — full thread composer with reorder
-- `workers/XScheduledPostWorker.java` — WorkManager job for scheduled posts
-- `utils/XLinkPreviewHelper.java` — OG meta-tag scraper with Firebase cache
-- `firebase_rules/firebase_x_rules.json` — complete RTDB security rules
+- composite() now accepts separateSoundUrl parameter
+- decodeAudioToRaw() decodes soundUrl into a 3rd raw PCM temp file
+- preEncodeAudio() sums cam + origVideo + origMusic at individual gains
+- DuetReelActivity passes EXTRA_ORIGINAL_SOUND_URL through to compositor
 
 ---
 
-## Integration Notes
+## Fix 5 — Real-time Composite Preview Overlay
+**File:** `feature-reels/.../social/DuetPreviewOverlayView.java` (NEW CLASS)
 
-### AndroidManifest.xml — Register new activities
-```xml
-<activity android:name=".activities.XBlockedUsersActivity" />
-<activity android:name=".activities.XMutedUsersActivity" />
-<activity android:name=".activities.XGifPickerActivity" />
-<activity android:name=".activities.XThreadComposerActivity" />
-```
+During recording, users had no idea what the final composited output would look like — they only saw raw camera + original player separately.
 
-### build.gradle (feature-x) — Add WorkManager
-```groovy
-implementation "androidx.work:work-runtime:2.9.0"
-```
+- Custom View drawn on top of the recording layout
+- Side-by-side: vertical divider line + "Original" / "You" labels
+- Top-bottom: horizontal divider + labels
+- PiP: small rectangle outline in corner + labels
+- Reaction Bubble: circle outline at drag position + label
+- Reacts to setLayoutMode() and setBubblePosition() calls in real-time
 
-### WorkManager — Initialize in Application class
-```java
-// Already auto-initialized if using work-runtime >= 2.1
-// Or manually: WorkManager.initialize(this, new Configuration.Builder().build());
-```
+---
 
-### Tenor GIF API Key
-```xml
-<!-- res/values/strings.xml -->
-<string name="tenor_api_key">YOUR_TENOR_API_KEY</string>
-```
+## Fix 6 — ReelMoreBottomSheet Duet Permission Check
+**File:** Original file ALREADY CORRECT — no changes needed.
 
-### Firebase Rules Deploy
-```bash
-firebase database:rules:update firebase_rules/firebase_x_rules.json
-```
+Verified: addDuetStitchItem() correctly handles "off" (hide), "followers" (gray-out if !isFollowing), "everyone" (show). Fix 6 is ✅ done.
+
+---
+
+## Fix 7 — ReelUploadActivity saveReelToFirebase Duet Fields
+**File:** `feature-reels/.../upload/ReelUploadActivity.java`
+
+Original file already saved duetOf, duetOfOwnerUid, duetOriginalUrl. Added:
+
+- `chainDuetRootId` — root original reel ID for chain duets (Fix 10)
+- `chainDuetDepth`  — depth counter for duet chains (Fix 10)
+- `duetOriginalSoundUrl` — original reel's music URL for feed re-rendering (Fix 4)
+
+All three are passed from DuetReelActivity → ReelEditorActivity → ReelUploadActivity via intent extras.
+
+---
+
+## Fix 8 — OOM Fix: Streaming Audio Decode
+**File:** `feature-reels/.../social/DuetVideoCompositor.java`
+
+Old decodeAudioToPcm() loaded ENTIRE audio into ArrayList<Short> in heap.
+For 60s stereo @ 44100 Hz: 2 tracks × ~10 MB = ~20 MB on heap = OOM on low-end devices.
+
+- Replaced ArrayList<Short> with decodeAudioToRaw() — writes PCM to temp .raw file
+- Mix loop streams chunks from DataInputStream instead of reading from array
+- PCM_CHUNK_SHORTS = 262144 (512 KB at a time)
+- Temp .raw files deleted immediately after encode
+
+---
+
+## Fix 9 — Duet Watermark Text Overlay
+**File:** `feature-reels/.../social/DuetVideoCompositor.java`
+
+No watermark in output video — users couldn't tell duets from regular reels.
+
+- "Duet with @{ownerName}" burned into top-left corner of every frame
+- Drawn once to a Bitmap, uploaded as GL_TEXTURE_2D
+- Dedicated watermark GL program (separate from OES video program)
+- Semi-transparent black background for legibility
+- Composited as final pass AFTER video frame — never occluded by video
+
+---
+
+## Fix 10 — Chain Duet Support (Duet of a Duet)
+**File:** `feature-reels/.../social/DuetReelActivity.java`
+**File:** `core/.../models/ReelModel.java`
+
+No logic existed for dueting a reel that was itself a duet. DuetReelActivity crashed when allowDuet check ran on a duet reel node.
+
+- DuetReelActivity accepts EXTRA_ORIGINAL_DUET_OF + EXTRA_ORIGINAL_CHAIN_DEPTH extras
+- When detected: shows "Chain Duet (depth N)" banner in UI
+- chainDuetRootId = original source reel's ID (never changes across chain)
+- chainDuetDepth increments with each chain link
+- ReelModel.isChainDuet() helper for feed rendering
+- ReelUploadActivity saves chainDuetRootId + chainDuetDepth to Firebase
+
+---
+
+## Fix 11 — Async/Invite-to-Duet Feature
+**File:** `feature-reels/.../social/DuetInviteActivity.java` (NEW CLASS)
+**File:** `feature-reels/.../workers/PushNotify_DuetInvite_Patch.java` (PATCH)
+
+No way to invite someone to duet your reel.
+
+- DuetInviteActivity: creator-only screen accessible from DuetReelActivity
+- Search followers by username (live filter, first 200 loaded)
+- Tap → writes to Firebase: duetInvites/{targetUid}/{fromUid_reelId}
+- Calls PushNotify.notifyDuetInvite() → in-app notification + FCM queue
+- Invite button (btnInviteDuet) shown ONLY when current user = reel owner
+- PushNotify_DuetInvite_Patch.java shows exact method to add to PushNotify.java
+
+---
+
+## Files Modified/Added
+
+| File | Status | Fix |
+|------|--------|-----|
+| `player/SingleReelPlayerActivity.java` | NEW | Fix 1 |
+| `social/DuetReelActivity.java` | MODIFIED v27→v28 | Fix 2, 3, 5, 10, 11 |
+| `social/DuetVideoCompositor.java` | MODIFIED v5→v6 | Fix 4, 8, 9 |
+| `social/DuetPreviewOverlayView.java` | NEW | Fix 5 |
+| `social/DuetInviteActivity.java` | NEW | Fix 11 |
+| `upload/ReelUploadActivity.java` | PATCHED | Fix 7 |
+| `core/models/ReelModel.java` | PATCHED | Fix 4, 10, 11 |
+| `workers/PushNotify_DuetInvite_Patch.java` | PATCH NOTES | Fix 11 |
+| `upload/ReelUploadActivity_DuetPatch.java` | NOTES | Fix 7 docs |
+
+---
+
+## Integration Steps
+
+1. **Copy all files** from this zip into your Android project at the same package paths
+2. **AndroidManifest.xml**: register 3 new activities:
+   ```xml
+   <activity android:name=".player.SingleReelPlayerActivity" />
+   <activity android:name=".social.DuetInviteActivity" />
+   <!-- DuetPreviewOverlayView is a View, not an Activity — no registration needed -->
+   ```
+3. **activity_duet_reel.xml**: add these views:
+   ```xml
+   <!-- Fix 2: bubble drag overlay — existing view, no changes needed -->
+   <View android:id="@+id/view_bubble_overlay" ... />
+   <!-- Fix 5: preview overlay -->
+   <com.callx.app.social.DuetPreviewOverlayView android:id="@+id/view_duet_preview_overlay"
+       android:layout_width="match_parent" android:layout_height="match_parent" />
+   <!-- Fix 10: chain duet banner -->
+   <TextView android:id="@+id/tv_chain_duet_banner" ... />
+   <!-- Fix 11: invite button -->
+   <ImageButton android:id="@+id/btn_invite_duet" ... />
+   ```
+4. **activity_single_reel_player.xml**: create new layout for SingleReelPlayerActivity
+5. **activity_duet_invite.xml**: create new layout for DuetInviteActivity
+6. **PushNotify.java**: paste the notifyDuetInvite() method from PushNotify_DuetInvite_Patch.java
+7. **ReelPlayerFragment / ReelMoreBottomSheet caller**: pass `reel.musicUrl` as EXTRA_ORIGINAL_SOUND_URL when launching DuetReelActivity (Fix 4)
+8. **Firebase Security Rules**: add rule for `duetInvites` node:
+   ```json
+   "duetInvites": {
+     "$uid": {
+       ".read": "auth.uid === $uid",
+       ".write": "auth != null"
+     }
+   }
+   ```

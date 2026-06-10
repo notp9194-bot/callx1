@@ -1,225 +1,183 @@
 package com.callx.app.player;
 
-import com.callx.app.feed.ReelsFragment;
-import com.callx.app.profile.UserReelsActivity;
-import com.callx.app.library.SavedReelsActivity;
-
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
-import android.widget.ProgressBar;
+import android.widget.ImageButton;
+import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.fragment.app.Fragment;
-import androidx.viewpager2.widget.ViewPager2;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.AspectRatioFrameLayout;
+import androidx.media3.ui.PlayerView;
 
-import com.callx.app.reels.R;
-import com.callx.app.feed.ReelsAdapter;
-import com.callx.app.feed.ReelPlayerFragment;
 import com.callx.app.models.ReelModel;
+import com.callx.app.reels.R;
+import com.callx.app.social.DuetReelActivity;
 import com.callx.app.utils.FirebaseUtils;
-import com.google.firebase.database.*;
-
-import java.util.ArrayList;
-import java.util.List;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.ValueEventListener;
 
 /**
- * SingleReelPlayerActivity — Grid se kisi specific reel ko play karna.
+ * SingleReelPlayerActivity — Fix 1
  *
- * Grid (UserReelsActivity, SavedReelsActivity, SearchActivity) mein
- * thumbnail tap karne par yeh activity open hoti hai.
- * User us position se scroll kar sakta hai.
- *
- * Usage (uid ke saare reels):
- *   Intent i = new Intent(context, SingleReelPlayerActivity.class);
- *   i.putExtra(EXTRA_UID, "uid123");
- *   i.putExtra(EXTRA_START_POSITION, 3);
- *   i.putExtra(EXTRA_TITLE, "John's Reels");
- *   startActivity(i);
- *
- * Usage (specific reel IDs ki list):
- *   i.putStringArrayListExtra(EXTRA_REEL_IDS, reelIdList);
- *   i.putExtra(EXTRA_START_POSITION, position);
- *   startActivity(i);
+ * Plays a single reel by its Firebase reelId.
+ * Referenced by DuetsByReelActivity when a duet thumbnail is tapped.
  *
  * Features:
- *  ✅ Full-screen vertical ViewPager2 — bilkul ReelsFragment jaisa
- *  ✅ Starting position pe seedha jump karta hai
+ *  ✅ Loads reel by ID from Firebase
+ *  ✅ Loops video with ExoPlayer
+ *  ✅ Shows owner name + caption
+ *  ✅ "Duet this" button (honours allowDuetLevel)
  *  ✅ Back button
- *  ✅ offscreenPageLimit=2
  */
+@OptIn(markerClass = UnstableApi.class)
 public class SingleReelPlayerActivity extends AppCompatActivity {
 
-    public static final String EXTRA_UID            = "uid";
-    public static final String EXTRA_REEL_IDS       = "reel_ids";
-    public static final String EXTRA_REEL_ID        = "reelId";   // single reelId (chat bubble se)
-    public static final String EXTRA_START_POSITION = "start_position";
-    public static final String EXTRA_TITLE          = "title";
+    public static final String EXTRA_REEL_ID = "single_reel_id";
+    public static final String EXTRA_TITLE   = "single_reel_title";
 
-    private ViewPager2   vpReels;
-    private ReelsAdapter adapter;
-    private ProgressBar  progressBar;
+    private PlayerView  playerView;
+    private ExoPlayer   exoPlayer;
+    private ImageButton btnBack, btnDuet;
+    private TextView    tvOwner, tvCaption;
+    private View        progressLoad;
 
-    private final List<ReelModel> reels = new ArrayList<>();
-    private ValueEventListener    reelsListener;
-    private int                   startPosition = 0;
+    private ReelModel currentReel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_single_reel_player);
 
-        vpReels     = findViewById(R.id.vp_reels);
-        progressBar = findViewById(R.id.progress_bar);
-        findViewById(R.id.btn_back).setOnClickListener(v -> finish());
+        String reelId = getIntent().getStringExtra(EXTRA_REEL_ID);
+        String title  = getIntent().getStringExtra(EXTRA_TITLE);
 
-        startPosition = getIntent().getIntExtra(EXTRA_START_POSITION, 0);
-        String uid      = getIntent().getStringExtra(EXTRA_UID);
-        ArrayList<String> reelIds = getIntent().getStringArrayListExtra(EXTRA_REEL_IDS);
-        String singleReelId = getIntent().getStringExtra(EXTRA_REEL_ID);
+        playerView   = findViewById(R.id.player_single_reel);
+        btnBack      = findViewById(R.id.btn_single_back);
+        btnDuet      = findViewById(R.id.btn_single_duet);
+        tvOwner      = findViewById(R.id.tv_single_owner);
+        tvCaption    = findViewById(R.id.tv_single_caption);
+        progressLoad = findViewById(R.id.progress_single_reel);
 
-        adapter = new ReelsAdapter(this);
-        vpReels.setAdapter(adapter);
-        vpReels.setOffscreenPageLimit(2);
+        if (title != null) tvOwner.setText(title);
+        btnBack.setOnClickListener(v -> finish());
 
-        vpReels.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
-            @Override
-            public void onPageSelected(int position) {
-                controlPlayback(position);
-            }
-        });
-
-        if (reelIds != null && !reelIds.isEmpty()) {
-            // Load specific reel IDs list
-            loadByReelIds(reelIds);
-        } else if (singleReelId != null && !singleReelId.isEmpty()) {
-            // Single reelId — chat bubble se aaya (ACTION_OPEN_REEL)
-            ArrayList<String> single = new ArrayList<>();
-            single.add(singleReelId);
-            loadByReelIds(single);
-        } else if (uid != null && !uid.isEmpty()) {
-            // Load all reels by this user
-            loadByUid(uid);
-        } else {
-            Toast.makeText(this, "No reels to show", Toast.LENGTH_SHORT).show();
+        if (reelId == null) {
+            Toast.makeText(this, "Reel not found", Toast.LENGTH_SHORT).show();
             finish();
+            return;
         }
+
+        loadReel(reelId);
     }
 
-    private void loadByUid(String uid) {
-        progressBar.setVisibility(View.VISIBLE);
-        reelsListener = new ValueEventListener() {
-            @Override
-            public void onDataChange(@NonNull DataSnapshot snap) {
-                reels.clear();
-                for (DataSnapshot s : snap.getChildren()) {
-                    ReelModel reel = s.getValue(ReelModel.class);
-                    if (reel == null) continue;
-                    if (reel.reelId == null) reel.reelId = s.getKey();
-                    reels.add(reel);
+    private void loadReel(String reelId) {
+        if (progressLoad != null) progressLoad.setVisibility(View.VISIBLE);
+
+        FirebaseUtils.db()
+            .getReference("reels")
+            .child(reelId)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (progressLoad != null) progressLoad.setVisibility(View.GONE);
+
+                    ReelModel reel = snap.getValue(ReelModel.class);
+                    if (reel == null) {
+                        Toast.makeText(SingleReelPlayerActivity.this,
+                            "Reel not available", Toast.LENGTH_SHORT).show();
+                        finish();
+                        return;
+                    }
+                    if (reel.reelId == null) reel.reelId = snap.getKey();
+                    currentReel = reel;
+                    bindReel(reel);
                 }
-                // Latest reel pehle — timestamp descending sort
-                reels.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
-                onReelsLoaded();
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                progressBar.setVisibility(View.GONE);
-            }
-        };
-        FirebaseUtils.getReelsRef()
-            .orderByChild("uid").equalTo(uid)
-            .addListenerForSingleValueEvent(reelsListener);
+
+                @Override
+                public void onCancelled(@NonNull DatabaseError error) {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (progressLoad != null) progressLoad.setVisibility(View.GONE);
+                    Toast.makeText(SingleReelPlayerActivity.this,
+                        "Failed to load reel", Toast.LENGTH_SHORT).show();
+                    finish();
+                }
+            });
     }
 
-    private void loadByReelIds(List<String> reelIds) {
-        progressBar.setVisibility(View.VISIBLE);
-        final int[] loaded = {0};
-        final int total = reelIds.size();
-        final ReelModel[] tempReels = new ReelModel[total];
+    private void bindReel(ReelModel reel) {
+        if (tvOwner != null && reel.ownerName != null)
+            tvOwner.setText("@" + reel.ownerName);
+        if (tvCaption != null && reel.caption != null)
+            tvCaption.setText(reel.caption);
 
-        for (int i = 0; i < total; i++) {
-            final int idx = i;
-            String reelId = reelIds.get(i);
-            FirebaseUtils.getReelsRef().child(reelId)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override
-                    public void onDataChange(@NonNull DataSnapshot snap) {
-                        if (isFinishing() || isDestroyed()) return;
-                        ReelModel reel = snap.getValue(ReelModel.class);
-                        if (reel != null) {
-                            if (reel.reelId == null) reel.reelId = snap.getKey();
-                            tempReels[idx] = reel;
-                        }
-                        loaded[0]++;
-                        if (loaded[0] >= total) {
-                            reels.clear();
-                            for (ReelModel r : tempReels) {
-                                if (r != null) reels.add(r);
-                            }
-                            onReelsLoaded();
-                        }
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {
-                        loaded[0]++;
-                        if (loaded[0] >= total) onReelsLoaded();
-                    }
-                });
+        setupPlayer(reel.videoUrl);
+
+        btnDuet.setOnClickListener(v -> openDuet(reel));
+
+        String duetLevel = reel.effectiveAllowDuetLevel();
+        if ("off".equals(duetLevel)) {
+            btnDuet.setVisibility(View.GONE);
+        } else {
+            btnDuet.setVisibility(View.VISIBLE);
         }
     }
 
-    private void onReelsLoaded() {
-        if (isFinishing() || isDestroyed()) return;
-        progressBar.setVisibility(View.GONE);
-        if (reels.isEmpty()) { finish(); return; }
+    private void setupPlayer(String videoUrl) {
+        if (videoUrl == null || videoUrl.isEmpty()) return;
 
-        adapter.setReels(reels);
-
-        // Jump to start position
-        int safePos = Math.min(startPosition, reels.size() - 1);
-        if (safePos > 0) {
-            vpReels.setCurrentItem(safePos, false);
-        }
-        controlPlayback(safePos);
+        exoPlayer = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(exoPlayer);
+        playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FILL);
+        exoPlayer.setMediaItem(MediaItem.fromUri(videoUrl));
+        exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
+        exoPlayer.setPlayWhenReady(true);
+        exoPlayer.prepare();
     }
 
-    private void controlPlayback(int activePos) {
-        for (int i = 0; i < adapter.getItemCount(); i++) {
-            Fragment f = getSupportFragmentManager()
-                .findFragmentByTag("f" + adapter.getItemId(i));
-            if (f instanceof ReelPlayerFragment) {
-                ((ReelPlayerFragment) f).setUserVisibleHint(i == activePos);
-            }
-        }
-    }
+    private void openDuet(ReelModel reel) {
+        com.google.firebase.auth.FirebaseUser me =
+            com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+        if (me == null) return;
 
-    /** Called by ReelPlayerFragment when video ends */
-    public void advanceToNext() {
-        if (vpReels == null) return;
-        int next = vpReels.getCurrentItem() + 1;
-        if (next < adapter.getItemCount()) vpReels.setCurrentItem(next, true);
+        Intent i = new Intent(this, DuetReelActivity.class);
+        i.putExtra(DuetReelActivity.EXTRA_REEL_ID,         reel.reelId);
+        i.putExtra(DuetReelActivity.EXTRA_VIDEO_URL,        reel.videoUrl);
+        i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME,       reel.ownerName);
+        i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,        reel.uid);
+        i.putExtra(DuetReelActivity.EXTRA_DURATION_SEC,     reel.duration);
+        i.putExtra(DuetReelActivity.EXTRA_ALLOW_DUET_LEVEL, reel.effectiveAllowDuetLevel());
+        startActivity(i);
     }
 
     @Override
     protected void onPause() {
-        for (int i = 0; i < adapter.getItemCount(); i++) {
-            Fragment f = getSupportFragmentManager()
-                .findFragmentByTag("f" + adapter.getItemId(i));
-            if (f instanceof ReelPlayerFragment) {
-                ((ReelPlayerFragment) f).setUserVisibleHint(false);
-            }
-        }
         super.onPause();
+        if (exoPlayer != null) exoPlayer.pause();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (vpReels != null) controlPlayback(vpReels.getCurrentItem());
+        if (exoPlayer != null) exoPlayer.play();
     }
 
     @Override
     protected void onDestroy() {
-        if (reelsListener != null) FirebaseUtils.getReelsRef().removeEventListener(reelsListener);
+        if (exoPlayer != null) {
+            exoPlayer.stop();
+            exoPlayer.release();
+            exoPlayer = null;
+        }
         super.onDestroy();
     }
 }

@@ -137,6 +137,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String  duetOwnerUid    = "";
     private String  duetLabel       = "";
     private String  duetOriginalUrl = "";
+    // Fix 7+10: chain duet fields
+    private String  chainDuetRootId = null;
+    private int     chainDuetDepth  = 0;
+    // Fix 4+7: separate music sound URL for compositor
+    private String  duetOriginalSoundUrl = null;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -270,6 +275,14 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (dLabel != null) duetLabel       = dLabel;
         String dOrigUrl = i.getStringExtra(EXTRA_DUET_ORIGINAL_URL);
         if (dOrigUrl != null) duetOriginalUrl = dOrigUrl;
+        // Fix 7+10: chain duet
+        String dChainRoot = i.getStringExtra("chain_duet_root_id");
+        int    dChainDepth = i.getIntExtra("chain_duet_depth", 0);
+        if (dChainRoot != null && !dChainRoot.isEmpty()) chainDuetRootId = dChainRoot;
+        chainDuetDepth = dChainDepth;
+        // Fix 4+7: original sound URL for compositor
+        String dSndUrl = i.getStringExtra("duet_original_sound_url");
+        if (dSndUrl != null && !dSndUrl.isEmpty()) duetOriginalSoundUrl = dSndUrl;
     }
 
     // ── Permission ────────────────────────────────────────────────────────
@@ -618,6 +631,15 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.duetOf           = a.duetOriginalId;
                     reel.duetOfOwnerUid   = a.duetOwnerUid;
                     reel.duetOriginalUrl  = a.duetOriginalUrl;
+                    // Fix 7+10: chain duet
+                    if (a.chainDuetRootId != null && !a.chainDuetRootId.isEmpty()) {
+                        reel.chainDuetRootId = a.chainDuetRootId;
+                        reel.chainDuetDepth  = a.chainDuetDepth;
+                    }
+                    // Fix 4+7: separate sound URL
+                    if (a.duetOriginalSoundUrl != null && !a.duetOriginalSoundUrl.isEmpty()) {
+                        reel.duetOriginalSoundUrl = a.duetOriginalSoundUrl;
+                    }
                     reel.caption       = a.duetLabel.isEmpty() ? reel.caption
                                          : (a.duetLabel + (reel.caption.isEmpty() ? "" : " – " + reel.caption));
                 }

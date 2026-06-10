@@ -23,10 +23,6 @@ public class ReelModel {
     public String  musicCoverUrl;
     public String  musicArtist;
     public int     musicStartSec;
-    /**
-     * Cloudinary URL of the reel's own extracted audio track.
-     * Uploaded at post time so "Original Audio" screen can stream it.
-     */
     public String  originalAudioUrl;
     public String  thumbnailUrl;
     public long    timestamp;
@@ -51,41 +47,48 @@ public class ReelModel {
     public String  repostedFromName;
 
     // ── Duet fields ──────────────────────────────────────────────────────────
-    /**
-     * Granular duet permission.
-     * Values: "everyone" (default) | "followers" | "off"
-     * Used by ReelPlayerFragment and DuetReelActivity for enforcement.
-     * Note: allowDuet boolean is kept for backwards-compat with older reel nodes.
-     */
     public String  allowDuetLevel = "everyone";
-    /** Legacy boolean — kept for backward compat; prefer allowDuetLevel. */
     public boolean allowDuet      = true;
     /** If this reel is a duet, the ID of the original reel it was made from. */
     public String  duetOf;
     /** UID of the original reel's creator (for push notification targeting). */
     public String  duetOfOwnerUid;
-    /** URL of the original reel video (used by feed to render side-by-side). */
+    /** URL of the original reel video (used by compositor). */
     public String  duetOriginalUrl;
-    /** Running count of duets made on this reel. Incremented by DuetReelActivity. */
+    /**
+     * Fix 4 — separate sound URL of the original reel's music track.
+     * The compositor reads this to mix the correct music into the duet audio,
+     * independent of what audio is embedded in the video file itself.
+     */
+    public String  duetOriginalSoundUrl;
+    /** Running count of duets made on this reel. */
     public int     duetCount;
-    /** Layout mode used when this duet was recorded (0=side, 1=top-bottom, 2=pip). */
+    /** Layout mode used when this duet was recorded (0=side, 1=top-bottom, 2=pip, 3=bubble). */
     public int     duetLayoutMode;
+    /**
+     * Fix 10 — Chain Duet support.
+     * If this duet was itself made on top of another duet (chain duet),
+     * this field holds the root original reel's ID.
+     * Populated by DuetReelActivity when dueting a reel whose duetOf != null.
+     */
+    public String  chainDuetRootId;
+    /** Depth of chain: 0 = original, 1 = first duet, 2 = duet-of-duet, etc. */
+    public int     chainDuetDepth;
 
     // ── Stitch fields ────────────────────────────────────────────────────────
-    /**
-     * Granular stitch permission.
-     * Values: "everyone" (default) | "followers" | "off"
-     * Previously hardcoded to true in ReelPlayerFragment — now fully enforced.
-     */
     public String  allowStitchLevel = "everyone";
-    /** Legacy boolean — kept for backward compat; prefer allowStitchLevel. */
     public boolean allowStitch      = true;
-    /** If this reel is a stitch, the ID of the original reel it stitched. */
     public String  stitchOf;
-    /** UID of the original stitch reel's creator (for notifications). */
     public String  stitchOfOwnerUid;
-    /** Running count of stitches made on this reel. */
     public int     stitchCount;
+
+    // ── Invite-to-Duet field ─────────────────────────────────────────────────
+    /**
+     * Fix 11 — Async / Invite-to-Duet.
+     * Set to the UID of the user who was invited to duet this reel (if any).
+     * Also stored in duetInvites/{targetUid}/{inviteId} in Firebase.
+     */
+    public String  invitedDuetUid;
 
     public ReelModel() {}
 
@@ -118,22 +121,19 @@ public class ReelModel {
         return tags;
     }
 
-    /**
-     * Helper: resolve effective duet permission considering both legacy boolean
-     * and new granular string field.
-     * Backwards-compatible: old reel nodes only have allowDuet=true → returns "everyone".
-     */
     public String effectiveAllowDuetLevel() {
         if (allowDuetLevel != null && !allowDuetLevel.isEmpty()) return allowDuetLevel;
         return allowDuet ? "everyone" : "off";
     }
 
-    /**
-     * Helper: resolve effective stitch permission (same pattern as duet).
-     */
     public String effectiveAllowStitchLevel() {
         if (allowStitchLevel != null && !allowStitchLevel.isEmpty()) return allowStitchLevel;
         return allowStitch ? "everyone" : "off";
+    }
+
+    /** Fix 10: True if this reel is a chain duet (duet-of-a-duet) */
+    public boolean isChainDuet() {
+        return chainDuetDepth > 1 && chainDuetRootId != null && !chainDuetRootId.isEmpty();
     }
 
     public float trendingScore() {
