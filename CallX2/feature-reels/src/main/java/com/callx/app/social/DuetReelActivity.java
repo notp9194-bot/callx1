@@ -99,10 +99,11 @@ public class DuetReelActivity extends AppCompatActivity {
     private Recording              activeRecording;
     private ExecutorService        cameraExecutor;
 
-    private int     lensFacing   = CameraSelector.LENS_FACING_FRONT;
-    private boolean isRecording  = false;
-    private boolean isPaused     = false;
-    private int     layoutMode   = LAYOUT_SIDE_BY_SIDE;
+    private int     lensFacing      = CameraSelector.LENS_FACING_FRONT;
+    private boolean isRecording     = false;
+    private boolean isPaused        = false;
+    private boolean discardOnStop   = false; // true = close-button stop, skip editor
+    private int     layoutMode      = LAYOUT_SIDE_BY_SIDE;
     private float   originalVol  = 0f; // original reel audio volume during monitoring
     private CountDownTimer recordTimer;
 
@@ -431,13 +432,14 @@ public class DuetReelActivity extends AppCompatActivity {
                     VideoRecordEvent.Finalize fin = (VideoRecordEvent.Finalize) event;
                     isRecording = false;
                     isPaused    = false;
-                    if (!fin.hasError()) {
+                    if (!fin.hasError() && !discardOnStop) {
                         runOnUiThread(() -> onRecordingDone(recordedCameraFile.getAbsolutePath()));
-                    } else {
+                    } else if (fin.hasError()) {
                         Log.e(TAG, "Recording error: " + fin.getCause());
                         runOnUiThread(() ->
                             Toast.makeText(this, "Recording failed", Toast.LENGTH_SHORT).show());
                     }
+                    discardOnStop = false; // reset
                 }
             });
     }
@@ -462,14 +464,21 @@ public class DuetReelActivity extends AppCompatActivity {
     }
 
     private void stopRecording(boolean openEditorAfter) {
-        if (activeRecording != null) { activeRecording.stop(); activeRecording = null; }
-        if (recordTimer != null)     { recordTimer.cancel(); recordTimer = null; }
-        if (exoPlayer != null)       exoPlayer.pause();
+        if (recordTimer != null) { recordTimer.cancel(); recordTimer = null; }
+        if (exoPlayer != null)   exoPlayer.pause();
         progressDuet.setProgress(0);
         tvDuetTimer.setText("0:00");
         btnDuetRecord.setImageResource(R.drawable.ic_play);
         isRecording = false;
         isPaused    = false;
+
+        if (activeRecording != null) {
+            // Set flag BEFORE stop() — Finalize fires immediately after stop()
+            discardOnStop = !openEditorAfter;
+            activeRecording.stop();
+            activeRecording = null;
+            // Editor is opened inside VideoRecordEvent.Finalize callback (if !discardOnStop)
+        }
     }
 
     private void startCountdownTimer() {
@@ -501,7 +510,13 @@ public class DuetReelActivity extends AppCompatActivity {
 
     private void onRecordingDone(String cameraFilePath) {
         if (exoPlayer != null) exoPlayer.pause();
-        Toast.makeText(this, "Compositing duet…", Toast.LENGTH_SHORT).show();
+
+        // Show progress dialog — compositing can take 5-30s
+        android.app.ProgressDialog pd = new android.app.ProgressDialog(this);
+        pd.setMessage("Processing duet…");
+        pd.setProgressStyle(android.app.ProgressDialog.STYLE_SPINNER);
+        pd.setCancelable(false);
+        pd.show();
 
         ExecutorService exec = Executors.newSingleThreadExecutor();
         exec.execute(() -> {
@@ -521,13 +536,17 @@ public class DuetReelActivity extends AppCompatActivity {
 
                 String finalPath = composited ? outFile.getAbsolutePath() : cameraFilePath;
                 runOnUiThread(() -> {
+                    pd.dismiss();
                     incrementDuetCount();
                     fireDuetNotification();
                     openEditor(finalPath);
                 });
             } catch (Exception e) {
                 Log.e(TAG, "Composite failed, using camera file alone", e);
-                runOnUiThread(() -> openEditor(cameraFilePath));
+                runOnUiThread(() -> {
+                    pd.dismiss();
+                    openEditor(cameraFilePath);
+                });
             } finally {
                 exec.shutdown();
             }
