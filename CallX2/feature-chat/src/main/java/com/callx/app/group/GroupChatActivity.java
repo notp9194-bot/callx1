@@ -113,6 +113,8 @@ public class GroupChatActivity extends AppCompatActivity {
     private final Map<String, Long>   memberLastSeen = new HashMap<>();
     private final Map<String, String> typingNames    = new HashMap<>();
     private int   totalMembers = 0;
+    // FIX: Cached SecurityManager — avoid repeated instantiation in hot path
+    private com.callx.app.utils.SecurityManager securityManager;
     private boolean amTyping   = false;
 
     // ── Handlers ───────────────────────────────────────────────────────────
@@ -163,6 +165,7 @@ public class GroupChatActivity extends AppCompatActivity {
         groupMessagesRef = FirebaseUtils.getGroupMessagesRef(groupId);
 
         db = AppDatabase.getInstance(this);
+        securityManager = new com.callx.app.utils.SecurityManager(this);
 
         setupToolbar();
         setupPickers();
@@ -451,7 +454,12 @@ public class GroupChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 m.id = s.getKey();
                 saveToRoom(m);
-                markRead(m);
+                // FIX: markDelivered first (sets deliveredTo map),
+                // then markRead after 800ms delay (same pattern as 1-on-1)
+                markDelivered(m);
+                final Message mFinal = m;
+                new android.os.Handler(android.os.Looper.getMainLooper())
+                        .postDelayed(() -> markRead(mFinal), 800);
             }
             @Override public void onChildChanged(DataSnapshot s, String prev) {
                 Message m = s.getValue(Message.class);
@@ -689,8 +697,74 @@ public class GroupChatActivity extends AppCompatActivity {
 
     private void markRead(Message m) {
         if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
+        if (!securityManager.isReadReceiptsEnabled()) return;
+
+        long now = System.currentTimeMillis();
+
+        // Step 1: Set readBy/{uid} = timestamp (for Message Info screen)
         groupMessagesRef.child(m.id).child("readBy")
-                .child(currentUid).setValue(true);
+                .child(currentUid).setValue(now);
+
+        // Step 2: Upgrade top-level status to "read" only when ALL members have read
+        // totalMembers includes sender, so threshold = totalMembers - 1 readers needed
+        groupMessagesRef.child(m.id).child("readBy")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+            @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                int readerCount = (int) snap.getChildrenCount();
+                int needed = totalMembers > 0 ? totalMembers - 1 : 1;
+                if (readerCount >= needed) {
+                    // All members read — upgrade status to "read"
+                    groupMessagesRef.child(m.id).child("status").setValue("read");
+                    ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "read"));
+                }
+            }
+            @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
+        });
+
+        // Step 3: Persist readAt to Room for offline Message Info screen
+        final long nowFinal = now;
+        ioExecutor.execute(() -> db.messageDao().updateReadAt(m.id, nowFinal));
+    }
+
+    private void markDelivered(Message m) {
+        if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
+        if (!securityManager.isReadReceiptsEnabled()) return;
+        // Only deliver if still "sent" (don't downgrade from delivered/read)
+        if ("delivered".equals(m.status) || "read".equals(m.status)) return;
+
+        long now = System.currentTimeMillis();
+
+        // Step 1: Set deliveredTo/{uid} = timestamp
+        groupMessagesRef.child(m.id).child("deliveredTo")
+                .child(currentUid).setValue(now);
+
+        // Step 2: Upgrade top-level status to "delivered" when ALL members delivered
+        groupMessagesRef.child(m.id).child("deliveredTo")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+            @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                int deliveredCount = (int) snap.getChildrenCount();
+                int needed = totalMembers > 0 ? totalMembers - 1 : 1;
+                if (deliveredCount >= needed) {
+                    // All members delivered — upgrade status (if not already read)
+                    groupMessagesRef.child(m.id).child("status")
+                            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                        @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot s) {
+                            String cur = s.getValue(String.class);
+                            if (!"read".equals(cur)) {
+                                groupMessagesRef.child(m.id).child("status").setValue("delivered");
+                                ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "delivered"));
+                            }
+                        }
+                        @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
+                    });
+                }
+            }
+            @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
+        });
+
+        // Step 3: Persist deliveredAt to Room
+        final long nowFinal = now;
+        ioExecutor.execute(() -> db.messageDao().updateDeliveredAt(m.id, nowFinal));
     }
 
     // ─────────────────────────────────────────────────────────────────────

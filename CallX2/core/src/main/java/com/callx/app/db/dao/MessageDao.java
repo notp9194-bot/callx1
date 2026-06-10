@@ -103,6 +103,11 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND status = 'pending' ORDER BY timestamp ASC")
     List<MessageEntity> getPendingMessages(String chatId);
 
+    /** FIX: Reconnect stale status refresh — apne sent messages jo abhi "sent" hain */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :uid AND status = 'sent' ORDER BY timestamp DESC LIMIT :limit")
+    List<MessageEntity> getSentMessagesByUser(String chatId, String uid, int limit);
+
     /** v18 IMPROVEMENT 5: Single message by id — media upload retry ke liye. */
     @WorkerThread
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")

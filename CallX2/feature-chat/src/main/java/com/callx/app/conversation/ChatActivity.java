@@ -355,6 +355,10 @@ public class ChatActivity extends AppCompatActivity {
                     // FIX [P2-2]: Reconnect par missed messages sync karo —
                     // background mein network drop hua toh new messages miss ho jaate the
                     ChatRepository.getInstance(getApplicationContext()).syncMessagesDelta(chatId);
+                    // FIX: Reconnect pe stale "sent" messages refresh karo —
+                    // agar receiver ne offline hote hue delivered/read kiya toh
+                    // sender ka Room DB update nahi hota. Yahan Firebase se re-query karo.
+                    refreshStaleSentStatuses();
                 });
             }
             @Override public void onLost(Network n) {
@@ -1138,6 +1142,39 @@ public class ChatActivity extends AppCompatActivity {
                 String preview = pe.text != null ? pe.text : "[" + pe.type + "]";
                 runOnUiThread(() -> firebasePushMessage(m, pe.id, preview));
             }
+        });
+    }
+
+    /**
+     * FIX: Reconnect pe stale "sent" messages refresh karo.
+     * Agar receiver ne offline hote hue read/deliver kiya toh sender ka Room stale rehta hai.
+     * Yahan sirf apne sent messages ke last 50 ko Firebase se re-check karo.
+     */
+    private void refreshStaleSentStatuses() {
+        if (messagesRef == null || currentUid == null || chatId == null) return;
+        ioExecutor.execute(() -> {
+            try {
+                AppDatabase localDb = AppDatabase.getInstance(getApplicationContext());
+                // Room se sirf "sent" status wale apne messages lao
+                List<com.callx.app.db.entity.MessageEntity> stale =
+                        localDb.messageDao().getSentMessagesByUser(chatId, currentUid, 50);
+                if (stale == null || stale.isEmpty()) return;
+                for (com.callx.app.db.entity.MessageEntity e : stale) {
+                    final String msgId = e.id;
+                    messagesRef.child(msgId).child("status")
+                            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                        @Override public void onDataChange(com.google.firebase.database.DataSnapshot s) {
+                            String remoteStatus = s.getValue(String.class);
+                            if (remoteStatus == null) return;
+                            // Only upgrade, never downgrade
+                            if ("delivered".equals(remoteStatus) || "read".equals(remoteStatus)) {
+                                ioExecutor.execute(() -> localDb.messageDao().updateStatus(msgId, remoteStatus));
+                            }
+                        }
+                        @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
+                    });
+                }
+            } catch (Exception ignored) {}
         });
     }
 
