@@ -419,6 +419,12 @@ public class ReelPlayerFragment extends Fragment
             addViewDuetsButton();
         }
 
+        // ✅ FIX (GAP #1 — v8): Show stitch count + "View Stitches" button when stitches exist.
+        // Only shown on original reels (not on stitches themselves).
+        if (reel.stitchCount > 0 && (reel.stitchOf == null || reel.stitchOf.isEmpty())) {
+            addViewStitchesButton();
+        }
+
         // Attribution banner — shown when this feed entry is a repost
         if (tvRepostAttribution != null) {
             if (reel.repostedFromName != null && !reel.repostedFromName.isEmpty()) {
@@ -526,6 +532,53 @@ public class ReelPlayerFragment extends Fragment
 
         // Insert at position 0 so it appears before hashtag chips
         containerHashtags.addView(duetBtn, 0);
+        if (scrollHashtags != null) scrollHashtags.setVisibility(android.view.View.VISIBLE);
+    }
+
+    /**
+     * ✅ FIX (GAP #1 — v8): Programmatically adds a "✂️ X Stitches — View all" chip
+     * below the caption when this reel has stitches. No XML change needed.
+     * Tapping opens StitchesByReelActivity.
+     */
+    private void addViewStitchesButton() {
+        if (!isAdded() || getContext() == null || containerHashtags == null) return;
+        int count = reel.stitchCount;
+        if (count <= 0) return;
+
+        android.widget.TextView stitchBtn = new android.widget.TextView(requireContext());
+        String label = "✂️ " + formatCount(count) + " Stitch" + (count == 1 ? "" : "es") + "  ›";
+        stitchBtn.setText(label);
+        stitchBtn.setTextColor(android.graphics.Color.WHITE);
+        stitchBtn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+        stitchBtn.setAlpha(0.85f);
+        stitchBtn.setPadding(20, 8, 20, 8);
+
+        // Pill background — teal tint to distinguish from duet (orange tint)
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(40f);
+        bg.setColor(0x2200CFFF); // semi-transparent teal
+        bg.setStroke(1, 0x6600CFFF);
+        stitchBtn.setBackground(bg);
+
+        android.widget.LinearLayout.LayoutParams lp =
+            new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 16, 0);
+        stitchBtn.setLayoutParams(lp);
+
+        stitchBtn.setOnClickListener(v -> {
+            if (!isAdded() || getActivity() == null) return;
+            android.content.Intent i = new android.content.Intent(
+                getActivity(), com.callx.app.social.StitchesByReelActivity.class);
+            i.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_REEL_ID,    reel.reelId);
+            i.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
+            startActivity(i);
+        });
+
+        // Insert at position 1 so it appears after the duet chip (if present)
+        int insertAt = (containerHashtags.getChildCount() > 0) ? 1 : 0;
+        containerHashtags.addView(stitchBtn, insertAt);
         if (scrollHashtags != null) scrollHashtags.setVisibility(android.view.View.VISIBLE);
     }
 
@@ -1510,6 +1563,13 @@ public class ReelPlayerFragment extends Fragment
 
     private void openDuet() {
         if (!isAdded() || getActivity() == null || reel == null) return;
+
+        // ✅ FIX (GAP #8 — v8): Self-duet guard — users cannot duet their own reel
+        String myUidCheck = safeMyUid();
+        if (myUidCheck != null && myUidCheck.equals(reel.uid)) {
+            Toast.makeText(getContext(), "You can't duet your own reel", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
         // ✅ Granular permission check using allowDuetLevel
         String duetLevel = reel.allowDuetLevel != null ? reel.allowDuetLevel : "everyone";

@@ -285,6 +285,13 @@ public class DuetReelActivity extends AppCompatActivity {
     }
 
     private void setLayoutMode(int mode) {
+        // ✅ FIX (GAP #7 — v8): Prevent layout changes during active recording.
+        // Switching layout mid-record would corrupt the compositor frame sequence.
+        if (isRecording) {
+            android.widget.Toast.makeText(this,
+                "Cannot change layout while recording", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
         layoutMode = mode;
         if (btnLayoutSideBySide     != null) btnLayoutSideBySide.setAlpha(mode == LAYOUT_SIDE_BY_SIDE    ? 1f : 0.4f);
         if (btnLayoutTopBottom      != null) btnLayoutTopBottom.setAlpha(mode == LAYOUT_TOP_BOTTOM       ? 1f : 0.4f);

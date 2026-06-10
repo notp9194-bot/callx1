@@ -62,6 +62,10 @@ public class ReelModel {
     public boolean allowDuet      = true;
     /** If this reel is a duet, the ID of the original reel it was made from. */
     public String  duetOf;
+    /** ✅ v8 — chain duet root: always points to the original reel in a duet chain.
+     *  Set at upload time. For a direct duet: duetRootId == duetOf.
+     *  For a duet-of-a-duet: duetRootId == original reel ID, duetOf == intermediate. */
+    public String  duetRootId;
     /** UID of the original reel's creator (for push notification targeting). */
     public String  duetOfOwnerUid;
     /** URL of the original reel video (used by feed to render side-by-side). */

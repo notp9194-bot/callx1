@@ -21,49 +21,41 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * DuetsByReelActivity — Discover all duets made of a specific reel.
+ * StitchesByReelActivity — Discover all stitches made of a specific reel.
+ *
+ * ✅ FIX (GAP #2 — v8): New activity, mirrors DuetsByReelActivity for stitch listings.
  *
  * Features:
- *  ✅ 3-column grid of duet thumbnails (same as Instagram Reels grid)
- *  ✅ Firebase query: reels where duetRootId == originalReelId (chain duets)
- *                    with fallback to duetOf == originalReelId (direct duets, legacy)
- *  ✅ Shows duet creator name + view count
+ *  ✅ 3-column grid of stitch thumbnails
+ *  ✅ Firebase query: reels where stitchOf == originalReelId
+ *  ✅ Shows stitch creator name + view count
  *  ✅ Tap opens reel player (SingleReelPlayerActivity)
  *  ✅ Empty state with label
  *  ✅ PAGINATION: loads 20 at a time, "load more" on scroll end
  *  ✅ Loading footer spinner while fetching next page
- *  ✅ No more loading ALL duets at once (crash-safe for 500+ duets)
- *
- * Pagination technique (Firebase RTDB cursor):
- *   Page 1:  orderByChild("duetOf").equalTo(reelId).limitToFirst(PAGE_SIZE)
- *   Page N:  .startAt(reelId, lastKey).endAt(reelId).limitToFirst(PAGE_SIZE+1)
- *            → returns PAGE_SIZE+1 items including overlap (lastKey)
- *            → skip item[0] (overlap), load remaining PAGE_SIZE items
- *            → if returned < PAGE_SIZE+1, no more pages
  */
-public class DuetsByReelActivity extends AppCompatActivity {
+public class StitchesByReelActivity extends AppCompatActivity {
 
-    public static final String EXTRA_REEL_ID    = "duets_reel_id";
-    public static final String EXTRA_OWNER_NAME = "duets_owner_name";
+    public static final String EXTRA_REEL_ID    = "stitches_reel_id";
+    public static final String EXTRA_OWNER_NAME = "stitches_owner_name";
 
     private static final int PAGE_SIZE = 20;
 
-    // View types for the adapter
-    private static final int VIEW_TYPE_DUET   = 0;
+    private static final int VIEW_TYPE_STITCH = 0;
     private static final int VIEW_TYPE_FOOTER = 1;
 
     private ImageButton  btnBack;
-    private TextView     tvTitle, tvDuetCount;
-    private RecyclerView rvDuets;
-    private ProgressBar  progressDuets;
+    private TextView     tvTitle, tvStitchCount;
+    private RecyclerView rvStitches;
+    private ProgressBar  progressStitches;
     private View         layoutEmpty;
 
     private String               originalReelId;
     private String               ownerName;
-    private final List<ReelModel> duets = new ArrayList<>();
-    private DuetsAdapter         adapter;
+    private final List<ReelModel> stitches = new ArrayList<>();
+    private StitchesAdapter      adapter;
 
-    private String  lastLoadedKey = null;  // cursor for next page
+    private String  lastLoadedKey = null;
     private boolean hasMorePages  = true;
     private boolean isLoadingPage = false;
     private int     totalLoaded   = 0;
@@ -71,36 +63,34 @@ public class DuetsByReelActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_duets_by_reel);
+        setContentView(R.layout.activity_stitches_by_reel);
 
         originalReelId = getIntent().getStringExtra(EXTRA_REEL_ID);
         ownerName      = getIntent().getStringExtra(EXTRA_OWNER_NAME);
         if (ownerName == null) ownerName = "";
 
-        btnBack       = findViewById(R.id.btn_duets_back);
-        tvTitle       = findViewById(R.id.tv_duets_title);
-        tvDuetCount   = findViewById(R.id.tv_duet_count);
-        rvDuets       = findViewById(R.id.rv_duets);
-        progressDuets = findViewById(R.id.progress_duets);
-        layoutEmpty   = findViewById(R.id.layout_duets_empty);
+        btnBack        = findViewById(R.id.btn_stitches_back);
+        tvTitle        = findViewById(R.id.tv_stitches_title);
+        tvStitchCount  = findViewById(R.id.tv_stitch_count);
+        rvStitches     = findViewById(R.id.rv_stitches);
+        progressStitches = findViewById(R.id.progress_stitches);
+        layoutEmpty    = findViewById(R.id.layout_stitches_empty);
 
-        tvTitle.setText(ownerName.isEmpty() ? "Duets" : "Duets of @" + ownerName);
+        tvTitle.setText(ownerName.isEmpty() ? "Stitches" : "Stitches of @" + ownerName);
 
         GridLayoutManager glm = new GridLayoutManager(this, 3);
-        // Footer row spans all 3 columns
         glm.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override public int getSpanSize(int position) {
                 return adapter.getItemViewType(position) == VIEW_TYPE_FOOTER ? 3 : 1;
             }
         });
 
-        adapter = new DuetsAdapter(duets, this::onDuetTapped);
-        rvDuets.setLayoutManager(glm);
-        rvDuets.setAdapter(adapter);
+        adapter = new StitchesAdapter(stitches, this::onStitchTapped);
+        rvStitches.setLayoutManager(glm);
+        rvStitches.setAdapter(adapter);
         btnBack.setOnClickListener(v -> finish());
 
-        // ── Scroll listener: load next page when near bottom ─────────────────
-        rvDuets.addOnScrollListener(new RecyclerView.OnScrollListener() {
+        rvStitches.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 if (dy <= 0 || isLoadingPage || !hasMorePages) return;
@@ -108,7 +98,6 @@ public class DuetsByReelActivity extends AppCompatActivity {
                 if (lm == null) return;
                 int lastVisible = lm.findLastVisibleItemPosition();
                 int total       = lm.getItemCount();
-                // Trigger when within 6 items of the end (2 rows)
                 if (lastVisible >= total - 6) loadNextPage();
             }
         });
@@ -120,58 +109,37 @@ public class DuetsByReelActivity extends AppCompatActivity {
 
     private void loadFirstPage() {
         if (originalReelId == null) { showEmpty(true); return; }
-        progressDuets.setVisibility(View.VISIBLE);
+        progressStitches.setVisibility(View.VISIBLE);
         layoutEmpty.setVisibility(View.GONE);
         isLoadingPage = true;
 
-        // ✅ FIX (GAP #5 — v8): Primary query uses duetRootId (chain duets).
-        // If it returns 0 results, fall back to legacy duetOf query.
         buildFirstPageQuery().addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (snap.getChildrenCount() == 0) {
-                    // No chain-duet entries: fall back to legacy duetOf query
-                    buildLegacyFirstPageQuery().addListenerForSingleValueEvent(new ValueEventListener() {
-                        @Override public void onDataChange(@NonNull DataSnapshot legacySnap) {
-                            progressDuets.setVisibility(View.GONE);
-                            isLoadingPage = false;
-                            processFirstPage(legacySnap);
-                        }
-                        @Override public void onCancelled(@NonNull DatabaseError e) {
-                            progressDuets.setVisibility(View.GONE);
-                            isLoadingPage = false;
-                            showEmpty(true);
-                        }
-                    });
-                    return;
-                }
-                progressDuets.setVisibility(View.GONE);
+                progressStitches.setVisibility(View.GONE);
                 isLoadingPage = false;
-                processFirstPage(snap);
+
+                List<ReelModel> page = parseSnapshot(snap, false);
+                hasMorePages = (snap.getChildrenCount() >= PAGE_SIZE);
+
+                if (!page.isEmpty()) {
+                    lastLoadedKey = page.get(page.size() - 1).reelId;
+                }
+                stitches.addAll(page);
+                totalLoaded += page.size();
+                adapter.setShowFooter(hasMorePages);
+                adapter.notifyDataSetChanged();
+
+                updateCountLabel();
+                showEmpty(stitches.isEmpty());
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
-                progressDuets.setVisibility(View.GONE);
+                progressStitches.setVisibility(View.GONE);
                 isLoadingPage = false;
-                showEmpty(duets.isEmpty());
-                Toast.makeText(DuetsByReelActivity.this,
-                    "Failed to load duets", Toast.LENGTH_SHORT).show();
+                showEmpty(stitches.isEmpty());
+                Toast.makeText(StitchesByReelActivity.this,
+                    "Failed to load stitches", Toast.LENGTH_SHORT).show();
             }
         });
-    }
-
-    private void processFirstPage(@NonNull DataSnapshot snap) {
-        List<ReelModel> page = parseSnapshot(snap, false);
-        hasMorePages = (snap.getChildrenCount() >= PAGE_SIZE);
-
-        if (!page.isEmpty()) {
-            lastLoadedKey = page.get(page.size() - 1).reelId;
-        }
-        duets.addAll(page);
-        totalLoaded += page.size();
-        adapter.setShowFooter(hasMorePages);
-        adapter.notifyDataSetChanged();
-
-        updateCountLabel();
-        showEmpty(duets.isEmpty());
     }
 
     private void loadNextPage() {
@@ -183,16 +151,13 @@ public class DuetsByReelActivity extends AppCompatActivity {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 isLoadingPage = false;
 
-                // parseSnapshot skips first item (overlap with previous page cursor)
                 List<ReelModel> page = parseSnapshot(snap, true);
-
-                // If we got fewer than PAGE_SIZE new items, no more pages remain
                 hasMorePages = (snap.getChildrenCount() > PAGE_SIZE);
 
                 if (!page.isEmpty()) {
                     lastLoadedKey = page.get(page.size() - 1).reelId;
-                    int insertAt = duets.size();
-                    duets.addAll(page);
+                    int insertAt = stitches.size();
+                    stitches.addAll(page);
                     totalLoaded += page.size();
                     adapter.setShowFooter(hasMorePages);
                     adapter.notifyItemRangeInserted(insertAt, page.size());
@@ -213,51 +178,18 @@ public class DuetsByReelActivity extends AppCompatActivity {
 
     // ── Firebase queries ──────────────────────────────────────────────────────
 
-    /**
-     * ✅ FIX (GAP #5 — v8): Chain duet support.
-     * Queries by duetRootId so all reels in a duet chain (duets-of-duets)
-     * appear in the original reel's duet list.
-     *
-     * duetRootId is set by the app at upload time:
-     *   - Direct duet of original:  duetRootId = originalReelId, duetOf = originalReelId
-     *   - Duet of a duet:           duetRootId = originalReelId, duetOf = intermediateReelId
-     *
-     * Legacy reels (without duetRootId) are still found via the fallback query,
-     * which is run when the primary query returns 0 results.
-     */
     private Query buildFirstPageQuery() {
         return FirebaseUtils.db()
             .getReference("reels")
-            .orderByChild("duetRootId")   // chain-duet field (v8+)
+            .orderByChild("stitchOf")
             .equalTo(originalReelId)
             .limitToFirst(PAGE_SIZE);
     }
 
-    /**
-     * Legacy fallback query for reels that predate the duetRootId field.
-     * Called from loadFirstPage() when the primary query returns 0 results.
-     */
-    private Query buildLegacyFirstPageQuery() {
-        return FirebaseUtils.db()
-            .getReference("reels")
-            .orderByChild("duetOf")
-            .equalTo(originalReelId)
-            .limitToFirst(PAGE_SIZE);
-    }
-
-    /**
-     * Cursor query for subsequent pages.
-     *
-     * Firebase RTDB trick: when multiple children share the same child value,
-     * startAt(value, key) acts as a compound cursor (value + key tiebreaker).
-     * We load PAGE_SIZE+1 so the first item is always the overlap (lastKey),
-     * which parseSnapshot(snap, skipFirst=true) discards.
-     */
     private Query buildNextPageQuery(String cursorKey) {
-        // ✅ FIX (GAP #5 — v8): Paginate by duetRootId (chain duets)
         return FirebaseUtils.db()
             .getReference("reels")
-            .orderByChild("duetRootId")
+            .orderByChild("stitchOf")
             .startAt(originalReelId, cursorKey)
             .endAt(originalReelId)
             .limitToFirst(PAGE_SIZE + 1);
@@ -282,34 +214,34 @@ public class DuetsByReelActivity extends AppCompatActivity {
 
     private void updateCountLabel() {
         String suffix = hasMorePages ? "+" : "";
-        tvDuetCount.setText(totalLoaded + suffix + " duet" + (totalLoaded == 1 ? "" : "s"));
+        tvStitchCount.setText(totalLoaded + suffix + " stitch" + (totalLoaded == 1 ? "" : "es"));
     }
 
     private void showEmpty(boolean show) {
         layoutEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
-        rvDuets.setVisibility(show ? View.GONE : View.VISIBLE);
+        rvStitches.setVisibility(show ? View.GONE : View.VISIBLE);
     }
 
-    private void onDuetTapped(ReelModel reel) {
+    private void onStitchTapped(ReelModel reel) {
         if (reel == null || reel.reelId == null) return;
         Intent i = new Intent(this, com.callx.app.player.SingleReelPlayerActivity.class);
         i.putExtra(com.callx.app.player.SingleReelPlayerActivity.EXTRA_REEL_ID, reel.reelId);
         i.putExtra(com.callx.app.player.SingleReelPlayerActivity.EXTRA_TITLE,
-                   reel.ownerName != null ? "Duet by @" + reel.ownerName : "Duet");
+                   reel.ownerName != null ? "Stitch by @" + reel.ownerName : "Stitch");
         startActivity(i);
     }
 
     // ── Adapter ───────────────────────────────────────────────────────────────
 
-    private static class DuetsAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    private static class StitchesAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
-        interface OnDuetClick { void onClick(ReelModel reel); }
+        interface OnStitchClick { void onClick(ReelModel reel); }
 
         private final List<ReelModel> items;
-        private final OnDuetClick     listener;
+        private final OnStitchClick   listener;
         private boolean               showFooter = false;
 
-        DuetsAdapter(List<ReelModel> items, OnDuetClick listener) {
+        StitchesAdapter(List<ReelModel> items, OnStitchClick listener) {
             this.items    = items;
             this.listener = listener;
         }
@@ -317,7 +249,7 @@ public class DuetsByReelActivity extends AppCompatActivity {
         void setShowFooter(boolean show) { this.showFooter = show; }
 
         @Override public int getItemViewType(int position) {
-            return (showFooter && position == items.size()) ? VIEW_TYPE_FOOTER : VIEW_TYPE_DUET;
+            return (showFooter && position == items.size()) ? VIEW_TYPE_FOOTER : VIEW_TYPE_STITCH;
         }
 
         @Override public int getItemCount() {
@@ -328,7 +260,6 @@ public class DuetsByReelActivity extends AppCompatActivity {
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LayoutInflater inf = LayoutInflater.from(parent.getContext());
             if (viewType == VIEW_TYPE_FOOTER) {
-                // Inline footer: centered ProgressBar
                 FrameLayout fl = new FrameLayout(parent.getContext());
                 ProgressBar pb = new ProgressBar(parent.getContext());
                 FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -359,7 +290,8 @@ public class DuetsByReelActivity extends AppCompatActivity {
 
             h.tvCreator.setText(reel.ownerName != null ? "@" + reel.ownerName : "");
             h.tvViews.setText(formatCount(reel.viewsCount));
-            h.badgeDuet.setVisibility(View.VISIBLE);
+            // Show scissors badge instead of duet badge to distinguish stitches
+            if (h.badgeDuet != null) h.badgeDuet.setVisibility(View.GONE);
             h.itemView.setOnClickListener(v -> listener.onClick(reel));
         }
 

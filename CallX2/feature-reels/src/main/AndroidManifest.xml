@@ -63,6 +63,13 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"/>
 
+        <!-- ✅ FIX (GAP #2 — v8): StitchesByReelActivity registered -->
+        <activity
+            android:name=".social.StitchesByReelActivity"
+            android:theme="@style/Theme.Reels.Dark"
+            android:screenOrientation="portrait"
+            android:exported="false"/>
+
         <activity android:name="com.callx.app.camera.MultiClipCameraActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen"
