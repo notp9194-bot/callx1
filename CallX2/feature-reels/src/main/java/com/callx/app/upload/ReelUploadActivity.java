@@ -94,6 +94,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     public static final String EXTRA_DUET_ORIGINAL_ID = "upload_duet_original_id";
     public static final String EXTRA_DUET_OWNER_UID   = "upload_duet_owner_uid";
     public static final String EXTRA_DUET_LABEL       = "upload_duet_label";
+    public static final String EXTRA_DUET_ORIGINAL_URL= "upload_duet_original_url";
 
     private static final int REQ_PICK_VIDEO  = 901;
     private static final int REQ_PERMISSION  = 902;
@@ -135,6 +136,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String  duetOriginalId  = "";
     private String  duetOwnerUid    = "";
     private String  duetLabel       = "";
+    private String  duetOriginalUrl = "";
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -261,9 +263,11 @@ public class ReelUploadActivity extends AppCompatActivity {
         String dOId    = i.getStringExtra(EXTRA_DUET_ORIGINAL_ID);
         String dOUid   = i.getStringExtra(EXTRA_DUET_OWNER_UID);
         String dLabel  = i.getStringExtra(EXTRA_DUET_LABEL);
-        if (dOId   != null) duetOriginalId = dOId;
-        if (dOUid  != null) duetOwnerUid   = dOUid;
-        if (dLabel != null) duetLabel      = dLabel;
+        if (dOId   != null) duetOriginalId  = dOId;
+        if (dOUid  != null) duetOwnerUid    = dOUid;
+        if (dLabel != null) duetLabel       = dLabel;
+        String dOrigUrl = i.getStringExtra(EXTRA_DUET_ORIGINAL_URL);
+        if (dOrigUrl != null) duetOriginalUrl = dOrigUrl;
     }
 
     // ── Permission ────────────────────────────────────────────────────────
@@ -600,8 +604,9 @@ public class ReelUploadActivity extends AppCompatActivity {
                 }
                 // Fix 4 & 8: duet fields on the new reel
                 if (a.isDuet && !a.duetOriginalId.isEmpty()) {
-                    reel.duetOf        = a.duetOriginalId;
-                    reel.duetOfOwnerUid = a.duetOwnerUid;
+                    reel.duetOf           = a.duetOriginalId;
+                    reel.duetOfOwnerUid   = a.duetOwnerUid;
+                    reel.duetOriginalUrl  = a.duetOriginalUrl;
                     reel.caption       = a.duetLabel.isEmpty() ? reel.caption
                                          : (a.duetLabel + (reel.caption.isEmpty() ? "" : " – " + reel.caption));
                 }

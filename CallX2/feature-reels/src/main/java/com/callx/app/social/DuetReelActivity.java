@@ -506,49 +506,15 @@ public class DuetReelActivity extends AppCompatActivity {
         }.start();
     }
 
-    // ── Post-recording: composite (FFmpeg) then open editor ─────────────────
+    // ── Post-recording: open editor ───────────────────────────────────────────
 
     private void onRecordingDone(String cameraFilePath) {
         if (exoPlayer != null) exoPlayer.pause();
-
-        // Show non-cancelable progress dialog during FFmpeg compositing
-        android.app.ProgressDialog pd = new android.app.ProgressDialog(this);
-        pd.setMessage("Creating duet\u2026");
-        pd.setProgressStyle(android.app.ProgressDialog.STYLE_SPINNER);
-        pd.setCancelable(false);
-        pd.show();
-
-        ExecutorService exec = Executors.newSingleThreadExecutor();
-        exec.execute(() -> {
-            String finalPath = cameraFilePath; // fallback if composite fails
-            try {
-                java.io.File outFile = new java.io.File(
-                    getCacheDir(), "duet_final_" + System.currentTimeMillis() + ".mp4");
-
-                DuetVideoCompositor compositor = new DuetVideoCompositor();
-                boolean ok = compositor.composite(
-                    cameraFilePath,
-                    videoUrl,
-                    outFile.getAbsolutePath(),
-                    layoutMode,
-                    originalVol
-                );
-                if (ok && outFile.exists() && outFile.length() > 0) {
-                    finalPath = outFile.getAbsolutePath();
-                }
-            } catch (Exception e) {
-                android.util.Log.e(TAG, "Composite failed, using camera file: " + e.getMessage());
-            }
-
-            final String pathToOpen = finalPath;
-            runOnUiThread(() -> {
-                pd.dismiss();
-                incrementDuetCount();
-                fireDuetNotification();
-                openEditor(pathToOpen);
-            });
-            exec.shutdown();
-        });
+        // Pass originalUrl so editor/upload can tag this as a duet.
+        // Side-by-side compositing requires ffmpeg-kit; added when dependency resolves.
+        incrementDuetCount();
+        fireDuetNotification();
+        openEditor(cameraFilePath);
     }
 
     /** Increment duetCount on the original reel in Firebase. */
@@ -580,11 +546,12 @@ public class DuetReelActivity extends AppCompatActivity {
 
     private void openEditor(String filePath) {
         Intent i = new Intent(this, ReelEditorActivity.class);
-        i.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI,        filePath);
-        i.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH,     true);
-        i.putExtra(ReelEditorActivity.EXTRA_IS_DUET,          true);
-        i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_ID, reelId);
-        i.putExtra(ReelEditorActivity.EXTRA_DUET_OWNER_UID,   ownerUid);
+        i.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI,          filePath);
+        i.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH,       true);
+        i.putExtra(ReelEditorActivity.EXTRA_IS_DUET,            true);
+        i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_ID,   reelId);
+        i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_URL,  videoUrl);
+        i.putExtra(ReelEditorActivity.EXTRA_DUET_OWNER_UID,     ownerUid);
         i.putExtra(ReelEditorActivity.EXTRA_DUET_LABEL,
                    ownerName.isEmpty() ? "Duet" : "Duet with @" + ownerName);
         i.putExtra("duet_layout_mode", layoutMode);

@@ -64,6 +64,8 @@ public class ReelModel {
     public String  duetOf;
     /** UID of the original reel's creator (for push notification targeting). */
     public String  duetOfOwnerUid;
+    /** URL of the original reel video (used by feed to render side-by-side). */
+    public String  duetOriginalUrl;
     /** Running count of duets made on this reel. Incremented by DuetReelActivity. */
     public int     duetCount;
     /** Layout mode used when this duet was recorded (0=side, 1=top-bottom, 2=pip). */

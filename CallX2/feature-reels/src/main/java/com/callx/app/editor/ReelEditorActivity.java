@@ -57,6 +57,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     // Fix 4: duet metadata passed from DuetReelActivity
     public static final String EXTRA_IS_DUET             = "editor_is_duet";
     public static final String EXTRA_DUET_ORIGINAL_ID    = "editor_duet_original_id";
+    public static final String EXTRA_DUET_ORIGINAL_URL   = "editor_duet_original_url";
     public static final String EXTRA_DUET_OWNER_UID      = "editor_duet_owner_uid";
     // Fix 8: watermark label e.g. "Duet with @username"
     public static final String EXTRA_DUET_LABEL          = "editor_duet_label";
@@ -84,6 +85,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String  duetOriginalId   = "";
     private String  duetOwnerUid     = "";
     private String  duetLabel        = "";
+    private String  duetOriginalUrl  = "";
 
     // Sound pre-selected from SoundDetailActivity or MusicPickerActivity
     private String preSelectedSoundId    = "";
@@ -112,6 +114,8 @@ public class ReelEditorActivity extends AppCompatActivity {
                          ? getIntent().getStringExtra(EXTRA_DUET_OWNER_UID) : "";
         duetLabel      = getIntent().getStringExtra(EXTRA_DUET_LABEL) != null
                          ? getIntent().getStringExtra(EXTRA_DUET_LABEL) : "";
+        String dUrl    = getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_URL);
+        if (dUrl != null) duetOriginalUrl = dUrl;
 
         // Read pre-selected sound passed from ReelCameraActivity / SoundDetailActivity
         String si = getIntent().getStringExtra("selected_sound_id");
@@ -321,6 +325,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (isDuet) {
             intent.putExtra(ReelUploadActivity.EXTRA_IS_DUET,          true);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_ORIGINAL_ID, duetOriginalId);
+            intent.putExtra(ReelUploadActivity.EXTRA_DUET_ORIGINAL_URL,duetOriginalUrl);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_OWNER_UID,   duetOwnerUid);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_LABEL,       duetLabel);
         }
