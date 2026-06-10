@@ -27,12 +27,18 @@ import java.util.*;
  *
  * Flow:
  *  1. Creator opens this from ReelMoreBottomSheet → "Invite to Duet"
- *  2. Search followers by username
+ *  2. Search followers by name / callxId
  *  3. Tap user → send invite notification via PushNotify + store in Firebase
  *     duetInvites/{targetUid}/{inviteId} = { reelId, fromUid, fromName, videoUrl, timestamp }
  *  4. Target user sees notification; tapping opens DuetReelActivity for that reel
  *
  * Firebase node: duetInvites/{targetUid}/{inviteId}
+ *
+ * FIXES applied vs original draft:
+ *  • u.username  → u.callxId  (User model field is callxId, not username)
+ *  • u.profileImage → u.photoUrl
+ *  • Firebase reads "name" and "photoUrl" (not "username" / "profileImage")
+ *  • PushNotify.notifyDuetInvite() now exists in PushNotify.java (Fix C)
  */
 public class DuetInviteActivity extends AppCompatActivity {
 
@@ -43,13 +49,14 @@ public class DuetInviteActivity extends AppCompatActivity {
     private EditText      etSearch;
     private RecyclerView  rvUsers;
     private ProgressBar   progressSearch;
-    private TextView      tvNoResults;
+    private View          tvNoResults;
     private ImageButton   btnBack;
 
     private String reelId, videoUrl, ownerName;
     private String myUid, myName, myPhoto;
 
-    private final List<User>  results   = new ArrayList<>();
+    private final List<User>  allFollowers = new ArrayList<>();
+    private final List<User>  results      = new ArrayList<>();
     private       UserAdapter adapter;
 
     @Override
@@ -66,11 +73,11 @@ public class DuetInviteActivity extends AppCompatActivity {
         if (me == null) { finish(); return; }
         myUid = me.getUid();
 
-        etSearch      = findViewById(R.id.et_invite_search);
-        rvUsers       = findViewById(R.id.rv_invite_users);
-        progressSearch= findViewById(R.id.progress_invite_search);
-        tvNoResults   = findViewById(R.id.tv_invite_no_results);
-        btnBack       = findViewById(R.id.btn_invite_back);
+        etSearch       = findViewById(R.id.et_invite_search);
+        rvUsers        = findViewById(R.id.rv_invite_users);
+        progressSearch = findViewById(R.id.progress_invite_search);
+        tvNoResults    = findViewById(R.id.tv_invite_no_results);
+        btnBack        = findViewById(R.id.btn_invite_back);
 
         btnBack.setOnClickListener(v -> finish());
 
@@ -94,16 +101,15 @@ public class DuetInviteActivity extends AppCompatActivity {
         FirebaseUtils.db().getReference("users").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    myName  = snap.child("username").getValue(String.class);
-                    myPhoto = snap.child("profileImage").getValue(String.class);
+                    // User model stores display name as "name" and avatar as "photoUrl"
+                    myName  = snap.child("name").getValue(String.class);
+                    myPhoto = snap.child("photoUrl").getValue(String.class);
                     if (myName  == null) myName  = "Someone";
                     if (myPhoto == null) myPhoto = "";
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
-
-    private final List<User> allFollowers = new ArrayList<>();
 
     private void loadFollowers() {
         if (progressSearch != null) progressSearch.setVisibility(View.VISIBLE);
@@ -161,9 +167,10 @@ public class DuetInviteActivity extends AppCompatActivity {
     private void filterResults(String query) {
         results.clear();
         for (User u : allFollowers) {
-            String uname = u.username != null ? u.username.toLowerCase() : "";
-            String name  = u.name     != null ? u.name.toLowerCase()     : "";
-            if (query.isEmpty() || uname.contains(query) || name.contains(query)) {
+            // User.callxId is the @handle; User.name is the display name
+            String handle = u.callxId != null ? u.callxId.toLowerCase() : "";
+            String name   = u.name    != null ? u.name.toLowerCase()    : "";
+            if (query.isEmpty() || handle.contains(query) || name.contains(query)) {
                 results.add(u);
             }
         }
@@ -184,18 +191,18 @@ public class DuetInviteActivity extends AppCompatActivity {
     }
 
     private void sendInvite(User targetUser) {
-        long now      = System.currentTimeMillis();
+        long   now    = System.currentTimeMillis();
         String invKey = myUid + "_" + reelId;
 
         Map<String, Object> invite = new HashMap<>();
-        invite.put("reelId",      reelId);
-        invite.put("videoUrl",    videoUrl  != null ? videoUrl  : "");
-        invite.put("fromUid",     myUid);
-        invite.put("fromName",    myName    != null ? myName    : "Someone");
-        invite.put("fromPhoto",   myPhoto   != null ? myPhoto   : "");
-        invite.put("reelOwner",   ownerName != null ? ownerName : "");
-        invite.put("timestamp",   now);
-        invite.put("status",      "pending");
+        invite.put("reelId",    reelId);
+        invite.put("videoUrl",  videoUrl  != null ? videoUrl  : "");
+        invite.put("fromUid",   myUid);
+        invite.put("fromName",  myName    != null ? myName    : "Someone");
+        invite.put("fromPhoto", myPhoto   != null ? myPhoto   : "");
+        invite.put("reelOwner", ownerName != null ? ownerName : "");
+        invite.put("timestamp", now);
+        invite.put("status",    "pending");
 
         FirebaseUtils.db()
             .getReference("duetInvites")
@@ -203,14 +210,21 @@ public class DuetInviteActivity extends AppCompatActivity {
             .child(invKey)
             .setValue(invite)
             .addOnSuccessListener(unused -> {
+                // notifyDuetInvite() added to PushNotify in Fix C
                 PushNotify.notifyDuetInvite(
-                    targetUser.uid, myUid,
-                    myName != null ? myName : "Someone",
-                    myPhoto != null ? myPhoto : "",
+                    targetUser.uid,
+                    myUid,
+                    myName    != null ? myName    : "Someone",
+                    myPhoto   != null ? myPhoto   : "",
                     reelId,
-                    videoUrl != null ? videoUrl : "");
+                    videoUrl  != null ? videoUrl  : "");
+
+                // callxId is the @handle; fall back to name if absent
+                String handle = targetUser.callxId != null
+                    ? targetUser.callxId
+                    : (targetUser.name != null ? targetUser.name : "user");
                 Toast.makeText(this,
-                    "Invite sent to @" + (targetUser.username != null ? targetUser.username : "user"),
+                    "Invite sent to @" + handle,
                     Toast.LENGTH_SHORT).show();
             })
             .addOnFailureListener(e ->
@@ -241,13 +255,19 @@ public class DuetInviteActivity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
             User u = items.get(pos);
-            h.tvName.setText(u.username != null ? "@" + u.username : "Unknown");
+
+            // callxId → @handle shown as username; name → display name
+            String handle = u.callxId != null ? "@" + u.callxId : (u.name != null ? u.name : "Unknown");
+            h.tvName.setText(handle);
             h.tvDisplayName.setText(u.name != null ? u.name : "");
+
+            // photoUrl is the avatar field in User model
             Glide.with(h.ivAvatar.getContext())
-                .load(u.profileImage)
+                .load(u.photoUrl)
                 .circleCrop()
                 .placeholder(R.drawable.circle_avatar_bg)
                 .into(h.ivAvatar);
+
             h.btnInvite.setOnClickListener(v -> listener.onClick(u));
         }
 
@@ -255,8 +275,7 @@ public class DuetInviteActivity extends AppCompatActivity {
 
         static class VH extends RecyclerView.ViewHolder {
             ImageView ivAvatar;
-            TextView  tvName, tvDisplayName;
-            TextView  btnInvite;
+            TextView  tvName, tvDisplayName, btnInvite;
             VH(android.view.View v) {
                 super(v);
                 ivAvatar     = v.findViewById(R.id.iv_invite_avatar);

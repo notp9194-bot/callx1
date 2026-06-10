@@ -25,11 +25,22 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
 
+import java.util.ArrayList;
+
 /**
  * SingleReelPlayerActivity — Fix 1
  *
- * Plays a single reel by its Firebase reelId.
- * Referenced by DuetsByReelActivity when a duet thumbnail is tapped.
+ * Plays a single reel (or one reel from a list) by its Firebase reelId.
+ * Referenced by DuetsByReelActivity, UserReelsActivity, and HomeFragment.
+ *
+ * Supported intent modes:
+ *  Mode A — single reel:
+ *      EXTRA_REEL_ID  (String)  — Firebase reel ID to load
+ *      EXTRA_TITLE    (String)  — optional display title
+ *
+ *  Mode B — reel list (UserReelsActivity / HomeFragment):
+ *      EXTRA_REEL_IDS           (ArrayList<String>) — ordered list of reel IDs
+ *      EXTRA_START_POSITION     (int)               — index into list to start playback
  *
  * Features:
  *  ✅ Loads reel by ID from Firebase
@@ -41,12 +52,20 @@ import com.google.firebase.database.ValueEventListener;
 @OptIn(markerClass = UnstableApi.class)
 public class SingleReelPlayerActivity extends AppCompatActivity {
 
-    public static final String EXTRA_REEL_ID = "single_reel_id";
-    public static final String EXTRA_TITLE   = "single_reel_title";
+    // ── Mode A — single reel ─────────────────────────────────────────────────
+    public static final String EXTRA_REEL_ID   = "single_reel_id";
+    public static final String EXTRA_TITLE     = "single_reel_title";
+
+    // ── Mode B — reel list (UserReelsActivity, HomeFragment) ─────────────────
+    public static final String EXTRA_REEL_IDS       = "single_reel_ids";
+    public static final String EXTRA_START_POSITION = "single_reel_start";
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     private PlayerView  playerView;
     private ExoPlayer   exoPlayer;
-    private ImageButton btnBack, btnDuet;
+    private ImageButton btnBack;
+    private View        btnDuet;
     private TextView    tvOwner, tvCaption;
     private View        progressLoad;
 
@@ -57,9 +76,6 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_single_reel_player);
 
-        String reelId = getIntent().getStringExtra(EXTRA_REEL_ID);
-        String title  = getIntent().getStringExtra(EXTRA_TITLE);
-
         playerView   = findViewById(R.id.player_single_reel);
         btnBack      = findViewById(R.id.btn_single_back);
         btnDuet      = findViewById(R.id.btn_single_duet);
@@ -67,16 +83,36 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
         tvCaption    = findViewById(R.id.tv_single_caption);
         progressLoad = findViewById(R.id.progress_single_reel);
 
-        if (title != null) tvOwner.setText(title);
         btnBack.setOnClickListener(v -> finish());
 
+        // ── Resolve reel ID ───────────────────────────────────────────────────
+        String reelId = resolveReelId(getIntent());
         if (reelId == null) {
             Toast.makeText(this, "Reel not found", Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
 
+        String title = getIntent().getStringExtra(EXTRA_TITLE);
+        if (title != null && tvOwner != null) tvOwner.setText(title);
+
         loadReel(reelId);
+    }
+
+    /**
+     * Resolves the reel ID from either Mode A or Mode B intent extras.
+     * Mode B: picks the ID at EXTRA_START_POSITION from EXTRA_REEL_IDS.
+     */
+    private String resolveReelId(Intent intent) {
+        // Mode B — list
+        ArrayList<String> ids = intent.getStringArrayListExtra(EXTRA_REEL_IDS);
+        if (ids != null && !ids.isEmpty()) {
+            int pos = intent.getIntExtra(EXTRA_START_POSITION, 0);
+            if (pos < 0 || pos >= ids.size()) pos = 0;
+            return ids.get(pos);
+        }
+        // Mode A — single
+        return intent.getStringExtra(EXTRA_REEL_ID);
     }
 
     private void loadReel(String reelId) {
@@ -122,13 +158,10 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
 
         setupPlayer(reel.videoUrl);
 
-        btnDuet.setOnClickListener(v -> openDuet(reel));
-
-        String duetLevel = reel.effectiveAllowDuetLevel();
-        if ("off".equals(duetLevel)) {
-            btnDuet.setVisibility(View.GONE);
-        } else {
-            btnDuet.setVisibility(View.VISIBLE);
+        if (btnDuet != null) {
+            btnDuet.setOnClickListener(v -> openDuet(reel));
+            String duetLevel = reel.effectiveAllowDuetLevel();
+            btnDuet.setVisibility("off".equals(duetLevel) ? View.GONE : View.VISIBLE);
         }
     }
 

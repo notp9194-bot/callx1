@@ -594,6 +594,37 @@ public class PushNotify {
 
     // ── Reel Notification: Repost ─────────────────────────────────────────
 
+
+    // ── Duet Invite Notification (Fix 11) ─────────────────────────────────
+    /**
+     * Notify a user that they have been invited to duet a reel.
+     * Server: POST /notify/reel  {type: "duet_invite"}
+     * Android receiver: CallxMessagingService -> ReelFCMNotificationHandler
+     *
+     * @param toUid      UID of the invited user (receives notification)
+     * @param fromUid    UID of the reel creator sending the invite
+     * @param fromName   Display name of the inviter
+     * @param fromPhoto  Avatar URL of the inviter (shown as largeIcon)
+     * @param reelId     ID of the reel to duet
+     * @param videoUrl   Direct video URL of the reel (for deep link)
+     */
+    public static void notifyDuetInvite(String toUid, String fromUid, String fromName,
+                                        String fromPhoto, String reelId, String videoUrl) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",     toUid     == null ? "" : toUid)
+                .put("fromUid",   fromUid   == null ? "" : fromUid)
+                .put("fromName",  fromName  == null ? "" : fromName)
+                .put("fromPhoto", fromPhoto == null ? "" : fromPhoto)
+                .put("reelId",    reelId    == null ? "" : reelId)
+                .put("videoUrl",  videoUrl  == null ? "" : videoUrl)
+                .put("type",      "duet_invite");
+            postAsync(Constants.SERVER_URL + "/notify/reel", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyDuetInvite err: " + e.getMessage());
+        }
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────
 
     private static void postAsync(String url, JSONObject body) {
