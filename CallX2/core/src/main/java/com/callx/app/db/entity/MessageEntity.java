@@ -9,10 +9,6 @@ import androidx.annotation.NonNull;
 /**
  * Room DB entity for cached messages.
  * Indexed on chatId + timestamp for fast query performance.
- *
- * DB VERSION BUMP REQUIRED: Add migration for new columns:
- *   deliveredAt, readAt, deliveredToJson, readByJson
- * See AppDatabase.MIGRATION_X_Y below.
  */
 @Entity(
     tableName = "messages",
@@ -57,6 +53,7 @@ public class MessageEntity {
     /** Last delta sync timestamp — used for incremental sync. */
     public long syncedAt;
 
+
     /** Reel ID — for reel_seen bubble; used to open reel on tap. */
     public String reelId;
     /** Reel thumbnail URL — shown in reel_seen bubble. */
@@ -82,37 +79,6 @@ public class MessageEntity {
      * Default 0 = Normal.
      */
     public int fontStyle;
-
-    // ── FIX: Message Info timestamps ──────────────────────────────────────
-
-    /**
-     * FIX: Kab message receiver ke paas deliver hua (millis).
-     * Room mein store hota hai taaki info screen offline bhi kaam kare.
-     */
-    public Long deliveredAt;
-
-    /**
-     * FIX: Kab receiver ne message padha (millis).
-     * Set hota hai jab receiver ChatActivity foreground mein aata hai.
-     */
-    public Long readAt;
-
-    /**
-     * FIX: Group delivery map — JSON string (uid → deliveredAt millis).
-     * Map<String,Long> Room mein directly store nahi hoti; Gson se serialize karo.
-     * Use MessageInfoActivity.parseReadMap() to deserialise.
-     *
-     * Example JSON: {"uid1":1700000001000,"uid2":1700000002000}
-     */
-    public String deliveredToJson;
-
-    /**
-     * FIX: Group read map — JSON string (uid → readAt millis).
-     * Same serialisation as deliveredToJson.
-     *
-     * Example JSON: {"uid1":1700000003000}
-     */
-    public String readByJson;
 
     public MessageEntity() {}
 }

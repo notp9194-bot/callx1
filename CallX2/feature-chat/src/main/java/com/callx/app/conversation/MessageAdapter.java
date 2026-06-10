@@ -943,16 +943,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             if (actionListener != null) actionListener.onPin(m);
         });
 
-        // FIX N7: Info — show for both sent AND received messages.
-        // Sent: shows deliveredAt + readAt timestamps (who read it, when).
-        // Received: shows when you received it and when you read it.
-        // Deleted messages se info nahi milti (nothing meaningful to show).
+        // N7: Info (sender only)
         TextView infoBtn = sv.findViewById(R.id.action_info);
         if (infoBtn != null) {
-            boolean showInfo = !Boolean.TRUE.equals(m.deleted);
-            if (showInfo) {
+            if (sent) {
                 infoBtn.setVisibility(View.VISIBLE);
-                infoBtn.setText(sent ? "ℹ  Info" : "ℹ  Message Info");
                 infoBtn.setOnClickListener(v -> {
                     sheet.dismiss();
                     if (actionListener != null) actionListener.onInfo(m);

@@ -33,36 +33,6 @@ public class Message {
     /** sent | delivered | read */
     public String status;
 
-    /**
-     * FIX: Timestamp jab message receiver ke device pe deliver hua.
-     * Firebase path: messages/{id}/deliveredAt
-     * Set karo: receiver ke ChatActivity.onChildAdded() mein, apne messages ko nahi.
-     */
-    public Long deliveredAt;
-
-    /**
-     * FIX: Timestamp jab receiver ne message padha (screen par aaya + app foreground).
-     * Firebase path: messages/{id}/readAt
-     * Set karo: markRead() call hone par, sirf received messages ke liye.
-     */
-    public Long readAt;
-
-    /**
-     * FIX: Group chats ke liye — kaun kaun ne message receive kiya aur kab.
-     * Map of uid → deliveredAt timestamp (millis).
-     * Firebase path: messages/{id}/deliveredTo/{uid}
-     * Only populated for isGroup == true.
-     */
-    public Map<String, Long> deliveredTo;
-
-    /**
-     * FIX: Group chats ke liye — kaun kaun ne message padha aur kab.
-     * Map of uid → readAt timestamp (millis).
-     * Firebase path: messages/{id}/readBy/{uid}
-     * Only populated for isGroup == true.
-     */
-    public Map<String, Long> readBy;
-
     // ── Feature 2: Reply / Quote ──────────────────────────
     public String replyToId;
     public String replyToText;

@@ -37,10 +37,10 @@ import com.google.firebase.database.ValueEventListener;
 public class CallxApp extends Application {
 
     private static final String TAG = "CallxApp";
-    private static int    sActivityRefs  = 0;
-    private static String sMyPhotoUrl    = "";
+    private static int    sActivityRefs = 0;
+    private static String sMyPhotoUrl   = "";
 
-    public static boolean isAppInForeground()   { return sActivityRefs > 0; }
+    public static boolean isAppInForeground()  { return sActivityRefs > 0; }
     public static String  getMyPhotoUrlCached() { return sMyPhotoUrl; }
 
     // ──────────────────────────────────────────────────────────────

@@ -704,17 +704,31 @@ public class CallxMessagingService extends FirebaseMessagingService {
         saveMessageToDb(msgId, chatId, fromUid, fromName, rawText, type, mediaUrl,
             data.getOrDefault("fileName", null), false);
 
-        // FIX: Background delivery marking — FCM notification hamare device pe pahuncha matlab
-        // message delivered ho gaya. Sender ko ✓✓ (grey) dikhao.
-        //
-        // Rules:
-        //  1. Sirf received messages (fromUid != myUid) pe karo
-        //  2. Chat currently open hai → ChatActivity.markDelivered() handle karega — skip karo
-        //  3. "read" ya "delivered" hai → downgrade mat karo
-        //  4. Read receipts off hain → kuch mat karo
-        //  5. deliveredAt timestamp bhi set karo (MessageInfoActivity ke liye)
-        //  6. Room DB bhi update karo (offline info screen ke liye)
-        markDeliveredBackground(msgId, chatId, fromUid);
+        // FIX [P2-3]: "Delivered" status — FCM notification hamare device pe pahuncha matlab
+        // message deliver ho gaya. Sender ko ✓✓ (gray) dikhao, chahe chat khuli ho ya na ho.
+        // Ye Firebase ChildEventListener se back-propagate hoga → sender ki Room DB update → UI refresh.
+        if (msgId != null && !msgId.isEmpty() && chatId != null && !chatId.isEmpty()) {
+            final String currentUid = FirebaseAuth.getInstance().getCurrentUser() != null
+                    ? FirebaseAuth.getInstance().getCurrentUser().getUid() : "";
+            if (!currentUid.isEmpty() && !currentUid.equals(fromUid)) {
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    try {
+                        // Sirf "sent" → "delivered" upgrade karo; "read" downgrade nahi hona chahiye
+                        com.google.firebase.database.DatabaseReference msgRef =
+                                FirebaseUtils.db().getReference("chats")
+                                        .child(chatId).child("messages").child(msgId);
+                        msgRef.child("status").addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot s) {
+                                String cur = s.getValue(String.class);
+                                if ("read".equals(cur)) return; // already better, skip
+                                msgRef.child("status").setValue("delivered");
+                            }
+                            @Override public void onCancelled(DatabaseError e) {}
+                        });
+                    } catch (Exception ignored) {}
+                });
+            }
+        }
 
         // ── v18: Read all flags from FCM payload (server sends these now) ──
         final boolean serverHasBlockFlags = data.containsKey("permaBlocked") || data.containsKey("blocked");
@@ -1093,80 +1107,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
             .putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto == null ? "" : fromPhoto)
             .putExtra(Constants.EXTRA_NOTIF_ID,      notifId);
     }
-    // ─────────────────────────────────────────────────────────────────────────
-    // BACKGROUND DELIVERY MARKING
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * FIX: Mark a message as "delivered" when received via FCM in background/killed state.
-     *
-     * Called from showMessage() and showGroupMessage() immediately after saving to Room.
-     * Skipped if the chat is currently visible (ChatActivity.markDelivered handles it).
-     *
-     * Firebase path fix: was using wrong "chats/{chatId}/messages/{id}" — now uses
-     * FirebaseUtils.getMessagesRef(chatId) → "messages/{chatId}/{id}".
-     *
-     * Also sets deliveredAt timestamp so MessageInfoActivity can show exact delivery time.
-     * Also updates Room DB so info screen works offline.
-     *
-     * @param msgId    Firebase message key
-     * @param chatId   chatId / groupId
-     * @param fromUid  sender uid (skip if it's our own message)
-     */
-    private void markDeliveredBackground(final String msgId, final String chatId,
-                                          final String fromUid) {
-        if (msgId == null || msgId.isEmpty()) return;
-        if (chatId == null || chatId.isEmpty()) return;
-
-        final com.google.firebase.auth.FirebaseUser me =
-                FirebaseAuth.getInstance().getCurrentUser();
-        if (me == null) return;
-        final String myUid = me.getUid();
-        if (myUid.equals(fromUid)) return; // own message — skip
-
-        // Rule: if chat is currently open, ChatActivity.markDelivered() handles it
-        if (com.callx.app.utils.ActiveChatTracker.isActive(chatId)) return;
-
-        // Rule: check read receipts setting
-        com.callx.app.utils.SecurityManager secMgr =
-                new com.callx.app.utils.SecurityManager(getApplicationContext());
-        if (!secMgr.isReadReceiptsEnabled()) return;
-
-        bg.execute(() -> {
-            try {
-                // FIX: correct Firebase path — was "chats/{chatId}/messages/{id}"
-                com.google.firebase.database.DatabaseReference msgRef =
-                        FirebaseUtils.getMessagesRef(chatId).child(msgId);
-
-                final long now = System.currentTimeMillis();
-
-                // Read current status first — only upgrade sent→delivered, never downgrade
-                msgRef.child("status").addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(DataSnapshot s) {
-                        String cur = s.getValue(String.class);
-                        // "read" or "delivered" already — don't downgrade
-                        if ("read".equals(cur) || "delivered".equals(cur)) return;
-
-                        // Atomic multi-field update: status + deliveredAt together
-                        java.util.Map<String, Object> updates = new java.util.HashMap<>();
-                        updates.put("status",      "delivered");
-                        updates.put("deliveredAt", now);
-                        msgRef.updateChildren(updates);
-
-                        // FIX: Also update Room DB so MessageInfoActivity works offline
-                        try {
-                            com.callx.app.db.AppDatabase db =
-                                    AppDatabase.getInstance(getApplicationContext());
-                            db.messageDao().updateStatus(msgId, "delivered");
-                            db.messageDao().updateDeliveredAt(msgId, now);
-                        } catch (Exception ignored) {}
-                    }
-                    @Override public void onCancelled(DatabaseError e) {}
-                });
-            } catch (Exception ignored) {}
-        });
-    }
-
     // ----- Feature 2/3: "Unblock {sender}" prompt notification -----
     private void showBlockedSenderNotification(final String fromUid,
             final String fromName, final String fromMobile,
@@ -1475,11 +1415,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
             rawText, messageTypeFromGroupType(type),
             data.getOrDefault("mediaUrl", ""),
             data.getOrDefault("fileName", null), true);
-
-        // FIX: Background group delivery marking — same rules as 1-on-1.
-        // GroupChatActivity handles it when open; FCM handles it in background/killed state.
-        // Uses groupMessages/{groupId}/{msgId} path via FirebaseUtils.getGroupMessagesRef().
-        markDeliveredBackground(grpMsgId, groupId, fromUid);
 
         // ── @Mention detection ───────────────────────────────────────────────
         // Check FCM flag first; fall back to scanning text for "@name" / "@everyone"

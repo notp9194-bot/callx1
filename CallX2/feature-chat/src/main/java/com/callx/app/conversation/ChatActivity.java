@@ -273,24 +273,11 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        // FIX: Tell FCM service this chat is now visible — so it skips duplicate delivery marking.
-        // ChatActivity.markDelivered() handles delivery when chat is open;
-        // FCM service only marks delivered when chat is NOT open (background/killed).
-        if (chatId != null) {
-            com.callx.app.utils.ActiveChatTracker.set(chatId);
-        }
-    }
-
-    @Override
     protected void onPause() {
         super.onPause();
         saveDraft();              // v18 IMPROVEMENT 2: User navigate away — draft save
         clearOurTypingStatus();   // FIX: typing indicator stuck when app is backgrounded
         typingHandler.removeCallbacks(stopTypingRunnable);
-        // FIX: Clear active chat so FCM service knows this chat is no longer visible
-        com.callx.app.utils.ActiveChatTracker.clear();
     }
 
     @Override
@@ -748,10 +735,6 @@ public class ChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 m.id = snapshot.getKey();
                 saveToRoom(m, false);
-                // FIX: Mark delivered first (sets deliveredAt), then read (sets readAt).
-                // Without markDelivered(), status jumped sent→read skipping "delivered" tick.
-                // Chat open hai toh immediately read ho jata hai — deliveredAt = readAt = now.
-                markDelivered(m);
                 markRead(m);
             }
 
@@ -826,19 +809,6 @@ public class ChatActivity extends AppCompatActivity {
         m.reelId                = e.reelId;       // FIX: reel_seen bubble
         m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
         m.fontStyle             = e.fontStyle;    // FIX: typing style — Room se load hone par preserve karo
-        m.editedAt              = e.editedAt;     // FIX: was missing — not restored from Room
-
-        // FIX: Message info timestamps — restore from Room
-        m.deliveredAt           = e.deliveredAt;
-        m.readAt                = e.readAt;
-
-        // FIX: Group read maps — deserialize from JSON string
-        if (e.deliveredToJson != null && !e.deliveredToJson.isEmpty()) {
-            m.deliveredTo = MessageInfoActivity.parseReadMap(e.deliveredToJson);
-        }
-        if (e.readByJson != null && !e.readByJson.isEmpty()) {
-            m.readBy = MessageInfoActivity.parseReadMap(e.readByJson);
-        }
         return m;
     }
 
@@ -864,7 +834,6 @@ public class ChatActivity extends AppCompatActivity {
         e.replyToType             = m.replyToType;       // FIX: was missing — thumbnail type not saved
         e.replyToMediaUrl         = m.replyToMediaUrl;   // FIX: was missing — thumbnail URL not saved
         e.edited                  = m.edited;
-        e.editedAt                = m.editedAt;          // FIX: was missing — edit time not saved to Room
         e.deleted                 = m.deleted;
         e.forwardedFrom           = m.forwardedFrom;
         e.starred                 = Boolean.TRUE.equals(m.starred);
@@ -873,34 +842,7 @@ public class ChatActivity extends AppCompatActivity {
         e.reelThumbUrl            = m.reelThumbUrl;      // FIX: reel_seen bubble thumbnail
         e.fontStyle               = m.fontStyle;         // FIX: typing style preserve
         e.syncedAt                = System.currentTimeMillis();
-
-        // FIX: Message info timestamps — persist to Room for offline info screen
-        e.deliveredAt             = m.deliveredAt;
-        e.readAt                  = m.readAt;
-
-        // FIX: Group read maps — serialize Map<uid,Long> to JSON string for Room storage
-        if (m.deliveredTo != null && !m.deliveredTo.isEmpty()) {
-            e.deliveredToJson = mapToJson(m.deliveredTo);
-        }
-        if (m.readBy != null && !m.readBy.isEmpty()) {
-            e.readByJson = mapToJson(m.readBy);
-        }
         return e;
-    }
-
-    /** Serialize Map<String, Long> to compact JSON e.g. {"uid1":1700000001000} */
-    private static String mapToJson(java.util.Map<String, Long> map) {
-        if (map == null || map.isEmpty()) return null;
-        StringBuilder sb = new StringBuilder("{");
-        boolean first = true;
-        for (java.util.Map.Entry<String, Long> e : map.entrySet()) {
-            if (!first) sb.append(',');
-            sb.append('"').append(e.getKey()).append('"')
-              .append(':').append(e.getValue());
-            first = false;
-        }
-        sb.append('}');
-        return sb.toString();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1505,20 +1447,40 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // MESSAGE INFO — FIX: Replaced plain AlertDialog with dedicated Activity.
-    // MessageInfoActivity shows: sent time, deliveredAt, readAt, media details,
-    // edit history, and group per-member Delivered To / Read By lists.
+    // MESSAGE INFO DIALOG — FIX: was calling onForward() as placeholder
+    // Now shows real delivery info: sent time, status, and recipient details.
     // ─────────────────────────────────────────────────────────────────────
 
     private void showMessageInfoDialog(Message m) {
         if (m == null) return;
-        android.content.Intent intent =
-                new android.content.Intent(this, MessageInfoActivity.class);
-        intent.putExtra("chatId",      chatId);
-        intent.putExtra("messageId",   m.id != null ? m.id : "");
-        intent.putExtra("isGroup",     m.isGroup);
-        intent.putExtra("partnerName", partnerName != null ? partnerName : "");
-        startActivity(intent);
+        java.text.SimpleDateFormat sdf =
+            new java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault());
+        String sentTime = m.timestamp != null && m.timestamp > 0
+                ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
+
+        String statusLabel;
+        switch (m.status != null ? m.status : "sent") {
+            case "read":
+            case "seen":   statusLabel = "✓✓  Read";       break;
+            case "delivered": statusLabel = "✓✓  Delivered"; break;
+            case "pending":   statusLabel = "🕐  Pending";   break;
+            case "failed":    statusLabel = "⚠  Failed";    break;
+            default:          statusLabel = "✓   Sent";      break;
+        }
+
+        String typeLabel = m.type != null ? m.type.substring(0, 1).toUpperCase()
+                + m.type.substring(1) : "Text";
+
+        String info = "Sent:  " + sentTime + "\n"
+                    + "Status:  " + statusLabel + "\n"
+                    + "Type:  " + typeLabel + "\n"
+                    + "To:  " + (partnerName != null ? partnerName : partnerUid);
+
+        new AlertDialog.Builder(this)
+            .setTitle("ℹ Message Info")
+            .setMessage(info)
+            .setPositiveButton("OK", null)
+            .show();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1554,44 +1516,8 @@ public class ChatActivity extends AppCompatActivity {
             com.callx.app.utils.SecurityManager secMgr =
                 new com.callx.app.utils.SecurityManager(this);
             if (!secMgr.isReadReceiptsEnabled()) return;
-
-            long now = System.currentTimeMillis();
-
-            // FIX: Set readAt timestamp — sender ko exact time pata chalega
             messagesRef.child(m.id).child("status").setValue("read");
-            messagesRef.child(m.id).child("readAt").setValue(now);
-
-            // FIX: Set deliveredAt only if not already set
-            if (m.deliveredAt == null || m.deliveredAt == 0) {
-                messagesRef.child(m.id).child("deliveredAt").setValue(now);
-            }
-
-            final long nowFinal = now;
-            ioExecutor.execute(() -> {
-                db.messageDao().updateStatus(m.id, "read");
-                // FIX: Persist readAt to Room so info screen works offline
-                db.messageDao().updateReadAt(m.id, nowFinal);
-            });
-        }
-    }
-
-    private void markDelivered(Message m) {
-        if (m == null || m.id == null) return;
-        // Mark received message as delivered if still "sent"
-        if (!currentUid.equals(m.senderId) && "sent".equals(m.status)) {
-            com.callx.app.utils.SecurityManager secMgr =
-                new com.callx.app.utils.SecurityManager(this);
-            if (!secMgr.isReadReceiptsEnabled()) return;
-
-            long now = System.currentTimeMillis();
-            messagesRef.child(m.id).child("status").setValue("delivered");
-            messagesRef.child(m.id).child("deliveredAt").setValue(now);
-
-            final long nowFinal = now;
-            ioExecutor.execute(() -> {
-                db.messageDao().updateStatus(m.id, "delivered");
-                db.messageDao().updateDeliveredAt(m.id, nowFinal);
-            });
+            ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "read"));
         }
     }
 
