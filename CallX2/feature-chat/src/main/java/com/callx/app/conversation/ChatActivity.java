@@ -1534,8 +1534,8 @@ public class ChatActivity extends AppCompatActivity {
             }
         });
         if (isOnline()) {
-            FirebaseUtils.getContactsRef(currentUid)
-                    .child(partnerUid).child("unread").setValue(0);
+            FirebaseUtils.db().getReference("chatList")
+        .child(currentUid).child(chatId).child("unread").setValue(0);
         } else {
             // Offline: queue karo — SyncWorker online hone par push karega
             ioExecutor.execute(() -> {
