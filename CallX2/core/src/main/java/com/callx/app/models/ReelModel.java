@@ -51,14 +51,39 @@ public class ReelModel {
     public String  repostedFromName;
 
     // ── Duet fields ──────────────────────────────────────────────────────────
-    /** Whether other users can duet this reel. Default true. */
-    public boolean allowDuet     = true;
-    /** If this reel is a duet, the original reel's ID. Null otherwise. */
+    /**
+     * Granular duet permission.
+     * Values: "everyone" (default) | "followers" | "off"
+     * Used by ReelPlayerFragment and DuetReelActivity for enforcement.
+     * Note: allowDuet boolean is kept for backwards-compat with older reel nodes.
+     */
+    public String  allowDuetLevel = "everyone";
+    /** Legacy boolean — kept for backward compat; prefer allowDuetLevel. */
+    public boolean allowDuet      = true;
+    /** If this reel is a duet, the ID of the original reel it was made from. */
     public String  duetOf;
-    /** UID of the original reel's creator (for push notification). */
+    /** UID of the original reel's creator (for push notification targeting). */
     public String  duetOfOwnerUid;
-    /** Running count of duets made on this reel. */
+    /** Running count of duets made on this reel. Incremented by DuetReelActivity. */
     public int     duetCount;
+    /** Layout mode used when this duet was recorded (0=side, 1=top-bottom, 2=pip). */
+    public int     duetLayoutMode;
+
+    // ── Stitch fields ────────────────────────────────────────────────────────
+    /**
+     * Granular stitch permission.
+     * Values: "everyone" (default) | "followers" | "off"
+     * Previously hardcoded to true in ReelPlayerFragment — now fully enforced.
+     */
+    public String  allowStitchLevel = "everyone";
+    /** Legacy boolean — kept for backward compat; prefer allowStitchLevel. */
+    public boolean allowStitch      = true;
+    /** If this reel is a stitch, the ID of the original reel it stitched. */
+    public String  stitchOf;
+    /** UID of the original stitch reel's creator (for notifications). */
+    public String  stitchOfOwnerUid;
+    /** Running count of stitches made on this reel. */
+    public int     stitchCount;
 
     public ReelModel() {}
 
@@ -91,10 +116,29 @@ public class ReelModel {
         return tags;
     }
 
+    /**
+     * Helper: resolve effective duet permission considering both legacy boolean
+     * and new granular string field.
+     * Backwards-compatible: old reel nodes only have allowDuet=true → returns "everyone".
+     */
+    public String effectiveAllowDuetLevel() {
+        if (allowDuetLevel != null && !allowDuetLevel.isEmpty()) return allowDuetLevel;
+        return allowDuet ? "everyone" : "off";
+    }
+
+    /**
+     * Helper: resolve effective stitch permission (same pattern as duet).
+     */
+    public String effectiveAllowStitchLevel() {
+        if (allowStitchLevel != null && !allowStitchLevel.isEmpty()) return allowStitchLevel;
+        return allowStitch ? "everyone" : "off";
+    }
+
     public float trendingScore() {
         long ageHours = (System.currentTimeMillis() - timestamp) / 3_600_000L;
         float decay   = Math.max(0.05f, 1f - (ageHours / 72f));
         return (likesCount * 3f + commentsCount * 2f + sharesCount * 1.5f
-                + repostCount * 2f + viewsCount * 0.1f) * decay;
+                + repostCount * 2f + viewsCount * 0.1f + duetCount * 1.5f + stitchCount * 1.5f)
+               * decay;
     }
 }

@@ -5,8 +5,9 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Split view: original reel top, camera preview bottom -->
+    <!-- ── Split video area (original + camera) ─────────────────────────── -->
     <LinearLayout
+        android:id="@+id/layout_duet_video_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical">
@@ -39,7 +40,7 @@
                 android:background="#66000000"/>
         </FrameLayout>
 
-        <!-- Divider line -->
+        <!-- Divider -->
         <View
             android:layout_width="match_parent"
             android:layout_height="2dp"
@@ -72,7 +73,7 @@
         </FrameLayout>
     </LinearLayout>
 
-    <!-- Top controls -->
+    <!-- ── Top controls bar ──────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -103,6 +104,16 @@
             android:fontFamily="sans-serif-medium"
             android:gravity="center"/>
 
+        <!-- View Duets button (shows all duets of this reel) -->
+        <ImageButton
+            android:id="@+id/btn_view_duets"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_reels"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="View Duets"/>
+
         <ImageButton
             android:id="@+id/btn_duet_flip"
             android:layout_width="44dp"
@@ -113,7 +124,55 @@
             android:contentDescription="Flip camera"/>
     </LinearLayout>
 
-    <!-- Bottom record controls -->
+    <!-- ── Layout mode selector (side-by-side / top-bottom / pip) ────────── -->
+    <LinearLayout
+        android:id="@+id/layout_duet_selector"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:orientation="vertical"
+        android:layout_marginTop="100dp"
+        android:layout_marginEnd="8dp"
+        android:background="#55000000"
+        android:padding="6dp">
+
+        <!-- Side-by-side -->
+        <ImageButton
+            android:id="@+id/btn_layout_side_by_side"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_flip"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="Side by Side"
+            android:alpha="1.0"/>
+
+        <!-- Top-Bottom -->
+        <ImageButton
+            android:id="@+id/btn_layout_top_bottom"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_flip_camera"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="Top Bottom"
+            android:alpha="0.4"
+            android:layout_marginTop="4dp"/>
+
+        <!-- PiP / React -->
+        <ImageButton
+            android:id="@+id/btn_layout_pip"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_camera"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="Picture in Picture"
+            android:alpha="0.4"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
+
+    <!-- ── Bottom controls ───────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -122,7 +181,51 @@
         android:gravity="center_horizontal"
         android:paddingBottom="32dp"
         android:paddingTop="12dp"
-        android:background="#44000000">
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:background="#66000000">
+
+        <!-- Original audio volume row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_volume_off"
+                android:tint="#CCFFFFFF"/>
+
+            <SeekBar
+                android:id="@+id/seek_original_volume"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="0"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:progressTint="@color/brand_primary"
+                android:thumbTint="@color/brand_primary"/>
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_volume_on"
+                android:tint="#CCFFFFFF"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_volume_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Original audio: 0%"
+            android:textColor="#CCFFFFFF"
+            android:textSize="11sp"
+            android:layout_marginBottom="10dp"/>
 
         <!-- Timer -->
         <TextView
@@ -145,8 +248,6 @@
             android:progress="0"
             android:progressTint="@color/brand_primary"
             android:progressBackgroundTint="#44FFFFFF"
-            android:layout_marginStart="24dp"
-            android:layout_marginEnd="24dp"
             android:layout_marginBottom="16dp"/>
 
         <!-- Record button -->
@@ -160,5 +261,21 @@
             android:padding="14dp"
             android:contentDescription="Record duet"/>
     </LinearLayout>
+
+    <!-- ── 3-2-1 Countdown overlay (shown over everything) ───────────────── -->
+    <TextView
+        android:id="@+id/tv_duet_countdown"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:text="3"
+        android:textColor="#FFFFFF"
+        android:textSize="96sp"
+        android:fontFamily="sans-serif-black"
+        android:shadowColor="#AA000000"
+        android:shadowDx="2"
+        android:shadowDy="2"
+        android:shadowRadius="8"
+        android:visibility="gone"/>
 
 </FrameLayout>

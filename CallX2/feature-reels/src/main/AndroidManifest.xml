@@ -8,8 +8,6 @@
         <activity android:name="com.callx.app.player.SingleReelPlayerActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen">
-            <!-- ACTION_OPEN_REEL: allows feature-chat to open this activity
-                 via implicit Intent without a compile-time class reference -->
             <intent-filter>
                 <action android:name="com.callx.app.ACTION_OPEN_REEL"/>
                 <category android:name="android.intent.category.DEFAULT"/>
@@ -36,7 +34,6 @@
         <activity android:name="com.callx.app.editor.ReelEditActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <!-- ReelShareSheetActivity removed — replaced by ReelShareSheetFragment (BottomSheetDialogFragment) -->
 
         <!-- Camera / Editor -->
         <activity android:name="com.callx.app.camera.ReelCameraActivity"
@@ -58,6 +55,14 @@
             android:theme="@style/Theme.CallX.Fullscreen"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <!-- ══ DUET SYSTEM — New Activity ══════════════════════════════════ -->
+        <!-- Browse all duets made of a specific reel — 3-column grid -->
+        <activity android:name="com.callx.app.social.DuetsByReelActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
         <activity android:name="com.callx.app.camera.MultiClipCameraActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen"
@@ -289,7 +294,7 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
 
-                <!-- Reel Profile System -->
+        <!-- Reel Profile System -->
         <activity android:name="com.callx.app.profile.ReelProfileSetupActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
@@ -334,45 +339,19 @@
                 <action android:name="com.callx.app.ACTION_POST_SCHEDULED_REEL"/>
             </intent-filter>
         </receiver>
-    
-        <!-- ══ REPOST SYSTEM v4.2.9 — New Activities ═══════════════════════════ -->
 
-        <!-- User's reposted reels grid (profile tab) -->
+        <!-- ══ REPOST SYSTEM v4.2.9 ═════════════════════════════════════════ -->
         <activity android:name="com.callx.app.profile.UserRepostedReelsActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:windowSoftInputMode="stateHidden"/>
-
-        <!-- Quote-repost composition screen -->
         <activity android:name="com.callx.app.social.RepostQuoteActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:windowSoftInputMode="adjustResize"/>
-
-        <!-- SingleReelPlayerActivity — deep link support for repost notifications -->
-        <!-- NOTE: exported=true so callx:// deep links from notifications work -->
-        <!-- The activity already exists; this adds an intent-filter to it.       -->
-        <!-- Add the intent-filter block below to the EXISTING                    -->
-        <!-- SingleReelPlayerActivity <activity> entry in your manifest.          -->
-        <!--
-        <intent-filter>
-            <action android:name="android.intent.action.VIEW"/>
-            <category android:name="android.intent.category.DEFAULT"/>
-            <category android:name="android.intent.category.BROWSABLE"/>
-            <data android:scheme="callx" android:host="reel"/>
-        </intent-filter>
-        -->
-
-        <!-- Block specific users from reposting (creator control) -->
         <activity android:name="com.callx.app.social.ReelRepostBlockActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar"/>
-
-        <!-- Repost list (who reposted a reel) — already registered in v4.2.8 -->
-        <!-- ReelRepostListActivity — already added in v4.2.8                   -->
-
-        <!-- Repost with Caption — already added in v4.2.8                       -->
-        <!-- RepostWithCaptionActivity — already added in v4.2.8                 -->
 
     </application>
 </manifest>
