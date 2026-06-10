@@ -25,15 +25,19 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
 /**
- * DuetVideoCompositor v3 — Pure MediaCodec + OpenGL ES 2.0.
+ * DuetVideoCompositor v4 — Pure MediaCodec + OpenGL ES 2.0.
  * No FFmpeg. Zero APK size increase.
  *
- * Fixed vs v2:
- *  - FIX: Original reel audio now actually mixed into output (was silently ignored in v2)
- *  - mixAudio(): decodes both camera + original to PCM, mixes with origVolume weighting,
- *    re-encodes as AAC, writes to muxer — slider in DuetReelActivity now works end-to-end
- *  - decodeAudioToPcm(): shared helper, loops original if shorter than camera recording
- *  - pipeline() now accepts origVolume and forwards it to mixAudio()
+ * Fixed vs v3:
+ *  - FIX: Audio track was silently dropped in v3 because mixAudio() called
+ *    muxer.addTrack() AFTER muxer.start() — illegal per MediaMuxer contract.
+ *  - NEW: preEncodeAudio() encodes mixed PCM to a temp MP4 *before* the main
+ *    muxer is started; returns the audio MediaFormat so both video + audio
+ *    tracks are added before muxer.start().
+ *  - NEW: copyAudioToMuxer() copies frames from the temp audio file into the
+ *    main muxer immediately after muxer.start() — slider value now works end-to-end.
+ *  - pipeline() no longer calls the old mixAudio(); uses preEncodeAudio() +
+ *    copyAudioToMuxer() instead.
  */
 public class DuetVideoCompositor {
 
@@ -104,7 +108,13 @@ public class DuetVideoCompositor {
     private boolean pipeline(String camPath, String origUrl,
                               String outPath, int layout, float origVolume) throws Exception {
 
-        // ── 1. Encoder ────────────────────────────────────────────────────
+        // ── 1. Pre-encode audio FIRST (before muxer is created) ───────────
+        // This gives us the audio MediaFormat so we can add BOTH tracks to the
+        // muxer before calling muxer.start() — the only legal MediaMuxer order.
+        String      audioTempPath = outPath + ".audio.mp4";
+        MediaFormat audioOutFmt   = preEncodeAudio(camPath, origUrl, origVolume, audioTempPath);
+
+        // ── 2. Encoder ────────────────────────────────────────────────────
         MediaFormat encFmt = MediaFormat.createVideoFormat(
                 MediaFormat.MIMETYPE_VIDEO_AVC, OUT_W, OUT_H);
         encFmt.setInteger(MediaFormat.KEY_COLOR_FORMAT,
@@ -117,24 +127,23 @@ public class DuetVideoCompositor {
         encoder.configure(encFmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
         Surface encSurface = encoder.createInputSurface();
 
-        // ── 2. EGL + GL (must happen after createInputSurface) ────────────
+        // ── 3. EGL + GL (must happen after createInputSurface) ────────────
         setupEGL(encSurface);
         setupGL();
         encoder.start();
 
-        // ── 3. OES textures + SurfaceTextures ─────────────────────────────
+        // ── 4. OES textures + SurfaceTextures ─────────────────────────────
         texCam  = createOESTexture();
         texOrig = createOESTexture();
         stCam   = new SurfaceTexture(texCam);
         stOrig  = new SurfaceTexture(texOrig);
-        // No listeners — we call updateTexImage() manually on GL thread
         stCam.setDefaultBufferSize(OUT_W / 2, OUT_H);
         stOrig.setDefaultBufferSize(OUT_W / 2, OUT_H);
 
         Surface surfCam  = new Surface(stCam);
         Surface surfOrig = new Surface(stOrig);
 
-        // ── 4. Camera extractor + decoder ────────────────────────────────
+        // ── 5. Camera extractor + decoder ────────────────────────────────
         MediaExtractor extCam = new MediaExtractor();
         extCam.setDataSource(camPath);
         int camVidTrack = pickTrack(extCam, "video/");
@@ -147,7 +156,7 @@ public class DuetVideoCompositor {
         decCam.configure(camFmt, surfCam, null, 0);
         decCam.start();
 
-        // ── 5. Original extractor + decoder ──────────────────────────────
+        // ── 6. Original extractor + decoder ──────────────────────────────
         MediaExtractor extOrig = new MediaExtractor();
         extOrig.setDataSource(origUrl);
         int origVidTrack = pickTrack(extOrig, "video/");
@@ -160,28 +169,20 @@ public class DuetVideoCompositor {
         decOrig.configure(origFmt, surfOrig, null, 0);
         decOrig.start();
 
-        // ── 6. Muxer ──────────────────────────────────────────────────────
+        // ── 7. Muxer ──────────────────────────────────────────────────────
         MediaMuxer muxer = new MediaMuxer(outPath,
                 MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 
-        // Audio: mixed from camera + original reel
-        // extAud kept as placeholder so release() calls below stay intact
-        MediaExtractor extAud = new MediaExtractor();
-        extAud.setDataSource(camPath);
-        int audTrack = pickTrack(extAud, "audio/");
-        int muxAud   = -1;
-        // muxAud index is set after muxer.start() — see INFO_OUTPUT_FORMAT_CHANGED block
-
         int  muxVid       = -1;
+        int  muxAud       = -1;
         boolean muxStarted = false;
 
-        // ── 7. Main loop ──────────────────────────────────────────────────
+        // ── 8. Main loop ──────────────────────────────────────────────────
         boolean camInputEOS  = false;
         boolean origInputEOS = false;
         boolean camOutputEOS = false;
         boolean encEOS       = false;
 
-        // State for both decoders
         boolean camHasFrame  = false;
         boolean origHasFrame = false;
         long    camPtsUs     = 0L;
@@ -215,7 +216,6 @@ public class DuetVideoCompositor {
                     ByteBuffer buf = decOrig.getInputBuffer(idx);
                     int n = extOrig.readSampleData(buf, 0);
                     if (n < 0) {
-                        // Loop: seek back to start
                         extOrig.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
                         n = extOrig.readSampleData(buf, 0);
                         if (n < 0) {
@@ -241,7 +241,6 @@ public class DuetVideoCompositor {
                 boolean doRender = info.size > 0;
                 decCam.releaseOutputBuffer(camOut, doRender);
                 if (doRender) {
-                    // Called on GL thread — safe
                     stCam.updateTexImage();
                     stCam.getTransformMatrix(matCam);
                     camHasFrame = true;
@@ -262,10 +261,6 @@ public class DuetVideoCompositor {
                     stOrig.getTransformMatrix(matOrig);
                     origHasFrame = true;
                 }
-                if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
-                        && origInputEOS) {
-                    // Already looping, this shouldn't happen unless truly out of data
-                }
             }
 
             // ── Render + encode when both streams have a frame ────────────
@@ -280,24 +275,30 @@ public class DuetVideoCompositor {
                         camPtsUs * 1000L);
                 EGL14.eglSwapBuffers(eglDisplay, eglSurface);
 
-                camHasFrame = false; // wait for next camera frame
+                camHasFrame = false;
             }
 
-            // Signal EOS to encoder once camera output is done
             if (camOutputEOS) {
                 encoder.signalEndOfInputStream();
-                camOutputEOS = false; // signal only once
+                camOutputEOS = false;
             }
 
             // ── Drain encoder ─────────────────────────────────────────────
             int encOut = encoder.dequeueOutputBuffer(info, TIMEOUT_US);
             if (encOut == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 if (!muxStarted) {
+                    // ✅ Add BOTH tracks before muxer.start() — MediaMuxer rule
                     muxVid = muxer.addTrack(encoder.getOutputFormat());
+                    if (audioOutFmt != null) {
+                        muxAud = muxer.addTrack(audioOutFmt);
+                    }
                     muxer.start();
                     muxStarted = true;
-                    // Mix camera audio + original reel audio into muxer
-                    muxAud = mixAudio(camPath, origUrl, origVolume, muxer);
+
+                    // ✅ Copy pre-encoded audio frames into muxer right after start
+                    if (muxAud >= 0) {
+                        copyAudioToMuxer(audioTempPath, muxAud, muxer);
+                    }
                 }
             } else if (encOut >= 0) {
                 if (muxStarted && muxVid >= 0
@@ -314,11 +315,11 @@ public class DuetVideoCompositor {
             }
         }
 
-        // ── 8. Release everything ─────────────────────────────────────────
+        // ── 9. Release everything ─────────────────────────────────────────
         encoder.stop();  encoder.release();
         decCam.stop();   decCam.release();
         decOrig.stop();  decOrig.release();
-        extCam.release(); extOrig.release(); extAud.release();
+        extCam.release(); extOrig.release();
         surfCam.release(); surfOrig.release();
         stCam.release();   stOrig.release();
         if (muxStarted) muxer.stop();
@@ -338,29 +339,24 @@ public class DuetVideoCompositor {
     private void renderFrame(int layout) {
         switch (layout) {
             case 1: // TOP-BOTTOM
-                drawRect(texCam,  matCam,  -1f,  0f,  1f,  1f);  // top half
-                drawRect(texOrig, matOrig, -1f, -1f,  1f,  0f);  // bottom half
+                drawRect(texCam,  matCam,  -1f,  0f,  1f,  1f);
+                drawRect(texOrig, matOrig, -1f, -1f,  1f,  0f);
                 break;
             case 2: // PiP
-                drawRect(texCam,  matCam,  -1f, -1f,  1f,  1f);        // full screen
-                drawRect(texOrig, matOrig,  0.45f, -1f, 1f, -0.35f);   // pip bottom-right
+                drawRect(texCam,  matCam,  -1f, -1f,  1f,  1f);
+                drawRect(texOrig, matOrig,  0.45f, -1f, 1f, -0.35f);
                 break;
             default: // SIDE-BY-SIDE
-                drawRect(texCam,  matCam,  -1f, -1f,  0f,  1f);  // left
-                drawRect(texOrig, matOrig,  0f, -1f,  1f,  1f);  // right
+                drawRect(texCam,  matCam,  -1f, -1f,  0f,  1f);
+                drawRect(texOrig, matOrig,  0f, -1f,  1f,  1f);
                 break;
         }
     }
 
-    /**
-     * Draw texId into NDC rect [x0,y0]->[x1,y1].
-     * texMatrix comes from SurfaceTexture.getTransformMatrix().
-     */
     private void drawRect(int texId, float[] texMatrix,
                            float x0, float y0, float x1, float y1) {
         GLES20.glUseProgram(glProgram);
 
-        // Build MVP that maps unit quad to [x0,y0]->[x1,y1]
         float scaleX = (x1 - x0) * 0.5f;
         float scaleY = (y1 - y0) * 0.5f;
         float transX = (x0 + x1) * 0.5f;
@@ -465,7 +461,6 @@ public class DuetVideoCompositor {
         uTexMatrix = GLES20.glGetUniformLocation(glProgram, "uTexMatrix");
         uTexture   = GLES20.glGetUniformLocation(glProgram, "uTexture");
 
-        // Unit quad: pos(-1,-1 to 1,1), tex(0,0 to 1,1) interleaved
         float[] q = { -1f,-1f, 0f,0f,  1f,-1f, 1f,0f,  -1f,1f, 0f,1f,  1f,1f, 1f,1f };
         quadBuf = ByteBuffer.allocateDirect(q.length * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
@@ -507,32 +502,34 @@ public class DuetVideoCompositor {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Audio mixing  (camera mic + original reel audio → AAC → muxer)
+    // Audio — pre-encode BEFORE muxer.start()
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Decodes audio from both camPath and origUrl to PCM, mixes them with
-     * origVolume weighting, re-encodes as AAC, and writes to the muxer.
+     * Decodes audio from camPath and origUrl, mixes with origVolume weighting,
+     * encodes to AAC, and writes to a standalone temp MP4 file.
      *
-     * @return the muxer audio track index, or -1 if audio is unavailable
+     * Returns the audio MediaFormat so the caller can call muxer.addTrack()
+     * BEFORE muxer.start(). Returns null if no camera audio exists.
+     *
+     * Key fix: this method does NOT touch the main muxer at all — it creates
+     * its own temporary MediaMuxer. The main muxer stays in the "tracks not
+     * yet added" state until the caller invokes muxer.addTrack() with this
+     * format and then muxer.start().
      */
-    private int mixAudio(String camPath, String origUrl,
-                         float origVolume, MediaMuxer muxer) {
+    private MediaFormat preEncodeAudio(String camPath, String origUrl,
+                                        float origVolume, String tempPath) {
         try {
-            // ── Decode camera audio to PCM ────────────────────────────────
             short[] camPcm  = decodeAudioToPcm(camPath);
-            int     sampleRate = 44100; // default; updated below
-            int     channels   = 1;
-
-            // ── Decode original reel audio to PCM ─────────────────────────
             short[] origPcm = decodeAudioToPcm(origUrl);
 
             if (camPcm == null || camPcm.length == 0) {
-                Log.w(TAG, "mixAudio: no camera audio, skipping audio track");
-                return -1;
+                Log.w(TAG, "preEncodeAudio: no camera audio, skipping audio track");
+                return null;
             }
 
             // Detect actual sample rate & channel count from camera track
+            int sampleRate = 44100, channels = 1;
             MediaExtractor probe = new MediaExtractor();
             try {
                 probe.setDataSource(camPath);
@@ -548,49 +545,48 @@ public class DuetVideoCompositor {
                 probe.release();
             }
 
-            // ── Mix PCM samples ───────────────────────────────────────────
+            // Mix PCM: camera (full volume) + original (scaled by slider)
             int outLen = camPcm.length;
             short[] mixed = new short[outLen];
-
             for (int i = 0; i < outLen; i++) {
-                float cam  = camPcm[i]  / 32768f;                     // normalise
-                float orig = (origPcm != null && i < origPcm.length)
-                             ? (origPcm[i % origPcm.length] / 32768f) // loop if shorter
-                             : 0f;
-                // Mix: camera always full volume; original scaled by slider
-                float sum = cam + orig * origVolume;
-                // Hard clamp to prevent clipping
+                float cam  = camPcm[i] / 32768f;
+                float orig = (origPcm != null && origPcm.length > 0)
+                             ? (origPcm[i % origPcm.length] / 32768f) : 0f;
+                float sum  = cam + orig * origVolume;
                 sum = Math.max(-1f, Math.min(1f, sum));
-                mixed[i] = (short) (sum * 32767f);
+                mixed[i] = (short)(sum * 32767f);
             }
 
-            // ── Encode mixed PCM → AAC ────────────────────────────────────
+            // Configure AAC encoder
             MediaFormat encFmt = MediaFormat.createAudioFormat(
                     MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channels);
-            encFmt.setInteger(MediaFormat.KEY_BIT_RATE,       128_000);
+            encFmt.setInteger(MediaFormat.KEY_BIT_RATE,  128_000);
             encFmt.setInteger(MediaFormat.KEY_AAC_PROFILE,
                     MediaCodecInfo.CodecProfileLevel.AACObjectLC);
             encFmt.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384);
 
-            MediaCodec enc = MediaCodec.createEncoderByType(
-                    MediaFormat.MIMETYPE_AUDIO_AAC);
+            MediaCodec enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC);
             enc.configure(encFmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             enc.start();
 
-            // ByteBuffer view of mixed shorts
+            // Temp muxer — only audio; completely independent from the main muxer
+            MediaMuxer tempMuxer = new MediaMuxer(tempPath,
+                    MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+
             ByteBuffer pcmBuf = ByteBuffer.allocateDirect(mixed.length * 2)
                     .order(ByteOrder.nativeOrder());
             for (short s : mixed) pcmBuf.putShort(s);
             pcmBuf.flip();
 
-            int muxAudTrack = -1;
-            boolean muxTrackAdded = false;
-            boolean inputDone  = false;
-            boolean outputDone = false;
+            int     tempAudTrack   = -1;
+            boolean trackAdded     = false;
+            boolean tempMuxStarted = false;
+            boolean inputDone      = false;
+            boolean outputDone     = false;
+            MediaFormat finalAudioFormat = null;
             MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
 
             while (!outputDone) {
-
                 // Feed PCM into encoder
                 if (!inputDone) {
                     int idx = enc.dequeueInputBuffer(TIMEOUT_US);
@@ -599,13 +595,11 @@ public class DuetVideoCompositor {
                         inBuf.clear();
                         int remaining = Math.min(inBuf.capacity(), pcmBuf.remaining());
                         if (remaining > 0) {
-                            // Transfer `remaining` bytes from pcmBuf
                             byte[] tmp = new byte[remaining];
                             pcmBuf.get(tmp);
                             inBuf.put(tmp);
-                            // Compute PTS from how many bytes we've consumed
-                            long ptsUs = ((pcmBuf.capacity() - pcmBuf.remaining() - remaining)
-                                         / (2L * channels)) * 1_000_000L / sampleRate;
+                            long consumed = pcmBuf.capacity() - pcmBuf.remaining() - remaining;
+                            long ptsUs = (consumed / (2L * channels)) * 1_000_000L / sampleRate;
                             enc.queueInputBuffer(idx, 0, remaining, ptsUs, 0);
                         } else {
                             enc.queueInputBuffer(idx, 0, 0, 0,
@@ -615,18 +609,21 @@ public class DuetVideoCompositor {
                     }
                 }
 
-                // Drain encoder output
+                // Drain encoder output into temp muxer
                 int out = enc.dequeueOutputBuffer(bi, TIMEOUT_US);
                 if (out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    if (!muxTrackAdded) {
-                        muxAudTrack  = muxer.addTrack(enc.getOutputFormat());
-                        muxTrackAdded = true;
+                    if (!trackAdded) {
+                        finalAudioFormat = enc.getOutputFormat();
+                        tempAudTrack     = tempMuxer.addTrack(finalAudioFormat);
+                        tempMuxer.start();
+                        tempMuxStarted = true;
+                        trackAdded     = true;
                     }
                 } else if (out >= 0) {
-                    if (muxTrackAdded
+                    if (trackAdded && tempMuxStarted
                             && (bi.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0
                             && bi.size > 0) {
-                        muxer.writeSampleData(muxAudTrack,
+                        tempMuxer.writeSampleData(tempAudTrack,
                                 enc.getOutputBuffer(out), bi);
                     }
                     enc.releaseOutputBuffer(out, false);
@@ -635,16 +632,62 @@ public class DuetVideoCompositor {
                 }
             }
 
-            enc.stop();
-            enc.release();
-            Log.d(TAG, "mixAudio: done, track=" + muxAudTrack);
-            return muxAudTrack;
+            enc.stop(); enc.release();
+            if (tempMuxStarted) tempMuxer.stop();
+            tempMuxer.release();
+
+            Log.d(TAG, "preEncodeAudio: done path=" + tempPath
+                    + " fmt=" + finalAudioFormat);
+            return finalAudioFormat;
 
         } catch (Exception e) {
-            Log.e(TAG, "mixAudio failed (non-fatal): " + e.getMessage(), e);
-            return -1;
+            Log.e(TAG, "preEncodeAudio failed: " + e.getMessage(), e);
+            return null;
         }
     }
+
+    /**
+     * Copies all audio sample frames from audioTempPath into the (already
+     * started) main muxer on the given track index.
+     * Call this immediately after muxer.start().
+     */
+    private void copyAudioToMuxer(String audioTempPath, int muxAudTrack, MediaMuxer muxer) {
+        MediaExtractor ext = new MediaExtractor();
+        try {
+            ext.setDataSource(audioTempPath);
+            int track = pickTrack(ext, "audio/");
+            if (track < 0) {
+                Log.w(TAG, "copyAudioToMuxer: no audio track in temp file");
+                return;
+            }
+            ext.selectTrack(track);
+
+            MediaCodec.BufferInfo bi  = new MediaCodec.BufferInfo();
+            ByteBuffer            buf = ByteBuffer.allocate(1024 * 1024);
+
+            while (true) {
+                buf.clear();
+                int n = ext.readSampleData(buf, 0);
+                if (n < 0) break;
+                bi.offset             = 0;
+                bi.size               = n;
+                bi.presentationTimeUs = ext.getSampleTime();
+                bi.flags              = ext.getSampleFlags();
+                muxer.writeSampleData(muxAudTrack, buf, bi);
+                ext.advance();
+            }
+            Log.d(TAG, "copyAudioToMuxer: audio frames copied to main muxer");
+        } catch (Exception e) {
+            Log.e(TAG, "copyAudioToMuxer failed: " + e.getMessage(), e);
+        } finally {
+            ext.release();
+            new File(audioTempPath).delete();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PCM decode helper
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Decodes all audio samples from a file/URL to a flat short[] (interleaved channels).
