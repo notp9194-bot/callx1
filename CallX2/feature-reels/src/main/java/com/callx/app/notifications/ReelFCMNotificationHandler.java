@@ -59,6 +59,9 @@ public class ReelFCMNotificationHandler {
     public static final String TYPE_VIDEO_REPLY        = "video_reply";
     public static final String TYPE_COLLAB_REQUEST     = "collab_request";
     public static final String TYPE_COLLAB_ACCEPTED    = "collab_accepted";
+    // ✅ v9 — Collab Duet invite (sent when a user creates a collab duet session)
+    public static final String TYPE_COLLAB_DUET_INVITE = "collab_duet_invite";
+    public static final String TYPE_COLLAB_DUET_ACCEPT = "collab_duet_accept";
     public static final String TYPE_GIFT               = "gift";
     public static final String TYPE_LIVE_STARTED       = "live_started";
     public static final String TYPE_LIVE_MILESTONE     = "live_milestone";
@@ -247,6 +250,25 @@ public class ReelFCMNotificationHandler {
                               ctx, reelId, reelThumb, get(data, "reason")));
                   break;
   
+
+            // ✅ v9 — Collab Duet invite notification
+            case TYPE_COLLAB_DUET_INVITE:
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    int net = ReelNotificationHelper.getNetworkLevel(ctx);
+                    android.graphics.Bitmap avatar = (net >= 2)
+                        ? ReelNotificationHelper.downloadCirclePublic(senderPhoto, 100) : null;
+                    android.graphics.Bitmap thumb  = (net == 3 && !reelThumb.isEmpty())
+                        ? ReelNotificationHelper.downloadBitmapPublic(reelThumb, 400, 300) : null;
+                    showCollabDuetInviteNotif(ctx, senderName, senderUid,
+                        avatar, thumb, reelId, get(data, "session_id"));
+                });
+                break;
+
+            case TYPE_COLLAB_DUET_ACCEPT:
+                Executors.newSingleThreadExecutor().execute(() ->
+                    ReelNotificationHelper.showCollabAcceptedNotification(
+                        ctx, senderName, senderPhoto, get(data, "session_id")));
+                break;
 
             case TYPE_PINNED_COMMENT:
                 Executors.newSingleThreadExecutor().execute(() ->
@@ -538,5 +560,39 @@ public class ReelFCMNotificationHandler {
     private static double parseDouble(Map<String, String> d, String k, double def) {
         try { return Double.parseDouble(d.getOrDefault(k, String.valueOf(def))); }
         catch (Exception e) { return def; }
+    }
+
+    /** ✅ v9 — Collab Duet invite: rich notification with reel thumbnail + Accept/Decline actions. */
+    private static void showCollabDuetInviteNotif(Context ctx, String senderName, String senderUid,
+            android.graphics.Bitmap avatar, android.graphics.Bitmap thumb,
+            String reelId, String sessionId) {
+
+        android.content.Intent acceptIntent = new android.content.Intent(ctx,
+            com.callx.app.social.collab.CollabDuetSessionActivity.class);
+        acceptIntent.putExtra(com.callx.app.social.collab.CollabDuetSessionActivity.EXTRA_SESSION_ID, sessionId);
+        acceptIntent.putExtra(com.callx.app.social.collab.CollabDuetSessionActivity.EXTRA_IS_HOST, false);
+        acceptIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        int reqCode = ("collab_duet_invite" + sessionId).hashCode();
+        PendingIntent acceptPi = PendingIntent.getActivity(ctx, reqCode, acceptIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        androidx.core.app.NotificationCompat.Builder b =
+            new androidx.core.app.NotificationCompat.Builder(ctx,
+                ReelNotificationChannelManager.CHANNEL_REEL_COLLAB_REQUEST)
+            .setSmallIcon(com.callx.app.reels.R.drawable.ic_reels)
+            .setContentTitle("👥 " + senderName + " invited you to Collab Duet!")
+            .setContentText("Tap to join and record together in real time")
+            .setAutoCancel(true)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(acceptPi)
+            .setColor(0xFF5856D6)
+            .addAction(com.callx.app.reels.R.drawable.ic_reels, "Join Now", acceptPi);
+
+        if (avatar != null) b.setLargeIcon(avatar);
+        if (thumb  != null) b.setStyle(new androidx.core.app.NotificationCompat.BigPictureStyle()
+            .bigPicture(thumb).setSummaryText("Collab Duet invite"));
+
+        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(reqCode, b.build());
     }
 }

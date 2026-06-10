@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- Original reel player (top-left or top half) -->
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_collab_original"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/preview_collab_partner"
+        app:layout_constraintBottom_toTopOf="@+id/preview_collab_self"
+        app:use_controller="false"/>
+
+    <!-- Partner camera preview (top-right) -->
+    <FrameLayout
+        android:id="@+id/preview_collab_partner"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#111111"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/player_collab_original"
+        app:layout_constraintBottom_toTopOf="@+id/preview_collab_self">
+
+        <!-- Low-res partner frame (periodic JPEG from Firebase) -->
+        <ImageView
+            android:id="@+id/iv_partner_frame"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"/>
+
+        <!-- "Waiting for partner..." overlay -->
+        <LinearLayout
+            android:id="@+id/layout_partner_waiting"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#88000000">
+
+            <ProgressBar
+                android:id="@+id/progress_partner_connect"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:visibility="visible"/>
+
+            <TextView
+                android:id="@+id/tv_partner_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Waiting…"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:gravity="center"/>
+        </LinearLayout>
+
+        <!-- Partner name label -->
+        <TextView
+            android:id="@+id/tv_partner_name_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="6dp"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:textSize="11sp"
+            android:textColor="#FFFFFF"
+            android:background="#55000000"
+            android:visibility="gone"/>
+    </FrameLayout>
+
+    <!-- Self camera preview (bottom half) -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/preview_collab_self"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toBottomOf="@+id/player_collab_original"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/bar_collab_controls"/>
+
+    <!-- Controls bar -->
+    <LinearLayout
+        android:id="@+id/bar_collab_controls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingVertical="20dp"
+        android:paddingHorizontal="24dp"
+        android:background="#CC000000"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Ready / Record button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_collab_ready"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="✅ I'm Ready"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            style="@style/Widget.Material3.Button"/>
+
+        <View android:layout_width="12dp" android:layout_height="1dp"/>
+
+        <!-- Stop button (shown only during recording) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_collab_stop"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="⏹ Stop"
+            android:textSize="15sp"
+            android:visibility="gone"
+            style="@style/Widget.Material3.Button.TonalButton"/>
+    </LinearLayout>
+
+    <!-- Countdown overlay -->
+    <TextView
+        android:id="@+id/tv_collab_countdown"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:gravity="center"
+        android:textSize="64sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:background="#88000000"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/bar_collab_controls"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Recording indicator -->
+    <LinearLayout
+        android:id="@+id/layout_recording_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
+        android:background="#CC000000"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginTop="52dp"
+        android:layout_marginStart="16dp">
+
+        <View
+            android:id="@+id/dot_recording"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/circle_red_dot"/>
+
+        <TextView
+            android:id="@+id/tv_recording_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:text="0:00"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"/>
+    </LinearLayout>
+
+    <!-- Back button -->
+    <ImageButton
+        android:id="@+id/btn_collab_back"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:src="@drawable/ic_arrow_back"
+        android:tint="#FFFFFF"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Back"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginTop="44dp"
+        android:layout_marginStart="8dp"/>
+
+    <!-- Session info label -->
+    <TextView
+        android:id="@+id/tv_collab_session_info"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="4dp"
+        android:background="#88000000"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:text="Collab Duet"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="52dp"
+        android:layout_marginEnd="12dp"/>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

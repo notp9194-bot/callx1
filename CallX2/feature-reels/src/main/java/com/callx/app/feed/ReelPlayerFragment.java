@@ -1612,6 +1612,35 @@ public class ReelPlayerFragment extends Fragment
         startActivity(i);
     }
 
+    /**
+     * ✅ NEW (v9 — Collab Duet): Invite a follower to record a side-by-side collab duet.
+     * Opens CollabDuetInviteActivity which handles partner selection + session creation.
+     */
+    private void openCollabDuet() {
+        if (!isAdded() || getActivity() == null || reel == null) return;
+
+        // Must be logged in
+        String myUid = safeMyUid();
+        if (myUid == null) {
+            Toast.makeText(getContext(), "Sign in to create a collab duet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // Cannot collab duet your own reel (would be a solo)
+        if (myUid.equals(reel.uid)) {
+            Toast.makeText(getContext(), "Pick one of your followers to collab with on this reel", Toast.LENGTH_LONG).show();
+        }
+
+        android.content.Intent i = new android.content.Intent(
+            getActivity(), com.callx.app.social.collab.CollabDuetInviteActivity.class);
+        i.putExtra(com.callx.app.social.collab.CollabDuetInviteActivity.EXTRA_REEL_ID,     reel.reelId);
+        i.putExtra(com.callx.app.social.collab.CollabDuetInviteActivity.EXTRA_VIDEO_URL,   reel.videoUrl);
+        i.putExtra(com.callx.app.social.collab.CollabDuetInviteActivity.EXTRA_THUMB_URL,   reel.thumbUrl);
+        i.putExtra(com.callx.app.social.collab.CollabDuetInviteActivity.EXTRA_CAPTION,     reel.caption);
+        i.putExtra(com.callx.app.social.collab.CollabDuetInviteActivity.EXTRA_DURATION_MS,
+            reel.duration > 0 ? reel.duration : 30_000L);
+        startActivity(i);
+    }
+
     private void openReelReport() {
         if (!isAdded() || getActivity() == null || reel == null) return;
         Intent i = new Intent(getActivity(), ReelReportActivity.class);

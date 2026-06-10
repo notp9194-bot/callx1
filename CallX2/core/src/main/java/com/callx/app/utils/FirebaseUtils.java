@@ -281,4 +281,22 @@ public class FirebaseUtils {
     public static DatabaseReference getReelRepostsByUserRef(String uid) {
         return db().getReference("userReposts").child(uid);
     }
+
+    // ── Collab Duet sessions (v9) ──────────────────────────────────────────
+
+    /**
+     * collabDuetSessions/{sessionId} — Full session object.
+     * Holds status, participant UIDs, video URLs, ready flags.
+     */
+    public static DatabaseReference getCollabDuetSessionsRef() {
+        return db().getReference("collabDuetSessions");
+    }
+
+    /**
+     * collabDuetFrames/{sessionId}/{uid} — Base64-encoded JPEG string.
+     * Updated every 600ms during recording for live partner preview.
+     */
+    public static DatabaseReference getCollabDuetFramesRef(String sessionId) {
+        return db().getReference("collabDuetFrames").child(sessionId);
+    }
 }
