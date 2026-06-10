@@ -74,6 +74,7 @@
             android:name=".social.collab.CollabDuetInviteActivity"
             android:screenOrientation="portrait"
             android:exported="false"
+            android:theme="@style/Theme.CallX.Fullscreen"
             android:windowSoftInputMode="adjustResize"/>
 
         <activity
