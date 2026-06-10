@@ -225,6 +225,48 @@
             android:text="Original audio: 50%"
             android:textColor="#CCFFFFFF"
             android:textSize="11sp"
+            android:layout_marginBottom="6dp"/>
+
+        <!-- Mic gain row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="4dp">
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_mic_off"
+                android:tint="#CCFFFFFF"/>
+
+            <SeekBar
+                android:id="@+id/seek_mic_gain"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="200"
+                android:progress="100"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:progressTint="#FF4081"
+                android:thumbTint="#FF4081"/>
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_mic"
+                android:tint="#CCFFFFFF"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_mic_gain_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Mic: 100%"
+            android:textColor="#CCFFFFFF"
+            android:textSize="11sp"
             android:layout_marginBottom="10dp"/>
 
         <!-- Timer -->
