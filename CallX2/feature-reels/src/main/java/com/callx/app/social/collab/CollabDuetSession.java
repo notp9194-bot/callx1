@@ -36,14 +36,14 @@ public class CollabDuetSession {
     public String hostUid;
     public String hostName;
     public String hostPhoto;
-    public boolean hostReady     = false;
+    public Boolean hostReady     = false;
     public String hostVideoUrl;  // Firebase Storage URL after upload
 
     // Partner (the user who was invited)
     public String partnerUid;
     public String partnerName;
     public String partnerPhoto;
-    public boolean partnerReady  = false;
+    public Boolean partnerReady  = false;
     public String partnerVideoUrl;
 
     // Synchronized start: both clients use this millis timestamp to start simultaneously
@@ -59,7 +59,7 @@ public class CollabDuetSession {
 
     public boolean isHost(String uid) { return uid != null && uid.equals(hostUid); }
     public boolean isPartner(String uid) { return uid != null && uid.equals(partnerUid); }
-    public boolean bothReady() { return hostReady && partnerReady; }
+    public boolean bothReady() { return Boolean.TRUE.equals(hostReady) && Boolean.TRUE.equals(partnerReady); }
     public boolean bothUploaded() {
         return hostVideoUrl != null && !hostVideoUrl.isEmpty()
             && partnerVideoUrl != null && !partnerVideoUrl.isEmpty();

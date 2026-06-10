@@ -201,6 +201,9 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
             tvPartnerNameLabel.setVisibility(View.VISIBLE);
         }
 
+        // Setup ExoPlayer here if it wasn't ready when startCamera() first ran
+        if (exoPlayer == null) setupOriginalPlayer();
+
         switch (s.status) {
             case CollabDuetSession.STATUS_WAITING:
                 tvPartnerStatus.setText(s.partnerUid != null

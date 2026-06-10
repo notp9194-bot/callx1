@@ -1569,8 +1569,8 @@ public class ReelPlayerFragment extends Fragment
      * Called when the user taps "Duet" in the More options bottom sheet.
      */
     private void showDuetTypeDialog() {
-        if (!isAdded() || getContext() == null) return;
-        new android.app.AlertDialog.Builder(requireContext())
+        if (!isAdded() || getActivity() == null) return;
+        new android.app.AlertDialog.Builder(requireActivity())
             .setTitle("Choose Duet Type")
             .setItems(new String[]{
                 "Solo Duet",
