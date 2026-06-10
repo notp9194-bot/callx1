@@ -170,7 +170,56 @@
             android:contentDescription="Picture in Picture"
             android:alpha="0.4"
             android:layout_marginTop="4dp"/>
+
+        <!-- Reaction Bubble -->
+        <ImageButton
+            android:id="@+id/btn_layout_reaction_bubble"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_camera"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FF4081"
+            android:contentDescription="Reaction Bubble"
+            android:alpha="0.4"
+            android:layout_marginTop="4dp"/>
     </LinearLayout>
+
+    <!-- ── Reaction Bubble draggable overlay ─────────────────────────────── -->
+    <!--
+        Circular FrameLayout that the user drags to position the bubble.
+        Shown only in LAYOUT_REACTION_BUBBLE mode (visibility toggled in code).
+        ShapeAppearance circle is handled via clipToOutline in Activity.
+    -->
+    <FrameLayout
+        android:id="@+id/view_bubble_overlay"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="16dp"
+        android:layout_marginBottom="200dp"
+        android:background="@drawable/bg_bubble_circle"
+        android:visibility="gone"
+        android:clipToOutline="true"
+        android:outlineProvider="background"
+        android:elevation="8dp">
+
+        <!-- Camera preview mirrored into bubble -->
+        <androidx.camera.view.PreviewView
+            android:id="@+id/preview_view_bubble"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:scaleType="fillCenter"/>
+
+        <!-- Drag handle hint -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="6dp"
+            android:text="drag"
+            android:textColor="#CCFFFFFF"
+            android:textSize="9sp"/>
+    </FrameLayout>
 
     <!-- ── Bottom controls ───────────────────────────────────────────────── -->
     <LinearLayout

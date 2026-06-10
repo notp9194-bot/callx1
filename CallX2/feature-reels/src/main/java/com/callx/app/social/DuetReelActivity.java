@@ -76,9 +76,10 @@ public class DuetReelActivity extends AppCompatActivity {
     private static final int MAX_DUET_SEC    = 60;
 
     // Layout mode constants
-    public static final int LAYOUT_SIDE_BY_SIDE = 0;
-    public static final int LAYOUT_TOP_BOTTOM   = 1;
-    public static final int LAYOUT_REACT_PIP    = 2;
+    public static final int LAYOUT_SIDE_BY_SIDE    = 0;
+    public static final int LAYOUT_TOP_BOTTOM      = 1;
+    public static final int LAYOUT_REACT_PIP       = 2;
+    public static final int LAYOUT_REACTION_BUBBLE = 3;
 
     // ── Views ─────────────────────────────────────────────────────────────────
     private PlayerView   playerViewOriginal;
@@ -94,7 +95,15 @@ public class DuetReelActivity extends AppCompatActivity {
 
     /** Layout selector buttons */
     private View       btnLayoutSideBySide, btnLayoutTopBottom, btnLayoutPip;
+    private View       btnLayoutReactionBubble;
     private View       layoutSelector;
+
+    /** Reaction bubble draggable overlay (shown only in LAYOUT_REACTION_BUBBLE mode) */
+    private View       bubbleOverlay;
+    // Bubble position in screen coords → converted to NDC when compositing
+    private float      bubbleScreenX = 0f;
+    private float      bubbleScreenY = 0f;
+    private boolean    bubblePosSet  = false;
 
     // ── Camera / player ───────────────────────────────────────────────────────
     private ExoPlayer              exoPlayer;
@@ -207,14 +216,16 @@ public class DuetReelActivity extends AppCompatActivity {
         tvDuetTimer         = findViewById(R.id.tv_duet_timer);
         tvDuetLabel         = findViewById(R.id.tv_duet_label);
         tvCountdown         = findViewById(R.id.tv_duet_countdown);
-        seekOriginalVolume  = findViewById(R.id.seek_original_volume);
-        tvVolumeLabel       = findViewById(R.id.tv_volume_label);
-        seekMicGain         = findViewById(R.id.seek_mic_gain);
-        tvMicGainLabel      = findViewById(R.id.tv_mic_gain_label);
-        layoutSelector      = findViewById(R.id.layout_duet_selector);
-        btnLayoutSideBySide = findViewById(R.id.btn_layout_side_by_side);
-        btnLayoutTopBottom  = findViewById(R.id.btn_layout_top_bottom);
-        btnLayoutPip        = findViewById(R.id.btn_layout_pip);
+        seekOriginalVolume      = findViewById(R.id.seek_original_volume);
+        tvVolumeLabel           = findViewById(R.id.tv_volume_label);
+        seekMicGain             = findViewById(R.id.seek_mic_gain);
+        tvMicGainLabel          = findViewById(R.id.tv_mic_gain_label);
+        layoutSelector          = findViewById(R.id.layout_duet_selector);
+        btnLayoutSideBySide     = findViewById(R.id.btn_layout_side_by_side);
+        btnLayoutTopBottom      = findViewById(R.id.btn_layout_top_bottom);
+        btnLayoutPip            = findViewById(R.id.btn_layout_pip);
+        btnLayoutReactionBubble = findViewById(R.id.btn_layout_reaction_bubble);
+        bubbleOverlay           = findViewById(R.id.view_bubble_overlay);
 
         if (tvCountdown != null) tvCountdown.setVisibility(View.GONE);
     }
@@ -268,21 +279,26 @@ public class DuetReelActivity extends AppCompatActivity {
         btnLayoutSideBySide.setOnClickListener(v -> setLayoutMode(LAYOUT_SIDE_BY_SIDE));
         btnLayoutTopBottom.setOnClickListener(v -> setLayoutMode(LAYOUT_TOP_BOTTOM));
         btnLayoutPip.setOnClickListener(v -> setLayoutMode(LAYOUT_REACT_PIP));
+        if (btnLayoutReactionBubble != null)
+            btnLayoutReactionBubble.setOnClickListener(v -> setLayoutMode(LAYOUT_REACTION_BUBBLE));
         setLayoutMode(LAYOUT_SIDE_BY_SIDE);
     }
 
     private void setLayoutMode(int mode) {
         layoutMode = mode;
-        // Highlight selected button
-        if (btnLayoutSideBySide != null) btnLayoutSideBySide.setAlpha(mode == LAYOUT_SIDE_BY_SIDE ? 1f : 0.4f);
-        if (btnLayoutTopBottom  != null) btnLayoutTopBottom.setAlpha(mode == LAYOUT_TOP_BOTTOM   ? 1f : 0.4f);
-        if (btnLayoutPip        != null) btnLayoutPip.setAlpha(mode == LAYOUT_REACT_PIP          ? 1f : 0.4f);
+        if (btnLayoutSideBySide     != null) btnLayoutSideBySide.setAlpha(mode == LAYOUT_SIDE_BY_SIDE    ? 1f : 0.4f);
+        if (btnLayoutTopBottom      != null) btnLayoutTopBottom.setAlpha(mode == LAYOUT_TOP_BOTTOM       ? 1f : 0.4f);
+        if (btnLayoutPip            != null) btnLayoutPip.setAlpha(mode == LAYOUT_REACT_PIP              ? 1f : 0.4f);
+        if (btnLayoutReactionBubble != null) btnLayoutReactionBubble.setAlpha(mode == LAYOUT_REACTION_BUBBLE ? 1f : 0.4f);
 
-        // Adjust the preview layout params — the XML constraintGuide_percent or weight
-        // controls the split. We toggle by changing player/previewView sizes.
+        // Show/hide draggable bubble overlay
+        if (bubbleOverlay != null)
+            bubbleOverlay.setVisibility(mode == LAYOUT_REACTION_BUBBLE ? View.VISIBLE : View.GONE);
+
         applyLayoutToViews(mode);
     }
 
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
     private void applyLayoutToViews(int mode) {
         if (playerViewOriginal == null || previewViewCamera == null) return;
         android.view.ViewGroup.LayoutParams lp1 = playerViewOriginal.getLayoutParams();
@@ -291,37 +307,103 @@ public class DuetReelActivity extends AppCompatActivity {
 
         switch (mode) {
             case LAYOUT_SIDE_BY_SIDE:
-                // Equal width, full height
                 if (lp1 instanceof android.widget.LinearLayout.LayoutParams) {
                     ((android.widget.LinearLayout.LayoutParams) lp1).weight = 1;
                     ((android.widget.LinearLayout.LayoutParams) lp2).weight = 1;
                 }
                 playerViewOriginal.setVisibility(View.VISIBLE);
+                previewViewCamera.setVisibility(View.VISIBLE);
                 break;
 
             case LAYOUT_TOP_BOTTOM:
-                // Equal height, full width — swap orientation logic in XML or force here
                 if (lp1 instanceof android.widget.LinearLayout.LayoutParams) {
                     ((android.widget.LinearLayout.LayoutParams) lp1).weight = 1;
                     ((android.widget.LinearLayout.LayoutParams) lp2).weight = 1;
                 }
                 playerViewOriginal.setVisibility(View.VISIBLE);
+                previewViewCamera.setVisibility(View.VISIBLE);
                 break;
 
             case LAYOUT_REACT_PIP:
-                // Camera = full screen, original = small pip overlay (handled in XML via FrameLayout)
-                // We hide the original from the split layout and show it as a pip
-                playerViewOriginal.setVisibility(View.VISIBLE);
                 if (lp1 instanceof android.widget.LinearLayout.LayoutParams) {
                     ((android.widget.LinearLayout.LayoutParams) lp1).weight = 0.3f;
                     ((android.widget.LinearLayout.LayoutParams) lp2).weight = 0.7f;
                 }
+                playerViewOriginal.setVisibility(View.VISIBLE);
+                previewViewCamera.setVisibility(View.VISIBLE);
+                break;
+
+            case LAYOUT_REACTION_BUBBLE:
+                // Original reel fills full screen; camera shown as draggable bubble overlay
+                if (lp1 instanceof android.widget.LinearLayout.LayoutParams) {
+                    ((android.widget.LinearLayout.LayoutParams) lp1).weight = 1;
+                    ((android.widget.LinearLayout.LayoutParams) lp2).weight = 0;
+                }
+                playerViewOriginal.setVisibility(View.VISIBLE);
+                // Hide the split camera preview; bubble overlay shows camera feed instead
+                previewViewCamera.setVisibility(View.GONE);
+                setupBubbleDrag();
                 break;
         }
         playerViewOriginal.setLayoutParams(lp1);
         previewViewCamera.setLayoutParams(lp2);
         playerViewOriginal.requestLayout();
         previewViewCamera.requestLayout();
+    }
+
+    /**
+     * Make the bubble overlay draggable so the user can reposition it before recording.
+     * Position is stored in bubbleScreenX/Y and converted to NDC when compositing.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void setupBubbleDrag() {
+        if (bubbleOverlay == null) return;
+
+        // Set default position to bottom-left (if not already set by user drag)
+        if (!bubblePosSet) {
+            bubbleOverlay.post(() -> {
+                android.view.ViewGroup parent = (android.view.ViewGroup) bubbleOverlay.getParent();
+                if (parent == null) return;
+                float defaultX = parent.getWidth()  * 0.08f;
+                float defaultY = parent.getHeight() * 0.72f;
+                bubbleOverlay.setX(defaultX);
+                bubbleOverlay.setY(defaultY);
+                bubbleScreenX = defaultX + bubbleOverlay.getWidth()  / 2f;
+                bubbleScreenY = defaultY + bubbleOverlay.getHeight() / 2f;
+            });
+        }
+
+        bubbleOverlay.setOnTouchListener(new View.OnTouchListener() {
+            float dX, dY;
+            @Override
+            public boolean onTouch(View v, android.view.MotionEvent e) {
+                switch (e.getAction()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        dX = v.getX() - e.getRawX();
+                        dY = v.getY() - e.getRawY();
+                        break;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        float nx = e.getRawX() + dX;
+                        float ny = e.getRawY() + dY;
+                        v.setX(nx);
+                        v.setY(ny);
+                        bubbleScreenX = nx + v.getWidth()  / 2f;
+                        bubbleScreenY = ny + v.getHeight() / 2f;
+                        bubblePosSet  = true;
+                        break;
+                }
+                return true;
+            }
+        });
+    }
+
+    /** Convert bubble screen coords to NDC (-1..1) for the compositor. */
+    private float[] bubbleToNdc() {
+        android.view.ViewGroup parent = (android.view.ViewGroup) bubbleOverlay.getParent();
+        if (parent == null || parent.getWidth() == 0) return new float[]{-0.55f, -0.72f};
+        float ndcX =  (bubbleScreenX / parent.getWidth())  * 2f - 1f;
+        float ndcY = -((bubbleScreenY / parent.getHeight()) * 2f - 1f); // Y flipped in NDC
+        return new float[]{ndcX, ndcY};
     }
 
     // ── ExoPlayer ─────────────────────────────────────────────────────────────
@@ -577,9 +659,15 @@ public class DuetReelActivity extends AppCompatActivity {
         // used by CameraX internally; running compositing on it causes a deadlock.
         new Thread(() -> {
             DuetVideoCompositor compositor = new DuetVideoCompositor();
+            // Calculate bubble NDC position (only used in LAYOUT_REACTION_BUBBLE mode)
+            float[] bubbleNdc = (bubbleOverlay != null && capturedLayout == LAYOUT_REACTION_BUBBLE)
+                    ? bubbleToNdc()
+                    : new float[]{-0.55f, -0.72f};
+
             boolean ok = compositor.composite(
                 cameraFilePath, capturedOriginal, outputPath,
-                capturedLayout, capturedVol, capturedMicGain);
+                capturedLayout, capturedVol, capturedMicGain,
+                bubbleNdc[0], bubbleNdc[1]);
 
             final String finalPath = ok ? outputPath : cameraFilePath;
 

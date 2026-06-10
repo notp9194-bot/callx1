@@ -25,8 +25,14 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
 /**
- * DuetVideoCompositor v4 — Pure MediaCodec + OpenGL ES 2.0.
+ * DuetVideoCompositor v5 — Pure MediaCodec + OpenGL ES 2.0.
  * No FFmpeg. Zero APK size increase.
+ *
+ * Added in v5:
+ *  - NEW: LAYOUT_REACTION_BUBBLE (3) — original reel fills full screen,
+ *    camera is composited as a circular bubble (bottom-left corner).
+ *    Circle clipping done in a dedicated GL program with a circle-mask fragment shader.
+ *    bubbleX / bubbleY (NDC -1..1) let the caller position the bubble from Activity.
  *
  * Fixed vs v3:
  *  - FIX: Audio track was silently dropped in v3 because mixAudio() called
@@ -55,9 +61,13 @@ public class DuetVideoCompositor {
     private EGLContext eglContext  = EGL14.EGL_NO_CONTEXT;
     private EGLSurface eglSurface  = EGL14.EGL_NO_SURFACE;
 
-    // GL
+    // GL — normal rect program
     private int glProgram      = -1;
     private int aPosition, aTexCoord, uMVP, uTexMatrix, uTexture;
+
+    // GL — circle-bubble program (used only for LAYOUT_REACTION_BUBBLE)
+    private int glBubbleProgram   = -1;
+    private int bPosition, bTexCoord, bMVP, bTexMatrix, bTexture, bCenter, bRadius, bAspect;
     private FloatBuffer quadBuf;
 
     // Textures + SurfaceTextures
@@ -76,14 +86,17 @@ public class DuetVideoCompositor {
      * @param cameraPath   absolute path to the CameraX-recorded MP4
      * @param originalUrl  URL or file:// path of the original reel
      * @param outputPath   absolute path for the composited output MP4
-     * @param layoutMode   0=side-by-side, 1=top-bottom, 2=PiP
+     * @param layoutMode   0=side-by-side, 1=top-bottom, 2=PiP, 3=ReactionBubble
      * @param origVolume   0.0–1.0 volume of original reel audio in the mix
      * @param micGain      0.0–2.0 gain multiplier for camera mic audio (1.0 = no change)
+     * @param bubbleNdcX   NDC X centre of reaction bubble (-1..1), used only for mode 3
+     * @param bubbleNdcY   NDC Y centre of reaction bubble (-1..1), used only for mode 3
      * @return true on success
      */
     public boolean composite(String cameraPath, String originalUrl,
                              String outputPath, int layoutMode,
-                             float origVolume, float micGain) {
+                             float origVolume, float micGain,
+                             float bubbleNdcX, float bubbleNdcY) {
         Log.d(TAG, "start layout=" + layoutMode + " cam=" + cameraPath
                 + " origVol=" + origVolume + " micGain=" + micGain);
 
@@ -95,7 +108,8 @@ public class DuetVideoCompositor {
         }
 
         try {
-            return pipeline(cameraPath, originalUrl, outputPath, layoutMode, origVolume, micGain);
+            return pipeline(cameraPath, originalUrl, outputPath, layoutMode,
+                            origVolume, micGain, bubbleNdcX, bubbleNdcY);
         } catch (Exception e) {
             Log.e(TAG, "composite failed: " + e.getMessage(), e);
             return false;
@@ -110,7 +124,8 @@ public class DuetVideoCompositor {
 
     private boolean pipeline(String camPath, String origUrl,
                               String outPath, int layout,
-                              float origVolume, float micGain) throws Exception {
+                              float origVolume, float micGain,
+                              float bubbleNdcX, float bubbleNdcY) throws Exception {
 
         // ── 1. Pre-encode audio FIRST (before muxer is created) ───────────
         // This gives us the audio MediaFormat so we can add BOTH tracks to the
@@ -273,6 +288,9 @@ public class DuetVideoCompositor {
                 GLES20.glClearColor(0f, 0f, 0f, 1f);
                 GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
+                // Pass bubble position for reaction-bubble mode
+                renderBubbleX = bubbleNdcX;
+                renderBubbleY = bubbleNdcY;
                 renderFrame(layout);
 
                 EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface,
@@ -340,6 +358,10 @@ public class DuetVideoCompositor {
     // Render
     // ─────────────────────────────────────────────────────────────────────────
 
+    // bubbleNdcX/Y stored per-frame for renderFrame to access
+    private float renderBubbleX = -0.55f;
+    private float renderBubbleY = -0.72f;
+
     private void renderFrame(int layout) {
         switch (layout) {
             case 1: // TOP-BOTTOM
@@ -350,11 +372,55 @@ public class DuetVideoCompositor {
                 drawRect(texCam,  matCam,  -1f, -1f,  1f,  1f);
                 drawRect(texOrig, matOrig,  0.45f, -1f, 1f, -0.35f);
                 break;
+            case 3: // REACTION BUBBLE
+                // Original reel fills full screen
+                drawRect(texOrig, matOrig, -1f, -1f, 1f, 1f);
+                // Camera face in a circular bubble (radius ~0.28 NDC = ~150px on 1080px wide)
+                drawCircleBubble(texCam, matCam, renderBubbleX, renderBubbleY, 0.28f);
+                break;
             default: // SIDE-BY-SIDE
                 drawRect(texCam,  matCam,  -1f, -1f,  0f,  1f);
                 drawRect(texOrig, matOrig,  0f, -1f,  1f,  1f);
                 break;
         }
+    }
+
+    /**
+     * Draw texId as a circle centred at (cx,cy) NDC with given NDC radius.
+     * Aspect ratio correction applied so the circle isn't squished.
+     */
+    private void drawCircleBubble(int texId, float[] texMatrix,
+                                   float cx, float cy, float radius) {
+        if (glBubbleProgram < 0) return;
+        GLES20.glUseProgram(glBubbleProgram);
+
+        // Build MVP: translate to (cx,cy), scale by radius
+        float[] mvp = new float[16];
+        Matrix.setIdentityM(mvp, 0);
+        Matrix.translateM(mvp, 0, cx, cy, 0f);
+        Matrix.scaleM(mvp, 0, radius, radius, 1f);
+
+        GLES20.glUniformMatrix4fv(bMVP,       1, false, mvp,       0);
+        GLES20.glUniformMatrix4fv(bTexMatrix, 1, false, texMatrix, 0);
+        // Centre of the quad in NDC space (after MVP, the quad centre = 0,0 in local space)
+        GLES20.glUniform2f(bCenter, 0f, 0f);
+        GLES20.glUniform1f(bRadius, 1.0f); // 1.0 in local space = radius in NDC
+        // Aspect ratio: width/height of output so circle isn't oval
+        float aspect = (float) OUT_W / OUT_H;
+        GLES20.glUniform1f(bAspect, aspect);
+
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texId);
+        GLES20.glUniform1i(bTexture, 0);
+
+        quadBuf.position(0);
+        GLES20.glEnableVertexAttribArray(bPosition);
+        GLES20.glVertexAttribPointer(bPosition, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
+        quadBuf.position(2);
+        GLES20.glEnableVertexAttribArray(bTexCoord);
+        GLES20.glVertexAttribPointer(bTexCoord, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
+
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
     }
 
     private void drawRect(int texId, float[] texMatrix,
@@ -435,6 +501,7 @@ public class DuetVideoCompositor {
     // GL setup
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Normal rect shader ────────────────────────────────────────────────────
     private static final String VS =
         "uniform mat4 uMVPMatrix;\n" +
         "uniform mat4 uTexMatrix;\n" +
@@ -453,7 +520,33 @@ public class DuetVideoCompositor {
         "uniform samplerExternalOES uTexture;\n" +
         "void main() { gl_FragColor = texture2D(uTexture, vTex); }\n";
 
+    // ── Circle-bubble shader ──────────────────────────────────────────────────
+    // Same vertex shader as above but fragment clips to a circle.
+    // uCenter: centre of circle in local quad space (0,0 after MVP = centre of bubble)
+    // uRadius: radius in local space (1.0 = bubble edge)
+    // uAspect: OUT_W / OUT_H — corrects oval distortion from non-square NDC space
+    private static final String BUBBLE_FS =
+        "#extension GL_OES_EGL_image_external : require\n" +
+        "precision mediump float;\n" +
+        "varying vec2 vTex;\n" +
+        "uniform samplerExternalOES uTexture;\n" +
+        "uniform vec2  uCenter;\n" +
+        "uniform float uRadius;\n" +
+        "uniform float uAspect;\n" +
+        "void main() {\n" +
+        // vTex is 0..1; convert to -1..1 local space
+        "  vec2 p = (vTex - 0.5) * 2.0;\n" +
+        // Correct for non-square viewport (portrait: height > width → squish x)
+        "  p.x *= uAspect;\n" +
+        "  float dist = length(p - uCenter);\n" +
+        // Smooth edge: anti-alias over 2px in NDC
+        "  float alpha = 1.0 - smoothstep(uRadius - 0.04, uRadius, dist);\n" +
+        "  if (alpha < 0.01) discard;\n" +
+        "  gl_FragColor = texture2D(uTexture, vTex) * alpha;\n" +
+        "}\n";
+
     private void setupGL() {
+        // Normal rect program
         glProgram = GLES20.glCreateProgram();
         GLES20.glAttachShader(glProgram, makeShader(GLES20.GL_VERTEX_SHADER,   VS));
         GLES20.glAttachShader(glProgram, makeShader(GLES20.GL_FRAGMENT_SHADER, FS));
@@ -464,6 +557,25 @@ public class DuetVideoCompositor {
         uMVP       = GLES20.glGetUniformLocation(glProgram, "uMVPMatrix");
         uTexMatrix = GLES20.glGetUniformLocation(glProgram, "uTexMatrix");
         uTexture   = GLES20.glGetUniformLocation(glProgram, "uTexture");
+
+        // Circle-bubble program (same VS, circle-clip FS)
+        glBubbleProgram = GLES20.glCreateProgram();
+        GLES20.glAttachShader(glBubbleProgram, makeShader(GLES20.GL_VERTEX_SHADER,   VS));
+        GLES20.glAttachShader(glBubbleProgram, makeShader(GLES20.GL_FRAGMENT_SHADER, BUBBLE_FS));
+        GLES20.glLinkProgram(glBubbleProgram);
+
+        bPosition  = GLES20.glGetAttribLocation(glBubbleProgram,  "aPosition");
+        bTexCoord  = GLES20.glGetAttribLocation(glBubbleProgram,  "aTexCoord");
+        bMVP       = GLES20.glGetUniformLocation(glBubbleProgram, "uMVPMatrix");
+        bTexMatrix = GLES20.glGetUniformLocation(glBubbleProgram, "uTexMatrix");
+        bTexture   = GLES20.glGetUniformLocation(glBubbleProgram, "uTexture");
+        bCenter    = GLES20.glGetUniformLocation(glBubbleProgram, "uCenter");
+        bRadius    = GLES20.glGetUniformLocation(glBubbleProgram, "uRadius");
+        bAspect    = GLES20.glGetUniformLocation(glBubbleProgram, "uAspect");
+
+        // Enable blending so bubble alpha edge works
+        GLES20.glEnable(GLES20.GL_BLEND);
+        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
 
         float[] q = { -1f,-1f, 0f,0f,  1f,-1f, 1f,0f,  -1f,1f, 0f,1f,  1f,1f, 1f,1f };
         quadBuf = ByteBuffer.allocateDirect(q.length * 4)
