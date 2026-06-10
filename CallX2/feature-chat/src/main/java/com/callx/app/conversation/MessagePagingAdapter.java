@@ -881,41 +881,52 @@ public class MessagePagingAdapter
         }
 
         // ── Delivery status (sent messages only) ─────────────────
-        if (sent && h.tvStatus != null) {
-            h.tvStatus.setVisibility(View.VISIBLE);
+        if (sent && h.ivTick != null) {
+            // FIX: Use drawable tick icons (iv_tick ImageView in layout)
+            h.ivTick.setVisibility(View.VISIBLE);
             String status = m.status != null ? m.status : "sent";
             switch (status) {
                 case "seen":
                 case "read":
-                    h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
+                    h.ivTick.setImageResource(R.drawable.ic_double_tick_blue);
+                    h.ivTick.clearColorFilter();
+                    h.ivTick.setOnClickListener(null);
                     break;
                 case "delivered":
-                    h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    h.ivTick.setImageResource(R.drawable.ic_double_tick);
+                    h.ivTick.setColorFilter(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false),
+                        android.graphics.PorterDuff.Mode.SRC_IN);
+                    h.ivTick.setOnClickListener(null);
                     break;
                 case "pending":
-                    // Clock icon — sent locally, not yet reached Firebase
-                    h.tvStatus.setText("🕐");
-                    h.tvStatus.setTextColor(0xFFAAAAAA);
+                    h.ivTick.setImageResource(R.drawable.ic_single_tick);
+                    h.ivTick.setColorFilter(0xFFAAAAAA,
+                        android.graphics.PorterDuff.Mode.SRC_IN);
+                    h.ivTick.setOnClickListener(null);
                     break;
                 case "failed":
-                    // Error icon — Firebase push rejected; tap to retry
-                    h.tvStatus.setText("⚠");
-                    h.tvStatus.setTextColor(0xFFFF5555);
-                    h.tvStatus.setOnClickListener(v -> {
+                    h.ivTick.setImageResource(R.drawable.ic_single_tick);
+                    h.ivTick.setColorFilter(0xFFFF5555,
+                        android.graphics.PorterDuff.Mode.SRC_IN);
+                    h.ivTick.setOnClickListener(v -> {
                         if (actionListener != null) actionListener.onRetry(m);
                     });
                     break;
-                default: // "sent" — one grey tick
-                    h.tvStatus.setText("✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
-                    h.tvStatus.setOnClickListener(null);
+                default: // "sent"
+                    h.ivTick.setImageResource(R.drawable.ic_single_tick);
+                    h.ivTick.setColorFilter(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false),
+                        android.graphics.PorterDuff.Mode.SRC_IN);
+                    h.ivTick.setOnClickListener(null);
                     break;
             }
+        } else if (h.ivTick != null) {
+            h.ivTick.setVisibility(View.GONE);
+        } else if (sent && h.tvStatus != null) {
+            // Fallback — layout still has tv_status (shouldn't happen but safe)
+            h.tvStatus.setVisibility(View.VISIBLE);
+            h.tvStatus.setText(View.GONE == 0 ? "✓" : "✓");
         } else if (h.tvStatus != null) {
             h.tvStatus.setVisibility(View.GONE);
         }
@@ -1397,7 +1408,8 @@ public class MessagePagingAdapter
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;
-        TextView     tvStatus;   // tv_status in both item layouts
+        TextView     tvStatus;   // kept for received items (no change)
+        ImageView    ivTick;     // FIX: drawable tick for sent messages (replaces tv_status)
         LinearLayout llAudio, llFile;
         ImageButton  btnPlayPause;
         ImageView    btnDownload;
@@ -1427,7 +1439,8 @@ public class MessagePagingAdapter
             tvSenderName   = v.findViewById(R.id.tv_sender_name);
             tvDateHeader   = v.findViewById(R.id.tv_date_header);
             ivImage        = v.findViewById(R.id.iv_image);
-            tvStatus       = v.findViewById(R.id.tv_status);
+            tvStatus       = v.findViewById(R.id.tv_status);  // null on sent layouts
+            ivTick         = v.findViewById(R.id.iv_tick);    // FIX: drawable tick
             llAudio        = v.findViewById(R.id.ll_audio);
             btnPlayPause   = v.findViewById(R.id.btn_play_pause);
             // FIX: bind SeekBar so we can update progress during playback
