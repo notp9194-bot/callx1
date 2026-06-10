@@ -172,71 +172,6 @@
             android:layout_marginTop="4dp"/>
     </LinearLayout>
 
-    <!-- ── Volume slider overlay (floating above bottom bar) ────────────── -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:orientation="vertical"
-        android:layout_marginBottom="180dp"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
-        android:background="#88000000">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Original Audio"
-            android:textColor="#CCFFFFFF"
-            android:textSize="11sp"
-            android:layout_marginBottom="4dp"/>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🔇"
-                android:textSize="14sp"
-                android:layout_marginEnd="6dp"/>
-
-            <SeekBar
-                android:id="@+id/seek_original_volume"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="100"
-                android:progress="50"
-                android:progressTint="@color/brand_primary"
-                android:thumbTint="@color/brand_primary"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🔊"
-                android:textSize="14sp"
-                android:layout_marginStart="6dp"/>
-
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/tv_volume_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Original audio: 50%"
-            android:textColor="#CCFFFFFF"
-            android:textSize="10sp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="2dp"/>
-
-    </LinearLayout>
-
     <!-- ── Bottom controls ───────────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -244,11 +179,39 @@
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:paddingBottom="32dp"
-        android:paddingTop="12dp"
+        android:paddingBottom="16dp"
+        android:paddingTop="10dp"
         android:paddingStart="24dp"
         android:paddingEnd="24dp"
-        android:background="#66000000">
+        android:background="#CC000000">
+
+        <!-- Original audio volume slider -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Original Audio"
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp"
+            android:layout_marginBottom="2dp"/>
+
+        <SeekBar
+            android:id="@+id/seek_original_volume"
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:max="100"
+            android:progress="50"
+            android:progressTint="@color/brand_primary"
+            android:thumbTint="@color/brand_primary"
+            android:layout_marginBottom="2dp"/>
+
+        <TextView
+            android:id="@+id/tv_volume_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Original audio: 50%"
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp"
+            android:layout_marginBottom="8dp"/>
 
         <!-- Timer -->
         <TextView
@@ -257,9 +220,9 @@
             android:layout_height="wrap_content"
             android:text="0:00"
             android:textColor="#FFFFFF"
-            android:textSize="20sp"
+            android:textSize="18sp"
             android:fontFamily="sans-serif-medium"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="6dp"/>
 
         <!-- Progress bar -->
         <ProgressBar
@@ -271,21 +234,20 @@
             android:progress="0"
             android:progressTint="@color/brand_primary"
             android:progressBackgroundTint="#44FFFFFF"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="12dp"/>
 
         <!-- Record button -->
         <ImageButton
             android:id="@+id/btn_duet_record"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
             android:src="@drawable/ic_play"
             android:tint="#A855F7"
             android:background="@drawable/circle_primary"
-            android:padding="14dp"
+            android:padding="12dp"
             android:contentDescription="Record duet"/>
     </LinearLayout>
-
-    <!-- ── 3-2-1 Countdown overlay (shown over everything) ───────────────── -->
+    <!-- ── 3-2-1 Countdown overlay ───────────────────────────────────────── -->
     <TextView
         android:id="@+id/tv_duet_countdown"
         android:layout_width="wrap_content"
