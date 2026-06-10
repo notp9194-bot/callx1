@@ -25,15 +25,15 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
 /**
- * DuetVideoCompositor v2 — Pure MediaCodec + OpenGL ES 2.0.
+ * DuetVideoCompositor v3 — Pure MediaCodec + OpenGL ES 2.0.
  * No FFmpeg. Zero APK size increase.
  *
- * Fixed vs v1:
- *  - Dedicated compositor thread (not cameraExecutor) → no camera conflict
- *  - updateTexImage() always called on GL thread (no race condition)
- *  - Frame sync via decoder output render flag only (no AtomicBoolean listener)
- *  - Original reel loops if shorter than camera recording
- *  - Robust EOS handling for both decoders
+ * Fixed vs v2:
+ *  - FIX: Original reel audio now actually mixed into output (was silently ignored in v2)
+ *  - mixAudio(): decodes both camera + original to PCM, mixes with origVolume weighting,
+ *    re-encodes as AAC, writes to muxer — slider in DuetReelActivity now works end-to-end
+ *  - decodeAudioToPcm(): shared helper, loops original if shorter than camera recording
+ *  - pipeline() now accepts origVolume and forwards it to mixAudio()
  */
 public class DuetVideoCompositor {
 
@@ -73,7 +73,7 @@ public class DuetVideoCompositor {
      * @param originalUrl  URL or file:// path of the original reel
      * @param outputPath   absolute path for the composited output MP4
      * @param layoutMode   0=side-by-side, 1=top-bottom, 2=PiP
-     * @param origVolume   unused here (audio mix handled separately)
+     * @param origVolume   0.0–1.0 volume of original reel audio in the mix
      * @return true on success
      */
     public boolean composite(String cameraPath, String originalUrl,
@@ -88,7 +88,7 @@ public class DuetVideoCompositor {
         }
 
         try {
-            return pipeline(cameraPath, originalUrl, outputPath, layoutMode);
+            return pipeline(cameraPath, originalUrl, outputPath, layoutMode, origVolume);
         } catch (Exception e) {
             Log.e(TAG, "composite failed: " + e.getMessage(), e);
             return false;
@@ -102,7 +102,7 @@ public class DuetVideoCompositor {
     // ─────────────────────────────────────────────────────────────────────────
 
     private boolean pipeline(String camPath, String origUrl,
-                              String outPath, int layout) throws Exception {
+                              String outPath, int layout, float origVolume) throws Exception {
 
         // ── 1. Encoder ────────────────────────────────────────────────────
         MediaFormat encFmt = MediaFormat.createVideoFormat(
@@ -164,15 +164,13 @@ public class DuetVideoCompositor {
         MediaMuxer muxer = new MediaMuxer(outPath,
                 MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 
-        // Audio track from camera
+        // Audio: mixed from camera + original reel
+        // extAud kept as placeholder so release() calls below stay intact
         MediaExtractor extAud = new MediaExtractor();
         extAud.setDataSource(camPath);
         int audTrack = pickTrack(extAud, "audio/");
         int muxAud   = -1;
-        if (audTrack >= 0) {
-            extAud.selectTrack(audTrack);
-            muxAud = muxer.addTrack(extAud.getTrackFormat(audTrack));
-        }
+        // muxAud index is set after muxer.start() — see INFO_OUTPUT_FORMAT_CHANGED block
 
         int  muxVid       = -1;
         boolean muxStarted = false;
@@ -298,8 +296,8 @@ public class DuetVideoCompositor {
                     muxVid = muxer.addTrack(encoder.getOutputFormat());
                     muxer.start();
                     muxStarted = true;
-                    // Copy audio now that muxer is started
-                    if (muxAud >= 0) copyAudio(extAud, muxer, muxAud);
+                    // Mix camera audio + original reel audio into muxer
+                    muxAud = mixAudio(camPath, origUrl, origVolume, muxer);
                 }
             } else if (encOut >= 0) {
                 if (muxStarted && muxVid >= 0
@@ -508,21 +506,217 @@ public class DuetVideoCompositor {
         return -1;
     }
 
-    private void copyAudio(MediaExtractor extAud, MediaMuxer muxer, int muxAudTrack) {
-        ByteBuffer buf = ByteBuffer.allocate(256 * 1024);
-        MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
+    // ─────────────────────────────────────────────────────────────────────────
+    // Audio mixing  (camera mic + original reel audio → AAC → muxer)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Decodes audio from both camPath and origUrl to PCM, mixes them with
+     * origVolume weighting, re-encodes as AAC, and writes to the muxer.
+     *
+     * @return the muxer audio track index, or -1 if audio is unavailable
+     */
+    private int mixAudio(String camPath, String origUrl,
+                         float origVolume, MediaMuxer muxer) {
         try {
-            while (true) {
-                int n = extAud.readSampleData(buf, 0);
-                if (n < 0) break;
-                bi.offset = 0; bi.size = n;
-                bi.presentationTimeUs = extAud.getSampleTime();
-                bi.flags = extAud.getSampleFlags();
-                muxer.writeSampleData(muxAudTrack, buf, bi);
-                extAud.advance();
+            // ── Decode camera audio to PCM ────────────────────────────────
+            short[] camPcm  = decodeAudioToPcm(camPath);
+            int     sampleRate = 44100; // default; updated below
+            int     channels   = 1;
+
+            // ── Decode original reel audio to PCM ─────────────────────────
+            short[] origPcm = decodeAudioToPcm(origUrl);
+
+            if (camPcm == null || camPcm.length == 0) {
+                Log.w(TAG, "mixAudio: no camera audio, skipping audio track");
+                return -1;
             }
+
+            // Detect actual sample rate & channel count from camera track
+            MediaExtractor probe = new MediaExtractor();
+            try {
+                probe.setDataSource(camPath);
+                int t = pickTrack(probe, "audio/");
+                if (t >= 0) {
+                    MediaFormat f = probe.getTrackFormat(t);
+                    if (f.containsKey(MediaFormat.KEY_SAMPLE_RATE))
+                        sampleRate = f.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                    if (f.containsKey(MediaFormat.KEY_CHANNEL_COUNT))
+                        channels   = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                }
+            } finally {
+                probe.release();
+            }
+
+            // ── Mix PCM samples ───────────────────────────────────────────
+            int outLen = camPcm.length;
+            short[] mixed = new short[outLen];
+
+            for (int i = 0; i < outLen; i++) {
+                float cam  = camPcm[i]  / 32768f;                     // normalise
+                float orig = (origPcm != null && i < origPcm.length)
+                             ? (origPcm[i % origPcm.length] / 32768f) // loop if shorter
+                             : 0f;
+                // Mix: camera always full volume; original scaled by slider
+                float sum = cam + orig * origVolume;
+                // Hard clamp to prevent clipping
+                sum = Math.max(-1f, Math.min(1f, sum));
+                mixed[i] = (short) (sum * 32767f);
+            }
+
+            // ── Encode mixed PCM → AAC ────────────────────────────────────
+            MediaFormat encFmt = MediaFormat.createAudioFormat(
+                    MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channels);
+            encFmt.setInteger(MediaFormat.KEY_BIT_RATE,       128_000);
+            encFmt.setInteger(MediaFormat.KEY_AAC_PROFILE,
+                    MediaCodecInfo.CodecProfileLevel.AACObjectLC);
+            encFmt.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384);
+
+            MediaCodec enc = MediaCodec.createEncoderByType(
+                    MediaFormat.MIMETYPE_AUDIO_AAC);
+            enc.configure(encFmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+            enc.start();
+
+            // ByteBuffer view of mixed shorts
+            ByteBuffer pcmBuf = ByteBuffer.allocateDirect(mixed.length * 2)
+                    .order(ByteOrder.nativeOrder());
+            for (short s : mixed) pcmBuf.putShort(s);
+            pcmBuf.flip();
+
+            int muxAudTrack = -1;
+            boolean muxTrackAdded = false;
+            boolean inputDone  = false;
+            boolean outputDone = false;
+            MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
+
+            while (!outputDone) {
+
+                // Feed PCM into encoder
+                if (!inputDone) {
+                    int idx = enc.dequeueInputBuffer(TIMEOUT_US);
+                    if (idx >= 0) {
+                        ByteBuffer inBuf = enc.getInputBuffer(idx);
+                        inBuf.clear();
+                        int remaining = Math.min(inBuf.capacity(), pcmBuf.remaining());
+                        if (remaining > 0) {
+                            // Transfer `remaining` bytes from pcmBuf
+                            byte[] tmp = new byte[remaining];
+                            pcmBuf.get(tmp);
+                            inBuf.put(tmp);
+                            // Compute PTS from how many bytes we've consumed
+                            long ptsUs = ((pcmBuf.capacity() - pcmBuf.remaining() - remaining)
+                                         / (2L * channels)) * 1_000_000L / sampleRate;
+                            enc.queueInputBuffer(idx, 0, remaining, ptsUs, 0);
+                        } else {
+                            enc.queueInputBuffer(idx, 0, 0, 0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            inputDone = true;
+                        }
+                    }
+                }
+
+                // Drain encoder output
+                int out = enc.dequeueOutputBuffer(bi, TIMEOUT_US);
+                if (out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    if (!muxTrackAdded) {
+                        muxAudTrack  = muxer.addTrack(enc.getOutputFormat());
+                        muxTrackAdded = true;
+                    }
+                } else if (out >= 0) {
+                    if (muxTrackAdded
+                            && (bi.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0
+                            && bi.size > 0) {
+                        muxer.writeSampleData(muxAudTrack,
+                                enc.getOutputBuffer(out), bi);
+                    }
+                    enc.releaseOutputBuffer(out, false);
+                    if ((bi.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0)
+                        outputDone = true;
+                }
+            }
+
+            enc.stop();
+            enc.release();
+            Log.d(TAG, "mixAudio: done, track=" + muxAudTrack);
+            return muxAudTrack;
+
         } catch (Exception e) {
-            Log.w(TAG, "copyAudio non-fatal: " + e.getMessage());
+            Log.e(TAG, "mixAudio failed (non-fatal): " + e.getMessage(), e);
+            return -1;
         }
     }
+
+    /**
+     * Decodes all audio samples from a file/URL to a flat short[] (interleaved channels).
+     * Returns null if no audio track found.
+     */
+    private short[] decodeAudioToPcm(String dataSource) {
+        MediaExtractor ext = new MediaExtractor();
+        MediaCodec     dec = null;
+        java.util.ArrayList<Short> samples = new java.util.ArrayList<>(256 * 1024);
+
+        try {
+            ext.setDataSource(dataSource);
+            int track = pickTrack(ext, "audio/");
+            if (track < 0) return null;
+
+            ext.selectTrack(track);
+            MediaFormat fmt = ext.getTrackFormat(track);
+            String mime = fmt.getString(MediaFormat.KEY_MIME);
+
+            dec = MediaCodec.createDecoderByType(mime);
+            dec.configure(fmt, null, null, 0);
+            dec.start();
+
+            boolean inputDone  = false;
+            boolean outputDone = false;
+            MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
+
+            while (!outputDone) {
+                if (!inputDone) {
+                    int idx = dec.dequeueInputBuffer(TIMEOUT_US);
+                    if (idx >= 0) {
+                        ByteBuffer buf = dec.getInputBuffer(idx);
+                        int n = ext.readSampleData(buf, 0);
+                        if (n < 0) {
+                            dec.queueInputBuffer(idx, 0, 0, 0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            inputDone = true;
+                        } else {
+                            dec.queueInputBuffer(idx, 0, n,
+                                    ext.getSampleTime(), 0);
+                            ext.advance();
+                        }
+                    }
+                }
+
+                int out = dec.dequeueOutputBuffer(bi, TIMEOUT_US);
+                if (out >= 0) {
+                    ByteBuffer outBuf = dec.getOutputBuffer(out);
+                    if (outBuf != null && bi.size > 0) {
+                        outBuf.position(bi.offset);
+                        outBuf.limit(bi.offset + bi.size);
+                        while (outBuf.remaining() >= 2) {
+                            samples.add(outBuf.getShort());
+                        }
+                    }
+                    dec.releaseOutputBuffer(out, false);
+                    if ((bi.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0)
+                        outputDone = true;
+                }
+            }
+
+        } catch (Exception e) {
+            Log.w(TAG, "decodeAudioToPcm non-fatal (" + dataSource + "): " + e.getMessage());
+        } finally {
+            try { if (dec != null) { dec.stop(); dec.release(); } } catch (Exception ignored) {}
+            ext.release();
+        }
+
+        if (samples.isEmpty()) return null;
+        short[] arr = new short[samples.size()];
+        for (int i = 0; i < arr.length; i++) arr[i] = samples.get(i);
+        return arr;
+    }
+
 }
