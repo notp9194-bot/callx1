@@ -65,6 +65,8 @@ public class DuetReelActivity extends AppCompatActivity {
     public static final String EXTRA_OWNER_NAME        = "duet_owner_name";
     public static final String EXTRA_OWNER_UID         = "duet_owner_uid";
     public static final String EXTRA_DURATION_SEC      = "duet_duration_sec";
+    /** Local cached file path — if provided, compositor uses this instead of network URL */
+    public static final String EXTRA_CACHED_VIDEO_PATH = "duet_cached_video_path";
     /** "everyone" | "followers" | "off" — passed from ReelPlayerFragment */
     public static final String EXTRA_ALLOW_DUET_LEVEL  = "duet_allow_level";
     /** Whether current user follows the original creator — needed for "followers" check */
@@ -112,6 +114,7 @@ public class DuetReelActivity extends AppCompatActivity {
     private String  videoUrl;
     private String  ownerName;
     private String  ownerUid;
+    private String  cachedOriginalPath = null; // local cache of original reel video
     private int     durationSec   = MAX_DUET_SEC;
     private int     elapsedSec    = 0;
     private String  allowDuetLevel = "everyone";
@@ -134,6 +137,8 @@ public class DuetReelActivity extends AppCompatActivity {
         videoUrl       = getIntent().getStringExtra(EXTRA_VIDEO_URL);
         ownerUid       = getIntent().getStringExtra(EXTRA_OWNER_UID);
         allowDuetLevel = getIntent().getStringExtra(EXTRA_ALLOW_DUET_LEVEL);
+        String cp = getIntent().getStringExtra(EXTRA_CACHED_VIDEO_PATH);
+        if (cp != null && new java.io.File(cp).exists()) cachedOriginalPath = cp;
         viewerFollows  = getIntent().getBooleanExtra(EXTRA_VIEWER_FOLLOWS, false);
         if (allowDuetLevel == null) allowDuetLevel = "everyone";
 
@@ -524,24 +529,31 @@ public class DuetReelActivity extends AppCompatActivity {
             "duet_composite_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
 
         final int capturedLayout = layoutMode;
-        final String capturedUrl = videoUrl;
+        // Prefer local cached file — no network dependency
+        final String capturedOriginal = (cachedOriginalPath != null)
+            ? cachedOriginalPath : videoUrl;
         final float  capturedVol = originalVol;
 
-        cameraExecutor.execute(() -> {
+        // Use a SEPARATE thread — cameraExecutor is single-threaded and still
+        // used by CameraX internally; running compositing on it causes a deadlock.
+        new Thread(() -> {
             DuetVideoCompositor compositor = new DuetVideoCompositor();
             boolean ok = compositor.composite(
-                cameraFilePath, capturedUrl, outputPath, capturedLayout, capturedVol);
+                cameraFilePath, capturedOriginal, outputPath, capturedLayout, capturedVol);
 
             final String finalPath = ok ? outputPath : cameraFilePath;
 
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
-                if (progressDuet != null) progressDuet.setIndeterminate(false);
+                if (progressDuet != null) {
+                    progressDuet.setIndeterminate(false);
+                    progressDuet.setVisibility(android.view.View.GONE);
+                }
                 incrementDuetCount();
                 fireDuetNotification();
                 openEditor(finalPath);
             });
-        });
+        }, "duet-compositor").start();
     }
 
     /** Increment duetCount on the original reel in Firebase. */

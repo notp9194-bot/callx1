@@ -180,4 +180,78 @@ public class ReelCacheManager {
     public static boolean isInitialized() {
         return sInitialized;
     }
+
+    /**
+     * SimpleCache se cached reel bytes ek local temp file mein dump karta hai.
+     * Duet compositor network URL ki jagah local file use karta hai.
+     *
+     * @param context  Context for getCacheDir()
+     * @param videoUrl Original reel URL (SimpleCache key)
+     * @param reelId   Used for output filename
+     * @return         Absolute path of extracted file, or null if not cached / failed
+     */
+    @androidx.annotation.Nullable
+    public static String extractCachedVideoToFile(Context context,
+                                                   String videoUrl, String reelId) {
+        if (!sInitialized || sSimpleCache == null) return null;
+        if (videoUrl == null || videoUrl.isEmpty())  return null;
+
+        try {
+            java.util.NavigableSet<androidx.media3.datasource.cache.CacheSpan> spans =
+                sSimpleCache.getCachedSpans(videoUrl);
+            if (spans == null || spans.isEmpty()) {
+                Log.d(TAG, "extractCachedVideoToFile: nothing cached for " + reelId);
+                return null;
+            }
+
+            // Total cached bytes
+            long totalCached = 0;
+            for (androidx.media3.datasource.cache.CacheSpan span : spans) {
+                totalCached += span.length;
+            }
+            if (totalCached < 10_000) {
+                Log.d(TAG, "extractCachedVideoToFile: too little cached (" + totalCached + ")");
+                return null;
+            }
+
+            File outFile = new File(context.getCacheDir(),
+                "duet_orig_" + reelId + ".mp4");
+            // Reuse if already extracted with same size
+            if (outFile.exists() && outFile.length() == totalCached) {
+                Log.d(TAG, "extractCachedVideoToFile: reusing " + outFile.length() + " bytes");
+                return outFile.getAbsolutePath();
+            }
+
+            // Write spans sequentially into one file
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile);
+            byte[] buf = new byte[64 * 1024];
+            long written = 0;
+            for (androidx.media3.datasource.cache.CacheSpan span : spans) {
+                if (span.isCached && span.file != null && span.file.exists()) {
+                    java.io.FileInputStream fis = new java.io.FileInputStream(span.file);
+                    int n;
+                    while ((n = fis.read(buf)) != -1) {
+                        fos.write(buf, 0, n);
+                        written += n;
+                    }
+                    fis.close();
+                }
+            }
+            fos.flush();
+            fos.close();
+
+            if (written < 10_000) {
+                outFile.delete();
+                Log.w(TAG, "extractCachedVideoToFile: wrote too little (" + written + ")");
+                return null;
+            }
+
+            Log.d(TAG, "extractCachedVideoToFile: extracted " + written + " bytes → " + outFile);
+            return outFile.getAbsolutePath();
+
+        } catch (Exception e) {
+            Log.e(TAG, "extractCachedVideoToFile failed: " + e.getMessage(), e);
+            return null;
+        }
+    }
 }

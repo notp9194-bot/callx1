@@ -1432,6 +1432,14 @@ public class ReelPlayerFragment extends Fragment
         i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME,     reel.ownerName);
         i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,      reel.uid);
         i.putExtra(DuetReelActivity.EXTRA_DURATION_SEC,   reel.duration / 1000);
+        // Pass cached local file path so compositor doesn't need network
+        try {
+            String cachedPath = com.callx.app.cache.ReelCacheManager.extractCachedVideoToFile(
+                requireContext(), reel.videoUrl, reel.reelId);
+            if (cachedPath != null) {
+                i.putExtra(DuetReelActivity.EXTRA_CACHED_VIDEO_PATH, cachedPath);
+            }
+        } catch (Exception ignored) {}
         startActivity(i);
     }
 
