@@ -137,11 +137,14 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String  duetOwnerUid    = "";
     private String  duetLabel       = "";
     private String  duetOriginalUrl = "";
-    // Fix 7+10: chain duet fields
-    private String  chainDuetRootId = null;
-    private int     chainDuetDepth  = 0;
-    // Fix 4+7: separate music sound URL for compositor
-    private String  duetOriginalSoundUrl = null;
+    private int     duetLayoutMode  = 0;  // ✅ FIX GAP #6: save layout mode to Firebase
+
+    // ✅ FIX GAP #2: stitch metadata
+    private boolean isStitch           = false;
+    private String  stitchOriginalId   = "";
+    private String  stitchOriginalUrl  = "";
+    private String  stitchOwnerUid     = "";
+    private int     stitchDurationSec  = 3;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -275,14 +278,18 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (dLabel != null) duetLabel       = dLabel;
         String dOrigUrl = i.getStringExtra(EXTRA_DUET_ORIGINAL_URL);
         if (dOrigUrl != null) duetOriginalUrl = dOrigUrl;
-        // Fix 7+10: chain duet
-        String dChainRoot = i.getStringExtra("chain_duet_root_id");
-        int    dChainDepth = i.getIntExtra("chain_duet_depth", 0);
-        if (dChainRoot != null && !dChainRoot.isEmpty()) chainDuetRootId = dChainRoot;
-        chainDuetDepth = dChainDepth;
-        // Fix 4+7: original sound URL for compositor
-        String dSndUrl = i.getStringExtra("duet_original_sound_url");
-        if (dSndUrl != null && !dSndUrl.isEmpty()) duetOriginalSoundUrl = dSndUrl;
+        // ✅ FIX GAP #6: read duet layout mode (was never read before → always 0 in Firebase)
+        duetLayoutMode = i.getIntExtra("duet_layout_mode", 0);
+
+        // ✅ FIX GAP #2: read stitch metadata
+        isStitch = i.getBooleanExtra("is_stitch", false);
+        String sId      = i.getStringExtra("stitch_original_id");
+        String sUrl     = i.getStringExtra("stitch_original_url");
+        String sOwner   = i.getStringExtra("stitch_original_owner_uid");
+        if (sId    != null) stitchOriginalId  = sId;
+        if (sUrl   != null) stitchOriginalUrl = sUrl;
+        if (sOwner != null) stitchOwnerUid    = sOwner;
+        stitchDurationSec = i.getIntExtra("stitch_duration_sec", 3);
     }
 
     // ── Permission ────────────────────────────────────────────────────────
@@ -631,17 +638,15 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.duetOf           = a.duetOriginalId;
                     reel.duetOfOwnerUid   = a.duetOwnerUid;
                     reel.duetOriginalUrl  = a.duetOriginalUrl;
-                    // Fix 7+10: chain duet
-                    if (a.chainDuetRootId != null && !a.chainDuetRootId.isEmpty()) {
-                        reel.chainDuetRootId = a.chainDuetRootId;
-                        reel.chainDuetDepth  = a.chainDuetDepth;
-                    }
-                    // Fix 4+7: separate sound URL
-                    if (a.duetOriginalSoundUrl != null && !a.duetOriginalSoundUrl.isEmpty()) {
-                        reel.duetOriginalSoundUrl = a.duetOriginalSoundUrl;
-                    }
+                    reel.duetLayoutMode   = a.duetLayoutMode; // ✅ FIX GAP #6: now saved
                     reel.caption       = a.duetLabel.isEmpty() ? reel.caption
                                          : (a.duetLabel + (reel.caption.isEmpty() ? "" : " – " + reel.caption));
+                }
+
+                // ✅ FIX GAP #2: stitch fields on the new reel (field names match ReelModel)
+                if (a.isStitch && !a.stitchOriginalId.isEmpty()) {
+                    reel.stitchOf         = a.stitchOriginalId;
+                    reel.stitchOfOwnerUid = a.stitchOwnerUid;  // ReelModel field is stitchOfOwnerUid
                 }
 
                 FirebaseUtils.getReelsRef().child(finalReelId).setValue(reel)
@@ -675,6 +680,25 @@ public class ReelUploadActivity extends AppCompatActivity {
                                     safePhoto,        // duet creator avatar URL
                                     b.duetOwnerUid,   // original reel owner UID
                                     thumbUrl);        // new duet reel thumbnail
+                            }
+                        }
+
+                        // ✅ FIX GAP #2: increment stitchCount + notify original creator
+                        if (b.isStitch && !b.stitchOriginalId.isEmpty()) {
+                            FirebaseUtils.getReelsRef()
+                                .child(b.stitchOriginalId)
+                                .child("stitchCount")
+                                .setValue(com.google.firebase.database.ServerValue.increment(1));
+
+                            if (!b.stitchOwnerUid.isEmpty() && !b.stitchOwnerUid.equals(myUid)) {
+                                com.callx.app.workers.StitchNotificationWorker.enqueue(
+                                    b,
+                                    b.stitchOriginalId,
+                                    myUid,
+                                    myName,
+                                    safePhoto,
+                                    b.stitchOwnerUid,
+                                    thumbUrl);
                             }
                         }
 

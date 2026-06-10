@@ -6,7 +6,6 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
-import com.google.firebase.database.DatabaseReference;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -14,16 +13,15 @@ import java.util.Map;
 /**
  * ReelRemixSettingsActivity — Production-level Remix / Collab Settings Screen.
  *
- * Features:
- *  ✅ Duet permission (Everyone / Followers / Off)
- *  ✅ Stitch permission (Everyone / Followers / Off)
- *  ✅ Remix permission (Everyone / Followers / Off)
- *  ✅ Allow audio use (Everyone / Followers / Off)
- *  ✅ Show/hide view count
- *  ✅ Show/hide like count
- *  ✅ Allow sharing outside app
- *  ✅ Save settings to Firebase per reel
- *  ✅ Changes reflected immediately in reel feed
+ * ✅ FIX (GAP #1): Settings now saved to the CORRECT Firebase paths:
+ *   - allowDuetLevel   → reels/{reelId}/allowDuetLevel   (read by ReelPlayerFragment ✅)
+ *   - allowDuet        → reels/{reelId}/allowDuet         (legacy boolean ✅)
+ *   - allowStitchLevel → reels/{reelId}/allowStitchLevel  (read by ReelPlayerFragment ✅)
+ *   - allowStitch      → reels/{reelId}/allowStitch       (legacy boolean ✅)
+ *   - remix/audio/show_views/show_likes/allow_share → reels/{reelId}/remix_settings/... (extra prefs)
+ *
+ * Previously all fields were buried under remix_settings sub-node, which the feed
+ * never read — making all permission changes silently ineffective.
  */
 public class ReelRemixSettingsActivity extends AppCompatActivity {
 
@@ -68,7 +66,11 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
                 android.R.layout.simple_spinner_item, OPTIONS);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
 
-        spDuet.setAdapter(adapter);
+        spDuet.setAdapter(new android.widget.ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_item, OPTIONS));
+        ((android.widget.ArrayAdapter<String>) spDuet.getAdapter())
+            .setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+
         spStitch.setAdapter(new android.widget.ArrayAdapter<>(this,
             android.R.layout.simple_spinner_item, OPTIONS));
         spRemix.setAdapter(new android.widget.ArrayAdapter<>(this,
@@ -83,22 +85,28 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
 
     private void loadCurrentSettings() {
         if (reelId == null) return;
-        FirebaseUtils.db().getReference("reels").child(reelId).child("remix_settings")
+        // ✅ FIX: Read duet/stitch levels from top-level reel node (where feed reads them)
+        FirebaseUtils.db().getReference("reels").child(reelId)
             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                @Override public void onDataChange(
+                        @androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
                     if (isFinishing() || isDestroyed()) return;
-                    applySpinner(spDuet,   snap.child("duet").getValue(String.class));
-                    applySpinner(spStitch, snap.child("stitch").getValue(String.class));
-                    applySpinner(spRemix,  snap.child("remix").getValue(String.class));
-                    applySpinner(spAudio,  snap.child("audio").getValue(String.class));
-                    Boolean showViews = snap.child("show_views").getValue(Boolean.class);
-                    Boolean showLikes = snap.child("show_likes").getValue(Boolean.class);
-                    Boolean allowShare= snap.child("allow_share").getValue(Boolean.class);
-                    if (showViews != null) swShowViews.setChecked(showViews);
-                    if (showLikes != null) swShowLikes.setChecked(showLikes);
-                    if (allowShare!= null) swAllowShare.setChecked(allowShare);
+                    // Duet/stitch from top-level reel fields
+                    applySpinner(spDuet,   snap.child("allowDuetLevel").getValue(String.class));
+                    applySpinner(spStitch, snap.child("allowStitchLevel").getValue(String.class));
+                    // Remix/audio from remix_settings sub-node
+                    com.google.firebase.database.DataSnapshot rs = snap.child("remix_settings");
+                    applySpinner(spRemix, rs.child("remix").getValue(String.class));
+                    applySpinner(spAudio, rs.child("audio").getValue(String.class));
+                    Boolean showViews = rs.child("show_views").getValue(Boolean.class);
+                    Boolean showLikes = rs.child("show_likes").getValue(Boolean.class);
+                    Boolean allowShare= rs.child("allow_share").getValue(Boolean.class);
+                    if (showViews  != null) swShowViews.setChecked(showViews);
+                    if (showLikes  != null) swShowLikes.setChecked(showLikes);
+                    if (allowShare != null) swAllowShare.setChecked(allowShare);
                 }
-                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                @Override public void onCancelled(
+                        @androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
             });
     }
 
@@ -122,17 +130,41 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
             progressSave.setVisibility(android.view.View.VISIBLE);
             btnSave.setEnabled(false);
 
-            Map<String, Object> settings = new HashMap<>();
-            settings.put("duet",        getSpinnerValue(spDuet));
-            settings.put("stitch",      getSpinnerValue(spStitch));
-            settings.put("remix",       getSpinnerValue(spRemix));
-            settings.put("audio",       getSpinnerValue(spAudio));
-            settings.put("show_views",  swShowViews.isChecked());
-            settings.put("show_likes",  swShowLikes.isChecked());
-            settings.put("allow_share", swAllowShare.isChecked());
+            String duetLevel   = getSpinnerValue(spDuet);
+            String stitchLevel = getSpinnerValue(spStitch);
 
-            FirebaseUtils.db().getReference("reels").child(reelId)
-                .child("remix_settings").updateChildren(settings)
+            // ✅ FIX: Save allowDuetLevel / allowStitchLevel to the TOP-LEVEL reel node
+            // so that ReelPlayerFragment.effectiveAllowDuetLevel() reads the updated value.
+            Map<String, Object> reelFields = new HashMap<>();
+            reelFields.put("allowDuetLevel",   duetLevel);
+            reelFields.put("allowDuet",         !"off".equals(duetLevel));   // legacy bool
+            reelFields.put("allowStitchLevel", stitchLevel);
+            reelFields.put("allowStitch",       !"off".equals(stitchLevel)); // legacy bool
+
+            // Extra remix prefs stay in remix_settings sub-node (used by analytics/other screens)
+            Map<String, Object> remixSettings = new HashMap<>();
+            remixSettings.put("remix",       getSpinnerValue(spRemix));
+            remixSettings.put("audio",       getSpinnerValue(spAudio));
+            remixSettings.put("show_views",  swShowViews.isChecked());
+            remixSettings.put("show_likes",  swShowLikes.isChecked());
+            remixSettings.put("allow_share", swAllowShare.isChecked());
+
+            com.google.firebase.database.DatabaseReference reelRef =
+                FirebaseUtils.db().getReference("reels").child(reelId);
+
+            // Atomic: update top-level fields + remix_settings in one call
+            Map<String, Object> allUpdates = new HashMap<>();
+            allUpdates.put("allowDuetLevel",          duetLevel);
+            allUpdates.put("allowDuet",               !"off".equals(duetLevel));
+            allUpdates.put("allowStitchLevel",        stitchLevel);
+            allUpdates.put("allowStitch",             !"off".equals(stitchLevel));
+            allUpdates.put("remix_settings/remix",    getSpinnerValue(spRemix));
+            allUpdates.put("remix_settings/audio",    getSpinnerValue(spAudio));
+            allUpdates.put("remix_settings/show_views",  swShowViews.isChecked());
+            allUpdates.put("remix_settings/show_likes",  swShowLikes.isChecked());
+            allUpdates.put("remix_settings/allow_share", swAllowShare.isChecked());
+
+            reelRef.updateChildren(allUpdates)
                 .addOnSuccessListener(unused -> {
                     if (!isFinishing()) {
                         Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show();

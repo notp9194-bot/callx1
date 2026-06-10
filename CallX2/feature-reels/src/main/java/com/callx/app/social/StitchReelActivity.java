@@ -45,11 +45,16 @@ import java.util.concurrent.Executors;
  *  ✅ Countdown 3-2-1 before recording starts
  *  ✅ Max 60s total recording
  *  ✅ Sends both clips to ReelEditorActivity for merge
+ *
+ * ✅ FIX (GAP #2): Now passes originalReelId + originalOwnerUid through launchEditor()
+ *   so ReelUploadActivity can save stitchOf, increment stitchCount, and fire
+ *   StitchNotificationWorker to notify the original creator.
  */
 public class StitchReelActivity extends AppCompatActivity {
 
-    public static final String EXTRA_ORIGINAL_REEL_URL = "stitch_original_url";
-    public static final String EXTRA_ORIGINAL_REEL_ID  = "stitch_original_id";
+    public static final String EXTRA_ORIGINAL_REEL_URL   = "stitch_original_url";
+    public static final String EXTRA_ORIGINAL_REEL_ID    = "stitch_original_id";
+    public static final String EXTRA_ORIGINAL_OWNER_UID  = "stitch_original_owner_uid";  // ✅ NEW
 
     private static final int REQ_PERMISSIONS = 310;
     private static final int MAX_RECORD_SEC  = 60;
@@ -73,7 +78,12 @@ public class StitchReelActivity extends AppCompatActivity {
     private boolean isRecording      = false;
     private boolean isFront          = true;
     private File    outputFile;
+
+    // ✅ FIX: Store all three original-reel identifiers
     private String  originalUrl;
+    private String  originalReelId;
+    private String  originalOwnerUid;
+
     private CountDownTimer recordTimer;
 
     @Override
@@ -81,7 +91,11 @@ public class StitchReelActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_stitch_reel);
 
-        originalUrl  = getIntent().getStringExtra(EXTRA_ORIGINAL_REEL_URL);
+        originalUrl      = getIntent().getStringExtra(EXTRA_ORIGINAL_REEL_URL);
+        originalReelId   = getIntent().getStringExtra(EXTRA_ORIGINAL_REEL_ID);
+        originalOwnerUid = getIntent().getStringExtra(EXTRA_ORIGINAL_OWNER_UID);
+        if (originalOwnerUid == null) originalOwnerUid = "";
+
         cameraExecutor = Executors.newSingleThreadExecutor();
 
         bindViews();
@@ -212,10 +226,14 @@ public class StitchReelActivity extends AppCompatActivity {
 
     private void launchEditor() {
         Intent i = new Intent(this, ReelEditorActivity.class);
-        i.putExtra(ReelCameraActivity.EXTRA_VIDEO_URI, outputFile.getAbsolutePath());
-        i.putExtra("stitch_original_url", originalUrl);
-        i.putExtra("stitch_duration_sec", stitchDurationSec);
-        i.putExtra("is_stitch", true);
+        i.putExtra(ReelCameraActivity.EXTRA_VIDEO_URI,   outputFile.getAbsolutePath());
+        i.putExtra("stitch_original_url",                originalUrl);
+        i.putExtra("stitch_duration_sec",                stitchDurationSec);
+        i.putExtra("is_stitch",                          true);
+        // ✅ FIX: Pass original reel ID and owner UID so ReelUploadActivity can
+        // save stitchOf, increment stitchCount, and notify the original creator.
+        if (originalReelId   != null) i.putExtra("stitch_original_id",        originalReelId);
+        if (originalOwnerUid != null) i.putExtra("stitch_original_owner_uid", originalOwnerUid);
         startActivity(i);
         finish();
     }

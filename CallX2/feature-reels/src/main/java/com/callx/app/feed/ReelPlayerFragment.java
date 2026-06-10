@@ -412,6 +412,13 @@ public class ReelPlayerFragment extends Fragment
         if (tvRepostCount != null)
             tvRepostCount.setText(formatCount(reel.repostCount));
 
+        // ✅ FIX (GAP #4 & #5): Show duet count + "View Duets" button when duets exist.
+        // We add this programmatically so no XML change is needed.
+        if (reel.duetCount > 0 && reel.duetOf == null || (reel.duetOf != null && reel.duetOf.isEmpty())) {
+            // Only show on originals (not on duets themselves)
+            addViewDuetsButton();
+        }
+
         // Attribution banner — shown when this feed entry is a repost
         if (tvRepostAttribution != null) {
             if (reel.repostedFromName != null && !reel.repostedFromName.isEmpty()) {
@@ -475,6 +482,52 @@ public class ReelPlayerFragment extends Fragment
     }
 
     // ── Hashtag rendering ─────────────────────────────────────────────────
+
+    /**
+     * ✅ FIX (GAP #4 & #5): Programmatically adds a "🔀 X Duets — View all" chip
+     * below the caption when this reel has duets. No XML change needed.
+     * Tapping opens DuetsByReelActivity.
+     */
+    private void addViewDuetsButton() {
+        if (!isAdded() || getContext() == null || containerHashtags == null) return;
+        int count = reel.duetCount;
+        if (count <= 0) return;
+
+        android.widget.TextView duetBtn = new android.widget.TextView(requireContext());
+        String label = "🔀 " + formatCount(count) + " Duet" + (count == 1 ? "" : "s") + "  ›";
+        duetBtn.setText(label);
+        duetBtn.setTextColor(android.graphics.Color.WHITE);
+        duetBtn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+        duetBtn.setAlpha(0.85f);
+        duetBtn.setPadding(20, 8, 20, 8);
+
+        // Pill background
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(40f);
+        bg.setColor(0x33FFFFFF); // semi-transparent white
+        bg.setStroke(1, 0x66FFFFFF);
+        duetBtn.setBackground(bg);
+
+        android.widget.LinearLayout.LayoutParams lp =
+            new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 16, 0);
+        duetBtn.setLayoutParams(lp);
+
+        duetBtn.setOnClickListener(v -> {
+            if (!isAdded() || getActivity() == null) return;
+            android.content.Intent i = new android.content.Intent(
+                getActivity(), com.callx.app.social.DuetsByReelActivity.class);
+            i.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_REEL_ID,    reel.reelId);
+            i.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
+            startActivity(i);
+        });
+
+        // Insert at position 0 so it appears before hashtag chips
+        containerHashtags.addView(duetBtn, 0);
+        if (scrollHashtags != null) scrollHashtags.setVisibility(android.view.View.VISIBLE);
+    }
 
     private void renderHashtags() {
         if (reel == null || reel.caption == null || reel.caption.isEmpty()) return;
@@ -1419,8 +1472,10 @@ public class ReelPlayerFragment extends Fragment
             }
         }
         Intent i = new Intent(getActivity(), StitchReelActivity.class);
-        i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_REEL_ID,  reel.reelId);
-        i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_REEL_URL, reel.videoUrl);
+        i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_REEL_ID,   reel.reelId);
+        i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_REEL_URL,  reel.videoUrl);
+        // ✅ FIX (GAP #2): pass owner UID so StitchNotificationWorker can notify creator
+        i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_OWNER_UID, reel.uid);
         startActivity(i);
     }
 

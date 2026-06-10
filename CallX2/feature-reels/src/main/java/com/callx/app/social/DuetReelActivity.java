@@ -9,7 +9,6 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.util.Log;
-import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.View;
 import android.widget.*;
@@ -41,41 +40,42 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * DuetReelActivity v28 — Full Duet System (All Fixes Applied)
+ * DuetReelActivity v27 — Full Duet System
  *
- * ── What changed from v27 ────────────────────────────────────────────────────
- *  ✅ FIX 2: Reaction Bubble DRAG — setOnTouchListener added to bubbleOverlay
- *  ✅ FIX 3: bubbleToNdc() method fully implemented
- *  ✅ FIX 5: DuetPreviewOverlayView shows live layout indicator during recording
- *  ✅ FIX 10: Chain Duet — detects when dueting a duet; passes chainDuetRootId
- *              & chainDuetDepth to editor/upload; banner shows "Duet of Duet"
- *  ✅ FIX 11: "Invite to Duet" button → DuetInviteActivity (creator-only)
- *  ✅ All v27 fixes retained
+ * Fixes & additions over v26-3:
+ *  ✅ FIX: 3-2-1 countdown before recording starts
+ *  ✅ FIX: Actual side-by-side video compositing via DuetVideoCompositor
+ *  ✅ FIX: Original reel audio mixed into final output (volume-controlled)
+ *  ✅ FIX: Granular allowDuet enforcement ("followers" vs "everyone" vs "off")
+ *  ✅ NEW: Layout selector — Side-by-side / Top-Bottom / React (PiP)
+ *  ✅ NEW: Original audio volume slider
+ *  ✅ NEW: Pause / Resume recording
+ *  ✅ NEW: duetCount incremented on original reel in Firebase
+ *  ✅ NEW: DuetNotificationWorker — notifies original creator
+ *  ✅ NEW: "View Duets" button — opens DuetsByReelActivity
+ *  ✅ All v26-3 bug fixes retained (rotation, ExoPlayer post(), TextureView)
  */
 @UnstableApi
 public class DuetReelActivity extends AppCompatActivity {
 
     private static final String TAG = "DuetReelActivity";
 
-    public static final String EXTRA_REEL_ID           = "duet_reel_id";
-    public static final String EXTRA_VIDEO_URL          = "duet_video_url";
-    public static final String EXTRA_OWNER_NAME         = "duet_owner_name";
-    public static final String EXTRA_OWNER_UID          = "duet_owner_uid";
-    public static final String EXTRA_DURATION_SEC       = "duet_duration_sec";
-    public static final String EXTRA_CACHED_VIDEO_PATH  = "duet_cached_video_path";
-    /** "everyone" | "followers" | "off" */
-    public static final String EXTRA_ALLOW_DUET_LEVEL   = "duet_allow_level";
-    public static final String EXTRA_VIEWER_FOLLOWS     = "duet_viewer_follows";
-    /** Fix 4: original reel's separate music/sound URL (may differ from video audio) */
-    public static final String EXTRA_ORIGINAL_SOUND_URL = "duet_original_sound_url";
-    /** Fix 10: if original reel is itself a duet */
-    public static final String EXTRA_ORIGINAL_DUET_OF   = "duet_original_duet_of";
-    public static final String EXTRA_ORIGINAL_CHAIN_DEPTH = "duet_chain_depth";
+    public static final String EXTRA_REEL_ID          = "duet_reel_id";
+    public static final String EXTRA_VIDEO_URL         = "duet_video_url";
+    public static final String EXTRA_OWNER_NAME        = "duet_owner_name";
+    public static final String EXTRA_OWNER_UID         = "duet_owner_uid";
+    public static final String EXTRA_DURATION_SEC      = "duet_duration_sec";
+    /** Local cached file path — if provided, compositor uses this instead of network URL */
+    public static final String EXTRA_CACHED_VIDEO_PATH = "duet_cached_video_path";
+    /** "everyone" | "followers" | "off" — passed from ReelPlayerFragment */
+    public static final String EXTRA_ALLOW_DUET_LEVEL  = "duet_allow_level";
+    /** Whether current user follows the original creator — needed for "followers" check */
+    public static final String EXTRA_VIEWER_FOLLOWS    = "duet_viewer_follows";
 
     private static final int REQ_PERMISSIONS = 211;
     private static final int MAX_DUET_SEC    = 60;
-    private static final int MIN_BUBBLE_SIZE_DP = 80;
 
+    // Layout mode constants
     public static final int LAYOUT_SIDE_BY_SIDE    = 0;
     public static final int LAYOUT_TOP_BOTTOM      = 1;
     public static final int LAYOUT_REACT_PIP       = 2;
@@ -86,30 +86,24 @@ public class DuetReelActivity extends AppCompatActivity {
     private PreviewView  previewViewCamera;
     private ImageButton  btnDuetRecord, btnDuetFlip, btnDuetClose;
     private ImageButton  btnViewDuets;
-    private ImageButton  btnInviteDuet;
     private ProgressBar  progressDuet;
     private TextView     tvDuetTimer, tvDuetLabel, tvCountdown;
     private SeekBar      seekOriginalVolume;
     private TextView     tvVolumeLabel;
     private SeekBar      seekMicGain;
     private TextView     tvMicGainLabel;
-    private TextView     tvChainDuetBanner;
 
+    /** Layout selector buttons */
     private View       btnLayoutSideBySide, btnLayoutTopBottom, btnLayoutPip;
     private View       btnLayoutReactionBubble;
     private View       layoutSelector;
 
-    /** Fix 2: draggable bubble overlay */
-    private View             bubbleOverlay;
-    /** Fix 5: live layout preview overlay */
-    private DuetPreviewOverlayView previewOverlay;
-
-    // Fix 2 & 3: bubble position in VIEW coordinates
-    private float bubbleViewX  = -1f;
-    private float bubbleViewY  = -1f;
-    // Touch drag offsets
-    private float touchDX = 0f;
-    private float touchDY = 0f;
+    /** Reaction bubble draggable overlay (shown only in LAYOUT_REACTION_BUBBLE mode) */
+    private View       bubbleOverlay;
+    // Bubble position in screen coords → converted to NDC when compositing
+    private float      bubbleScreenX = 0f;
+    private float      bubbleScreenY = 0f;
+    private boolean    bubblePosSet  = false;
 
     // ── Camera / player ───────────────────────────────────────────────────────
     private ExoPlayer              exoPlayer;
@@ -118,13 +112,13 @@ public class DuetReelActivity extends AppCompatActivity {
     private Recording              activeRecording;
     private ExecutorService        cameraExecutor;
 
-    private int     lensFacing    = CameraSelector.LENS_FACING_FRONT;
-    private boolean isRecording   = false;
-    private boolean isPaused      = false;
-    private boolean discardOnStop = false;
-    private int     layoutMode    = LAYOUT_SIDE_BY_SIDE;
-    private float   originalVol   = 0.5f;
-    private float   micGain       = 1.0f;
+    private int     lensFacing      = CameraSelector.LENS_FACING_FRONT;
+    private boolean isRecording     = false;
+    private boolean isPaused        = false;
+    private boolean discardOnStop   = false; // true = close-button stop, skip editor
+    private int     layoutMode      = LAYOUT_SIDE_BY_SIDE;
+    private float   originalVol  = 0.5f; // original reel audio volume (default 50%)
+    private float   micGain      = 1.0f; // mic gain multiplier (default 100% = no boost)
     private CountDownTimer recordTimer;
 
     // ── Reel metadata ─────────────────────────────────────────────────────────
@@ -132,17 +126,13 @@ public class DuetReelActivity extends AppCompatActivity {
     private String  videoUrl;
     private String  ownerName;
     private String  ownerUid;
-    private String  originalSoundUrl  = null; // Fix 4
-    private String  cachedOriginalPath = null;
+    private String  cachedOriginalPath = null; // local cache of original reel video
     private int     durationSec   = MAX_DUET_SEC;
     private int     elapsedSec    = 0;
     private String  allowDuetLevel = "everyone";
     private boolean viewerFollows  = false;
-    // Fix 10: chain duet
-    private String  originalDuetOf   = null;
-    private int     chainDepth        = 0;
-    private boolean isChainDuet       = false;
 
+    /** File written by CameraX recording */
     private File recordedCameraFile;
 
     private static final String[] PERMISSIONS = {
@@ -155,27 +145,25 @@ public class DuetReelActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_duet_reel);
 
-        reelId           = getIntent().getStringExtra(EXTRA_REEL_ID);
-        videoUrl         = getIntent().getStringExtra(EXTRA_VIDEO_URL);
-        ownerUid         = getIntent().getStringExtra(EXTRA_OWNER_UID);
-        allowDuetLevel   = getIntent().getStringExtra(EXTRA_ALLOW_DUET_LEVEL);
-        originalSoundUrl = getIntent().getStringExtra(EXTRA_ORIGINAL_SOUND_URL); // Fix 4
-        originalDuetOf   = getIntent().getStringExtra(EXTRA_ORIGINAL_DUET_OF);   // Fix 10
-        chainDepth       = getIntent().getIntExtra(EXTRA_ORIGINAL_CHAIN_DEPTH, 0);
-        isChainDuet      = (originalDuetOf != null && !originalDuetOf.isEmpty());
-
+        reelId         = getIntent().getStringExtra(EXTRA_REEL_ID);
+        videoUrl       = getIntent().getStringExtra(EXTRA_VIDEO_URL);
+        ownerUid       = getIntent().getStringExtra(EXTRA_OWNER_UID);
+        allowDuetLevel = getIntent().getStringExtra(EXTRA_ALLOW_DUET_LEVEL);
         String cp = getIntent().getStringExtra(EXTRA_CACHED_VIDEO_PATH);
-        if (cp != null && new File(cp).exists()) cachedOriginalPath = cp;
-        viewerFollows = getIntent().getBooleanExtra(EXTRA_VIEWER_FOLLOWS, false);
+        if (cp != null && new java.io.File(cp).exists()) cachedOriginalPath = cp;
+        viewerFollows  = getIntent().getBooleanExtra(EXTRA_VIEWER_FOLLOWS, false);
         if (allowDuetLevel == null) allowDuetLevel = "everyone";
 
+        // ── Granular permission check ─────────────────────────────────────────
         if ("off".equals(allowDuetLevel)) {
             Toast.makeText(this, "This creator has disabled duets", Toast.LENGTH_SHORT).show();
-            finish(); return;
+            finish();
+            return;
         }
         if ("followers".equals(allowDuetLevel) && !viewerFollows) {
             Toast.makeText(this, "Only followers can duet this reel", Toast.LENGTH_SHORT).show();
-            finish(); return;
+            finish();
+            return;
         }
 
         String rawName = getIntent().getStringExtra(EXTRA_OWNER_NAME);
@@ -187,7 +175,8 @@ public class DuetReelActivity extends AppCompatActivity {
 
         if (videoUrl == null || videoUrl.isEmpty()) {
             Toast.makeText(this, "Reel not available for duet", Toast.LENGTH_SHORT).show();
-            finish(); return;
+            finish();
+            return;
         }
 
         cameraExecutor = Executors.newSingleThreadExecutor();
@@ -195,16 +184,6 @@ public class DuetReelActivity extends AppCompatActivity {
 
         tvDuetLabel.setText(ownerName.isEmpty() ? "Duet" : "Duet with @" + ownerName);
         progressDuet.setMax(durationSec);
-
-        // Fix 10: Show chain-duet banner
-        if (tvChainDuetBanner != null) {
-            if (isChainDuet) {
-                tvChainDuetBanner.setVisibility(View.VISIBLE);
-                tvChainDuetBanner.setText("Chain Duet (depth " + (chainDepth + 1) + ")");
-            } else {
-                tvChainDuetBanner.setVisibility(View.GONE);
-            }
-        }
 
         setupVolumeSlider();
         setupMicGainSlider();
@@ -221,32 +200,22 @@ public class DuetReelActivity extends AppCompatActivity {
             if (isRecording) stopRecording(false);
             finish();
         });
-        if (btnViewDuets != null)
+        if (btnViewDuets != null) {
             btnViewDuets.setOnClickListener(v -> openDuetsOfReel());
-
-        // Fix 11: Invite button — show only to reel owner
-        if (btnInviteDuet != null) {
-            com.google.firebase.auth.FirebaseUser me =
-                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
-            boolean isMine = me != null && me.getUid().equals(ownerUid);
-            btnInviteDuet.setVisibility(isMine ? View.VISIBLE : View.GONE);
-            btnInviteDuet.setOnClickListener(v -> openInvite());
         }
     }
 
     private void bindViews() {
-        playerViewOriginal      = findViewById(R.id.player_view_original);
-        previewViewCamera       = findViewById(R.id.preview_view_camera);
-        btnDuetRecord           = findViewById(R.id.btn_duet_record);
-        btnDuetFlip             = findViewById(R.id.btn_duet_flip);
-        btnDuetClose            = findViewById(R.id.btn_duet_close);
-        btnViewDuets            = findViewById(R.id.btn_view_duets);
-        btnInviteDuet           = findViewById(R.id.btn_invite_duet);  // Fix 11
-        progressDuet            = findViewById(R.id.progress_duet);
-        tvDuetTimer             = findViewById(R.id.tv_duet_timer);
-        tvDuetLabel             = findViewById(R.id.tv_duet_label);
-        tvCountdown             = findViewById(R.id.tv_duet_countdown);
-        tvChainDuetBanner       = findViewById(R.id.tv_chain_duet_banner); // Fix 10
+        playerViewOriginal  = findViewById(R.id.player_view_original);
+        previewViewCamera   = findViewById(R.id.preview_view_camera);
+        btnDuetRecord       = findViewById(R.id.btn_duet_record);
+        btnDuetFlip         = findViewById(R.id.btn_duet_flip);
+        btnDuetClose        = findViewById(R.id.btn_duet_close);
+        btnViewDuets        = findViewById(R.id.btn_view_duets);
+        progressDuet        = findViewById(R.id.progress_duet);
+        tvDuetTimer         = findViewById(R.id.tv_duet_timer);
+        tvDuetLabel         = findViewById(R.id.tv_duet_label);
+        tvCountdown         = findViewById(R.id.tv_duet_countdown);
         seekOriginalVolume      = findViewById(R.id.seek_original_volume);
         tvVolumeLabel           = findViewById(R.id.tv_volume_label);
         seekMicGain             = findViewById(R.id.seek_mic_gain);
@@ -257,96 +226,8 @@ public class DuetReelActivity extends AppCompatActivity {
         btnLayoutPip            = findViewById(R.id.btn_layout_pip);
         btnLayoutReactionBubble = findViewById(R.id.btn_layout_reaction_bubble);
         bubbleOverlay           = findViewById(R.id.view_bubble_overlay);
-        previewOverlay          = findViewById(R.id.view_duet_preview_overlay); // Fix 5
 
         if (tvCountdown != null) tvCountdown.setVisibility(View.GONE);
-
-        // Fix 2: Setup bubble drag listener immediately after binding
-        setupBubbleDragListener();
-    }
-
-    // ── Fix 2: Bubble Drag Touch Listener ─────────────────────────────────────
-
-    @android.annotation.SuppressLint("ClickableViewAccessibility")
-    private void setupBubbleDragListener() {
-        if (bubbleOverlay == null) return;
-
-        bubbleOverlay.setOnTouchListener((v, event) -> {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    // Capture offset from top-left of bubble to touch point
-                    touchDX = v.getX() - event.getRawX();
-                    touchDY = v.getY() - event.getRawY();
-                    return true;
-
-                case MotionEvent.ACTION_MOVE:
-                    float newX = event.getRawX() + touchDX;
-                    float newY = event.getRawY() + touchDY;
-
-                    // Clamp to parent bounds so bubble doesn't go off-screen
-                    View parent = (View) v.getParent();
-                    if (parent != null) {
-                        float maxX = parent.getWidth()  - v.getWidth();
-                        float maxY = parent.getHeight() - v.getHeight();
-                        newX = Math.max(0, Math.min(newX, maxX));
-                        newY = Math.max(0, Math.min(newY, maxY));
-                    }
-                    v.setX(newX);
-                    v.setY(newY);
-
-                    // Fix 3: record view position for bubbleToNdc()
-                    bubbleViewX = newX + v.getWidth()  / 2f;
-                    bubbleViewY = newY + v.getHeight() / 2f;
-
-                    // Fix 5: update preview overlay
-                    if (previewOverlay != null && parent != null) {
-                        float nx = parent.getWidth()  > 0 ? bubbleViewX / parent.getWidth()  : 0.2f;
-                        float ny = parent.getHeight() > 0 ? bubbleViewY / parent.getHeight() : 0.75f;
-                        previewOverlay.setBubblePosition(nx, ny);
-                    }
-                    return true;
-
-                default:
-                    return false;
-            }
-        });
-    }
-
-    // ── Fix 3: bubbleToNdc() ──────────────────────────────────────────────────
-
-    /**
-     * Converts the bubble overlay's current VIEW position into OpenGL NDC coords.
-     * NDC: centre = (0,0), range = -1..1 for both axes.
-     * Y is flipped because GL Y-up vs Android Y-down.
-     *
-     * @return float[2] = { ndcX, ndcY }
-     */
-    private float[] bubbleToNdc() {
-        View parent = bubbleOverlay != null ? (View) bubbleOverlay.getParent() : null;
-        if (parent == null || parent.getWidth() == 0 || parent.getHeight() == 0) {
-            return new float[]{-0.55f, -0.72f}; // safe default: bottom-left corner
-        }
-
-        float cx, cy;
-        if (bubbleViewX >= 0 && bubbleViewY >= 0) {
-            // User dragged the bubble — use tracked position
-            cx = bubbleViewX;
-            cy = bubbleViewY;
-        } else {
-            // Not dragged yet — default to bottom-left area
-            cx = parent.getWidth()  * 0.22f;
-            cy = parent.getHeight() * 0.76f;
-        }
-
-        // Normalise to 0..1 in view space
-        float nx =  cx / parent.getWidth();
-        float ny =  cy / parent.getHeight();
-
-        // Convert to NDC (-1..1); flip Y (GL is bottom-up)
-        float ndcX = nx * 2f - 1f;
-        float ndcY = -(ny * 2f - 1f); // negate for GL Y-up
-
-        return new float[]{ndcX, ndcY};
     }
 
     // ── Volume slider ─────────────────────────────────────────────────────────
@@ -354,28 +235,37 @@ public class DuetReelActivity extends AppCompatActivity {
     private void setupVolumeSlider() {
         if (seekOriginalVolume == null) return;
         seekOriginalVolume.setMax(100);
-        seekOriginalVolume.setProgress(50);
+        seekOriginalVolume.setProgress(50); // 50% default
         if (tvVolumeLabel != null) tvVolumeLabel.setText("Original: 50%");
+
         seekOriginalVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                originalVol = p / 100f;
-                if (exoPlayer != null && !isRecording) exoPlayer.setVolume(originalVol);
-                if (tvVolumeLabel != null) tvVolumeLabel.setText("Original: " + p + "%");
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                originalVol = progress / 100f;
+                // ✅ Only update ExoPlayer volume when NOT recording.
+                // During recording ExoPlayer stays muted (0f) to prevent mic bleed.
+                // The compositor uses originalVol in post-processing instead.
+                if (exoPlayer != null && !isRecording) {
+                    exoPlayer.setVolume(originalVol);
+                }
+                if (tvVolumeLabel != null) tvVolumeLabel.setText("Original: " + progress + "%");
             }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
     }
 
+    // ── Mic gain slider ───────────────────────────────────────────────────────
+
     private void setupMicGainSlider() {
         if (seekMicGain == null) return;
-        seekMicGain.setMax(200);
-        seekMicGain.setProgress(100);
+        seekMicGain.setMax(200);       // 0–200 → 0.0–2.0x gain
+        seekMicGain.setProgress(100);  // default 100 = 1.0x (no change)
         if (tvMicGainLabel != null) tvMicGainLabel.setText("Mic: 100%");
+
         seekMicGain.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                micGain = p / 100f;
-                if (tvMicGainLabel != null) tvMicGainLabel.setText("Mic: " + p + "%");
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                micGain = progress / 100f; // 0.0–2.0
+                if (tvMicGainLabel != null) tvMicGainLabel.setText("Mic: " + progress + "%");
             }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
@@ -401,15 +291,9 @@ public class DuetReelActivity extends AppCompatActivity {
         if (btnLayoutPip            != null) btnLayoutPip.setAlpha(mode == LAYOUT_REACT_PIP              ? 1f : 0.4f);
         if (btnLayoutReactionBubble != null) btnLayoutReactionBubble.setAlpha(mode == LAYOUT_REACTION_BUBBLE ? 1f : 0.4f);
 
-        // Show/hide draggable bubble overlay (Fix 2)
+        // Show/hide draggable bubble overlay
         if (bubbleOverlay != null)
             bubbleOverlay.setVisibility(mode == LAYOUT_REACTION_BUBBLE ? View.VISIBLE : View.GONE);
-
-        // Fix 5: update live preview overlay
-        if (previewOverlay != null) {
-            previewOverlay.setLayoutMode(mode);
-            previewOverlay.setVisibility(View.VISIBLE);
-        }
 
         applyLayoutToViews(mode);
     }
@@ -450,108 +334,219 @@ public class DuetReelActivity extends AppCompatActivity {
                 break;
 
             case LAYOUT_REACTION_BUBBLE:
+                // Original reel fills full screen; camera is shown as a live draggable bubble.
+                // ✅ FIX (GAP #3): previewViewCamera is now VISIBLE and sized as the bubble.
+                // Previously it was GONE — user could not see their own camera feed during recording.
                 if (lp1 instanceof android.widget.LinearLayout.LayoutParams) {
                     ((android.widget.LinearLayout.LayoutParams) lp1).weight = 1;
                     ((android.widget.LinearLayout.LayoutParams) lp2).weight = 0;
                 }
+                // Size the camera preview to match the bubble overlay (110 dp)
+                int bubbleDp = (int) (110 * getResources().getDisplayMetrics().density);
+                lp2.width  = bubbleDp;
+                lp2.height = bubbleDp;
                 playerViewOriginal.setVisibility(View.VISIBLE);
-                previewViewCamera.setVisibility(View.GONE);
+                previewViewCamera.setVisibility(View.VISIBLE);  // ✅ LIVE camera feed visible
+                // bubbleOverlay stays as transparent drag handle; camera syncs position in setupBubbleDrag()
+                setupBubbleDrag();
                 break;
         }
-
+        playerViewOriginal.setLayoutParams(lp1);
+        previewViewCamera.setLayoutParams(lp2);
         playerViewOriginal.requestLayout();
         previewViewCamera.requestLayout();
     }
 
-    // ── Original player setup ─────────────────────────────────────────────────
+    /**
+     * Make the bubble overlay draggable so the user can reposition it before recording.
+     * Position is stored in bubbleScreenX/Y and converted to NDC when compositing.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void setupBubbleDrag() {
+        if (bubbleOverlay == null) return;
 
-    private void setupOriginalPlayer() {
-        if (videoUrl == null) return;
-        exoPlayer = new ExoPlayer.Builder(this).build();
-        playerViewOriginal.setPlayer(exoPlayer);
-        playerViewOriginal.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FILL);
-        exoPlayer.setMediaItem(MediaItem.fromUri(videoUrl));
-        exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
-        exoPlayer.setVolume(originalVol);
-        exoPlayer.setPlayWhenReady(true);
-        exoPlayer.prepare();
+        // Set default position to bottom-left (if not already set by user drag)
+        if (!bubblePosSet) {
+            bubbleOverlay.post(() -> {
+                android.view.ViewGroup parent = (android.view.ViewGroup) bubbleOverlay.getParent();
+                if (parent == null) return;
+                float defaultX = parent.getWidth()  * 0.08f;
+                float defaultY = parent.getHeight() * 0.72f;
+                bubbleOverlay.setX(defaultX);
+                bubbleOverlay.setY(defaultY);
+                bubbleScreenX = defaultX + bubbleOverlay.getWidth()  / 2f;
+                bubbleScreenY = defaultY + bubbleOverlay.getHeight() / 2f;
+                // ✅ FIX (GAP #3): sync live camera preview to default bubble position
+                if (previewViewCamera != null
+                        && previewViewCamera.getVisibility() == View.VISIBLE) {
+                    previewViewCamera.setX(defaultX);
+                    previewViewCamera.setY(defaultY);
+                }
+            });
+        }
+
+        bubbleOverlay.setOnTouchListener(new View.OnTouchListener() {
+            float dX, dY;
+            @Override
+            public boolean onTouch(View v, android.view.MotionEvent e) {
+                switch (e.getAction()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        dX = v.getX() - e.getRawX();
+                        dY = v.getY() - e.getRawY();
+                        break;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        float nx = e.getRawX() + dX;
+                        float ny = e.getRawY() + dY;
+                        v.setX(nx);
+                        v.setY(ny);
+                        // ✅ FIX (GAP #3): move live camera preview with the bubble
+                        if (previewViewCamera != null
+                                && previewViewCamera.getVisibility() == View.VISIBLE) {
+                            previewViewCamera.setX(nx);
+                            previewViewCamera.setY(ny);
+                        }
+                        bubbleScreenX = nx + v.getWidth()  / 2f;
+                        bubbleScreenY = ny + v.getHeight() / 2f;
+                        bubblePosSet  = true;
+                        break;
+                }
+                return true;
+            }
+        });
     }
 
-    // ── Camera setup ──────────────────────────────────────────────────────────
+    /** Convert bubble screen coords to NDC (-1..1) for the compositor. */
+    private float[] bubbleToNdc() {
+        android.view.ViewGroup parent = (android.view.ViewGroup) bubbleOverlay.getParent();
+        if (parent == null || parent.getWidth() == 0) return new float[]{-0.55f, -0.72f};
+        float ndcX =  (bubbleScreenX / parent.getWidth())  * 2f - 1f;
+        float ndcY = -((bubbleScreenY / parent.getHeight()) * 2f - 1f); // Y flipped in NDC
+        return new float[]{ndcX, ndcY};
+    }
+
+    // ── ExoPlayer ─────────────────────────────────────────────────────────────
+
+    private void setupOriginalPlayer() {
+        exoPlayer = new ExoPlayer.Builder(this).build();
+        playerViewOriginal.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+        playerViewOriginal.setUseArtwork(false);
+        playerViewOriginal.setPlayer(exoPlayer);
+
+        exoPlayer.setMediaItem(MediaItem.fromUri(videoUrl));
+        exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
+        exoPlayer.setVolume(originalVol); // default 0.5 (50%) matches slider default
+        exoPlayer.prepare();
+
+        exoPlayer.addListener(new Player.Listener() {
+            @Override public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY && exoPlayer.getDuration() > 0 && !isRecording) {
+                    int playerDur = (int) Math.min(exoPlayer.getDuration() / 1000, MAX_DUET_SEC);
+                    if (playerDur > 0) {
+                        durationSec = playerDur;
+                        progressDuet.setMax(durationSec);
+                    }
+                }
+            }
+        });
+    }
+
+    // ── Camera ────────────────────────────────────────────────────────────────
 
     private void startCamera() {
-        ListenableFuture<ProcessCameraProvider> future =
-            ProcessCameraProvider.getInstance(this);
+        ListenableFuture<ProcessCameraProvider> future = ProcessCameraProvider.getInstance(this);
         future.addListener(() -> {
             try {
                 cameraProvider = future.get();
-                bindCamera();
+                bindCameraUseCases();
             } catch (ExecutionException | InterruptedException e) {
-                Log.e(TAG, "Camera provider error: " + e.getMessage());
-                runOnUiThread(() ->
-                    Toast.makeText(this, "Camera unavailable", Toast.LENGTH_SHORT).show());
+                Toast.makeText(this, "Camera error", Toast.LENGTH_SHORT).show();
             }
         }, ContextCompat.getMainExecutor(this));
     }
 
-    private void bindCamera() {
+    private void bindCameraUseCases() {
         if (cameraProvider == null) return;
-        cameraProvider.unbindAll();
-        CameraSelector selector = lensFacing == CameraSelector.LENS_FACING_FRONT
-            ? CameraSelector.DEFAULT_FRONT_CAMERA : CameraSelector.DEFAULT_BACK_CAMERA;
-        Preview preview = new Preview.Builder().build();
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        CameraSelector selector = new CameraSelector.Builder()
+            .requireLensFacing(lensFacing).build();
+
+        Preview preview = new Preview.Builder().setTargetRotation(rotation).build();
         preview.setSurfaceProvider(previewViewCamera.getSurfaceProvider());
+
         Recorder recorder = new Recorder.Builder()
             .setQualitySelector(QualitySelector.from(Quality.HD)).build();
-        videoCapture = VideoCapture.withOutput(recorder);
+        videoCapture = new VideoCapture.Builder<>(recorder)
+            .setTargetRotation(rotation).build();
+
+        cameraProvider.unbindAll();
         try {
             cameraProvider.bindToLifecycle(this, selector, preview, videoCapture);
         } catch (Exception e) {
-            Log.e(TAG, "bindCamera failed: " + e.getMessage());
+            Log.e(TAG, "bindCameraUseCases failed: " + e.getMessage());
+            Toast.makeText(this, "Cannot bind camera", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void flipCamera() {
-        lensFacing = (lensFacing == CameraSelector.LENS_FACING_FRONT)
+        lensFacing = lensFacing == CameraSelector.LENS_FACING_FRONT
             ? CameraSelector.LENS_FACING_BACK : CameraSelector.LENS_FACING_FRONT;
-        bindCamera();
+        bindCameraUseCases();
     }
 
-    // ── Record button ─────────────────────────────────────────────────────────
+    // ── Record button logic ───────────────────────────────────────────────────
 
     private void onRecordButtonClick() {
         if (!isRecording) {
-            showCountdown(() -> startRecording());
+            // Not recording yet — show countdown then start
+            startCountdownThenRecord();
         } else if (isPaused) {
+            // Paused — resume
             resumeRecording();
         } else {
+            // Recording — pause
             pauseRecording();
         }
     }
 
-    private void showCountdown(Runnable afterCountdown) {
-        if (tvCountdown == null) { afterCountdown.run(); return; }
+    // ── 3-2-1 Countdown ───────────────────────────────────────────────────────
+
+    private void startCountdownThenRecord() {
+        if (tvCountdown == null) { startRecording(); return; }
+
+        // Disable buttons during countdown
+        btnDuetRecord.setEnabled(false);
+        btnDuetFlip.setEnabled(false);
+        if (layoutSelector != null) layoutSelector.setVisibility(View.GONE);
+
         tvCountdown.setVisibility(View.VISIBLE);
-        new CountDownTimer(3500, 1000) {
+        tvCountdown.setText("3");
+
+        new CountDownTimer(3200, 1000) {
+            int count = 3;
             @Override public void onTick(long ms) {
-                int sec = (int) Math.ceil(ms / 1000.0);
-                runOnUiThread(() -> tvCountdown.setText(String.valueOf(sec)));
+                tvCountdown.setText(String.valueOf(count--));
+                tvCountdown.animate().scaleX(1.4f).scaleY(1.4f).setDuration(200)
+                    .withEndAction(() -> tvCountdown.animate().scaleX(1f).scaleY(1f)
+                        .setDuration(200).start())
+                    .start();
             }
             @Override public void onFinish() {
-                runOnUiThread(() -> {
-                    tvCountdown.setVisibility(View.GONE);
-                    afterCountdown.run();
-                });
+                tvCountdown.setVisibility(View.GONE);
+                btnDuetRecord.setEnabled(true);
+                btnDuetFlip.setEnabled(true);
+                startRecording();
             }
         }.start();
     }
 
-    @android.annotation.SuppressLint("MissingPermission")
-    private void startRecording() {
-        if (videoCapture == null || isRecording) return;
+    // ── Recording ─────────────────────────────────────────────────────────────
 
-        recordedCameraFile = new File(getCacheDir(),
-            "duet_cam_" + System.currentTimeMillis() + ".mp4");
+    private void startRecording() {
+        if (videoCapture == null) return;
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) return;
+
+        recordedCameraFile = new File(getCacheDir(), "duet_cam_" + System.currentTimeMillis() + ".mp4");
         FileOutputOptions opts = new FileOutputOptions.Builder(recordedCameraFile).build();
 
         activeRecording = videoCapture.getOutput()
@@ -563,7 +558,11 @@ public class DuetReelActivity extends AppCompatActivity {
                     isPaused    = false;
                     runOnUiThread(() -> {
                         exoPlayer.seekTo(0);
-                        exoPlayer.setVolume(0f); // mute during recording to prevent bleed
+                        // ✅ FIX: Mute ExoPlayer during recording so original audio
+                        // does NOT bleed into the mic. DuetVideoCompositor will mix
+                        // the original audio at origVolume in post-processing.
+                        // Without this, original audio plays twice (mic bleed + mix).
+                        exoPlayer.setVolume(0f);
                         exoPlayer.play();
                         btnDuetRecord.setImageResource(R.drawable.ic_pause);
                         startCountdownTimer();
@@ -573,6 +572,7 @@ public class DuetReelActivity extends AppCompatActivity {
                     isRecording = false;
                     isPaused    = false;
                     runOnUiThread(() -> {
+                        // ✅ Restore ExoPlayer volume to slider value after recording ends
                         if (exoPlayer != null) exoPlayer.setVolume(originalVol);
                     });
                     if (!fin.hasError() && !discardOnStop) {
@@ -582,7 +582,7 @@ public class DuetReelActivity extends AppCompatActivity {
                         runOnUiThread(() ->
                             Toast.makeText(this, "Recording failed", Toast.LENGTH_SHORT).show());
                     }
-                    discardOnStop = false;
+                    discardOnStop = false; // reset
                 }
             });
     }
@@ -602,6 +602,7 @@ public class DuetReelActivity extends AppCompatActivity {
         isPaused = false;
         exoPlayer.play();
         btnDuetRecord.setImageResource(R.drawable.ic_pause);
+        // Continue countdown from where we left off
         continueCountdownTimer();
     }
 
@@ -615,15 +616,17 @@ public class DuetReelActivity extends AppCompatActivity {
         isPaused    = false;
 
         if (activeRecording != null) {
+            // Set flag BEFORE stop() — Finalize fires immediately after stop()
             discardOnStop = !openEditorAfter;
             activeRecording.stop();
             activeRecording = null;
+            // Editor is opened inside VideoRecordEvent.Finalize callback (if !discardOnStop)
         }
     }
 
     private void startCountdownTimer() {
         elapsedSec = 0;
-        runCountdownFrom(0);
+        runCountdownFrom(elapsedSec);
     }
 
     private void continueCountdownTimer() {
@@ -634,6 +637,7 @@ public class DuetReelActivity extends AppCompatActivity {
         if (recordTimer != null) recordTimer.cancel();
         int remaining = (durationSec - startElapsed) * 1000;
         if (remaining <= 0) { stopRecording(true); return; }
+
         recordTimer = new CountDownTimer(remaining, 1000) {
             @Override public void onTick(long ms) {
                 elapsedSec++;
@@ -649,82 +653,79 @@ public class DuetReelActivity extends AppCompatActivity {
 
     private void onRecordingDone(String cameraFilePath) {
         if (exoPlayer != null) exoPlayer.pause();
+
+        // Show compositing progress
         if (tvDuetLabel != null) tvDuetLabel.setText("Processing duet…");
-        if (progressDuet != null) { progressDuet.setIndeterminate(true); progressDuet.setVisibility(View.VISIBLE); }
+        if (progressDuet != null) {
+            progressDuet.setIndeterminate(true);
+            progressDuet.setVisibility(android.view.View.VISIBLE);
+        }
         btnDuetRecord.setEnabled(false);
         btnDuetFlip.setEnabled(false);
 
-        final String outputPath = new File(getCacheDir(),
+        final String outputPath = new java.io.File(getCacheDir(),
             "duet_composite_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
 
-        final int    capturedLayout   = layoutMode;
-        final String capturedOriginal = (cachedOriginalPath != null) ? cachedOriginalPath : videoUrl;
-        final float  capturedVol      = originalVol;
-        final float  capturedMicGain  = micGain;
-        // Fix 4: pass separate sound URL so compositor can mix the correct music track
-        final String capturedSoundUrl = originalSoundUrl;
-        // Fix 10: chain duet metadata
-        final String capturedChainRoot = isChainDuet ? originalDuetOf : null;
-        final int    capturedChainDepth = chainDepth;
+        final int   capturedLayout   = layoutMode;
+        // Prefer local cached file — no network dependency
+        final String capturedOriginal = (cachedOriginalPath != null)
+            ? cachedOriginalPath : videoUrl;
+        final float  capturedVol     = originalVol;
+        final float  capturedMicGain = micGain;
 
+        // Use a SEPARATE thread — cameraExecutor is single-threaded and still
+        // used by CameraX internally; running compositing on it causes a deadlock.
         new Thread(() -> {
             DuetVideoCompositor compositor = new DuetVideoCompositor();
+            // Calculate bubble NDC position (only used in LAYOUT_REACTION_BUBBLE mode)
             float[] bubbleNdc = (bubbleOverlay != null && capturedLayout == LAYOUT_REACTION_BUBBLE)
-                    ? bubbleToNdc() : new float[]{-0.55f, -0.72f};
+                    ? bubbleToNdc()
+                    : new float[]{-0.55f, -0.72f};
 
-            // Fix 4: pass ownerName for watermark; soundUrl for music mixing
             boolean ok = compositor.composite(
                 cameraFilePath, capturedOriginal, outputPath,
                 capturedLayout, capturedVol, capturedMicGain,
-                bubbleNdc[0], bubbleNdc[1],
-                capturedSoundUrl,           // Fix 4: separate music track
-                ownerName);                 // Fix 9: watermark label
+                bubbleNdc[0], bubbleNdc[1]);
 
             final String finalPath = ok ? outputPath : cameraFilePath;
 
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
-                if (progressDuet != null) { progressDuet.setIndeterminate(false); progressDuet.setVisibility(View.GONE); }
-                openEditor(finalPath, capturedChainRoot, capturedChainDepth);
+                if (progressDuet != null) {
+                    progressDuet.setIndeterminate(false);
+                    progressDuet.setVisibility(android.view.View.GONE);
+                }
+                // ✅ duetCount and notification are fired from ReelUploadActivity
+                // AFTER the reel is actually published — not here at compositor done.
+                openEditor(finalPath);
             });
         }, "duet-compositor").start();
     }
 
-    private void openEditor(String filePath, String chainRoot, int chainDepth) {
+    // duetCount increment + notification are now handled in ReelUploadActivity.saveReelToFirebase()
+    // AFTER the reel is confirmed published to Firebase — not at compositor completion.
+    // This prevents double-counting and sending a notification for duets the user never posts.
+
+    private void openEditor(String filePath) {
         Intent i = new Intent(this, ReelEditorActivity.class);
-        i.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI,         filePath);
-        i.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH,      true);
-        i.putExtra(ReelEditorActivity.EXTRA_IS_DUET,           true);
-        i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_ID,  reelId);
-        i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_URL, videoUrl);
-        i.putExtra(ReelEditorActivity.EXTRA_DUET_OWNER_UID,    ownerUid);
+        i.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI,          filePath);
+        i.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH,       true);
+        i.putExtra(ReelEditorActivity.EXTRA_IS_DUET,            true);
+        i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_ID,   reelId);
+        i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_URL,  videoUrl);
+        i.putExtra(ReelEditorActivity.EXTRA_DUET_OWNER_UID,     ownerUid);
         i.putExtra(ReelEditorActivity.EXTRA_DUET_LABEL,
                    ownerName.isEmpty() ? "Duet" : "Duet with @" + ownerName);
         i.putExtra("duet_layout_mode", layoutMode);
-        // Fix 10: chain duet fields
-        if (chainRoot != null) {
-            i.putExtra("chain_duet_root_id", chainRoot);
-            i.putExtra("chain_duet_depth",   chainDepth + 1);
-        } else {
-            i.putExtra("chain_duet_root_id", reelId);
-            i.putExtra("chain_duet_depth",   1);
-        }
         startActivity(i);
     }
 
+    /** Open DuetsByReelActivity to browse all duets of this reel. */
     private void openDuetsOfReel() {
         if (reelId == null) return;
         Intent i = new Intent(this, DuetsByReelActivity.class);
         i.putExtra(DuetsByReelActivity.EXTRA_REEL_ID,    reelId);
         i.putExtra(DuetsByReelActivity.EXTRA_OWNER_NAME, ownerName);
-        startActivity(i);
-    }
-
-    private void openInvite() {
-        Intent i = new Intent(this, DuetInviteActivity.class);
-        i.putExtra(DuetInviteActivity.EXTRA_REEL_ID,    reelId);
-        i.putExtra(DuetInviteActivity.EXTRA_VIDEO_URL,  videoUrl);
-        i.putExtra(DuetInviteActivity.EXTRA_OWNER_NAME, ownerName);
         startActivity(i);
     }
 
@@ -738,18 +739,19 @@ public class DuetReelActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int req, @NonNull String[] perms, @NonNull int[] grants) {
+    public void onRequestPermissionsResult(int req, @NonNull String[] perms,
+                                           @NonNull int[] grants) {
         super.onRequestPermissionsResult(req, perms, grants);
         if (req == REQ_PERMISSIONS && allPermissionsGranted()) startCamera();
-        else { Toast.makeText(this, "Camera & microphone permissions required", Toast.LENGTH_SHORT).show(); finish(); }
+        else { Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show(); finish(); }
     }
 
     @Override
     protected void onDestroy() {
-        if (recordTimer     != null) recordTimer.cancel();
+        if (recordTimer != null)     recordTimer.cancel();
         if (activeRecording != null) activeRecording.stop();
-        if (exoPlayer       != null) { exoPlayer.stop(); exoPlayer.release(); }
-        if (cameraExecutor  != null) cameraExecutor.shutdown();
+        if (exoPlayer != null)       { exoPlayer.stop(); exoPlayer.release(); }
+        if (cameraExecutor != null)  cameraExecutor.shutdown();
         super.onDestroy();
     }
 }
