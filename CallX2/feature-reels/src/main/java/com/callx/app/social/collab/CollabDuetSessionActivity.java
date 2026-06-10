@@ -145,7 +145,7 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
         dotRecording           = findViewById(R.id.dot_recording);
         btnBack                = findViewById(R.id.btn_collab_back);
 
-        btnBack.setOnClickListener(v -> onBackPressed());
+        btnBack.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         btnReady.setOnClickListener(v -> onReadyTapped());
         btnStop.setOnClickListener(v -> stopRecording());
     }
@@ -553,7 +553,9 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
         if (cameraExecutor != null) cameraExecutor.shutdown();
     }
 
-    @Override public void onBackPressed() {
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onBackPressed() {
         if (isRecording) {
             new android.app.AlertDialog.Builder(this)
                 .setTitle("Leave session?")
@@ -566,6 +568,6 @@ public class CollabDuetSessionActivity extends AppCompatActivity {
     }
 
     private void leaveSession() {
-        super.onBackPressed();
+        getOnBackPressedDispatcher().onBackPressed();
     }
 }
