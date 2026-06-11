@@ -245,6 +245,12 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
             i.putExtra(RESULT_ALLOW_DUET,     swAllowDuet.isChecked());
             i.putExtra(RESULT_ALLOW_STITCH,   swAllowStitch.isChecked());
             i.putExtra(RESULT_ALLOW_DL,       swAllowDownload.isChecked());
+            // ── Duet Series ─────────────────────────────────────────────────
+            if (selectedSeriesId != null) {
+                i.putExtra(RESULT_SERIES_ID,      selectedSeriesId);
+                i.putExtra(RESULT_SERIES_TITLE,   selectedSeriesTitle != null ? selectedSeriesTitle : "");
+                i.putExtra(RESULT_EPISODE_NUMBER, selectedEpisodeNumber);
+            }
             startActivity(i);
         });
     }

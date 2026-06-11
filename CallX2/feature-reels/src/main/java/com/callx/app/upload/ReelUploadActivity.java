@@ -307,6 +307,16 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (sUrl   != null) stitchOriginalUrl = sUrl;
         if (sOwner != null) stitchOwnerUid    = sOwner;
         stitchDurationSec = i.getIntExtra("stitch_duration_sec", 3);
+
+        // ── Duet Series ─────────────────────────────────────────────────────
+        String sId2   = i.getStringExtra(ReelPostDetailsActivity.RESULT_SERIES_ID);
+        String sTitle = i.getStringExtra(ReelPostDetailsActivity.RESULT_SERIES_TITLE);
+        int    sEp    = i.getIntExtra(ReelPostDetailsActivity.RESULT_EPISODE_NUMBER, 0);
+        if (sId2 != null && !sId2.isEmpty()) {
+            seriesId      = sId2;
+            seriesTitle   = sTitle != null ? sTitle : "";
+            episodeNumber = sEp;
+        }
     }
 
     // ── Permission ────────────────────────────────────────────────────────

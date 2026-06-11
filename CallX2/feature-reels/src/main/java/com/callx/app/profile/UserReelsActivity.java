@@ -363,6 +363,14 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onTabSelected(TabLayout.Tab tab) {
                 activeTab = tab.getPosition();
                 exitMultiSelectMode();
+                // Show/hide rvSeries vs rvReels depending on active tab
+                boolean isSeries = (activeTab == TAB_SERIES);
+                if (rvSeries != null) rvSeries.setVisibility(isSeries ? android.view.View.VISIBLE : android.view.View.GONE);
+                if (rvReels  != null) rvReels.setVisibility(isSeries ? android.view.View.GONE : android.view.View.VISIBLE);
+                if (isSeries) {
+                    loadSeriesTab(false);
+                    return;
+                }
                 adapter.notifyDataSetChanged();
                 if (activeTabData().isEmpty()) loadCurrentTab(true);
                 else refreshEmptyState();
@@ -678,6 +686,7 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_LIKED:  loadLikedReels(refresh);    break;
             case TAB_SAVED:  loadSavedReels(refresh);    break;
             case TAB_REPOST: loadRepostedReels(refresh); break;
+            case TAB_SERIES: loadSeriesTab(refresh);     break;
             default:         loadUserReels(refresh);     break;
         }
     }
@@ -880,6 +889,15 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void refreshEmptyState() {
+        if (activeTab == TAB_SERIES) {
+            boolean empty = seriesTabData.isEmpty();
+            if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+            if (rvSeries != null) rvSeries.setVisibility(empty ? View.GONE : View.VISIBLE);
+            rvReels.setVisibility(View.GONE);
+            if (tvEmptyTitle != null) tvEmptyTitle.setText("No Series Yet");
+            if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Create a Duet Series to post numbered episodes.");
+            return;
+        }
         boolean empty = activeTabData().isEmpty() && !adapter.hasPinned();
         if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
         rvReels.setVisibility(empty ? View.GONE : View.VISIBLE);
