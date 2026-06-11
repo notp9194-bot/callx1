@@ -20,7 +20,6 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
-import androidx.recyclerview.widget.ConcatAdapter;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
@@ -34,8 +33,8 @@ import com.callx.app.profile.ReelEditProfileActivity;
 import com.callx.app.creator.ReelCreatorHubActivity;
 import com.callx.app.analytics.ReelAnalyticsBottomSheet;
 import com.callx.app.models.ReelModel;
-import com.callx.app.models.DuetSeriesModel;
-import com.callx.app.utils.Constants;
+  import com.callx.app.models.DuetSeriesModel;
+  import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -50,21 +49,12 @@ import java.util.*;
 /**
  * UserReelsActivity — Full production reel profile screen.
  *
- * SCROLLING FIX v3  (Approach A: header-in-RecyclerView)
- * =========================================================
- *  OLD v2: Profile header fixed ABOVE SwipeRefreshLayout+RecyclerView.
- *   Problem: SwipeRefreshLayout gesture conflict with fixed header;
- *            grid height limited by header, leaving less room to scroll.
- *
- *  NEW v3: Profile header is RecyclerView item 0 via ProfileHeaderAdapter + ConcatAdapter.
- *   rvReels  = ConcatAdapter(profileHeaderAdapter,  reelGridAdapter)
- *   rvSeries = ConcatAdapter(seriesHeaderAdapter,   seriesAdapter)
- *
- *  Benefits:
- *   ✅ Header scrolls WITH the reel grid — no fixed-height constraint above the RV
- *   ✅ SwipeRefreshLayout has only one RV child — no gesture conflict
- *   ✅ RV fills 100% of remaining height — no height calculation issues
- *   ✅ Both tabs (reels + series) always show the same profile header
+ * SCROLLING FIX v2:
+ *  - Removed NestedScrollView entirely.
+ *  - Profile header, tabs now live ABOVE the SwipeRefreshLayout + RecyclerView.
+ *  - RecyclerView gets match_parent height and owns all scrolling.
+ *  - Pagination uses RecyclerView.OnScrollListener (no NestedScrollView needed).
+ *  - SwipeRefreshLayout enabled only when RV is at top (canScrollVertically(-1) == false).
  */
 public class UserReelsActivity extends AppCompatActivity
         implements ReelGridAdapter.LongPressListener,
@@ -79,20 +69,35 @@ public class UserReelsActivity extends AppCompatActivity
     private static final int TAB_LIKED  = 1;
     private static final int TAB_SAVED  = 2;
     private static final int TAB_REPOST = 3;
-    private static final int TAB_SERIES = 4;
+      private static final int TAB_SERIES = 4;
 
-    // ── Functional interface (Java 7 / minSdk-23 safe, no java.util.function.Consumer) ──
-    private interface HeaderFn { void apply(ProfileHeaderAdapter.HeaderVH vh); }
-
-    // ── Activity-level views (fixed nav bar, tabs, etc.) ──
+    // Views
+    private CircleImageView ivAvatar;
     private ImageView       ivVerified;
-    private TextView        tvName;
+    private View            viewStoryRing;
+    private TextView        tvName, tvReelCount, tvFollowers, tvFollowing, tvBio;
+    private TextView        tvMutualFollowers;
+    private LinearLayout    layoutMutualFollowers;
+    private CircleImageView ivMutual1, ivMutual2, ivMutual3;
+    private List<String>    mutualUidsList = new ArrayList<>();
+    private TextView        tvPhone, tvWhatsapp, tvInstagram, tvYoutube, tvOtherLink;
+    private View            layoutPhone, layoutWhatsapp, layoutInstagram, layoutYoutube, layoutOtherLink;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
     private Button          btnFollow;
     private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
+    private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
+    private LinearLayout    layoutActions;
+
+    // ── Avatar peek animation fields ──────────────────────────────────────
+    private CircleImageView ivAnimChat, ivAnimX, ivAnimYoutube;
+    private final Handler   animHandler    = new Handler(Looper.getMainLooper());
+    private Runnable        animRunnable;
+    private boolean         animRunning    = false;
     private TabLayout       tabLayout;
     private RecyclerView    rvReels;
-    private RecyclerView    rvSeries;
+      private RecyclerView    rvSeries;
+    private ReelGridAdapter       adapter;
+      private UserSeriesGridAdapter seriesAdapter;
     private ProgressBar     progressBar;
     private View            layoutEmpty;
     private SwipeRefreshLayout swipeRefresh;
@@ -100,29 +105,10 @@ public class UserReelsActivity extends AppCompatActivity
     private TextView        tvSelectedCount;
     private ImageButton     btnShareSelected, btnDeleteSelected, btnCancelSelect;
     private View            layoutPrivateAccount;
-    private List<String>    mutualUidsList = new ArrayList<>();
+    private View            layoutFollowersClick;
+    private View            layoutFollowingClick;
 
-    // ── Approach A: profile header lives INSIDE the RecyclerView ──────────
-    // Two adapters — one per RV — so each tab has its own scrollable header.
-    private ProfileHeaderAdapter             profileHeaderAdapter;  // rvReels
-    private ProfileHeaderAdapter             seriesHeaderAdapter;   // rvSeries
-    private ProfileHeaderAdapter.HeaderVH    headerVH;              // currently bound VH (rvReels)
-    private ProfileHeaderAdapter.HeaderVH    seriesHeaderVH;        // currently bound VH (rvSeries)
-    // Updates queued before the VH is bound are flushed when onBound() fires.
-    private final List<Runnable> pendingHeaderUpdates       = new ArrayList<>();
-    private final List<Runnable> pendingSeriesHeaderUpdates = new ArrayList<>();
-
-    // ── Avatar peek animation fields ──────────────────────────────────────
-    private final Handler   animHandler  = new Handler(Looper.getMainLooper());
-    private Runnable        animRunnable;
-    private boolean         animRunning  = false;
-
-    // ── Content adapters ──────────────────────────────────────────────────
-    private ReelGridAdapter       adapter;
-    private UserSeriesGridAdapter seriesAdapter;
-    private GridLayoutManager     gridLayoutManager;
-
-    // ── State ─────────────────────────────────────────────────────────────
+    // State
     private String  targetUid, targetName, targetPhoto;
     private boolean isFollowing      = false;
     private boolean isMultiSelect    = false;
@@ -130,13 +116,13 @@ public class UserReelsActivity extends AppCompatActivity
     private boolean isAccountPrivate = false;
     private int     activeTab        = TAB_REELS;
 
-    private final List<ReelModel>        reelsTabData   = new ArrayList<>();
-    private final List<ReelModel>        likedTabData   = new ArrayList<>();
-    private final List<ReelModel>        savedTabData   = new ArrayList<>();
-    private final List<ReelModel>        repostsTabData = new ArrayList<>();
-    private final Set<String>            selectedReelIds = new HashSet<>();
-    private final List<DuetSeriesModel>  seriesTabData  = new ArrayList<>();
-    private boolean seriesLoaded = false;
+    private final List<ReelModel> reelsTabData   = new ArrayList<>();
+    private final List<ReelModel> likedTabData   = new ArrayList<>();
+    private final List<ReelModel> savedTabData   = new ArrayList<>();
+    private final List<ReelModel> repostsTabData = new ArrayList<>();
+    private final Set<String>     selectedReelIds = new HashSet<>();
+      private final java.util.List<DuetSeriesModel> seriesTabData = new ArrayList<>();
+      private boolean seriesLoaded = false;
 
     private String  reelsLastKey = null, likedLastKey = null,
                     savedLastKey = null, repostsLastKey = null;
@@ -144,9 +130,10 @@ public class UserReelsActivity extends AppCompatActivity
                     savedHasMore = true, repostsHasMore = true;
     private boolean isLoadingMore = false;
 
-    private ReelModel pinnedReel  = null;
-    private Dialog    previewDialog;
-    private ExoPlayer previewPlayer;
+    private ReelModel         pinnedReel = null;
+    private Dialog            previewDialog;
+    private ExoPlayer         previewPlayer;
+    private GridLayoutManager gridLayoutManager;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -177,14 +164,26 @@ public class UserReelsActivity extends AppCompatActivity
         loadReelCount();
         checkActiveStory();
         loadAccountPrivacy();
+        setupStatsClicks();
         loadAvatarAndStartAnimation();
     }
 
-    // ── Bind views (Activity-layout views only — header views are in HeaderVH) ──
+    // ── Bind views ────────────────────────────────────────────────────────
 
     private void bindViews() {
+        ivAvatar             = findViewById(R.id.iv_avatar);
         ivVerified           = findViewById(R.id.iv_verified);
+        viewStoryRing        = findViewById(R.id.view_story_ring);
         tvName               = findViewById(R.id.tv_name);
+        tvReelCount          = findViewById(R.id.tv_reel_count);
+        tvFollowers          = findViewById(R.id.tv_followers);
+        tvFollowing          = findViewById(R.id.tv_following);
+        tvBio                = findViewById(R.id.tv_bio);
+        tvMutualFollowers    = findViewById(R.id.tv_mutual_followers);
+        layoutMutualFollowers= findViewById(R.id.layout_mutual_followers);
+        ivMutual1            = findViewById(R.id.iv_mutual_1);
+        ivMutual2            = findViewById(R.id.iv_mutual_2);
+        ivMutual3            = findViewById(R.id.iv_mutual_3);
         tvEmptyTitle         = findViewById(R.id.tv_empty_title);
         tvEmptySubtitle      = findViewById(R.id.tv_empty_subtitle);
         btnFollow            = findViewById(R.id.btn_follow);
@@ -193,34 +192,55 @@ public class UserReelsActivity extends AppCompatActivity
         btnCreatorHub        = findViewById(R.id.btn_creator_hub);
         btnSettings          = findViewById(R.id.btn_settings);
         btnMore              = findViewById(R.id.btn_more);
+        btnMessage           = findViewById(R.id.btn_message);
+        btnAudioCall         = findViewById(R.id.btn_audio_call);
+        btnVideoCall         = findViewById(R.id.btn_video_call);
+        btnOpenX             = findViewById(R.id.btn_open_x);
+        btnOpenYoutube       = findViewById(R.id.btn_open_youtube);
+        ivAnimChat           = findViewById(R.id.iv_anim_chat);
+        ivAnimX              = findViewById(R.id.iv_anim_x);
+        ivAnimYoutube        = findViewById(R.id.iv_anim_youtube);
+        layoutActions        = findViewById(R.id.layout_actions);
         tabLayout            = findViewById(R.id.tab_layout);
         rvReels              = findViewById(R.id.rv_reels);
-        rvSeries             = findViewById(R.id.rv_series);
+          rvSeries             = findViewById(R.id.rv_series);
         progressBar          = findViewById(R.id.progress_bar);
         layoutEmpty          = findViewById(R.id.layout_empty);
         swipeRefresh         = findViewById(R.id.swipe_refresh);
         layoutMultiSelectBar = findViewById(R.id.layout_multi_select_bar);
         tvSelectedCount      = findViewById(R.id.tv_selected_count);
         btnShareSelected     = findViewById(R.id.btn_share_selected);
+        layoutPrivateAccount = findViewById(R.id.layout_private_account);
+        layoutFollowersClick = findViewById(R.id.layout_followers_click);
+        layoutFollowingClick = findViewById(R.id.layout_following_click);
         btnDeleteSelected    = findViewById(R.id.btn_delete_selected);
         btnCancelSelect      = findViewById(R.id.btn_cancel_select);
-        layoutPrivateAccount = findViewById(R.id.layout_private_account);
+        tvPhone          = findViewById(R.id.tv_phone);
+        tvWhatsapp       = findViewById(R.id.tv_whatsapp);
+        tvInstagram      = findViewById(R.id.tv_instagram);
+        tvYoutube        = findViewById(R.id.tv_youtube);
+        tvOtherLink      = findViewById(R.id.tv_other_link);
+        layoutPhone      = findViewById(R.id.layout_phone);
+        layoutWhatsapp   = findViewById(R.id.layout_whatsapp);
+        layoutInstagram  = findViewById(R.id.layout_instagram);
+        layoutYoutube    = findViewById(R.id.layout_youtube);
+        layoutOtherLink  = findViewById(R.id.layout_other_link);
     }
 
-    // ── Header setup (Approach A: ProfileHeaderAdapter + ConcatAdapter) ───
+    // ── Header ────────────────────────────────────────────────────────────
 
     private void setupHeader() {
-        // ── Nav bar buttons (fixed, not in header VH) ──
         btnBack.setOnClickListener(v -> {
             if (isMultiSelect) { exitMultiSelectMode(); return; }
             finish();
         });
 
-        if (targetName != null) tvName.setText(targetName);
+        if (targetName  != null) tvName.setText(targetName);
+        if (targetPhoto != null && !targetPhoto.isEmpty())
+            Glide.with(this).load(targetPhoto).circleCrop()
+                .placeholder(R.drawable.ic_person).into(ivAvatar);
 
         if (btnShareProfile != null) btnShareProfile.setOnClickListener(v -> shareProfile());
-
-        if (btnFollow != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
 
         if (btnCreatorHub != null) {
             btnCreatorHub.setVisibility(isSelf ? View.VISIBLE : View.GONE);
@@ -230,184 +250,56 @@ public class UserReelsActivity extends AppCompatActivity
 
         if (btnSettings != null) {
             btnSettings.setVisibility(isSelf ? View.VISIBLE : View.GONE);
-            if (isSelf) btnSettings.setOnClickListener(v ->
-                startActivity(new Intent(this, ReelEditProfileActivity.class)));
+            if (isSelf) btnSettings.setOnClickListener(v -> {
+                // Reel profile edit — reels/users/{uid} node
+                startActivity(new Intent(this, ReelEditProfileActivity.class));
+            });
         }
 
-        // ── Reel content adapter ──
-        // NOTE: click positions from ConcatAdapter are offset by 1 (header at pos 0).
-        // Subtract 1 before passing to openPlayerAt() / toggleSelection() / onLongPress().
         adapter = new ReelGridAdapter(
-            this, activeTabData(),
-            pos -> {
-                int reelPos = pos - 1; // subtract header offset
-                if (reelPos < 0) return;
-                if (isMultiSelect) toggleSelection(reelPos); else openPlayerAt(reelPos);
-            },
+              this, activeTabData(),
+            pos -> { if (isMultiSelect) toggleSelection(pos); else openPlayerAt(pos); },
             this, this
         );
-        adapter.setShowViewsOverlay(isSelf);
 
-        // ── rvReels: profileHeaderAdapter (pos 0) + reelGridAdapter (pos 1+) ──
-        profileHeaderAdapter = new ProfileHeaderAdapter();
-        profileHeaderAdapter.setOnHeaderBoundListener(vh -> {
-            headerVH = vh;
-            setupHeaderViews(vh);
-            for (Runnable r : pendingHeaderUpdates) r.run();
-            pendingHeaderUpdates.clear();
-        });
-
-        gridLayoutManager = new GridLayoutManager(this, 3);
-        gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
-            @Override public int getSpanSize(int pos) {
-                if (pos == 0) return 3; // header always spans full width
-                int reelPos = pos - 1;
-                if (reelPos >= 0 && reelPos < adapter.getItemCount()) {
-                    int type = adapter.getItemViewType(reelPos);
-                    if (type == ReelGridAdapter.TYPE_PINNED || type == ReelGridAdapter.TYPE_EMPTY) return 3;
-                }
-                return 1;
-            }
-        });
-
-        rvReels.setLayoutManager(gridLayoutManager);
-        rvReels.setAdapter(new ConcatAdapter(profileHeaderAdapter, adapter));
-        rvReels.setNestedScrollingEnabled(true);
-        rvReels.setHasFixedSize(false);
-
-        // ── rvSeries: seriesHeaderAdapter (pos 0) + seriesAdapter (pos 1+) ──
+        // Series tab setup
         seriesAdapter = new UserSeriesGridAdapter(this);
-        seriesHeaderAdapter = new ProfileHeaderAdapter();
-        seriesHeaderAdapter.setOnHeaderBoundListener(vh -> {
-            seriesHeaderVH = vh;
-            setupHeaderViews(vh);
-            for (Runnable r : pendingSeriesHeaderUpdates) r.run();
-            pendingSeriesHeaderUpdates.clear();
-        });
-
         if (rvSeries != null) {
-            GridLayoutManager seriesGlm = new GridLayoutManager(this, 2);
-            seriesGlm.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
-                @Override public int getSpanSize(int pos) {
-                    return pos == 0 ? 2 : 1; // header spans full width (2 cols)
-                }
-            });
-            rvSeries.setLayoutManager(seriesGlm);
-            rvSeries.setAdapter(new ConcatAdapter(seriesHeaderAdapter, seriesAdapter));
+            rvSeries.setLayoutManager(new GridLayoutManager(this, 2));
+            rvSeries.setAdapter(seriesAdapter);
             seriesAdapter.setOnSeriesClickListener(series -> {
                 Intent si = new Intent(this, com.callx.app.social.DuetSeriesActivity.class);
                 si.putExtra(com.callx.app.social.DuetSeriesActivity.EXTRA_SERIES_ID, series.seriesId);
                 startActivity(si);
             });
         }
+        adapter.setShowViewsOverlay(isSelf);
 
+        gridLayoutManager = new GridLayoutManager(this, 3);
+        gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override public int getSpanSize(int position) {
+                return adapter.getItemViewType(position) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
+            }
+        });
+
+        rvReels.setLayoutManager(gridLayoutManager);
+        rvReels.setAdapter(adapter);
+        // KEY FIX: RecyclerView must NOT have nested scrolling disabled.
+        // It lives directly inside SwipeRefreshLayout (no NestedScrollView wrapper),
+        // so it scrolls normally on its own.
+        rvReels.setNestedScrollingEnabled(true);
+        rvReels.setHasFixedSize(false);
+
+        if (layoutActions != null) layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+        if (btnFollow     != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
+
+        setupActionButtons();
         setupMoreMenu();
-    }
 
-    // ── Called every time a header VH is bound (created or re-bound after recycle) ──
-    private void setupHeaderViews(ProfileHeaderAdapter.HeaderVH vh) {
-        // Avatar click / long-press
-        if (vh.ivAvatar != null) {
-            vh.ivAvatar.setOnClickListener(v -> openStatusIfAvailable());
-            vh.ivAvatar.setOnLongClickListener(v -> { showAvatarZoom(targetPhoto, targetName); return true; });
-            // Show initial photo from Intent (will be overwritten by loadUserProfile)
-            if (targetPhoto != null && !targetPhoto.isEmpty())
-                Glide.with(this).load(targetPhoto).circleCrop()
-                    .placeholder(R.drawable.ic_person).into(vh.ivAvatar);
+        if (ivAvatar != null) {
+            ivAvatar.setOnClickListener(v -> openStatusIfAvailable());
+            ivAvatar.setOnLongClickListener(v -> { showAvatarZoom(targetPhoto, targetName); return true; });
         }
-
-        // Story ring click
-        if (vh.viewStoryRing != null)
-            vh.viewStoryRing.setOnClickListener(v -> openStatusIfAvailable());
-
-        // Followers / following click
-        if (vh.layoutFollowersClick != null)
-            vh.layoutFollowersClick.setOnClickListener(v -> openFollowersList());
-        else if (vh.tvFollowers != null)
-            vh.tvFollowers.setOnClickListener(v -> openFollowersList());
-
-        if (vh.layoutFollowingClick != null)
-            vh.layoutFollowingClick.setOnClickListener(v -> openFollowingList());
-        else if (vh.tvFollowing != null)
-            vh.tvFollowing.setOnClickListener(v -> openFollowingList());
-
-        // Action buttons row — only visible for other users
-        if (vh.layoutActions != null)
-            vh.layoutActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
-
-        if (vh.btnMessage != null) vh.btnMessage.setOnClickListener(v ->
-            launchActivity("com.callx.app.conversation.ChatActivity",
-                new String[]{"partnerUid", "partnerName", "partnerPhoto"},
-                new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
-
-        if (vh.btnAudioCall != null) vh.btnAudioCall.setOnClickListener(v -> {
-            String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
-            launchActivity("com.callx.app.call.CallActivity",
-                new String[]{"partnerUid", "partnerName", "partnerPhoto", "isCaller", "video", "callId"},
-                new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, false, orEmpty(cid)});
-        });
-
-        if (vh.btnVideoCall != null) vh.btnVideoCall.setOnClickListener(v -> {
-            String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
-            launchActivity("com.callx.app.call.CallActivity",
-                new String[]{"partnerUid", "partnerName", "partnerPhoto", "isCaller", "video", "callId"},
-                new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, true, orEmpty(cid)});
-        });
-
-        if (vh.btnOpenX != null) vh.btnOpenX.setOnClickListener(v -> {
-            if (targetUid == null || targetUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
-                java.lang.reflect.Method method = cls.getMethod("showProfile",
-                        androidx.fragment.app.FragmentManager.class, String.class);
-                method.invoke(null, getSupportFragmentManager(), targetUid);
-            } catch (Exception e) {
-                Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        if (vh.btnOpenYoutube != null) vh.btnOpenYoutube.setOnClickListener(v -> {
-            if (targetUid == null || targetUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
-                Intent i = new Intent(this, cls);
-                i.putExtra("uid",  targetUid);
-                i.putExtra("name", orEmpty(targetName));
-                startActivity(i);
-            } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
-
-    /**
-     * Apply a header update to both currently-bound header VHs.
-     * If a VH is not yet bound, the update is queued and flushed when onBound() fires.
-     * Both rvReels and rvSeries header VHs get identical data.
-     */
-    private void applyToHeader(HeaderFn fn) {
-        if (headerVH != null) {
-            fn.apply(headerVH);
-        } else {
-            pendingHeaderUpdates.add(() -> fn.apply(headerVH));
-        }
-        if (seriesHeaderVH != null) {
-            fn.apply(seriesHeaderVH);
-        } else {
-            pendingSeriesHeaderUpdates.add(() -> fn.apply(seriesHeaderVH));
-        }
-    }
-
-    /** Returns the header VH of the currently visible tab's RecyclerView. */
-    private ProfileHeaderAdapter.HeaderVH activeHeaderVH() {
-        return (activeTab == TAB_SERIES) ? seriesHeaderVH : headerVH;
-    }
-
-    /** Animation views from the active tab's header VH (null-safe, always length 3). */
-    private CircleImageView[] getAnimViews() {
-        ProfileHeaderAdapter.HeaderVH vh = activeHeaderVH();
-        if (vh == null) return new CircleImageView[]{null, null, null};
-        return new CircleImageView[]{vh.ivAnimChat, vh.ivAnimX, vh.ivAnimYoutube};
     }
 
     // ── SwipeRefresh ──────────────────────────────────────────────────────
@@ -420,23 +312,36 @@ public class UserReelsActivity extends AppCompatActivity
             loadCurrentTab(true);
             if (activeTab == TAB_REELS) loadPinnedReel();
         });
+        // Initially enabled; scroll listener will toggle it
         swipeRefresh.setEnabled(true);
     }
 
     // ── Scroll listener for pagination + SwipeRefresh guard ───────────────
 
+    /**
+     * SCROLLING FIX: RecyclerView.OnScrollListener handles both:
+     *  1. Disabling SwipeRefresh when not at top (prevents gesture conflict)
+     *  2. Triggering pagination when near the bottom
+     *
+     * No NestedScrollView needed — RecyclerView scrolls freely.
+     */
     private void setupScrollPagination() {
         rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (swipeRefresh != null)
+                // Allow pull-to-refresh only when list is fully at top
+                if (swipeRefresh != null) {
                     swipeRefresh.setEnabled(!rv.canScrollVertically(-1));
+                }
 
+                // Pagination trigger: load next page when 6 items from end
                 if (isLoadingMore) return;
                 if (!getCurrentTabHasMore()) return;
                 int total       = gridLayoutManager.getItemCount();
                 int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-                if (lastVisible >= total - 6) loadCurrentTab(false);
+                if (lastVisible >= total - 6) {
+                    loadCurrentTab(false);
+                }
             }
         });
     }
@@ -452,35 +357,16 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Tabs ──────────────────────────────────────────────────────────────
 
-    private int resolveTabConstant(int position) {
-        if (isSelf) {
-            return position;
-        } else {
-            switch (position) {
-                case 0:  return TAB_REELS;
-                case 1:  return TAB_REPOST;
-                case 2:  return TAB_SERIES;
-                default: return TAB_REELS;
-            }
-        }
-    }
-
     private void setupTabs() {
         if (tabLayout == null) return;
-
-        if (!isSelf) {
-            tabLayout.removeTabAt(TAB_SAVED);
-            tabLayout.removeTabAt(TAB_LIKED);
-        }
-
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
-                activeTab = resolveTabConstant(tab.getPosition());
+                activeTab = tab.getPosition();
                 exitMultiSelectMode();
-                // Each RV has its own header — simply show/hide the correct RV
+                // Show/hide rvSeries vs rvReels depending on active tab
                 boolean isSeries = (activeTab == TAB_SERIES);
-                if (rvSeries != null) rvSeries.setVisibility(isSeries ? View.VISIBLE : View.GONE);
-                if (rvReels  != null) rvReels.setVisibility(isSeries ? View.GONE : View.VISIBLE);
+                if (rvSeries != null) rvSeries.setVisibility(isSeries ? android.view.View.VISIBLE : android.view.View.GONE);
+                if (rvReels  != null) rvReels.setVisibility(isSeries ? android.view.View.GONE : android.view.View.VISIBLE);
                 if (isSeries) {
                     loadSeriesTab(false);
                     return;
@@ -491,10 +377,7 @@ public class UserReelsActivity extends AppCompatActivity
             }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {
-                if (activeTab == TAB_SERIES && rvSeries != null)
-                    rvSeries.smoothScrollToPosition(0);
-                else if (rvReels != null)
-                    rvReels.smoothScrollToPosition(0);
+                rvReels.smoothScrollToPosition(0);
             }
         });
     }
@@ -527,17 +410,23 @@ public class UserReelsActivity extends AppCompatActivity
         boolean blocked = isAccountPrivate && !isFollowing && !isSelf;
         if (layoutPrivateAccount != null)
             layoutPrivateAccount.setVisibility(blocked ? View.VISIBLE : View.GONE);
-        if (rvReels  != null) rvReels.setVisibility(
-                blocked ? View.GONE : (activeTab == TAB_SERIES ? View.GONE : View.VISIBLE));
-        if (rvSeries != null) rvSeries.setVisibility(
-                blocked ? View.GONE : (activeTab == TAB_SERIES ? View.VISIBLE : View.GONE));
+        if (rvReels    != null) rvReels.setVisibility(blocked ? View.GONE : View.VISIBLE);
         if (tabLayout  != null) { tabLayout.setAlpha(blocked ? 0.4f : 1f); tabLayout.setEnabled(!blocked); }
         if (swipeRefresh != null) swipeRefresh.setEnabled(!blocked);
-        // Also hide action buttons in header when blocked
-        applyToHeader(vh -> {
-            if (vh.layoutActions != null)
-                vh.layoutActions.setVisibility((blocked || isSelf) ? View.GONE : View.VISIBLE);
-        });
+    }
+
+    // ── Stats clicks ──────────────────────────────────────────────────────
+
+    private void setupStatsClicks() {
+        if (layoutFollowersClick != null)
+            layoutFollowersClick.setOnClickListener(v -> openFollowersList());
+        else if (tvFollowers != null)
+            tvFollowers.setOnClickListener(v -> openFollowersList());
+
+        if (layoutFollowingClick != null)
+            layoutFollowingClick.setOnClickListener(v -> openFollowingList());
+        else if (tvFollowing != null)
+            tvFollowing.setOnClickListener(v -> openFollowingList());
     }
 
     private void openFollowersList() {
@@ -576,18 +465,15 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void showStoryRing(boolean show) {
-        if (isFinishing() || isDestroyed()) return;
-        applyToHeader(vh -> {
-            if (vh.viewStoryRing == null) return;
-            vh.viewStoryRing.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (show) {
-                ObjectAnimator pulse = ObjectAnimator.ofFloat(vh.viewStoryRing, "alpha", 0.6f, 1f);
-                pulse.setDuration(900);
-                pulse.setRepeatCount(ObjectAnimator.INFINITE);
-                pulse.setRepeatMode(ObjectAnimator.REVERSE);
-                pulse.start();
-            }
-        });
+        if (isFinishing() || isDestroyed() || viewStoryRing == null) return;
+        viewStoryRing.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            ObjectAnimator pulse = ObjectAnimator.ofFloat(viewStoryRing, "alpha", 0.6f, 1f);
+            pulse.setDuration(900);
+            pulse.setRepeatCount(ObjectAnimator.INFINITE);
+            pulse.setRepeatMode(ObjectAnimator.REVERSE);
+            pulse.start();
+        }
     }
 
     private void openStatusIfAvailable() {
@@ -615,7 +501,7 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Share Profile (Feature 8) ─────────────────────────────────────────
 
     private void shareProfile() {
-        String deepLink = Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid;
+        String deepLink = com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid;
         String name     = targetName != null ? targetName : "a creator";
         Intent share = new Intent(Intent.ACTION_SEND);
         share.setType("text/plain");
@@ -660,6 +546,7 @@ public class UserReelsActivity extends AppCompatActivity
                                     showMutualFollowers(new ArrayList<>(), new ArrayList<>());
                                     return;
                                 }
+                                // Fetch name + photo of first 3 mutual users
                                 int fetchCount = Math.min(3, mutualUidsList.size());
                                 List<String> names  = new ArrayList<>();
                                 List<String> photos = new ArrayList<>();
@@ -669,7 +556,7 @@ public class UserReelsActivity extends AppCompatActivity
                                     FirebaseUtils.getUserRef(uid)
                                         .addListenerForSingleValueEvent(new ValueEventListener() {
                                             @Override public void onDataChange(@NonNull DataSnapshot us) {
-                                                String n     = us.child("name").getValue(String.class);
+                                                String n = us.child("name").getValue(String.class);
                                                 String thumb = us.child("thumbUrl").getValue(String.class);
                                                 String photo = us.child("photoUrl").getValue(String.class);
                                                 String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
@@ -696,49 +583,47 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void showMutualFollowers(List<String> names, List<String> photos) {
-        if (isFinishing() || isDestroyed()) return;
+        if (layoutMutualFollowers == null || isFinishing() || isDestroyed()) return;
         int count = mutualUidsList.size();
+        if (count <= 0) {
+            layoutMutualFollowers.setVisibility(View.GONE);
+            return;
+        }
 
-        applyToHeader(vh -> {
-            if (vh.layoutMutualFollowers == null) return;
-            if (count <= 0) {
-                vh.layoutMutualFollowers.setVisibility(View.GONE);
-                return;
-            }
-
-            CircleImageView[] ivs = {vh.ivMutual1, vh.ivMutual2, vh.ivMutual3};
-            for (int i = 0; i < 3; i++) {
-                if (ivs[i] == null) continue;
-                if (i < photos.size() && !photos.get(i).isEmpty()) {
-                    ivs[i].setVisibility(View.VISIBLE);
-                    Glide.with(UserReelsActivity.this).load(photos.get(i))
-                        .placeholder(R.drawable.ic_person)
-                        .error(R.drawable.ic_person)
-                        .circleCrop()
-                        .into(ivs[i]);
-                } else if (i < names.size()) {
-                    ivs[i].setVisibility(View.VISIBLE);
-                    ivs[i].setImageResource(R.drawable.ic_person);
-                } else {
-                    ivs[i].setVisibility(View.GONE);
-                }
-            }
-
-            String text;
-            if (count == 1) {
-                text = "Followed by " + names.get(0);
-            } else if (count == 2) {
-                text = "Followed by " + names.get(0) + " and " + names.get(1);
+        // ── Load avatars (up to 3, overlapping: avatar1=front, avatar3=back) ──
+        CircleImageView[] ivs = {ivMutual1, ivMutual2, ivMutual3};
+        for (int i = 0; i < 3; i++) {
+            if (ivs[i] == null) continue;
+            if (i < photos.size() && !photos.get(i).isEmpty()) {
+                ivs[i].setVisibility(View.VISIBLE);
+                Glide.with(this).load(photos.get(i))
+                    .placeholder(R.drawable.ic_person)
+                    .error(R.drawable.ic_person)
+                    .circleCrop()
+                    .into(ivs[i]);
+            } else if (i < names.size()) {
+                ivs[i].setVisibility(View.VISIBLE);
+                ivs[i].setImageResource(R.drawable.ic_person);
             } else {
-                int others = count - 2;
-                text = "Followed by " + names.get(0) + ", " + names.get(1)
-                    + " and " + others + (others == 1 ? " other" : " others");
+                ivs[i].setVisibility(View.GONE);
             }
+        }
 
-            if (vh.tvMutualFollowers != null) vh.tvMutualFollowers.setText(text);
-            vh.layoutMutualFollowers.setVisibility(View.VISIBLE);
-            vh.layoutMutualFollowers.setOnClickListener(v -> openMutualFollowers());
-        });
+        // ── Build text: "Followed by name1, name2 and X others" ──
+        String text;
+        if (count == 1) {
+            text = "Followed by " + names.get(0);
+        } else if (count == 2) {
+            text = "Followed by " + names.get(0) + " and " + names.get(1);
+        } else {
+            int others = count - 2;
+            text = "Followed by " + names.get(0) + ", " + names.get(1)
+                + " and " + others + (others == 1 ? " other" : " others");
+        }
+
+        if (tvMutualFollowers != null) tvMutualFollowers.setText(text);
+        layoutMutualFollowers.setVisibility(View.VISIBLE);
+        layoutMutualFollowers.setOnClickListener(v -> openMutualFollowers());
     }
 
     private void openMutualFollowers() {
@@ -860,74 +745,78 @@ public class UserReelsActivity extends AppCompatActivity
         });
     }
 
-    private void loadSeriesTab(boolean refresh) {
-        if (seriesLoaded && !refresh) return;
-        if (rvSeries == null) return;
-        seriesLoaded = false;
-        seriesTabData.clear();
-        seriesAdapter.setItems(seriesTabData);
+    
+      // ── Duet Series tab ────────────────────────────────────────────────────
+      private void loadSeriesTab(boolean refresh) {
+          if (seriesLoaded && !refresh) return;
+          if (rvSeries == null) return;
+          seriesLoaded = false;
+          seriesTabData.clear();
+          seriesAdapter.setItems(seriesTabData);
 
-        if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
+          if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
 
-        FirebaseDatabase.getInstance(Constants.DB_URL)
-            .getReference("userDuetSeries")
-            .child(targetUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override
-                public void onDataChange(@NonNull DataSnapshot titlesSnap) {
-                    if (isFinishing() || isDestroyed()) return;
-                    if (!titlesSnap.exists() || titlesSnap.getChildrenCount() == 0) {
-                        if (progressBar != null) progressBar.setVisibility(View.GONE);
-                        if (layoutEmpty != null) {
-                            if (tvEmptyTitle != null) tvEmptyTitle.setText("No Series Yet");
-                            if (tvEmptySubtitle != null) tvEmptySubtitle.setText("This creator hasn't started a Duet Series");
-                            layoutEmpty.setVisibility(View.VISIBLE);
-                        }
-                        seriesLoaded = true;
-                        return;
-                    }
-                    if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
+          com.google.firebase.database.FirebaseDatabase.getInstance(Constants.DB_URL)
+              .getReference("userDuetSeries")
+              .child(targetUid)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override
+                  public void onDataChange(@NonNull DataSnapshot titlesSnap) {
+                      if (isFinishing() || isDestroyed()) return;
+                      if (!titlesSnap.exists() || titlesSnap.getChildrenCount() == 0) {
+                          if (progressBar != null) progressBar.setVisibility(View.GONE);
+                          if (layoutEmpty != null) {
+                              tvEmptyTitle.setText("No Series Yet");
+                              tvEmptySubtitle.setText("This creator hasn't started a Duet Series");
+                              layoutEmpty.setVisibility(View.VISIBLE);
+                          }
+                          seriesLoaded = true;
+                          return;
+                      }
+                      if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
 
-                    List<DuetSeriesModel> fetched = new ArrayList<>();
-                    long[] remaining = {titlesSnap.getChildrenCount()};
+                      // Fetch each seriesId's full DuetSeriesModel
+                      java.util.List<DuetSeriesModel> fetched = new java.util.ArrayList<>();
+                      long[] remaining = {titlesSnap.getChildrenCount()};
 
-                    for (DataSnapshot s : titlesSnap.getChildren()) {
-                        String seriesId = s.getKey();
-                        if (seriesId == null) { remaining[0]--; continue; }
-                        FirebaseDatabase.getInstance(Constants.DB_URL)
-                            .getReference("duetSeries").child(seriesId)
-                            .addListenerForSingleValueEvent(new ValueEventListener() {
-                                @Override
-                                public void onDataChange(@NonNull DataSnapshot seriesSnap) {
-                                    if (isFinishing() || isDestroyed()) return;
-                                    DuetSeriesModel m = seriesSnap.getValue(DuetSeriesModel.class);
-                                    if (m != null) fetched.add(m);
-                                    remaining[0]--;
-                                    if (remaining[0] <= 0) {
-                                        fetched.sort((a, b) -> Long.compare(b.createdAt, a.createdAt));
-                                        seriesTabData.addAll(fetched);
-                                        seriesAdapter.setItems(seriesTabData);
-                                        if (progressBar != null) progressBar.setVisibility(View.GONE);
-                                        if (layoutEmpty != null)
-                                            layoutEmpty.setVisibility(fetched.isEmpty() ? View.VISIBLE : View.GONE);
-                                        seriesLoaded = true;
-                                    }
-                                }
-                                @Override
-                                public void onCancelled(@NonNull DatabaseError e) {
-                                    remaining[0]--;
-                                }
-                            });
-                    }
-                }
-                @Override
-                public void onCancelled(@NonNull DatabaseError e) {
-                    if (progressBar != null) progressBar.setVisibility(View.GONE);
-                }
-            });
-    }
+                      for (DataSnapshot s : titlesSnap.getChildren()) {
+                          String seriesId = s.getKey();
+                          if (seriesId == null) { remaining[0]--; continue; }
+                          com.google.firebase.database.FirebaseDatabase.getInstance(Constants.DB_URL)
+                              .getReference("duetSeries").child(seriesId)
+                              .addListenerForSingleValueEvent(new ValueEventListener() {
+                                  @Override
+                                  public void onDataChange(@NonNull DataSnapshot seriesSnap) {
+                                      if (isFinishing() || isDestroyed()) return;
+                                      DuetSeriesModel m = seriesSnap.getValue(DuetSeriesModel.class);
+                                      if (m != null) fetched.add(m);
+                                      remaining[0]--;
+                                      if (remaining[0] <= 0) {
+                                          // Sort by newest first
+                                          fetched.sort((a, b) -> Long.compare(b.createdAt, a.createdAt));
+                                          seriesTabData.addAll(fetched);
+                                          seriesAdapter.setItems(seriesTabData);
+                                          if (progressBar != null) progressBar.setVisibility(View.GONE);
+                                          if (layoutEmpty != null)
+                                              layoutEmpty.setVisibility(fetched.isEmpty() ? View.VISIBLE : View.GONE);
+                                          seriesLoaded = true;
+                                      }
+                                  }
+                                  @Override
+                                  public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                                      remaining[0]--;
+                                  }
+                              });
+                      }
+                  }
+                  @Override
+                  public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                      if (progressBar != null) progressBar.setVisibility(View.GONE);
+                  }
+              });
+      }
 
-    private void loadRepostedReels(boolean refresh) {
+  private void loadRepostedReels(boolean refresh) {
         if (isLoadingMore && !refresh) return;
         isLoadingMore = true;
         if (refresh) { repostsLastKey = null; repostsHasMore = true; repostsTabData.clear(); showSkeleton(); }
@@ -999,68 +888,57 @@ public class UserReelsActivity extends AppCompatActivity
         if (tab == activeTab) refreshEmptyState();
     }
 
-    /**
-     * Approach A empty-state update.
-     *
-     * For non-series tabs: set empty message on the adapter — adapter shows TYPE_EMPTY item
-     * below the profile header (header stays visible even when there are no reels).
-     * For the series tab: use the layoutEmpty full-screen overlay (acceptable trade-off —
-     * series has its own UX context and is less common than reel tabs).
-     */
     private void refreshEmptyState() {
         if (activeTab == TAB_SERIES) {
             boolean empty = seriesTabData.isEmpty();
             if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
             if (rvSeries != null) rvSeries.setVisibility(empty ? View.GONE : View.VISIBLE);
-            if (tvEmptyTitle    != null) tvEmptyTitle.setText("No Series Yet");
+            rvReels.setVisibility(View.GONE);
+            if (tvEmptyTitle != null) tvEmptyTitle.setText("No Series Yet");
             if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Create a Duet Series to post numbered episodes.");
             return;
         }
-
-        // Non-series tabs: use TYPE_EMPTY inside the RecyclerView
-        if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
-        // rvReels stays VISIBLE even when empty — header must remain accessible
-        if (rvReels != null) rvReels.setVisibility(View.VISIBLE);
-
         boolean empty = activeTabData().isEmpty() && !adapter.hasPinned();
-        if (empty) {
-            String title, subtitle;
-            switch (activeTab) {
-                case TAB_LIKED:
-                    title = "No Liked Reels"; subtitle = "Liked reels will appear here."; break;
-                case TAB_SAVED:
-                    title = "No Saved Reels"; subtitle = "Saved reels will appear here."; break;
-                case TAB_REPOST:
-                    title = "No Reposted Reels"; subtitle = "Reposted reels will appear here."; break;
-                default:
-                    title = "No Reels Yet"; subtitle = "This creator hasn't posted any reels yet.";
-            }
-            adapter.setEmptyMessage(title, subtitle);
+        if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+        rvReels.setVisibility(empty ? View.GONE : View.VISIBLE);
+        if (tvEmptyTitle == null) return;
+        switch (activeTab) {
+            case TAB_LIKED:
+                tvEmptyTitle.setText("No Liked Reels");
+                if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Liked reels will appear here."); break;
+            case TAB_SAVED:
+                tvEmptyTitle.setText("No Saved Reels");
+                if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Saved reels will appear here."); break;
+            case TAB_REPOST:
+                tvEmptyTitle.setText("No Reposted Reels");
+                if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Reposted reels will appear here."); break;
+            default:
+                tvEmptyTitle.setText("No Reels Yet");
+                if (tvEmptySubtitle != null) tvEmptySubtitle.setText("This creator hasn't posted any reels yet.");
         }
-        adapter.notifyDataSetChanged();
     }
 
     // ── Open player ───────────────────────────────────────────────────────
 
-    /**
-     * @param adapterPos Position within ReelGridAdapter (NOT ConcatAdapter).
-     *                   Callers that receive ConcatAdapter positions must subtract 1 first.
-     */
     private void openPlayerAt(int adapterPos) {
+        // Pinned reel occupies position 0 in adapter — skip it when calculating reel index
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
         if (reelIdx < 0) reelIdx = 0;
 
         List<ReelModel> data = activeTabData();
         if (data.isEmpty()) return;
 
+        // Clamp to valid range
         int safeIdx = Math.min(reelIdx, data.size() - 1);
 
+        // Build ordered ID list from current sorted data (latest first already)
         ArrayList<String> ids = new ArrayList<>();
         for (ReelModel r : data)
             if (r != null && r.reelId != null) ids.add(r.reelId);
 
         Intent intent = new Intent(this, SingleReelPlayerActivity.class);
         intent.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+        // safeIdx ensures the tapped reel plays first — not position 0
         intent.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, safeIdx);
         intent.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
             targetName != null ? targetName + "'s Reels" : "Reels");
@@ -1069,31 +947,24 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Long press ────────────────────────────────────────────────────────
 
-    /**
-     * @param adapterPos ConcatAdapter position received from ReelGridAdapter click callback.
-     *                   Position 0 is occupied by the header, so reel adapter position = adapterPos - 1.
-     */
     @Override
     public void onLongPress(int adapterPos) {
-        int reelAdapterPos = adapterPos - 1; // subtract header offset (ConcatAdapter)
-        if (reelAdapterPos < 0) return;       // tap on header row → ignore
-
         List<ReelModel> data = activeTabData();
-        int reelIdx = adapter.hasPinned() ? reelAdapterPos - 1 : reelAdapterPos;
+        int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
 
         if (isSelf && activeTab == TAB_REELS && reelIdx >= 0 && reelIdx < data.size()) {
-            showAnalyticsSheet(data.get(reelIdx), reelAdapterPos);
+            showAnalyticsSheet(data.get(reelIdx), adapterPos);
             return;
         }
-        if (reelIdx < 0 || reelIdx >= data.size()) { enterMultiSelectMode(reelAdapterPos); return; }
+        if (reelIdx < 0 || reelIdx >= data.size()) { enterMultiSelectMode(adapterPos); return; }
         ReelModel reel = data.get(reelIdx);
-        if (reel.videoUrl == null || reel.videoUrl.isEmpty()) { enterMultiSelectMode(reelAdapterPos); return; }
-        showVideoPreviewDialog(reel, reelAdapterPos);
+        if (reel.videoUrl == null || reel.videoUrl.isEmpty()) { enterMultiSelectMode(adapterPos); return; }
+        showVideoPreviewDialog(reel, adapterPos);
     }
 
     // ── Analytics sheet (Feature 15) ──────────────────────────────────────
 
-    private void showAnalyticsSheet(ReelModel reel, int reelAdapterPos) {
+    private void showAnalyticsSheet(ReelModel reel, int adapterPos) {
         new AlertDialog.Builder(this)
             .setTitle("Reel Options")
             .setItems(new String[]{"View Insights", "Pin Reel", "Share", "Delete"}, (d, which) -> {
@@ -1126,7 +997,7 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Video preview dialog (Feature 4) ──────────────────────────────────
 
-    private void showVideoPreviewDialog(ReelModel reel, int reelAdapterPos) {
+    private void showVideoPreviewDialog(ReelModel reel, int adapterPos) {
         dismissPreviewDialog();
         previewDialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         previewDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -1158,10 +1029,10 @@ public class UserReelsActivity extends AppCompatActivity
         previewPlayer.setPlayWhenReady(true);
 
         if (btnSelect != null) btnSelect.setOnClickListener(v -> {
-            dismissPreviewDialog(); enterMultiSelectMode(reelAdapterPos);
+            dismissPreviewDialog(); enterMultiSelectMode(adapterPos);
         });
         if (btnPlay != null) btnPlay.setOnClickListener(v -> {
-            dismissPreviewDialog(); openPlayerAt(reelAdapterPos);
+            dismissPreviewDialog(); openPlayerAt(adapterPos);
         });
         previewDialog.setOnDismissListener(d -> dismissPreviewDialog());
         previewDialog.show();
@@ -1182,11 +1053,11 @@ public class UserReelsActivity extends AppCompatActivity
         if (btnDeleteSelected != null) btnDeleteSelected.setOnClickListener(v -> deleteSelectedReels());
     }
 
-    private void enterMultiSelectMode(int initialReelAdapterPos) {
+    private void enterMultiSelectMode(int initialPos) {
         isMultiSelect = true;
         adapter.setMultiSelectMode(true);
         if (layoutMultiSelectBar != null) layoutMultiSelectBar.setVisibility(View.VISIBLE);
-        toggleSelection(initialReelAdapterPos);
+        toggleSelection(initialPos);
     }
 
     private void exitMultiSelectMode() {
@@ -1198,20 +1069,17 @@ public class UserReelsActivity extends AppCompatActivity
         if (tvSelectedCount != null) tvSelectedCount.setText("0 Selected");
     }
 
-    /**
-     * @param reelAdapterPos Position within ReelGridAdapter (0-based, header already subtracted).
-     */
-    private void toggleSelection(int reelAdapterPos) {
+    private void toggleSelection(int adapterPos) {
         List<ReelModel> data = activeTabData();
-        int reelIdx = adapter.hasPinned() ? reelAdapterPos - 1 : reelAdapterPos;
+        int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
         if (reelIdx < 0 || reelIdx >= data.size()) return;
         String reelId = data.get(reelIdx).reelId;
         if (selectedReelIds.contains(reelId)) {
-            selectedReelIds.remove(reelId); adapter.setSelected(reelAdapterPos, false);
+            selectedReelIds.remove(reelId); adapter.setSelected(adapterPos, false);
         } else {
-            selectedReelIds.add(reelId); adapter.setSelected(reelAdapterPos, true);
+            selectedReelIds.add(reelId); adapter.setSelected(adapterPos, true);
         }
-        adapter.notifyItemChanged(reelAdapterPos);
+        adapter.notifyItemChanged(adapterPos);
         if (tvSelectedCount != null) tvSelectedCount.setText(selectedReelIds.size() + " Selected");
         if (selectedReelIds.isEmpty()) exitMultiSelectMode();
     }
@@ -1258,12 +1126,65 @@ public class UserReelsActivity extends AppCompatActivity
             .setNegativeButton("Cancel", null).show();
     }
 
-    // ── Avatar Peek Animation (Feature 7) ─────────────────────────────────
+    // ── Action buttons ────────────────────────────────────────────────────
 
+    private void setupActionButtons() {
+        if (btnMessage != null) btnMessage.setOnClickListener(v ->
+            launchActivity("com.callx.app.conversation.ChatActivity",
+                new String[]{"partnerUid","partnerName","partnerPhoto"},
+                new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
+
+        if (btnAudioCall != null) btnAudioCall.setOnClickListener(v -> {
+            String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
+            launchActivity("com.callx.app.call.CallActivity",
+                new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
+                new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, false, orEmpty(cid)});
+        });
+        if (btnVideoCall != null) btnVideoCall.setOnClickListener(v -> {
+            String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
+            launchActivity("com.callx.app.call.CallActivity",
+                new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
+                new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, true, orEmpty(cid)});
+        });
+
+        // X profile button
+        if (btnOpenX != null) btnOpenX.setOnClickListener(v -> {
+            if (targetUid == null || targetUid.isEmpty()) return;
+            try {
+                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
+                java.lang.reflect.Method method = cls.getMethod("showProfile",
+                        androidx.fragment.app.FragmentManager.class, String.class);
+                method.invoke(null, getSupportFragmentManager(), targetUid);
+            } catch (Exception e) {
+                Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // YouTube channel button
+        if (btnOpenYoutube != null) btnOpenYoutube.setOnClickListener(v -> {
+            if (targetUid == null || targetUid.isEmpty()) return;
+            try {
+                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
+                Intent i = new Intent(this, cls);
+                i.putExtra("uid",  targetUid);
+                i.putExtra("name", orEmpty(targetName));
+                startActivity(i);
+            } catch (ClassNotFoundException e) {
+                Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        if (btnFollow != null) btnFollow.setOnClickListener(v -> toggleFollow());
+    }
+
+    // ── Avatar Peek Animation ─────────────────────────────────────────────
     /**
-     * Load avatars into the active header VH's animation ImageViews, then start peek loop.
-     * Uses applyToHeader() so Glide loads are queued if the VH is not yet bound.
-     * Three platforms: CallX chat, X/Twitter, YouTube.
+     * Teen alag avatars load karte hain — har button ke liye user ki respective profile image:
+     *   - Chat button    → users/{uid}          (main CallX chat profile)
+     *   - X button       → x/users/{uid}         (X / Twitter profile)
+     *   - YouTube button → youtube/channels/{uid} (YouTube channel)
+     * Agar koi platform profile nahi hai to ic_person placeholder rahega.
+     * Phir teeno avatars pe loop animation start hoti hai (peek out → hold → peek in → repeat).
      */
     private void loadAvatarAndStartAnimation() {
         if (targetUid == null || isSelf) return;
@@ -1271,7 +1192,7 @@ public class UserReelsActivity extends AppCompatActivity
         final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
 
         // 1) Chat avatar — users/{uid}
-        FirebaseDatabase.getInstance(DB)
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
             .getReference("users").child(targetUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -1279,23 +1200,23 @@ public class UserReelsActivity extends AppCompatActivity
                     String photo = snap.child("photoUrl").getValue(String.class);
                     String url = (thumb != null && !thumb.isEmpty()) ? thumb
                                : (photo != null && !photo.isEmpty()) ? photo : null;
+                    if (ivAnimChat == null) return;
                     if (url != null) {
-                        final String finalUrl = url;
-                        applyToHeader(vh -> {
-                            if (vh.ivAnimChat != null)
-                                Glide.with(UserReelsActivity.this).load(finalUrl).circleCrop()
-                                    .placeholder(R.drawable.ic_person).into(vh.ivAnimChat);
-                        });
+                        Glide.with(UserReelsActivity.this)
+                            .load(url).circleCrop()
+                            .placeholder(R.drawable.ic_person)
+                            .into(ivAnimChat);
                     }
+                    // Start animation only after first avatar loaded (others load in bg)
                     startAvatarPeekLoop();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    startAvatarPeekLoop();
+                    startAvatarPeekLoop(); // Still start loop even if load fails
                 }
             });
 
         // 2) X avatar — x/users/{uid}
-        FirebaseDatabase.getInstance(DB)
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
             .getReference("x/users").child(targetUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -1303,20 +1224,17 @@ public class UserReelsActivity extends AppCompatActivity
                     String photo = snap.child("photoUrl").getValue(String.class);
                     String url = (thumb != null && !thumb.isEmpty()) ? thumb
                                : (photo != null && !photo.isEmpty()) ? photo : null;
-                    if (url != null) {
-                        final String finalUrl = url;
-                        applyToHeader(vh -> {
-                            if (vh.ivAnimX != null)
-                                Glide.with(UserReelsActivity.this).load(finalUrl).circleCrop()
-                                    .placeholder(R.drawable.ic_person).into(vh.ivAnimX);
-                        });
-                    }
+                    if (ivAnimX == null || url == null) return;
+                    Glide.with(UserReelsActivity.this)
+                        .load(url).circleCrop()
+                        .placeholder(R.drawable.ic_person)
+                        .into(ivAnimX);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
 
         // 3) YouTube avatar — youtube/channels/{uid}
-        FirebaseDatabase.getInstance(DB)
+        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
             .getReference("youtube/channels").child(targetUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -1324,14 +1242,11 @@ public class UserReelsActivity extends AppCompatActivity
                     String photo = snap.child("photoUrl").getValue(String.class);
                     String url = (thumb != null && !thumb.isEmpty()) ? thumb
                                : (photo != null && !photo.isEmpty()) ? photo : null;
-                    if (url != null) {
-                        final String finalUrl = url;
-                        applyToHeader(vh -> {
-                            if (vh.ivAnimYoutube != null)
-                                Glide.with(UserReelsActivity.this).load(finalUrl).circleCrop()
-                                    .placeholder(R.drawable.ic_person).into(vh.ivAnimYoutube);
-                        });
-                    }
+                    if (ivAnimYoutube == null || url == null) return;
+                    Glide.with(UserReelsActivity.this)
+                        .load(url).circleCrop()
+                        .placeholder(R.drawable.ic_person)
+                        .into(ivAnimYoutube);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
@@ -1339,19 +1254,21 @@ public class UserReelsActivity extends AppCompatActivity
 
     /**
      * Loop: Chat → X → YouTube → Chat → ...
-     * Uses getAnimViews() on each cycle so the animation always targets the
-     * currently bound header VH (robust against VH recycle + re-bind).
+     * Each cycle: peek out (600ms) → hold 3s → peek in (600ms) → wait 3s → next button
      */
     private void startAvatarPeekLoop() {
         if (animRunning) return;
         animRunning = true;
 
-        // Hide all animation views at start
-        CircleImageView[] initViews = getAnimViews();
-        for (CircleImageView iv : initViews) {
+        CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
+
+        // Initialize all: hidden, scaled to 0, centered on button
+        for (CircleImageView iv : views) {
             if (iv == null) continue;
             iv.setVisibility(View.INVISIBLE);
-            iv.setScaleX(0f); iv.setScaleY(0f); iv.setAlpha(0f);
+            iv.setScaleX(0f);
+            iv.setScaleY(0f);
+            iv.setAlpha(0f);
         }
 
         animRunnable = new Runnable() {
@@ -1360,8 +1277,6 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void run() {
                 if (!animRunning || isFinishing() || isDestroyed()) return;
 
-                // Fetch FRESH views each cycle — handles VH rebind after scroll
-                CircleImageView[] views = getAnimViews();
                 CircleImageView iv = views[idx % views.length];
                 idx++;
 
@@ -1370,34 +1285,48 @@ public class UserReelsActivity extends AppCompatActivity
                     return;
                 }
 
-                iv.setScaleX(0f); iv.setScaleY(0f); iv.setAlpha(0f);
+                // Reset to hidden/zero state
+                iv.setScaleX(0f);
+                iv.setScaleY(0f);
+                iv.setAlpha(0f);
                 iv.setVisibility(View.VISIBLE);
 
-                ObjectAnimator scaleXIn = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.05f, 1.0f);
-                ObjectAnimator scaleYIn = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.05f, 1.0f);
-                ObjectAnimator alphaIn  = ObjectAnimator.ofFloat(iv, "alpha",  0f, 1f);
-                scaleXIn.setDuration(450); scaleYIn.setDuration(450); alphaIn.setDuration(250);
+                // Zoom IN: scale 0 → 1.05 (subtle overshoot) then settle to 1.0, alpha 0 → 1
+                ObjectAnimator scaleXIn  = ObjectAnimator.ofFloat(iv, "scaleX", 0f, 1.05f, 1.0f);
+                ObjectAnimator scaleYIn  = ObjectAnimator.ofFloat(iv, "scaleY", 0f, 1.05f, 1.0f);
+                ObjectAnimator alphaIn   = ObjectAnimator.ofFloat(iv, "alpha",  0f, 1f);
+                scaleXIn.setDuration(450);
+                scaleYIn.setDuration(450);
+                alphaIn.setDuration(250);
                 scaleXIn.setInterpolator(new android.view.animation.DecelerateInterpolator(2f));
                 scaleYIn.setInterpolator(new android.view.animation.DecelerateInterpolator(2f));
+
                 AnimatorSet zoomIn = new AnimatorSet();
                 zoomIn.playTogether(scaleXIn, scaleYIn, alphaIn);
 
+                // Zoom OUT: scale 1.0 → 0, alpha 1 → 0  (after 3s hold)
                 ObjectAnimator scaleXOut = ObjectAnimator.ofFloat(iv, "scaleX", 1.0f, 0f);
                 ObjectAnimator scaleYOut = ObjectAnimator.ofFloat(iv, "scaleY", 1.0f, 0f);
                 ObjectAnimator alphaOut  = ObjectAnimator.ofFloat(iv, "alpha",  1f, 0f);
-                scaleXOut.setDuration(400); scaleYOut.setDuration(400); alphaOut.setDuration(400);
+                scaleXOut.setDuration(400);
+                scaleYOut.setDuration(400);
+                alphaOut.setDuration(400);
                 scaleXOut.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
                 scaleYOut.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+
                 AnimatorSet zoomOut = new AnimatorSet();
                 zoomOut.playTogether(scaleXOut, scaleYOut, alphaOut);
-                zoomOut.setStartDelay(3000);
+                zoomOut.setStartDelay(3000); // hold visible for 3 seconds
 
                 AnimatorSet full = new AnimatorSet();
                 full.playSequentially(zoomIn, zoomOut);
                 full.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
                         iv.setVisibility(View.INVISIBLE);
-                        iv.setScaleX(0f); iv.setScaleY(0f); iv.setAlpha(0f);
+                        iv.setScaleX(0f);
+                        iv.setScaleY(0f);
+                        iv.setAlpha(0f);
+                        // 3 second gap then next button
                         if (animRunning && !isFinishing() && !isDestroyed())
                             animHandler.postDelayed(animRunnable, 3000);
                     }
@@ -1416,11 +1345,13 @@ public class UserReelsActivity extends AppCompatActivity
     private void stopAvatarAnimation() {
         animRunning = false;
         animHandler.removeCallbacks(animRunnable);
-        CircleImageView[] views = getAnimViews();
+        CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
         for (CircleImageView iv : views) {
             if (iv == null) continue;
             iv.setVisibility(View.INVISIBLE);
-            iv.setScaleX(0f); iv.setScaleY(0f); iv.setAlpha(0f);
+            iv.setScaleX(0f);
+            iv.setScaleY(0f);
+            iv.setAlpha(0f);
         }
     }
 
@@ -1494,99 +1425,89 @@ public class UserReelsActivity extends AppCompatActivity
             btnFollow.setTextColor(0xFFFFFFFF);
             btnFollow.setText("Follow");
         }
-        btnFollow.setOnClickListener(v -> toggleFollow());
     }
 
     private void updateFollowerCountUI(int delta) {
-        applyToHeader(vh -> {
-            if (vh.tvFollowers == null) return;
-            try {
-                int cur = Integer.parseInt(vh.tvFollowers.getText().toString().split(" ")[0]);
-                vh.tvFollowers.setText(String.valueOf(cur + delta));
-            } catch (Exception ignored) {}
-        });
+        if (tvFollowers == null) return;
+        try {
+            int cur = Integer.parseInt(tvFollowers.getText().toString().split(" ")[0]);
+            tvFollowers.setText(String.valueOf(cur + delta));
+        } catch (Exception ignored) {}
     }
 
     // ── Profile data ──────────────────────────────────────────────────────
 
     private void loadUserProfile() {
-        FirebaseDatabase.getInstance()
+        // Reels profile load karo (reels/users/{uid}) — chat profile nahi
+        com.google.firebase.database.FirebaseDatabase.getInstance()
             .getReference("reels/users").child(targetUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                String name       = snap.child("displayName").getValue(String.class);
-                String photo      = snap.child("photoUrl").getValue(String.class);
+                String name      = snap.child("displayName").getValue(String.class);
+                String photo     = snap.child("photoUrl").getValue(String.class);
                 String photoThumb = snap.child("thumbUrl").getValue(String.class);
-                String bio        = snap.child("bio").getValue(String.class);
-                String website    = snap.child("website").getValue(String.class);
-                String instagram  = snap.child("instagramHandle").getValue(String.class);
-                String youtube    = snap.child("youtubeChannelUrl").getValue(String.class);
-                String twitter    = snap.child("twitterHandle").getValue(String.class);
+                String bio       = snap.child("bio").getValue(String.class);
+                String website   = snap.child("website").getValue(String.class);
+                String instagram = snap.child("instagramHandle").getValue(String.class);
+                String youtube   = snap.child("youtubeChannelUrl").getValue(String.class);
+                String twitter   = snap.child("twitterHandle").getValue(String.class);
 
-                // Nav bar name (Activity view — not in header)
                 if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); }
-
-                // Avatar — update header VH
                 if (photo != null && !photo.isEmpty()) {
                     targetPhoto = photo;
-                    final String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
-                    applyToHeader(vh -> {
-                        if (vh.ivAvatar != null)
-                            Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
-                                .placeholder(R.drawable.ic_person).into(vh.ivAvatar);
-                    });
+                    String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
+                    Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
+                        .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
 
                 // Bio
-                final String finalBio = bio;
-                applyToHeader(vh -> {
-                    if (vh.tvBio != null) {
-                        vh.tvBio.setText(finalBio != null ? finalBio : "");
-                        vh.tvBio.setVisibility(finalBio != null && !finalBio.isEmpty() ? View.VISIBLE : View.GONE);
-                    }
-                });
+                if (tvBio != null) {
+                    tvBio.setText(bio != null ? bio : "");
+                    tvBio.setVisibility(bio != null && !bio.isEmpty() ? View.VISIBLE : View.GONE);
+                }
 
-                // Social link rows
-                final String websiteUrl = !isEmpty(website)
-                    ? (website.startsWith("http") ? website : "https://" + website) : null;
-                final String igUrl = !isEmpty(instagram)
-                    ? (instagram.startsWith("http") ? instagram : "https://instagram.com/" + instagram.replace("@", ""))
+                // Website / social links from Reels profile
+                bindSocialRow(layoutPhone, tvPhone, website,
+                    !isEmpty(website) ? (website.startsWith("http") ? website : "https://" + website) : null,
+                    website);
+
+                String waNum = null; // Reels profile mein WhatsApp nahi hota
+                bindSocialRow(layoutWhatsapp, tvWhatsapp, null, null, null);
+
+                // Instagram
+                String igHandle = !isEmpty(instagram)
+                    ? (instagram.startsWith("http") ? instagram : "https://instagram.com/" + instagram.replace("@",""))
                     : null;
-                final String igDisplay = !isEmpty(instagram)
-                    ? (instagram.startsWith("@") ? instagram : "@" + instagram) : null;
-                final String otherUrl = !isEmpty(twitter)
-                    ? (twitter.startsWith("http") ? twitter : "https://x.com/" + twitter.replace("@", ""))
+                bindSocialRow(layoutInstagram, tvInstagram, instagram, igHandle,
+                    !isEmpty(instagram) ? (instagram.startsWith("@") ? instagram : "@" + instagram) : null);
+
+                // YouTube
+                bindSocialRow(layoutYoutube, tvYoutube, youtube, youtube, youtube);
+
+                // Twitter/X
+                String otherUrl = !isEmpty(twitter)
+                    ? (twitter.startsWith("http") ? twitter : "https://x.com/" + twitter.replace("@",""))
                     : null;
-                final String ws = website, ig = instagram, yt = youtube, tw = twitter;
-                applyToHeader(vh -> {
-                    bindSocialRow(vh.layoutPhone,     vh.tvPhone,     ws, websiteUrl, ws);
-                    bindSocialRow(vh.layoutWhatsapp,  vh.tvWhatsapp,  null, null, null);
-                    bindSocialRow(vh.layoutInstagram, vh.tvInstagram, ig, igUrl, igDisplay);
-                    bindSocialRow(vh.layoutYoutube,   vh.tvYoutube,   yt, yt, yt);
-                    bindSocialRow(vh.layoutOtherLink, vh.tvOtherLink, tw, otherUrl, tw);
-                });
+                bindSocialRow(layoutOtherLink, tvOtherLink, twitter, otherUrl, twitter);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
-
         FirebaseUtils.getReelFollowersRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                long n = snap.getChildrenCount();
-                applyToHeader(vh -> { if (vh.tvFollowers != null) vh.tvFollowers.setText(String.valueOf(n)); });
+                if (tvFollowers != null) tvFollowers.setText(String.valueOf(snap.getChildrenCount()));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
         FirebaseUtils.getReelFollowsRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                long n = snap.getChildrenCount();
-                applyToHeader(vh -> { if (vh.tvFollowing != null) vh.tvFollowing.setText(String.valueOf(n)); });
+                if (tvFollowing != null) tvFollowing.setText(String.valueOf(snap.getChildrenCount()));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
     }
 
-    // ── Social link helper ────────────────────────────────────────────────
 
+    // ── Social link helper ──────────────────────────────────────────────
     private boolean isEmpty(String s) { return s == null || s.trim().isEmpty(); }
 
     private void bindSocialRow(View rowLayout, TextView tv, String rawValue, String url, String displayText) {
@@ -1616,11 +1537,12 @@ public class UserReelsActivity extends AppCompatActivity
         });
     }
 
+
     private void loadReelCount() {
         FirebaseUtils.getReelsByUserRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 long n = snap.getChildrenCount();
-                applyToHeader(vh -> { if (vh.tvReelCount != null) vh.tvReelCount.setText(String.valueOf(n)); });
+                if (tvReelCount != null) tvReelCount.setText(String.valueOf(n));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
@@ -1643,7 +1565,7 @@ public class UserReelsActivity extends AppCompatActivity
                     case 2:
                         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                         if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Link",
-                            Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid));
+                            com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/profile/" + targetUid));
                         Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show(); break;
                     case 3: Toast.makeText(this, "Report submitted. Thank you.", Toast.LENGTH_SHORT).show(); break;
                     case 4: unpinReel(); break;
