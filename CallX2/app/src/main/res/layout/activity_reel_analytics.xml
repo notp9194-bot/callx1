@@ -139,6 +139,13 @@
                     </LinearLayout>
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
 
+                    <!-- ADDED: Reposts count row -->
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="🔁  Reposts" android:textSize="14sp"/>
+                        <TextView android:id="@+id/tv_reposts_count" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium" android:textColor="#4CAF50"/>
+                    </LinearLayout>
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
                     <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
                         <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="⏱  Est. Watch Time" android:textSize="14sp"/>
                         <TextView android:id="@+id/tv_watch_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>

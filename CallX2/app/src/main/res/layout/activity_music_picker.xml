@@ -61,6 +61,98 @@
         android:layout_height="1dp"
         android:background="@color/divider"/>
 
+    <!-- Genre/mood category chips -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:scrollbars="none"
+        android:paddingHorizontal="8dp">
+        <LinearLayout
+            android:id="@+id/layout_category_chips"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"/>
+    </HorizontalScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider"/>
+
+    <!-- Category shortcuts -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <LinearLayout android:id="@+id/btn_saved_sounds"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center" android:layout_marginEnd="6dp"
+            android:background="?attr/selectableItemBackground">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Saved" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/btn_trending_audio"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center" android:layout_marginEnd="6dp"
+            android:background="?attr/selectableItemBackground">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Trending" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/btn_record_sound"
+            android:layout_width="0dp" android:layout_height="36dp"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center"
+            android:background="?attr/selectableItemBackground">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Record" android:textSize="13sp"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Recently used section -->
+    <LinearLayout
+        android:id="@+id/layout_recent_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tv_recent_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Recently Used"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="?attr/colorOnSurface"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="4dp"/>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_recent_tracks"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            android:paddingBottom="8dp"
+            android:clipToPadding="false"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
+
     <!-- Loading -->
     <ProgressBar
         android:id="@+id/progress_music"

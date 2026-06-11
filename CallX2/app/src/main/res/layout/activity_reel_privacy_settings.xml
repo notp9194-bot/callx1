@@ -67,6 +67,21 @@
                 android:layout_weight="1" android:text="Allow Share" android:textColor="#FFFFFF" android:textSize="16sp"/>
             <Switch android:id="@+id/switch_allow_share" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
         </LinearLayout>
+        <!-- ADDED: Allow Reposts — creator can disable reposts on this reel -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Allow Reposts" android:textColor="#FFFFFF" android:textSize="16sp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Let others repost this reel to their profile"
+                    android:textColor="#888888" android:textSize="12sp"/>
+            </LinearLayout>
+            <Switch android:id="@+id/switch_allow_repost" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:checked="true"/>
+        </LinearLayout>
+
         <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
             android:orientation="horizontal" android:gravity="center_vertical">
             <TextView android:layout_width="0dp" android:layout_height="wrap_content"
@@ -78,6 +93,16 @@
             <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:text="Hide View Count" android:textColor="#FFFFFF" android:textSize="16sp"/>
             <Switch android:id="@+id/switch_hide_views" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/btn_close_friends"
+            android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:background="?attr/selectableItemBackground" android:layout_marginTop="8dp">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Close Friends List"
+                android:textColor="#FFFFFF" android:textSize="16sp"/>
+            <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                android:src="@drawable/ic_arrow_forward" android:alpha="0.6"/>
         </LinearLayout>
         <ProgressBar android:id="@+id/progress_privacy_save" android:layout_width="wrap_content"
             android:layout_height="wrap_content" android:layout_gravity="center"
