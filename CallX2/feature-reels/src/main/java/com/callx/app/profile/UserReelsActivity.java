@@ -257,21 +257,22 @@ public class UserReelsActivity extends AppCompatActivity
         }
 
         adapter = new ReelGridAdapter(
-        // Series tab setup
-          seriesAdapter = new UserSeriesGridAdapter(this);
-          if (rvSeries != null) {
-              rvSeries.setLayoutManager(new GridLayoutManager(this, 2));
-              rvSeries.setAdapter(seriesAdapter);
-              seriesAdapter.setOnSeriesClickListener(series -> {
-                  Intent si = new Intent(this, com.callx.app.social.DuetSeriesActivity.class);
-                  si.putExtra(com.callx.app.social.DuetSeriesActivity.EXTRA_SERIES_ID, series.seriesId);
-                  startActivity(si);
-              });
-          }
               this, activeTabData(),
             pos -> { if (isMultiSelect) toggleSelection(pos); else openPlayerAt(pos); },
             this, this
         );
+
+        // Series tab setup
+        seriesAdapter = new UserSeriesGridAdapter(this);
+        if (rvSeries != null) {
+            rvSeries.setLayoutManager(new GridLayoutManager(this, 2));
+            rvSeries.setAdapter(seriesAdapter);
+            seriesAdapter.setOnSeriesClickListener(series -> {
+                Intent si = new Intent(this, com.callx.app.social.DuetSeriesActivity.class);
+                si.putExtra(com.callx.app.social.DuetSeriesActivity.EXTRA_SERIES_ID, series.seriesId);
+                startActivity(si);
+            });
+        }
         adapter.setShowViewsOverlay(isSelf);
 
         gridLayoutManager = new GridLayoutManager(this, 3);
