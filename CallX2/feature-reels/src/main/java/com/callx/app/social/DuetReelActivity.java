@@ -100,6 +100,11 @@ public class DuetReelActivity extends AppCompatActivity {
     private SeekBar      seekMicGain;
     private TextView     tvMicGainLabel;
 
+    // ── Beat Sync (v10) ───────────────────────────────────────────────────────
+    private com.callx.app.views.BeatSyncOverlayView beatSyncOverlay;
+    private android.os.Handler beatSyncHandler;
+    private Runnable beatSyncTick;
+
     /** Layout selector buttons */
     private View       btnLayoutSideBySide, btnLayoutTopBottom, btnLayoutPip;
     private View       btnLayoutReactionBubble;
@@ -231,6 +236,7 @@ public class DuetReelActivity extends AppCompatActivity {
         tvVolumeLabel           = findViewById(R.id.tv_volume_label);
         seekMicGain             = findViewById(R.id.seek_mic_gain);
         tvMicGainLabel          = findViewById(R.id.tv_mic_gain_label);
+        beatSyncOverlay         = findViewById(R.id.beat_sync_overlay);
         layoutSelector          = findViewById(R.id.layout_duet_selector);
         btnLayoutSideBySide     = findViewById(R.id.btn_layout_side_by_side);
         btnLayoutTopBottom      = findViewById(R.id.btn_layout_top_bottom);
@@ -467,6 +473,28 @@ public class DuetReelActivity extends AppCompatActivity {
                     if (playerDur > 0) {
                         durationSec = playerDur;
                         progressDuet.setMax(durationSec);
+                    }
+                    // ── Beat Sync (v10) ─────────────────────────────────────
+                    if (beatSyncOverlay != null && cachedOriginalPath != null) {
+                        com.callx.app.views.BeatSyncAnalyzer.analyze(
+                            DuetReelActivity.this, cachedOriginalPath,
+                            exoPlayer.getDuration(),
+                            new com.callx.app.views.BeatSyncAnalyzer.Callback() {
+                                @Override public void onBeatsReady(long[] beats) {
+                                    runOnUiThread(() -> {
+                                        beatSyncOverlay.setBeats(beats, exoPlayer.getDuration());
+                                        beatSyncOverlay.setOnBeatListener(beatTimeMs -> {
+                                            android.os.VibrationEffect ve = android.os.VibrationEffect
+                                                .createOneShot(30, android.os.VibrationEffect.DEFAULT_AMPLITUDE);
+                                            ((android.os.Vibrator) getSystemService(VIBRATOR_SERVICE)).vibrate(ve);
+                                        });
+                                        startBeatSyncTick();
+                                    });
+                                }
+                                @Override public void onError(Exception e) {
+                                    Log.w(TAG, "BeatSync analysis failed: " + e.getMessage());
+                                }
+                            });
                     }
                 }
             }
@@ -856,6 +884,23 @@ public class DuetReelActivity extends AppCompatActivity {
         if (activeRecording != null) activeRecording.stop();
         if (exoPlayer != null)       { exoPlayer.stop(); exoPlayer.release(); }
         if (cameraExecutor != null)  cameraExecutor.shutdown();
+        if (beatSyncHandler != null && beatSyncTick != null) {
+            beatSyncHandler.removeCallbacks(beatSyncTick);
+        }
         super.onDestroy();
+    }
+
+    // ── Beat Sync helpers (v10) ───────────────────────────────────────────────
+    private void startBeatSyncTick() {
+        if (beatSyncHandler == null) beatSyncHandler = new android.os.Handler(getMainLooper());
+        beatSyncTick = new Runnable() {
+            @Override public void run() {
+                if (exoPlayer != null && beatSyncOverlay != null) {
+                    beatSyncOverlay.setPosition(exoPlayer.getCurrentPosition());
+                }
+                if (beatSyncHandler != null) beatSyncHandler.postDelayed(this, 100);
+            }
+        };
+        beatSyncHandler.post(beatSyncTick);
     }
 }

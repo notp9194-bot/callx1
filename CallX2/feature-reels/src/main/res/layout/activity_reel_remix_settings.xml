@@ -186,6 +186,19 @@
                     </LinearLayout>
                     <Switch android:id="@+id/sw_allow_share" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
                 </LinearLayout>
+
+                <!-- ── Duet Approval (v10) ── -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginTop="12dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Require Duet Approval" android:textColor="@color/text_primary" android:textSize="14sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Review each duet before it goes public" android:textColor="@color/text_muted" android:textSize="11sp"/>
+                    </LinearLayout>
+                    <Switch android:id="@+id/sw_duet_approval" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
             </LinearLayout>
 
             <View android:layout_width="match_parent" android:layout_height="32dp"/>

@@ -25,6 +25,14 @@
                 app:use_controller="false"
                 app:resize_mode="zoom"/>
 
+            <!-- ── Beat Sync Overlay (v10) ── -->
+            <com.callx.app.views.BeatSyncOverlayView
+                android:id="@+id/beat_sync_overlay"
+                android:layout_width="match_parent"
+                android:layout_height="24dp"
+                android:layout_gravity="bottom"
+                android:alpha="0.85"/>
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

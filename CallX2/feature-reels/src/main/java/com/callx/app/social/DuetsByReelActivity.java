@@ -96,7 +96,7 @@ public class DuetsByReelActivity extends AppCompatActivity {
             }
         });
 
-        adapter = new DuetsAdapter(duets, this::onDuetTapped);
+        adapter = new DuetsAdapter(duets, this::onDuetTapped, this::onDuetLongTapped);
         rvDuets.setLayoutManager(glm);
         rvDuets.setAdapter(adapter);
         btnBack.setOnClickListener(v -> finish());
@@ -322,19 +322,42 @@ public class DuetsByReelActivity extends AppCompatActivity {
         startActivity(i);
     }
 
+    // ── v10: Long-press duet card → Challenge to Battle ───────────────────────
+    private void onDuetLongTapped(ReelModel reel) {
+        if (reel == null || reel.reelId == null) return;
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("⚔️ Challenge to Battle?")
+            .setMessage("Start a Duet Battle using @" + (reel.ownerName != null ? reel.ownerName : "this duet") + "'s video?")
+            .setPositiveButton("Start Battle", (d, w) -> {
+                Intent i = new Intent(this, DuetBattleCreateActivity.class);
+                i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_REEL_ID,    reel.reelId);
+                i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_NAME,       reel.ownerName != null ? reel.ownerName : "");
+                i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_UID,        reel.uid != null ? reel.uid : "");
+                i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_REEL_THUMB, reel.thumbUrl != null ? reel.thumbUrl : "");
+                i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_VIDEO_URL,  reel.videoUrl != null ? reel.videoUrl : "");
+                i.putExtra(DuetBattleCreateActivity.EXTRA_ORIGINAL_REEL_ID, originalReelId);
+                startActivity(i);
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
     // ── Adapter ───────────────────────────────────────────────────────────────
 
     private static class DuetsAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
-        interface OnDuetClick { void onClick(ReelModel reel); }
+        interface OnDuetClick     { void onClick(ReelModel reel); }
+        interface OnDuetLongClick { void onLongClick(ReelModel reel); }
 
         private final List<ReelModel> items;
         private final OnDuetClick     listener;
+        private final OnDuetLongClick longListener;
         private boolean               showFooter = false;
 
-        DuetsAdapter(List<ReelModel> items, OnDuetClick listener) {
-            this.items    = items;
-            this.listener = listener;
+        DuetsAdapter(List<ReelModel> items, OnDuetClick listener, OnDuetLongClick longListener) {
+            this.items        = items;
+            this.listener     = listener;
+            this.longListener = longListener;
         }
 
         void setShowFooter(boolean show) { this.showFooter = show; }
@@ -384,6 +407,10 @@ public class DuetsByReelActivity extends AppCompatActivity {
             h.tvViews.setText(formatCount(reel.viewsCount));
             h.badgeDuet.setVisibility(View.VISIBLE);
             h.itemView.setOnClickListener(v -> listener.onClick(reel));
+            h.itemView.setOnLongClickListener(v -> {
+                if (longListener != null) { longListener.onLongClick(reel); return true; }
+                return false;
+            });
         }
 
         private static String formatCount(int n) {

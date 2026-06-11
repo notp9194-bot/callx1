@@ -31,6 +31,7 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
     private TextView    btnSave;
     private Spinner     spDuet, spStitch, spRemix, spAudio;
     private Switch      swShowViews, swShowLikes, swAllowShare;
+    private Switch      swDuetApproval;  // v10: require approval before duet goes public
     private ProgressBar progressSave;
 
     private String reelId;
@@ -59,6 +60,7 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
         swShowViews   = findViewById(R.id.sw_show_views);
         swShowLikes   = findViewById(R.id.sw_show_likes);
         swAllowShare  = findViewById(R.id.sw_allow_share);
+        swDuetApproval = findViewById(R.id.sw_duet_approval);
         progressSave  = findViewById(R.id.progress_remix_save);
 
         android.widget.ArrayAdapter<String> adapter =
@@ -101,9 +103,11 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
                     Boolean showViews = rs.child("show_views").getValue(Boolean.class);
                     Boolean showLikes = rs.child("show_likes").getValue(Boolean.class);
                     Boolean allowShare= rs.child("allow_share").getValue(Boolean.class);
-                    if (showViews  != null) swShowViews.setChecked(showViews);
-                    if (showLikes  != null) swShowLikes.setChecked(showLikes);
-                    if (allowShare != null) swAllowShare.setChecked(allowShare);
+                    Boolean duetApproval = snap.child("duetApprovalRequired").getValue(Boolean.class);
+                    if (showViews    != null) swShowViews.setChecked(showViews);
+                    if (showLikes    != null) swShowLikes.setChecked(showLikes);
+                    if (allowShare   != null) swAllowShare.setChecked(allowShare);
+                    if (duetApproval != null && swDuetApproval != null) swDuetApproval.setChecked(duetApproval);
                 }
                 @Override public void onCancelled(
                         @androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
@@ -163,6 +167,7 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
             allUpdates.put("remix_settings/show_views",  swShowViews.isChecked());
             allUpdates.put("remix_settings/show_likes",  swShowLikes.isChecked());
             allUpdates.put("remix_settings/allow_share", swAllowShare.isChecked());
+            allUpdates.put("duetApprovalRequired", swDuetApproval != null && swDuetApproval.isChecked());
 
             reelRef.updateChildren(allUpdates)
                 .addOnSuccessListener(unused -> {

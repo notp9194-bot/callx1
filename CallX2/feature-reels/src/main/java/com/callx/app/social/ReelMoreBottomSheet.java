@@ -278,9 +278,22 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         addDuetStitchItem(list, ACTION_DUET, "Duet", R.drawable.ic_video_call,
                           duetLevel, false);
 
+        // ── Duet Invite (v10) ──
+        if (!"off".equals(duetLevel)) {
+            list.add(new MenuItem(ACTION_DUET_INVITE, "Invite to Duet", R.drawable.ic_video_call, CLR_TEAL, false, false));
+        }
+
+        // ── Multi-Person Duet (v10) ──
+        if (!"off".equals(duetLevel)) {
+            list.add(new MenuItem(ACTION_MULTI_DUET, "Multi Duet 👥", R.drawable.ic_group, CLR_PURPLE, false, false));
+        }
+
         // ── Stitch ──
         addDuetStitchItem(list, ACTION_STITCH, "Stitch", R.drawable.ic_swap,
                           stitchLevel, false);
+
+        // ── Duet Challenge (v10) ──
+        list.add(new MenuItem(ACTION_DUET_CHALLENGE, "Create Challenge 🏆", R.drawable.ic_reels, CLR_GOLD, false, false));
 
         list.add(new MenuItem(ACTION_VIDEO_REPLY,   "Video Reply",      R.drawable.ic_reply,       CLR_PURPLE, false, false));
         list.add(new MenuItem(ACTION_SHARE_TO_STORY,"Share to Story",   R.drawable.ic_share_reel,  CLR_GREEN,  true,  false));
@@ -310,6 +323,11 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         // Owner can always duet/stitch their own reel (duetLevel = current setting)
         addDuetStitchItem(list, ACTION_DUET,   "Duet",   R.drawable.ic_video_call, duetLevel,   false);
         addDuetStitchItem(list, ACTION_STITCH, "Stitch", R.drawable.ic_swap,       stitchLevel, false);
+
+        // ── v10: Multi Duet + Challenge + Approval Queue (owner only) ──
+        list.add(new MenuItem(ACTION_MULTI_DUET,     "Multi Duet 👥",        R.drawable.ic_group,       CLR_PURPLE, false, false));
+        list.add(new MenuItem(ACTION_DUET_CHALLENGE, "Create Challenge 🏆",  R.drawable.ic_reels,       CLR_GOLD,   false, false));
+        list.add(new MenuItem(ACTION_DUET_APPROVAL,  "Duet Approval Queue",  R.drawable.ic_video_call,  CLR_TEAL,   true,  false));
 
         list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story", R.drawable.ic_share_reel, CLR_GREEN,  true,  false));
         list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",        R.drawable.ic_qr_code,    CLR_ORANGE, false, false));

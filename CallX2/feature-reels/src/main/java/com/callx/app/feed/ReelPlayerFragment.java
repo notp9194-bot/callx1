@@ -1481,6 +1481,19 @@ public class ReelPlayerFragment extends Fragment
                 break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_DELETE:
                 confirmDeleteReel(); break;
+            // ── v10 Duet Features ──────────────────────────────────────────
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_DUET_INVITE:
+                openDuetInvite(); break;
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_MULTI_DUET:
+                openMultiDuet(); break;
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_DUET_CHALLENGE:
+                openDuetChallenge(); break;
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_DUET_APPROVAL:
+                openDuetApproval(); break;
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_DUET_BATTLE:
+                openDuetBattle(); break;
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_DUET_TREE:
+                openDuetTree(); break;
         }
     }
 
