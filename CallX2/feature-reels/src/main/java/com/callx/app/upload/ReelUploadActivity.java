@@ -116,6 +116,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private Button            btnPostReel;
     private ChipGroup         chipQuality, chipAudience, chipDuetLevel, chipStitchLevel;
     private View              btnTagPeople, btnLocationTag, btnPrivacySettings, btnSchedule, btnSaveDraft, btnProductTag;
+    private android.widget.TextView tvSeriesPickerUpload;
     private TextView          tvTagSummary, tvLocationName, tvScheduleTime;
     private String            taggedUids = "", locationName = "", scheduleTime = "";
 
@@ -183,6 +184,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (btnSchedule        != null) btnSchedule.setOnClickListener(v        -> startActivityForResult(new Intent(this, ReelSchedulerActivity.class), 504));
         if (btnSaveDraft       != null) btnSaveDraft.setOnClickListener(v -> startActivity(new Intent(this, ReelDraftsActivity.class)));
         if (btnProductTag      != null) btnProductTag.setOnClickListener(v      -> startActivityForResult(new Intent(this, ReelProductTagActivity.class), 505));
+        if (tvSeriesPickerUpload != null) tvSeriesPickerUpload.setOnClickListener(v -> openSeriesPickerFromUpload());
 
         // If launched from ReelEditorActivity, pre-load the video + text overlay
         handleEditorExtras();
@@ -217,6 +219,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         tvTagSummary         = findViewById(R.id.tv_tag_summary);
         tvLocationName       = findViewById(R.id.tv_location_name);
         tvScheduleTime       = findViewById(R.id.tv_schedule_time);
+        tvSeriesPickerUpload = findViewById(R.id.tv_series_picker);
     }
 
     private void setupChipDefaults() {
@@ -224,6 +227,30 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (chipStandard != null) chipStandard.setChecked(true);
         Chip chipEveryone = findViewById(R.id.chip_everyone);
         if (chipEveryone != null) chipEveryone.setChecked(true);
+    }
+
+    private void openSeriesPickerFromUpload() {
+        com.callx.app.social.DuetSeriesPickerBottomSheet sheet =
+            new com.callx.app.social.DuetSeriesPickerBottomSheet();
+        sheet.setSeriesPickListener(new com.callx.app.social.DuetSeriesPickerBottomSheet.SeriesPickListener() {
+            @Override
+            public void onSeriesPicked(String id, String title, int nextEp) {
+                seriesId      = id;
+                seriesTitle   = title;
+                episodeNumber = nextEp;
+                if (tvSeriesPickerUpload != null)
+                    tvSeriesPickerUpload.setText(title + "  (Part " + nextEp + ")");
+            }
+            @Override
+            public void onSeriesCleared() {
+                seriesId      = null;
+                seriesTitle   = null;
+                episodeNumber = 0;
+                if (tvSeriesPickerUpload != null)
+                    tvSeriesPickerUpload.setText("None");
+            }
+        });
+        sheet.show(getSupportFragmentManager(), "series_picker_upload");
     }
 
     /**
