@@ -178,7 +178,7 @@ public class ReelFCMNotificationHandler {
                       final String fReelThumb    = data.get("reel_thumb")  != null ? data.get("reel_thumb")  : "";
                       final String fSeriesId     = data.get("series_id")   != null ? data.get("series_id")   : "";
                       final String fSeriesTitle  = data.get("series_title") != null ? data.get("series_title") : "Duet Series";
-                      final int    fEpNum        = parseInt(data.get("episode_number"), 1);
+                      final int    fEpNum        = (int) parseLong(data, "episode_number", 1);
                       Executors.newSingleThreadExecutor().execute(() -> {
                           Bitmap avatar = ReelNotificationHelper.downloadCirclePublic(fCreatorPhoto, 80);
                           Bitmap thumb  = ReelNotificationHelper.downloadBitmapPublic(fReelThumb, 400, 300);
