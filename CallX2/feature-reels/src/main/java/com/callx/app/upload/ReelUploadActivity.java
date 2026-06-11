@@ -997,8 +997,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                 int dp = (int) getResources().getDisplayMetrics().density;
                 String val = "✨";
                 try {
-                    int vs = edStickerJson.indexOf(""value":"") + 9;
-                    int ve = edStickerJson.indexOf(""", vs);
+                    int vs = edStickerJson.indexOf("\"value\":\"") + 9;
+                    int ve = edStickerJson.indexOf("\"", vs);
                     if (vs > 8 && ve > vs) val = edStickerJson.substring(vs, ve);
                 } catch (Exception ignored) {}
                 android.widget.TextView sv = new android.widget.TextView(this);
@@ -1018,8 +1018,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (edSubtitlesEnabled && !edSubtitlesJson.isEmpty() && uploadSubtitleBar != null) {
             String cap = "";
             try {
-                int ts = edSubtitlesJson.indexOf(""text":"") + 8;
-                int te = edSubtitlesJson.indexOf(""", ts);
+                int ts = edSubtitlesJson.indexOf("\"text\":\"") + 8;
+                int te = edSubtitlesJson.indexOf("\"", ts);
                 if (ts > 7 && te > ts) cap = edSubtitlesJson.substring(ts, te);
             } catch (Exception ignored) {}
             uploadSubtitleBar.setText(cap.isEmpty() ? "Subtitles active" : cap);
