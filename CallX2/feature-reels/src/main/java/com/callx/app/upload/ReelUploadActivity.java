@@ -161,6 +161,25 @@ public class ReelUploadActivity extends AppCompatActivity {
   
     private int     stitchDurationSec  = 3;
 
+    // ── Editor effect fields (received from ReelEditorActivity) ──────────────
+    private String  edFilterName       = "";
+    private float   edFilterBrightness = 0f;
+    private float   edFilterContrast   = 1f;
+    private float   edFilterSaturation = 1f;
+    private String  edStickerJson      = "";
+    private String  edSubtitlesJson    = "";
+    private boolean edSubtitlesEnabled = false;
+    private int     edSubtitlesFontSize = 16;
+    private String  edTransitionName   = "";
+    private String  edVoiceEffectName  = "";
+    private float   edVoiceSpeed       = 1.0f;
+    private String  edThumbnailPath    = "";
+
+    // ── Upload preview overlay views (injected programmatically) ─────────────
+    private android.view.View         uploadFilterOverlay;
+    private android.widget.TextView   uploadSubtitleBar;
+    private android.widget.LinearLayout uploadBadgeStrip;
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);

@@ -109,6 +109,15 @@ public class ReelModel {
        */
       public String seriesTitle;
   
+    // ── Editor effect fields (saved to Firebase for playback rendering) ──────
+    public String  filterName;
+    public String  stickerJson;
+    public String  subtitlesJson;
+    public boolean subtitlesEnabled;
+    public String  transitionName;
+    public String  voiceEffectName;
+    public float   voiceSpeed = 1.0f;
+
     public ReelModel() {}
 
     public ReelModel(String reelId, String uid, String ownerName, String ownerPhoto,
