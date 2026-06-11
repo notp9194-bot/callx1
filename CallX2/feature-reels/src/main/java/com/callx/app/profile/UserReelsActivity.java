@@ -357,11 +357,42 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Tabs ──────────────────────────────────────────────────────────────
 
+    /**
+     * Maps TabLayout visual position → TAB_* constant.
+     *
+     * Own profile  (isSelf=true):  [0=Reels, 1=Liked, 2=Saved, 3=Repost, 4=Series]
+     * Other profile (isSelf=false): [0=Reels, 1=Repost, 2=Series]
+     * (Liked + Saved are removed from TabLayout for non-self profiles in setupTabs.)
+     */
+    private int resolveTabConstant(int position) {
+        if (isSelf) {
+            return position; // direct 1:1 mapping
+        } else {
+            switch (position) {
+                case 0:  return TAB_REELS;
+                case 1:  return TAB_REPOST;
+                case 2:  return TAB_SERIES;
+                default: return TAB_REELS;
+            }
+        }
+    }
+
     private void setupTabs() {
         if (tabLayout == null) return;
+
+        // ── FIX: Liked & Saved tabs are private — only show on own profile ──
+        // Remove in reverse index order to avoid index-shift errors.
+        if (!isSelf) {
+            // Layout order: 0=Reels, 1=Liked, 2=Saved, 3=Repost, 4=Series
+            tabLayout.removeTabAt(TAB_SAVED);   // remove index 2 first
+            tabLayout.removeTabAt(TAB_LIKED);   // then index 1
+            // After removal: 0=Reels, 1=Repost, 2=Series
+        }
+
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
-                activeTab = tab.getPosition();
+                // ── FIX: resolve visual position → logical TAB_* constant ──
+                activeTab = resolveTabConstant(tab.getPosition());
                 exitMultiSelectMode();
                 // Show/hide rvSeries vs rvReels depending on active tab
                 boolean isSeries = (activeTab == TAB_SERIES);
@@ -377,7 +408,11 @@ public class UserReelsActivity extends AppCompatActivity
             }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {
-                rvReels.smoothScrollToPosition(0);
+                // ── FIX: scroll correct RV based on active tab ──
+                if (activeTab == TAB_SERIES && rvSeries != null)
+                    rvSeries.smoothScrollToPosition(0);
+                else if (rvReels != null)
+                    rvReels.smoothScrollToPosition(0);
             }
         });
     }
@@ -410,7 +445,11 @@ public class UserReelsActivity extends AppCompatActivity
         boolean blocked = isAccountPrivate && !isFollowing && !isSelf;
         if (layoutPrivateAccount != null)
             layoutPrivateAccount.setVisibility(blocked ? View.VISIBLE : View.GONE);
-        if (rvReels    != null) rvReels.setVisibility(blocked ? View.GONE : View.VISIBLE);
+        // ── FIX: respect active tab when restoring visibility after privacy check ──
+        if (rvReels  != null) rvReels.setVisibility(
+                blocked ? View.GONE : (activeTab == TAB_SERIES ? View.GONE : View.VISIBLE));
+        if (rvSeries != null) rvSeries.setVisibility(
+                blocked ? View.GONE : (activeTab == TAB_SERIES ? View.VISIBLE : View.GONE));
         if (tabLayout  != null) { tabLayout.setAlpha(blocked ? 0.4f : 1f); tabLayout.setEnabled(!blocked); }
         if (swipeRefresh != null) swipeRefresh.setEnabled(!blocked);
     }
