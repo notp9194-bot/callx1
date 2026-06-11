@@ -96,6 +96,12 @@ public class ReelUploadActivity extends AppCompatActivity {
     public static final String EXTRA_DUET_LABEL       = "upload_duet_label";
     public static final String EXTRA_DUET_ORIGINAL_URL= "upload_duet_original_url";
 
+      // Duet Series fields — passed from ReelPostDetailsActivity
+      public static final String EXTRA_SERIES_ID      = "upload_series_id";
+      public static final String EXTRA_SERIES_TITLE   = "upload_series_title";
+      public static final String EXTRA_EPISODE_NUMBER = "upload_episode_number";
+  
+
     private static final int REQ_PICK_VIDEO  = 901;
     private static final int REQ_PERMISSION  = 902;
 
@@ -145,6 +151,13 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String  stitchOriginalId   = "";
     private String  stitchOriginalUrl  = "";
     private String  stitchOwnerUid     = "";
+
+      // ── Duet Series ───────────────────────────────────────────────────────────
+      private String seriesId      = null;
+      private String seriesTitle   = null;
+      private int    episodeNumber = 0;
+
+  
     private int     stitchDurationSec  = 3;
 
     @Override
@@ -654,7 +667,31 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.stitchOfOwnerUid = a.stitchOwnerUid;  // ReelModel field is stitchOfOwnerUid
                 }
 
-                FirebaseUtils.getReelsRef().child(finalReelId).setValue(reel)
+                
+                  // ── Duet Series: tag the reel + enqueue subscriber notifications ─
+                  if (a.seriesId != null && !a.seriesId.isEmpty() && a.episodeNumber > 0) {
+                      reel.seriesId            = a.seriesId;
+                      reel.seriesEpisodeNumber = a.episodeNumber;
+                      reel.seriesTitle         = a.seriesTitle != null ? a.seriesTitle : "";
+                      String creatorPhoto = "";
+                      com.google.firebase.auth.FirebaseUser fu =
+                          com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+                      if (fu != null && fu.getPhotoUrl() != null)
+                          creatorPhoto = fu.getPhotoUrl().toString();
+                      com.callx.app.workers.DuetSeriesNotificationWorker.enqueue(
+                          a,
+                          a.seriesId,
+                          a.seriesTitle != null ? a.seriesTitle : "",
+                          a.episodeNumber,
+                          finalReelId,
+                          reel.thumbUrl != null ? reel.thumbUrl : "",
+                          myUid,
+                          reel.ownerName != null ? reel.ownerName : "",
+                          creatorPhoto
+                      );
+                  }
+
+                  FirebaseUtils.getReelsRef().child(finalReelId).setValue(reel)
                     .addOnSuccessListener(unused -> {
                         ReelUploadActivity b = ref.get();
                         if (b == null || b.isFinishing() || b.isDestroyed()) return;

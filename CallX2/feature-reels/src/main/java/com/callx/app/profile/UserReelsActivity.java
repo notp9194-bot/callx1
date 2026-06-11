@@ -33,6 +33,8 @@ import com.callx.app.profile.ReelEditProfileActivity;
 import com.callx.app.creator.ReelCreatorHubActivity;
 import com.callx.app.analytics.ReelAnalyticsBottomSheet;
 import com.callx.app.models.ReelModel;
+  import com.callx.app.models.DuetSeriesModel;
+  import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -67,6 +69,7 @@ public class UserReelsActivity extends AppCompatActivity
     private static final int TAB_LIKED  = 1;
     private static final int TAB_SAVED  = 2;
     private static final int TAB_REPOST = 3;
+      private static final int TAB_SERIES = 4;
 
     // Views
     private CircleImageView ivAvatar;
@@ -92,7 +95,9 @@ public class UserReelsActivity extends AppCompatActivity
     private boolean         animRunning    = false;
     private TabLayout       tabLayout;
     private RecyclerView    rvReels;
-    private ReelGridAdapter adapter;
+      private RecyclerView    rvSeries;
+    private ReelGridAdapter       adapter;
+      private UserSeriesGridAdapter seriesAdapter;
     private ProgressBar     progressBar;
     private View            layoutEmpty;
     private SwipeRefreshLayout swipeRefresh;
@@ -116,6 +121,8 @@ public class UserReelsActivity extends AppCompatActivity
     private final List<ReelModel> savedTabData   = new ArrayList<>();
     private final List<ReelModel> repostsTabData = new ArrayList<>();
     private final Set<String>     selectedReelIds = new HashSet<>();
+      private final java.util.List<DuetSeriesModel> seriesTabData = new ArrayList<>();
+      private boolean seriesLoaded = false;
 
     private String  reelsLastKey = null, likedLastKey = null,
                     savedLastKey = null, repostsLastKey = null;
@@ -196,6 +203,7 @@ public class UserReelsActivity extends AppCompatActivity
         layoutActions        = findViewById(R.id.layout_actions);
         tabLayout            = findViewById(R.id.tab_layout);
         rvReels              = findViewById(R.id.rv_reels);
+          rvSeries             = findViewById(R.id.rv_series);
         progressBar          = findViewById(R.id.progress_bar);
         layoutEmpty          = findViewById(R.id.layout_empty);
         swipeRefresh         = findViewById(R.id.swipe_refresh);
@@ -249,7 +257,18 @@ public class UserReelsActivity extends AppCompatActivity
         }
 
         adapter = new ReelGridAdapter(
-            this, activeTabData(),
+        // Series tab setup
+          seriesAdapter = new UserSeriesGridAdapter(this);
+          if (rvSeries != null) {
+              rvSeries.setLayoutManager(new GridLayoutManager(this, 2));
+              rvSeries.setAdapter(seriesAdapter);
+              seriesAdapter.setOnSeriesClickListener(series -> {
+                  Intent si = new Intent(this, com.callx.app.social.DuetSeriesActivity.class);
+                  si.putExtra(com.callx.app.social.DuetSeriesActivity.EXTRA_SERIES_ID, series.seriesId);
+                  startActivity(si);
+              });
+          }
+              this, activeTabData(),
             pos -> { if (isMultiSelect) toggleSelection(pos); else openPlayerAt(pos); },
             this, this
         );
@@ -716,7 +735,79 @@ public class UserReelsActivity extends AppCompatActivity
         });
     }
 
-    private void loadRepostedReels(boolean refresh) {
+    
+      // ── Duet Series tab ────────────────────────────────────────────────────
+      private void loadSeriesTab(boolean refresh) {
+          if (seriesLoaded && !refresh) return;
+          if (rvSeries == null) return;
+          seriesLoaded = false;
+          seriesTabData.clear();
+          seriesAdapter.setItems(seriesTabData);
+
+          if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
+
+          com.google.firebase.database.FirebaseDatabase.getInstance(Constants.DB_URL)
+              .getReference("userDuetSeries")
+              .child(targetUid)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override
+                  public void onDataChange(@NonNull DataSnapshot titlesSnap) {
+                      if (isFinishing() || isDestroyed()) return;
+                      if (!titlesSnap.exists() || titlesSnap.getChildrenCount() == 0) {
+                          if (progressBar != null) progressBar.setVisibility(View.GONE);
+                          if (layoutEmpty != null) {
+                              tvEmptyTitle.setText("No Series Yet");
+                              tvEmptySubtitle.setText("This creator hasn't started a Duet Series");
+                              layoutEmpty.setVisibility(View.VISIBLE);
+                          }
+                          seriesLoaded = true;
+                          return;
+                      }
+                      if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
+
+                      // Fetch each seriesId's full DuetSeriesModel
+                      java.util.List<DuetSeriesModel> fetched = new java.util.ArrayList<>();
+                      long[] remaining = {titlesSnap.getChildrenCount()};
+
+                      for (DataSnapshot s : titlesSnap.getChildren()) {
+                          String seriesId = s.getKey();
+                          if (seriesId == null) { remaining[0]--; continue; }
+                          com.google.firebase.database.FirebaseDatabase.getInstance(Constants.DB_URL)
+                              .getReference("duetSeries").child(seriesId)
+                              .addListenerForSingleValueEvent(new ValueEventListener() {
+                                  @Override
+                                  public void onDataChange(@NonNull DataSnapshot seriesSnap) {
+                                      if (isFinishing() || isDestroyed()) return;
+                                      DuetSeriesModel m = seriesSnap.getValue(DuetSeriesModel.class);
+                                      if (m != null) fetched.add(m);
+                                      remaining[0]--;
+                                      if (remaining[0] <= 0) {
+                                          // Sort by newest first
+                                          fetched.sort((a, b) -> Long.compare(b.createdAt, a.createdAt));
+                                          seriesTabData.addAll(fetched);
+                                          seriesAdapter.setItems(seriesTabData);
+                                          if (progressBar != null) progressBar.setVisibility(View.GONE);
+                                          if (layoutEmpty != null)
+                                              layoutEmpty.setVisibility(fetched.isEmpty() ? View.VISIBLE : View.GONE);
+                                          seriesLoaded = true;
+                                      }
+                                  }
+                                  @Override
+                                  public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                                      remaining[0]--;
+                                  }
+                              });
+                      }
+                  }
+                  @Override
+                  public void onCancelled(@NonNull DataSnapshot snap) {}
+                  public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                      if (progressBar != null) progressBar.setVisibility(View.GONE);
+                  }
+              });
+      }
+
+  private void loadRepostedReels(boolean refresh) {
         if (isLoadingMore && !refresh) return;
         isLoadingMore = true;
         if (refresh) { repostsLastKey = null; repostsHasMore = true; repostsTabData.clear(); showSkeleton(); }

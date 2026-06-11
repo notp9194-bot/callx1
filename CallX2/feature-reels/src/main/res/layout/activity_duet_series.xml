@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:orientation="vertical"
+      android:background="@color/background_dark">
+
+      <!-- Toolbar -->
+      <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="56dp"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:paddingStart="4dp"
+          android:paddingEnd="16dp"
+          android:background="@color/background_dark">
+
+          <ImageButton
+              android:id="@+id/btn_series_back"
+              android:layout_width="48dp"
+              android:layout_height="48dp"
+              android:src="@android:drawable/ic_menu_close_clear_cancel"
+              android:background="?attr/selectableItemBackgroundBorderless"
+              android:tint="@android:color/white"/>
+
+          <TextView
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:text="Duet Series"
+              android:textColor="@android:color/white"
+              android:textSize="18sp"
+              android:textStyle="bold"
+              android:layout_marginStart="4dp"/>
+      </LinearLayout>
+
+      <!-- Series Header -->
+      <FrameLayout
+          android:layout_width="match_parent"
+          android:layout_height="200dp"
+          android:background="#111111">
+
+          <ImageView
+              android:id="@+id/iv_series_cover"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:scaleType="centerCrop"
+              android:alpha="0.6"/>
+
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_gravity="bottom"
+              android:orientation="vertical"
+              android:padding="16dp">
+
+              <TextView
+                  android:id="@+id/tv_series_title"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:textColor="@android:color/white"
+                  android:textSize="20sp"
+                  android:textStyle="bold"/>
+
+              <TextView
+                  android:id="@+id/tv_series_creator"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:textColor="#AAFFFFFF"
+                  android:textSize="13sp"
+                  android:layout_marginTop="2dp"/>
+
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:layout_marginTop="8dp">
+
+                  <TextView
+                      android:id="@+id/tv_episode_count"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:textColor="#CCFFFFFF"
+                      android:textSize="12sp"
+                      android:text="0 episodes"/>
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="  •  "
+                      android:textColor="#66FFFFFF"
+                      android:textSize="12sp"/>
+
+                  <TextView
+                      android:id="@+id/tv_subscriber_count"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:textColor="#CCFFFFFF"
+                      android:textSize="12sp"
+                      android:text="0 subscribers"/>
+              </LinearLayout>
+          </LinearLayout>
+      </FrameLayout>
+
+      <!-- Subscribe + Description row -->
+      <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:padding="16dp"
+          android:gravity="center_vertical">
+
+          <TextView
+              android:id="@+id/tv_series_description"
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:textColor="#AAFFFFFF"
+              android:textSize="13sp"
+              android:layout_marginEnd="12dp"/>
+
+          <TextView
+              android:id="@+id/btn_subscribe"
+              android:layout_width="wrap_content"
+              android:layout_height="38dp"
+              android:text="Subscribe"
+              android:textColor="@android:color/white"
+              android:textSize="13sp"
+              android:textStyle="bold"
+              android:gravity="center"
+              android:paddingStart="18dp"
+              android:paddingEnd="18dp"
+              android:background="@drawable/bg_brand_rounded"
+              android:backgroundTint="@color/brand_primary"/>
+      </LinearLayout>
+
+      <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1AFFFFFF"/>
+
+      <!-- Episode List -->
+      <FrameLayout
+          android:layout_width="match_parent"
+          android:layout_height="0dp"
+          android:layout_weight="1">
+
+          <androidx.recyclerview.widget.RecyclerView
+              android:id="@+id/rv_series_episodes"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:clipToPadding="false"
+              android:paddingBottom="8dp"/>
+
+          <ProgressBar
+              android:id="@+id/progress_series_loading"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="center"
+              android:visibility="gone"/>
+
+          <LinearLayout
+              android:id="@+id/layout_series_empty"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:gravity="center"
+              android:visibility="gone">
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="No episodes yet"
+                  android:textColor="#66FFFFFF"
+                  android:textSize="16sp"/>
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="The first episode will appear here"
+                  android:textColor="#44FFFFFF"
+                  android:textSize="13sp"
+                  android:layout_marginTop="4dp"/>
+          </LinearLayout>
+      </FrameLayout>
+  </LinearLayout>

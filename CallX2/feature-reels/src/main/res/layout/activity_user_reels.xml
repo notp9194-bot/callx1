@@ -572,7 +572,7 @@
         android:id="@+id/tab_layout"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        app:tabMode="fixed"
+        app:tabMode="scrollable"
         app:tabGravity="fill"
         app:tabSelectedTextColor="@color/brand_primary"
         app:tabTextColor="?attr/colorOnSurfaceVariant"
@@ -591,7 +591,15 @@
         <com.google.android.material.tabs.TabItem
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Saved" android:icon="@drawable/ic_bookmark"/>
-    </com.google.android.material.tabs.TabLayout>
+
+          <com.google.android.material.tabs.TabItem
+              android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:text="Reposted" android:icon="@drawable/ic_repost"/>
+
+          <com.google.android.material.tabs.TabItem
+              android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:text="Series" android:icon="@drawable/ic_duet_series"/>
+      </com.google.android.material.tabs.TabLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/divider"/>
@@ -619,6 +627,15 @@
                 android:clipToPadding="false"
                 android:overScrollMode="ifContentScrolls"
                 android:padding="1dp"/>
+
+              <!-- Series tab grid — visibility toggled by UserReelsActivity -->
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_series"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:clipToPadding="false"
+                  android:padding="3dp"
+                  android:visibility="gone"/>
 
             <!-- Private account overlay -->
             <LinearLayout android:id="@+id/layout_private_account"

@@ -623,4 +623,52 @@
             android:textSize="12sp"/>
     </LinearLayout>
 
+      <!-- ── DUET SERIES CHIP ────────────────────────────────────────────────
+           Shown when reel.seriesId != null.
+           • Tap  → opens DuetSeriesActivity for this series
+           • Long → instant subscribe / unsubscribe toast + Firebase toggle
+      -->
+      <LinearLayout
+          android:id="@+id/ll_series_chip"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="bottom|start"
+          android:layout_marginStart="12dp"
+          android:layout_marginBottom="138dp"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:background="#CC1A1A1A"
+          android:paddingStart="10dp"
+          android:paddingEnd="10dp"
+          android:paddingTop="6dp"
+          android:paddingBottom="6dp"
+          android:visibility="gone">
+
+          <TextView
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="🎬"
+              android:textSize="14sp"
+              android:layout_marginEnd="5dp"/>
+
+          <TextView
+              android:id="@+id/tv_series_chip_label"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:textColor="#FFFFFF"
+              android:textSize="12sp"
+              android:fontFamily="sans-serif-medium"
+              android:maxLines="1"
+              android:ellipsize="end"
+              android:maxWidth="200dp"/>
+
+          <TextView
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="  ›"
+              android:textColor="#AAFFFFFF"
+              android:textSize="12sp"/>
+      </LinearLayout>
+
+  
 </FrameLayout>

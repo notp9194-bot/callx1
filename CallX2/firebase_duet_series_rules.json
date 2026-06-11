@@ -1,0 +1,31 @@
+{
+  "rules": {
+    "duetSeries": {
+      "$seriesId": {
+        ".read": true,
+        ".write": "auth != null && (data.child('creatorUid').val() === auth.uid || !data.exists())"
+      }
+    },
+    "duetSeriesSubscriptions": {
+      "$seriesId": {
+        ".read": "auth != null",
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "userSubscribedSeries": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "userDuetSeries": {
+      "$uid": {
+        ".read": true,
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    }
+  }
+}

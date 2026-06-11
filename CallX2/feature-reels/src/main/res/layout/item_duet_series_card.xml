@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <!-- Series card — shown in 2-column grid on UserReelsActivity Series tab -->
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:padding="3dp"
+      android:background="?attr/selectableItemBackground">
+
+      <!-- Cover thumbnail -->
+      <FrameLayout
+          android:layout_width="match_parent"
+          android:layout_height="160dp"
+          android:background="#111111">
+
+          <ImageView
+              android:id="@+id/iv_series_card_cover"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:scaleType="centerCrop"/>
+
+          <!-- Episode count pill (bottom-start) -->
+          <TextView
+              android:id="@+id/tv_series_card_episodes"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="bottom|start"
+              android:layout_margin="5dp"
+              android:paddingStart="6dp"
+              android:paddingEnd="6dp"
+              android:paddingTop="2dp"
+              android:paddingBottom="2dp"
+              android:textColor="@android:color/white"
+              android:textSize="11sp"
+              android:textStyle="bold"
+              android:background="#BB000000"/>
+
+          <!-- NEW badge (top-end) -->
+          <TextView
+              android:id="@+id/tv_series_card_new_badge"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="top|end"
+              android:layout_margin="5dp"
+              android:text="NEW"
+              android:textColor="@android:color/white"
+              android:textSize="10sp"
+              android:textStyle="bold"
+              android:paddingStart="5dp"
+              android:paddingEnd="5dp"
+              android:paddingTop="2dp"
+              android:paddingBottom="2dp"
+              android:backgroundTint="@color/brand_primary"
+              android:background="@drawable/bg_brand_rounded"
+              android:visibility="gone"/>
+
+          <!-- Gradient scrim at bottom -->
+          <View
+              android:layout_width="match_parent"
+              android:layout_height="50dp"
+              android:layout_gravity="bottom"
+              android:background="@drawable/gradient_bottom_scrim"/>
+      </FrameLayout>
+
+      <!-- Series title -->
+      <TextView
+          android:id="@+id/tv_series_card_title"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:textColor="@android:color/white"
+          android:textSize="13sp"
+          android:textStyle="bold"
+          android:maxLines="1"
+          android:ellipsize="end"
+          android:paddingTop="5dp"
+          android:paddingStart="2dp"
+          android:paddingEnd="2dp"/>
+
+      <!-- Subscriber count -->
+      <TextView
+          android:id="@+id/tv_series_card_subscribers"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:textColor="#88FFFFFF"
+          android:textSize="11sp"
+          android:paddingStart="2dp"
+          android:paddingBottom="4dp"/>
+  </LinearLayout>

@@ -121,6 +121,9 @@ public class ReelPlayerFragment extends Fragment
     private LinearLayout    containerHashtags;
     private HorizontalScrollView scrollHashtags;
     private LinearLayout    layoutReactions;
+      // Duet Series chip
+      private LinearLayout    llSeriesChip;
+      private TextView        tvSeriesChipLabel;
     // Feature 11: Music disc
     private ImageView       ivMusicDisc;
     private LinearLayout    layoutMusicTicker;
@@ -367,6 +370,8 @@ public class ReelPlayerFragment extends Fragment
         ivMusicDisc        = v.findViewById(R.id.iv_music_disc);
         layoutMusicTicker  = v.findViewById(R.id.layout_music_ticker);
         layoutLiveReactions = v.findViewById(R.id.layout_live_reactions);
+          llSeriesChip        = v.findViewById(R.id.ll_series_chip);
+          tvSeriesChipLabel   = v.findViewById(R.id.tv_series_chip_label);
         progressVideo     = v.findViewById(R.id.progress_video);
         progressBuffering = v.findViewById(R.id.progress_buffering);
     }
@@ -381,6 +386,87 @@ public class ReelPlayerFragment extends Fragment
             captionText = "🔀 Duet · " + captionText;
         }
         tvCaption.setText(captionText);
+          // ── Duet Series chip ──────────────────────────────────────────────────
+          if (llSeriesChip != null) {
+              if (reel.seriesId != null && !reel.seriesId.isEmpty()) {
+                  String label = "Part " + reel.seriesEpisodeNumber + " of " +
+                                 (reel.seriesTitle != null && !reel.seriesTitle.isEmpty()
+                                  ? reel.seriesTitle : "Series");
+                  if (tvSeriesChipLabel != null) tvSeriesChipLabel.setText(label);
+                  llSeriesChip.setVisibility(android.view.View.VISIBLE);
+
+                  // Tap → open DuetSeriesActivity
+                  llSeriesChip.setOnClickListener(v2 -> {
+                      android.content.Intent si = new android.content.Intent(
+                          requireContext(), com.callx.app.social.DuetSeriesActivity.class);
+                      si.putExtra(com.callx.app.social.DuetSeriesActivity.EXTRA_SERIES_ID,
+                                  reel.seriesId);
+                      startActivity(si);
+                  });
+
+                  // Long-press → instant Subscribe / Unsubscribe toggle
+                  final String finalSeriesId    = reel.seriesId;
+                  final String finalSeriesTitle = reel.seriesTitle != null ? reel.seriesTitle : "Series";
+                  llSeriesChip.setOnLongClickListener(v2 -> {
+                      String myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+                      if (myUid == null || myUid.isEmpty()) {
+                          android.widget.Toast.makeText(requireContext(),
+                              "Login required to subscribe", android.widget.Toast.LENGTH_SHORT).show();
+                          return true;
+                      }
+                      com.google.firebase.database.DatabaseReference subRef =
+                          com.google.firebase.database.FirebaseDatabase
+                              .getInstance(com.callx.app.utils.Constants.DB_URL)
+                              .getReference("duetSeriesSubscriptions")
+                              .child(finalSeriesId).child(myUid);
+                      com.google.firebase.database.DatabaseReference userRef =
+                          com.google.firebase.database.FirebaseDatabase
+                              .getInstance(com.callx.app.utils.Constants.DB_URL)
+                              .getReference("userSubscribedSeries")
+                              .child(myUid).child(finalSeriesId);
+
+                      subRef.addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                          @Override
+                          public void onDataChange(
+                                  @androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                              if (!isAdded()) return;
+                              if (snap.exists()) {
+                                  // Already subscribed → unsubscribe
+                                  subRef.removeValue();
+                                  userRef.removeValue();
+                                  com.google.firebase.database.FirebaseDatabase
+                                      .getInstance(com.callx.app.utils.Constants.DB_URL)
+                                      .getReference("duetSeries").child(finalSeriesId)
+                                      .child("subscriberCount")
+                                      .setValue(com.google.firebase.database.ServerValue.increment(-1));
+                                  android.widget.Toast.makeText(requireContext(),
+                                      "Unsubscribed from " + finalSeriesTitle,
+                                      android.widget.Toast.LENGTH_SHORT).show();
+                              } else {
+                                  // Not subscribed → subscribe
+                                  subRef.setValue(true);
+                                  userRef.setValue(true);
+                                  com.google.firebase.database.FirebaseDatabase
+                                      .getInstance(com.callx.app.utils.Constants.DB_URL)
+                                      .getReference("duetSeries").child(finalSeriesId)
+                                      .child("subscriberCount")
+                                      .setValue(com.google.firebase.database.ServerValue.increment(1));
+                                  android.widget.Toast.makeText(requireContext(),
+                                      "Subscribed to " + finalSeriesTitle + "! 🎬",
+                                      android.widget.Toast.LENGTH_SHORT).show();
+                              }
+                          }
+                          @Override
+                          public void onCancelled(
+                                  @androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                      });
+                      return true; // consumed
+                  });
+              } else {
+                  llSeriesChip.setVisibility(android.view.View.GONE);
+              }
+          }
+  
         // Bottom music ticker: title with artist suffix
         String musicDisplay = reel.musicName != null && !reel.musicName.isEmpty()
             ? reel.musicName : "Original Audio";

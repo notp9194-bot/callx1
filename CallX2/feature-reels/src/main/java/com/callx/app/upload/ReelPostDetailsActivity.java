@@ -45,6 +45,11 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
     public static final String RESULT_ALLOW_DUET   = "result_allow_duet";
     public static final String RESULT_ALLOW_STITCH = "result_allow_stitch";
     public static final String RESULT_ALLOW_COMMENTS = "result_allow_comments";
+      public static final String RESULT_SERIES_ID      = "result_series_id";
+      public static final String RESULT_SERIES_TITLE   = "result_series_title";
+      public static final String RESULT_EPISODE_NUMBER = "result_episode_number";
+
+  
 
     private TextInputEditText etCaption, etLocation, etCollabSearch;
     private TextView    tvCharCount, btnNext, btnBack;
@@ -55,10 +60,16 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
     private ImageButton btnClearCollab;
     private ChipGroup   cgHashtagSuggestions;
     private ProgressBar progressCollab;
+    private TextView     tvSeriesPicker;
 
     private String selectedAudience = "everyone";
     private String collabUid        = null;
     private final List<String> suggestedHashtags = new ArrayList<>();
+      private String selectedSeriesId    = null;
+      private String selectedSeriesTitle = null;
+      private int    selectedEpisodeNumber = 0;
+
+  
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,6 +100,7 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
         btnClearCollab    = findViewById(R.id.btn_clear_collab);
         cgHashtagSuggestions = findViewById(R.id.cg_hashtag_suggestions);
         progressCollab    = findViewById(R.id.progress_collab);
+        tvSeriesPicker    = findViewById(R.id.tv_series_picker);
 
         swAllowComments.setChecked(true);
         swAllowDuet.setChecked(true);
@@ -113,7 +125,32 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
         }
     }
 
-    private void setupCaptionWatcher() {
+    
+      private void openSeriesPicker() {
+          com.callx.app.social.DuetSeriesPickerBottomSheet sheet =
+              new com.callx.app.social.DuetSeriesPickerBottomSheet();
+          sheet.setSeriesPickListener(new com.callx.app.social.DuetSeriesPickerBottomSheet.SeriesPickListener() {
+              @Override
+              public void onSeriesPicked(String id, String title, int nextEp) {
+                  selectedSeriesId      = id;
+                  selectedSeriesTitle   = title;
+                  selectedEpisodeNumber = nextEp;
+                  if (tvSeriesPicker != null)
+                      tvSeriesPicker.setText("Series: " + title + "  (Part " + nextEp + ")");
+              }
+              @Override
+              public void onSeriesCleared() {
+                  selectedSeriesId      = null;
+                  selectedSeriesTitle   = null;
+                  selectedEpisodeNumber = 0;
+                  if (tvSeriesPicker != null)
+                      tvSeriesPicker.setText("Add to Duet Series");
+              }
+          });
+          sheet.show(getSupportFragmentManager(), "series_picker");
+      }
+
+  private void setupCaptionWatcher() {
         etCaption.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
@@ -188,6 +225,11 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
     }
 
     private void setupClickListeners() {
+          // Duet Series picker
+          if (tvSeriesPicker != null) {
+              tvSeriesPicker.setOnClickListener(v -> openSeriesPicker());
+          }
+  
         btnBack.setOnClickListener(v -> finish());
         btnNext.setOnClickListener(v -> {
             String caption = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";

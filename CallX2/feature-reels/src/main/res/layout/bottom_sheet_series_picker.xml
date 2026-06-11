@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="@color/background_dark"
+      android:paddingTop="16dp"
+      android:paddingBottom="32dp">
+
+      <!-- Handle bar -->
+      <View
+          android:layout_width="40dp"
+          android:layout_height="4dp"
+          android:layout_gravity="center_horizontal"
+          android:background="#44FFFFFF"
+          android:layout_marginBottom="16dp"/>
+
+      <TextView
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="Add to Duet Series"
+          android:textColor="@android:color/white"
+          android:textSize="17sp"
+          android:textStyle="bold"
+          android:paddingStart="16dp"
+          android:paddingEnd="16dp"
+          android:layout_marginBottom="4dp"/>
+
+      <TextView
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="Pick a series or create a new one"
+          android:textColor="#88FFFFFF"
+          android:textSize="13sp"
+          android:paddingStart="16dp"
+          android:paddingEnd="16dp"
+          android:layout_marginBottom="16dp"/>
+
+      <ProgressBar
+          android:id="@+id/progress_series_load"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="center_horizontal"
+          android:visibility="gone"
+          android:layout_marginBottom="8dp"/>
+
+      <!-- My existing series list -->
+      <androidx.recyclerview.widget.RecyclerView
+          android:id="@+id/rv_my_series"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:maxHeight="200dp"
+          android:nestedScrollingEnabled="false"/>
+
+      <!-- Empty state -->
+      <LinearLayout
+          android:id="@+id/layout_no_series"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="vertical"
+          android:gravity="center"
+          android:padding="16dp"
+          android:visibility="gone">
+          <TextView
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="No series yet — create your first one below"
+              android:textColor="#66FFFFFF"
+              android:textSize="13sp"
+              android:gravity="center"/>
+      </LinearLayout>
+
+      <View android:layout_width="match_parent" android:layout_height="1dp"
+          android:background="#1AFFFFFF" android:layout_marginTop="12dp" android:layout_marginBottom="12dp"/>
+
+      <!-- Action buttons -->
+      <TextView
+          android:id="@+id/btn_create_new_series"
+          android:layout_width="match_parent"
+          android:layout_height="48dp"
+          android:text="+ Create New Series"
+          android:textColor="@color/brand_primary"
+          android:textSize="15sp"
+          android:textStyle="bold"
+          android:gravity="center_vertical"
+          android:paddingStart="16dp"
+          android:background="?attr/selectableItemBackground"/>
+
+      <TextView
+          android:id="@+id/btn_clear_series"
+          android:layout_width="match_parent"
+          android:layout_height="48dp"
+          android:text="No Series (Post as standalone)"
+          android:textColor="#88FFFFFF"
+          android:textSize="14sp"
+          android:gravity="center_vertical"
+          android:paddingStart="16dp"
+          android:background="?attr/selectableItemBackground"/>
+  </LinearLayout>

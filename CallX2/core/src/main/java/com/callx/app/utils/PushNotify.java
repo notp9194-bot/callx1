@@ -611,4 +611,36 @@ public class PushNotify {
             }
         });
     }
+      // ── Duet Series episode notify ─────────────────────────────────────────
+      /**
+       * Notify a single subscriber that a new episode was posted in a Duet Series.
+       *
+       * Sent to Constants.SERVER_URL/notify/reel with type "duet_series_episode".
+       * The server reads the subscriber's FCM token and sends:
+       *   reel_notif_type: "duet_series_episode"
+       * → CallxMessagingService → ReelFCMNotificationHandler → TYPE_DUET_SERIES_EPISODE
+       */
+      public static void notifyDuetSeriesEpisode(
+              String toUid, String fromUid, String fromName, String fromPhoto,
+              String reelId, String reelThumb,
+              String seriesId, String seriesTitle, int episodeNumber) {
+          try {
+              JSONObject body = new JSONObject()
+                  .put("toUid",          toUid)
+                  .put("fromUid",        fromUid       != null ? fromUid       : "")
+                  .put("fromName",       fromName      != null ? fromName      : "")
+                  .put("fromPhoto",      fromPhoto     != null ? fromPhoto     : "")
+                  .put("reel_id",        reelId        != null ? reelId        : "")
+                  .put("reel_thumb",     reelThumb     != null ? reelThumb     : "")
+                  .put("series_id",      seriesId      != null ? seriesId      : "")
+                  .put("series_title",   seriesTitle   != null ? seriesTitle   : "")
+                  .put("episode_number", episodeNumber)
+                  .put("type",           "duet_series_episode");
+              postAsync(Constants.SERVER_URL + "/notify/reel", body);
+          } catch (Exception e) {
+              Log.w("PushNotify", "notifyDuetSeriesEpisode err: " + e.getMessage());
+          }
+      }
+
+  
 }

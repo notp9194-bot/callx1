@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:orientation="vertical"
+      android:padding="24dp"
+      android:background="@color/background_dark">
+
+      <TextView
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="Create Duet Series"
+          android:textColor="@android:color/white"
+          android:textSize="22sp"
+          android:textStyle="bold"
+          android:layout_marginBottom="8dp"/>
+
+      <TextView
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="Group your duets as numbered episodes. Subscribers get notified with each new part."
+          android:textColor="#AAFFFFFF"
+          android:textSize="13sp"
+          android:layout_marginBottom="28dp"/>
+
+      <com.google.android.material.textfield.TextInputLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:hint="Series Title (e.g. My Cooking Series)"
+          style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+          android:layout_marginBottom="16dp">
+          <EditText
+              android:id="@+id/et_series_title"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:maxLength="60"
+              android:inputType="textCapSentences"
+              android:textColor="@android:color/white"/>
+      </com.google.android.material.textfield.TextInputLayout>
+
+      <com.google.android.material.textfield.TextInputLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:hint="Description (optional)"
+          style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+          android:layout_marginBottom="32dp">
+          <EditText
+              android:id="@+id/et_series_description"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:maxLength="200"
+              android:inputType="textMultiLine|textCapSentences"
+              android:minLines="2"
+              android:textColor="@android:color/white"/>
+      </com.google.android.material.textfield.TextInputLayout>
+
+      <ProgressBar
+          android:id="@+id/progress_series_create"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="center"
+          android:visibility="gone"
+          android:layout_marginBottom="12dp"/>
+
+      <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:gravity="end">
+
+          <TextView
+              android:id="@+id/btn_cancel_series"
+              android:layout_width="wrap_content"
+              android:layout_height="48dp"
+              android:text="Cancel"
+              android:textColor="#AAFFFFFF"
+              android:textSize="15sp"
+              android:gravity="center"
+              android:paddingStart="20dp"
+              android:paddingEnd="20dp"
+              android:layout_marginEnd="12dp"/>
+
+          <TextView
+              android:id="@+id/btn_create_series"
+              android:layout_width="wrap_content"
+              android:layout_height="48dp"
+              android:text="Create"
+              android:textColor="@android:color/white"
+              android:textSize="15sp"
+              android:textStyle="bold"
+              android:gravity="center"
+              android:paddingStart="24dp"
+              android:paddingEnd="24dp"
+              android:background="@drawable/bg_brand_rounded"
+              android:backgroundTint="@color/brand_primary"/>
+      </LinearLayout>
+  </LinearLayout>

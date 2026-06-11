@@ -91,6 +91,24 @@ public class ReelModel {
     /** Running count of stitches made on this reel. */
     public int     stitchCount;
 
+    
+      // ── Duet Series fields ───────────────────────────────────────────────────
+      /**
+       * ID of the DuetSeriesModel this reel belongs to.
+       * null = not part of any series.
+       */
+      public String seriesId;
+      /**
+       * Episode number within the series (1, 2, 3 …).
+       * 0 = not part of a series.
+       */
+      public int    seriesEpisodeNumber;
+      /**
+       * Cached series title — stored on the reel so feed can show
+       * "Part 3 of Cooking Adventures" without a extra fetch.
+       */
+      public String seriesTitle;
+  
     public ReelModel() {}
 
     public ReelModel(String reelId, String uid, String ownerName, String ownerPhoto,

@@ -169,6 +169,42 @@ public class ReelFCMNotificationHandler {
                 });
                 break;
 
+                  case "duet_series_episode": {
+                      // New episode posted in a Duet Series the user subscribed to
+                      final String senderName  = data.get("fromName")    != null ? data.get("fromName")    : "Someone";
+                      final String senderPhoto = data.get("fromPhoto")   != null ? data.get("fromPhoto")   : "";
+                      final String fReelId     = data.get("reel_id")     != null ? data.get("reel_id")     : "";
+                      final String fReelThumb  = data.get("reel_thumb")  != null ? data.get("reel_thumb")  : "";
+                      final String fSeriesId   = data.get("series_id")   != null ? data.get("series_id")   : "";
+                      final String fSeriesTitle= data.get("series_title") != null ? data.get("series_title") : "Duet Series";
+                      final int fEpNum = parseInt(data.get("episode_number"), 1);
+                      Executors.newSingleThreadExecutor().execute(() -> {
+                          Bitmap avatar = downloadCircle(ctx, senderPhoto, 80);
+                          Bitmap thumb  = downloadBitmapRaw(ctx, fReelThumb, 300);
+                          String title   = fSeriesTitle;
+                          String ticker  = senderName + " posted Part " + fEpNum + " of " + title;
+                          Intent intent  = new Intent(ctx, com.callx.app.player.SingleReelPlayerActivity.class);
+                          intent.putExtra("reel_id", fReelId);
+                          intent.putExtra("series_id", fSeriesId);
+                          intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                          PendingIntent pi = PendingIntent.getActivity(ctx, fReelId.hashCode(),
+                              intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                          NotificationCompat.Builder nb = new NotificationCompat.Builder(ctx,
+                                  com.callx.app.reels.R.string.reel_notif_channel_id + "")
+                              .setSmallIcon(com.callx.app.reels.R.drawable.ic_reel_notification)
+                              .setContentTitle(ticker)
+                              .setContentText("Tap to watch Part " + fEpNum)
+                              .setAutoCancel(true)
+                              .setContentIntent(pi)
+                              .setPriority(NotificationCompat.PRIORITY_HIGH);
+                          if (avatar != null) nb.setLargeIcon(avatar);
+                          if (thumb  != null) nb.setStyle(new NotificationCompat.BigPictureStyle()
+                              .bigPicture(thumb).bigLargeIcon((android.graphics.Bitmap) null));
+                          showNotifDirect(ctx, nb, fReelId.hashCode() + 7070);
+                      });
+                      break;
+                  }
+  
             // ── GROUP B: Sender-aware (10 types) ─────────────────────────────────
             // Outer executor ensures Helper's show* call (and its inner executor)
             // is dispatched within the FCM wakelock window.
