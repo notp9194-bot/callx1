@@ -22,6 +22,7 @@
             android:layout_width="14dp"
             android:layout_height="14dp"
             android:src="@drawable/ic_pin"
+            android:tint="#00E5FF"
             android:layout_marginEnd="4dp"/>
 
         <TextView
@@ -50,20 +51,22 @@
             android:layout_marginEnd="10dp"
             android:layout_marginTop="2dp">
 
-            <ImageView
-                android:id="@+id/iv_story_ring"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:layout_gravity="center"
-                android:background="@drawable/circle_status_unseen"
-                android:visibility="gone"/>
-
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_avatar"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_person"/>
+
+            <ImageView
+                android:id="@+id/iv_story_ring"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_gravity="center"
+                android:background="@drawable/circle_status_unseen"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone"/>
 
         </FrameLayout>
 
@@ -88,7 +91,7 @@
                     android:text="Username"
                     android:textSize="13sp"
                     android:fontFamily="sans-serif-medium"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="#FFFFFF"/>
 
                 <TextView
                     android:id="@+id/tv_time"
@@ -123,7 +126,7 @@
                 android:maxLines="8"
                 android:ellipsize="end"/>
 
-            <!-- Emoji reaction strip -->
+            <!-- Emoji reaction strip (shown when reactions exist) -->
             <LinearLayout
                 android:id="@+id/layout_reactions"
                 android:layout_width="match_parent"
@@ -188,6 +191,7 @@
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:src="@drawable/ic_heart"
+            android:tint="#FF416C"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Like comment"
                 android:padding="6dp"/>

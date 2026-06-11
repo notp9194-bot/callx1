@@ -50,8 +50,8 @@
                     android:paddingHorizontal="12dp" android:inputType="text"/>
                 <ImageButton android:id="@+id/btn_live_send_comment" android:layout_width="44dp"
                     android:layout_height="44dp" android:src="@drawable/ic_send"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="#FFFFFF" android:layout_marginStart="8dp"/>
+            android:tint="#00C6FF"
+                    android:background="?attr/selectableItemBackgroundBorderless" android:layout_marginStart="8dp"/>
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
                 android:orientation="horizontal" android:gravity="center" android:paddingBottom="8dp">

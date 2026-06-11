@@ -70,7 +70,8 @@
         android:paddingBottom="24dp">
         <ImageButton android:id="@+id/btn_recorder_play" android:layout_width="52dp"
             android:layout_height="52dp" android:background="@drawable/bg_circle_white"
-            android:src="@drawable/ic_play" android:tint="#FFFFFF"
+            android:src="@drawable/ic_play"
+            android:tint="#A855F7"
             android:layout_marginEnd="16dp" android:visibility="gone"/>
         <ImageButton android:id="@+id/btn_recorder_retake" android:layout_width="52dp"
             android:layout_height="52dp" android:background="@drawable/bg_circle_white"

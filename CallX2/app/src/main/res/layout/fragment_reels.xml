@@ -15,8 +15,8 @@
         android:orientation="vertical"/>
 
     <!-- ── Top bar ──
-         paddingTop is set in ReelsFragment via WindowInsetsCompat to = statusBarHeight,
-         so this header always sits just below the status bar on all devices.
+         Starts at y=0 — status bar is hidden in full-screen reel mode.
+         gradient_reel_top background ensures icons are readable over video.
     -->
     <LinearLayout
         android:id="@+id/top_bar"
@@ -65,7 +65,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Following"
-                android:textColor="#FFFFFF"
+                android:textColor="#00C6FF"
                 android:textSize="15sp"
                 android:fontFamily="sans-serif"
                 android:paddingEnd="12dp"
@@ -78,8 +78,8 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_search"
+            android:tint="#6BCFEF"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="@color/white"
             android:contentDescription="Search"
             android:layout_marginEnd="4dp"/>
 
