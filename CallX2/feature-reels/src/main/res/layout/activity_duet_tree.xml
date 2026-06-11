@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent" android:layout_height="match_parent"
+      android:background="#000000">
+
+      <com.callx.app.views.DuetTreeView android:id="@+id/duet_tree_view"
+          android:layout_width="match_parent" android:layout_height="match_parent"/>
+
+      <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingHorizontal="12dp" android:background="#AA000000">
+          <ImageButton android:id="@+id/btn_tree_back"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_arrow_left" android:background="?attr/selectableItemBackgroundBorderless"
+              android:tint="#FFFFFF"/>
+          <TextView android:id="@+id/tv_tree_title"
+              android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+              android:text="Duet Tree" android:textColor="#FFFFFF" android:textSize="17sp"
+              android:textStyle="bold" android:layout_marginStart="8dp"/>
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:text="Pinch to zoom" android:textColor="#888888" android:textSize="11sp"/>
+      </LinearLayout>
+
+      <ProgressBar android:id="@+id/progress_tree"
+          android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:layout_gravity="center"/>
+  </FrameLayout>

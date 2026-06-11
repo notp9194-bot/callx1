@@ -1,0 +1,49 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+    "reels": {
+      ".indexOn": [
+        "duetOf",
+        "duetRootId",
+        "stitchOf",
+        "challengeId",
+        "uid"
+      ]
+    },
+    "duet_battles": {
+      ".indexOn": [
+        "status",
+        "originalReelId",
+        "uidA",
+        "uidB"
+      ]
+    },
+    "duet_battle_votes": {},
+    "duet_challenges": {
+      ".indexOn": [
+        "status",
+        "hostUid",
+        "hashtag"
+      ]
+    },
+    "duet_pending": {
+      ".indexOn": [
+        "originalReelId",
+        "submittedAt"
+      ]
+    },
+    "duet_invites": {
+      ".indexOn": [
+        "fromUid",
+        "status"
+      ]
+    },
+    "multi_duet_sessions": {
+      ".indexOn": [
+        "hostUid",
+        "status"
+      ]
+    }
+  }
+}

@@ -359,5 +359,15 @@
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar"/>
 
+    
+          <!-- ── Advanced Duet Features v10 ── -->
+          <activity android:name=".social.DuetInviteActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name=".social.DuetApprovalQueueActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name=".social.DuetBattleActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name=".social.DuetBattleCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name=".social.MultiDuetActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name=".social.DuetChallengeCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name=".social.DuetChallengeLeaderboardActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name=".social.DuetTreeActivity" android:screenOrientation="portrait" android:exported="false"/>
     </application>
 </manifest>

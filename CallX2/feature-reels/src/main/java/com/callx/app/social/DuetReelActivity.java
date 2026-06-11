@@ -111,10 +111,6 @@ public class DuetReelActivity extends AppCompatActivity {
     private float      bubbleScreenX = 0f;
     private float      bubbleScreenY = 0f;
     private boolean    bubblePosSet  = false;
-      // Draggable split divider state (Improvement v10)
-      private float splitRatio     = 0.5f;   // 0.0 – 1.0; 0.5 = equal split
-      private View  dividerHandle  = null;   // injected in applyLayoutToViews
-  
 
     // ── Camera / player ───────────────────────────────────────────────────────
     private ExoPlayer              exoPlayer;
@@ -291,12 +287,22 @@ public class DuetReelActivity extends AppCompatActivity {
 
     private void setupLayoutSelector() {
         if (btnLayoutSideBySide == null) return;
-        // ✅ IMPROVEMENT (LAYOUT CHOOSER): single click → showLayoutChooser()
-          View.OnClickListener openChooser = v -> showLayoutChooser();
-          btnLayoutSideBySide.setOnClickListener(openChooser);
-          btnLayoutTopBottom.setOnClickListener(openChooser);
-          btnLayoutPip.setOnClickListener(openChooser);
-          btnLayoutReactionBubble.setOnClickListener(openChooser)
+        btnLayoutSideBySide.setOnClickListener(v -> setLayoutMode(LAYOUT_SIDE_BY_SIDE));
+        btnLayoutTopBottom.setOnClickListener(v -> setLayoutMode(LAYOUT_TOP_BOTTOM));
+        btnLayoutPip.setOnClickListener(v -> setLayoutMode(LAYOUT_REACT_PIP));
+        if (btnLayoutReactionBubble != null)
+            btnLayoutReactionBubble.setOnClickListener(v -> setLayoutMode(LAYOUT_REACTION_BUBBLE));
+        setLayoutMode(LAYOUT_SIDE_BY_SIDE);
+    }
+
+    private void setLayoutMode(int mode) {
+        // ✅ FIX (GAP #7 — v8): Prevent layout changes during active recording.
+        // Switching layout mid-record would corrupt the compositor frame sequence.
+        if (isRecording) {
+            android.widget.Toast.makeText(this,
+                "Cannot change layout while recording", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
         layoutMode = mode;
         if (btnLayoutSideBySide     != null) btnLayoutSideBySide.setAlpha(mode == LAYOUT_SIDE_BY_SIDE    ? 1f : 0.4f);
         if (btnLayoutTopBottom      != null) btnLayoutTopBottom.setAlpha(mode == LAYOUT_TOP_BOTTOM       ? 1f : 0.4f);
@@ -842,249 +848,6 @@ public class DuetReelActivity extends AppCompatActivity {
           if (previewViewCamera == null) return;
           previewViewCamera.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
           previewViewCamera.setClipToOutline(false);
-      }
-
-      // ── Animated countdown overlay ──────────────────────────────────────────
-
-      /**
-       * ✅ IMPROVEMENT (COUNTDOWN): Shows a full-screen animated 3 → 2 → 1 → GO!
-       * overlay before recording begins.  Each digit scales from 1.4x → 1.0x + fades out.
-       * Calls onDone.run() when the sequence finishes.
-       */
-      private void showAnimatedCountdown(Runnable onDone) {
-          // Create overlay programmatically — no layout XML needed
-          android.widget.FrameLayout overlay = new android.widget.FrameLayout(this);
-          overlay.setBackgroundColor(0x88000000); // semi-transparent black
-
-          android.widget.TextView tv = new android.widget.TextView(this);
-          tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 120);
-          tv.setTextColor(0xFFFFFFFF);
-          tv.setTypeface(null, android.graphics.Typeface.BOLD);
-          tv.setGravity(android.view.Gravity.CENTER);
-          tv.setShadowLayer(12f, 2f, 2f, 0xFF000000);
-
-          android.widget.FrameLayout.LayoutParams lp =
-                  new android.widget.FrameLayout.LayoutParams(
-                          android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                          android.view.ViewGroup.LayoutParams.MATCH_PARENT);
-          overlay.addView(tv, lp);
-
-          android.view.ViewGroup root = (android.view.ViewGroup) getWindow().getDecorView()
-                  .findViewById(android.R.id.content);
-          root.addView(overlay);
-
-          final String[] labels = {"3", "2", "1", "GO!"};
-          final int[]    colors = {0xFFFF5252, 0xFFFFAB40, 0xFF69F0AE, 0xFF40C4FF};
-          final int[]    step   = {0};
-
-          Runnable[] tick = {null};
-          tick[0] = () -> {
-              if (step[0] >= labels.length) {
-                  root.removeView(overlay);
-                  onDone.run();
-                  return;
-              }
-              tv.setText(labels[step[0]]);
-              tv.setTextColor(colors[step[0]]);
-              tv.setAlpha(1f);
-              tv.setScaleX(1.4f);
-              tv.setScaleY(1.4f);
-
-              tv.animate()
-                .scaleX(0.9f).scaleY(0.9f).alpha(0f)
-                .setDuration(750)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                .withEndAction(() -> {
-                    step[0]++;
-                    tv.postDelayed(tick[0], 80);
-                })
-                .start();
-          };
-          tv.post(tick[0]);
-      }
-
-      // ── Split-screen drag divider (Improvement v10) ────────────────────────────
-
-      /**
-       * ✅ IMPROVEMENT (SPLIT DRAG): injects a thin draggable handle between the two
-       * video panels for LAYOUT_SIDE_BY_SIDE (horizontal drag).
-       */
-      private void setupSplitDivider(boolean horizontal) {
-          android.view.ViewGroup parent =
-                  (android.view.ViewGroup) playerViewOriginal.getParent();
-          if (parent == null) return;
-
-          // Remove old handle if present
-          if (dividerHandle != null && dividerHandle.getParent() != null)
-              ((android.view.ViewGroup) dividerHandle.getParent()).removeView(dividerHandle);
-
-          dividerHandle = new View(this);
-          dividerHandle.setBackgroundColor(0xCCFFFFFF); // subtle white divider
-
-          if (horizontal) {
-              dividerHandle.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
-                      (int)(4 * getResources().getDisplayMetrics().density),
-                      android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-          } else {
-              dividerHandle.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
-                      android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                      (int)(4 * getResources().getDisplayMetrics().density)));
-          }
-
-          // Insert between the two views
-          int idx1 = parent.indexOfChild(playerViewOriginal);
-          parent.addView(dividerHandle, idx1 + 1);
-
-          dividerHandle.setOnTouchListener((v, ev) -> {
-              if (parent.getWidth() == 0) return false;
-              float ratio;
-              if (horizontal) {
-                  ratio = Math.max(0.15f, Math.min(0.85f, ev.getRawX() / parent.getWidth()));
-              } else {
-                  ratio = Math.max(0.15f, Math.min(0.85f, ev.getRawY() / parent.getHeight()));
-              }
-              splitRatio = ratio;
-              android.widget.LinearLayout.LayoutParams lp1 =
-                      (android.widget.LinearLayout.LayoutParams) playerViewOriginal.getLayoutParams();
-              android.widget.LinearLayout.LayoutParams lp2 =
-                      (android.widget.LinearLayout.LayoutParams) previewViewCamera.getLayoutParams();
-              lp1.weight = splitRatio;
-              lp2.weight = 1f - splitRatio;
-              playerViewOriginal.setLayoutParams(lp1);
-              previewViewCamera.setLayoutParams(lp2);
-              return true;
-          });
-      }
-
-      // ── Layout chooser bottom sheet (Improvement v10) ──────────────────────────
-
-      private static final String[] LAYOUT_LABELS = {
-          "Side by Side", "Top / Bottom", "Picture in Picture", "Reaction Bubble"
-      };
-      private static final String[] LAYOUT_DESCS = {
-          "Equal split left–right",
-          "Equal split top–bottom",
-          "Your camera fills 70%, original in corner",
-          "You appear as a draggable bubble"
-      };
-      private static final int[] LAYOUT_ICONS = {
-          android.R.drawable.ic_menu_sort_by_size,
-          android.R.drawable.ic_menu_sort_by_size,
-          android.R.drawable.ic_dialog_map,
-          android.R.drawable.ic_menu_compass
-      };
-
-      /**
-       * ✅ IMPROVEMENT (LAYOUT CHOOSER): Shows a styled AlertDialog as a layout picker.
-       * Highlights the currently active layout. Immediate live preview on selection.
-       */
-      private void showLayoutChooser() {
-          final int[] layoutIds = {
-              LAYOUT_SIDE_BY_SIDE, LAYOUT_TOP_BOTTOM,
-              LAYOUT_REACT_PIP, LAYOUT_REACTION_BUBBLE
-          };
-          android.widget.LinearLayout container = new android.widget.LinearLayout(this);
-          container.setOrientation(android.widget.LinearLayout.VERTICAL);
-          container.setPadding(0, 24, 0, 8);
-
-          for (int i = 0; i < LAYOUT_LABELS.length; i++) {
-              final int idx = i;
-              android.widget.LinearLayout row = new android.widget.LinearLayout(this);
-              row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-              row.setPadding(48, 24, 48, 24);
-              row.setClickable(true);
-              row.setFocusable(true);
-
-              // Highlight current
-              if (layoutIds[i] == layoutMode) {
-                  row.setBackgroundColor(0x220088FF);
-              }
-
-              android.widget.ImageView icon = new android.widget.ImageView(this);
-              icon.setImageResource(LAYOUT_ICONS[i]);
-              icon.setColorFilter(layoutIds[i] == layoutMode ? 0xFF0088FF : 0xFF888888);
-              int dp32 = (int)(32 * getResources().getDisplayMetrics().density);
-              icon.setLayoutParams(new android.widget.LinearLayout.LayoutParams(dp32, dp32));
-
-              android.widget.LinearLayout textBlock = new android.widget.LinearLayout(this);
-              textBlock.setOrientation(android.widget.LinearLayout.VERTICAL);
-              android.widget.LinearLayout.LayoutParams tlp =
-                      new android.widget.LinearLayout.LayoutParams(0,
-                              android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-              tlp.setMarginStart((int)(16 * getResources().getDisplayMetrics().density));
-              textBlock.setLayoutParams(tlp);
-
-              android.widget.TextView tvTitle = new android.widget.TextView(this);
-              tvTitle.setText(LAYOUT_LABELS[i]);
-              tvTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
-              tvTitle.setTextColor(layoutIds[i] == layoutMode ? 0xFF0088FF : 0xFFFFFFFF);
-              tvTitle.setTypeface(null, layoutIds[i] == layoutMode
-                      ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-
-              android.widget.TextView tvDesc = new android.widget.TextView(this);
-              tvDesc.setText(LAYOUT_DESCS[i]);
-              tvDesc.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
-              tvDesc.setTextColor(0xFF888888);
-
-              textBlock.addView(tvTitle);
-              textBlock.addView(tvDesc);
-              row.addView(icon);
-              row.addView(textBlock);
-
-              final android.app.AlertDialog[] dlgRef = {null};
-              row.setOnClickListener(v2 -> {
-                  layoutMode = layoutIds[idx];
-                  applyLayoutToViews(layoutMode);
-                  highlightLayoutButton(layoutMode);
-                  if (dlgRef[0] != null) dlgRef[0].dismiss();
-              });
-              container.addView(row);
-
-              // Add thin divider between items
-              if (i < LAYOUT_LABELS.length - 1) {
-                  View sep = new View(this);
-                  sep.setBackgroundColor(0x33FFFFFF);
-                  sep.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
-                          android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1));
-                  container.addView(sep);
-              }
-          }
-
-          android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(this)
-              .setTitle("Choose Duet Layout")
-              .setView(container)
-              .setNegativeButton("Cancel", null)
-              .create();
-          // Pass ref so rows can dismiss
-          android.app.AlertDialog[] arr = {dlg};
-          for (int i = 0; i < container.getChildCount(); i++) {
-              android.view.View child = container.getChildAt(i);
-              if (child instanceof android.widget.LinearLayout) {
-                  android.view.View.OnClickListener old = null;
-                  child.setTag(arr);
-                  child.setOnClickListener(v2 -> {
-                      Object tag = v2.getTag();
-                      if (tag instanceof android.app.AlertDialog[]) {
-                          ((android.app.AlertDialog[]) tag)[0].dismiss();
-                      }
-                  });
-              }
-          }
-          dlg.show();
-      }
-
-      /** Update which layout button appears highlighted/selected. */
-      private void highlightLayoutButton(int mode) {
-          View[] btns = {btnLayoutSideBySide, btnLayoutTopBottom,
-                          btnLayoutPip, btnLayoutReactionBubble};
-          int[] modes = {LAYOUT_SIDE_BY_SIDE, LAYOUT_TOP_BOTTOM,
-                          LAYOUT_REACT_PIP, LAYOUT_REACTION_BUBBLE};
-          for (int i = 0; i < btns.length; i++) {
-              if (btns[i] == null) continue;
-              btns[i].setAlpha(modes[i] == mode ? 1.0f : 0.4f);
-              btns[i].setScaleX(modes[i] == mode ? 1.1f : 1.0f);
-              btns[i].setScaleY(modes[i] == mode ? 1.1f : 1.0f);
-          }
       }
 
       @Override

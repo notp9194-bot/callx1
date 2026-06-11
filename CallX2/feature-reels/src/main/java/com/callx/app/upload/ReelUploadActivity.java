@@ -103,8 +103,6 @@ public class ReelUploadActivity extends AppCompatActivity {
     private ImageView         ivThumbPreview;
     private View              layoutPickVideo, layoutCompression, layoutVideoInfo;
     private View              layoutUploadProgress;
-      private boolean           uploadCancelled = false; // ✅ IMPROVEMENT v10: cancel support
-      private com.google.android.gms.tasks.Task<?>  activeUploadTask = null;
     private ProgressBar       progressCompress, progressUpload;
     private TextView          tvCompressStatus, tvUploadStatus;
     private TextView          tvVideoInfo, tvCompressionSavings;
@@ -807,48 +805,5 @@ public class ReelUploadActivity extends AppCompatActivity {
     protected void onDestroy() {
         releasePreviewPlayer();
         super.onDestroy();
-    }    // ── Upload cancel (Improvement v10) ────────────────────────────────────────
-
-      /**
-       * ✅ IMPROVEMENT v10: Shows/hides a Cancel button inside the upload progress layout.
-       * The button sets uploadCancelled = true and attempts to cancel the running task.
-       */
-      private void showUploadCancelButton(boolean show) {
-          if (layoutUploadProgress == null) return;
-          View cancelBtn = layoutUploadProgress.findViewWithTag("btn_cancel_upload");
-          if (cancelBtn == null && show) {
-              // Create cancel button dynamically if not in XML
-              android.widget.Button btn = new android.widget.Button(this);
-              btn.setTag("btn_cancel_upload");
-              btn.setText("Cancel Upload");
-              btn.setTextColor(0xFFFF5252);
-              btn.setBackgroundColor(0x22FF5252);
-              btn.setAllCaps(false);
-              btn.setPadding(32, 16, 32, 16);
-              btn.setOnClickListener(v -> {
-                  uploadCancelled = true;
-                  layoutUploadProgress.setVisibility(View.GONE);
-                  btnPostReel.setEnabled(true);
-                  tvUploadStatus.setText("Upload cancelled.");
-                  showUploadCancelButton(false);
-                  android.widget.Toast.makeText(this,
-                      "Upload cancelled", android.widget.Toast.LENGTH_SHORT).show();
-              });
-              if (layoutUploadProgress instanceof android.widget.LinearLayout) {
-                  ((android.widget.LinearLayout) layoutUploadProgress).addView(btn);
-              } else if (layoutUploadProgress instanceof android.widget.RelativeLayout) {
-                  android.widget.RelativeLayout.LayoutParams lp =
-                      new android.widget.RelativeLayout.LayoutParams(
-                          android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                          android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                  lp.addRule(android.widget.RelativeLayout.BELOW,
-                      layoutUploadProgress.getId());
-                  ((android.widget.RelativeLayout) layoutUploadProgress).addView(btn, lp);
-              }
-          } else if (cancelBtn != null) {
-              cancelBtn.setVisibility(show ? View.VISIBLE : View.GONE);
-          }
-      }
-
-  
+    }
 }

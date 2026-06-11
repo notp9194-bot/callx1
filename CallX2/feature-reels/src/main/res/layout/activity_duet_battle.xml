@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent" android:layout_height="match_parent"
+      android:orientation="vertical" android:background="#000000">
+
+      <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
+          android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="12dp">
+          <ImageButton android:id="@+id/btn_battle_back"
+              android:layout_width="40dp" android:layout_height="40dp"
+              android:src="@drawable/ic_arrow_left" android:background="?attr/selectableItemBackgroundBorderless"
+              android:tint="#FFFFFF"/>
+          <TextView android:id="@+id/tv_battle_countdown"
+              android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+              android:text="48h 0m left" android:textColor="#FFD700" android:textSize="13sp"
+              android:gravity="center"/>
+          <TextView android:id="@+id/tv_battle_status"
+              android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:textColor="#FFD700" android:textSize="13sp" android:visibility="gone"/>
+      </LinearLayout>
+
+      <!-- Two video panels side-by-side -->
+      <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+          android:orientation="horizontal">
+          <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">
+              <androidx.media3.ui.PlayerView android:id="@+id/pv_battle_a"
+                  android:layout_width="match_parent" android:layout_height="match_parent"
+                  android:background="#111111"/>
+              <TextView android:id="@+id/tv_battle_name_a"
+                  android:layout_width="match_parent" android:layout_height="wrap_content"
+                  android:layout_gravity="bottom" android:padding="8dp"
+                  android:textColor="#FFFFFF" android:textSize="13sp" android:textStyle="bold"
+                  android:background="#88000000"/>
+          </FrameLayout>
+
+          <View android:layout_width="2dp" android:layout_height="match_parent" android:background="#FFD700"/>
+
+          <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">
+              <androidx.media3.ui.PlayerView android:id="@+id/pv_battle_b"
+                  android:layout_width="match_parent" android:layout_height="match_parent"
+                  android:background="#111111"/>
+              <TextView android:id="@+id/tv_battle_name_b"
+                  android:layout_width="match_parent" android:layout_height="wrap_content"
+                  android:layout_gravity="bottom" android:padding="8dp"
+                  android:textColor="#FFFFFF" android:textSize="13sp" android:textStyle="bold"
+                  android:background="#88000000"/>
+          </FrameLayout>
+      </LinearLayout>
+
+      <!-- Vote bars -->
+      <LinearLayout android:layout_width="match_parent" android:layout_height="24dp"
+          android:orientation="horizontal" android:layout_marginVertical="8dp">
+          <View android:id="@+id/view_bar_a"
+              android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+              android:background="#FFD700"/>
+          <View android:id="@+id/view_bar_b"
+              android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+              android:background="#00BCD4"/>
+      </LinearLayout>
+
+      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:orientation="horizontal" android:paddingHorizontal="16dp" android:paddingBottom="4dp">
+          <TextView android:id="@+id/tv_battle_pct_a"
+              android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+              android:text="50%" android:textColor="#FFD700" android:textSize="14sp" android:textStyle="bold"/>
+          <TextView android:id="@+id/tv_battle_pct_b"
+              android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+              android:text="50%" android:textColor="#00BCD4" android:textSize="14sp" android:textStyle="bold"
+              android:gravity="end"/>
+      </LinearLayout>
+
+      <ProgressBar android:id="@+id/progress_battle"
+          android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:layout_gravity="center" android:visibility="gone"/>
+
+      <!-- Vote buttons -->
+      <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+          android:orientation="horizontal" android:paddingHorizontal="16dp" android:paddingBottom="8dp">
+          <Button android:id="@+id/btn_vote_a"
+              android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+              android:text="Vote 👈" android:textColor="#000000" android:backgroundTint="#FFD700"
+              android:layout_marginEnd="6dp"/>
+          <Button android:id="@+id/btn_vote_b"
+              android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+              android:text="Vote 👉" android:textColor="#FFFFFF" android:backgroundTint="#00BCD4"
+              android:layout_marginStart="6dp"/>
+      </LinearLayout>
+  </LinearLayout>
