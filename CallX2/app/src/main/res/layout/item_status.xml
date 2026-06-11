@@ -3,38 +3,59 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:padding="12dp"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="12dp"
     android:gravity="center_vertical"
     android:background="?attr/selectableItemBackground">
 
     <!-- Avatar + ring -->
     <FrameLayout
-        android:layout_width="60dp"
-        android:layout_height="60dp">
+        android:layout_width="54dp"
+        android:layout_height="54dp">
 
         <ImageView
             android:id="@+id/ring"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/circle_status_unseen"/>
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:src="@drawable/circle_status_unseen"/>
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_avatar"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
             android:layout_gravity="center"
-            android:src="@drawable/ic_person"
-            android:background="@color/surface_input"/>
+            android:src="@drawable/ic_person"/>
 
+        <!-- Unseen badge count (NEW) -->
+        <TextView
+            android:id="@+id/tv_badge"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_gravity="top|end"
+            android:background="#FF6200EE"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:gravity="center"
+            android:visibility="gone"/>
     </FrameLayout>
 
-    <!-- Text column -->
+    <!-- Info block -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical"
-        android:layout_marginStart="14dp">
+        android:layout_marginStart="14dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:maxLines="1"
+            android:ellipsize="end"/>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -43,57 +64,41 @@
             android:gravity="center_vertical">
 
             <TextView
-                android:id="@+id/tv_name"
+                android:id="@+id/tv_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+
+            <TextView
+                android:id="@+id/tv_sub"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textStyle="bold"
-                android:textColor="?android:attr/textColorPrimary"
-                android:textSize="16sp"
+                android:layout_marginStart="6dp"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 android:maxLines="1"
                 android:ellipsize="end"/>
-
-            <!-- Unseen count badge -->
-            <TextView
-                android:id="@+id/tv_badge"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:background="@drawable/bg_unread_badge"
-                android:textColor="@color/white"
-                android:textSize="10sp"
-                android:gravity="center"
-                android:visibility="gone"/>
-
         </LinearLayout>
-
-        <!-- Sub-text: caption or media type -->
-        <TextView
-            android:id="@+id/tv_sub"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp"
-            android:maxLines="1"
-            android:ellipsize="end"/>
-
-        <TextView
-            android:id="@+id/tv_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
-            android:textSize="11sp"
-            android:layout_marginTop="2dp"/>
-
     </LinearLayout>
 
-    <!-- Media thumbnail -->
+    <!-- Thumbnail preview (NEW) -->
     <ImageView
         android:id="@+id/iv_thumb"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_marginStart="8dp"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
         android:scaleType="centerCrop"
-        android:background="@drawable/card_rounded"
+        android:visibility="gone"
+        android:layout_marginStart="8dp"/>
+
+    <!-- Reaction preview emoji (NEW) -->
+    <TextView
+        android:id="@+id/tv_reaction"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="20sp"
+        android:layout_marginStart="4dp"
         android:visibility="gone"/>
 
 </LinearLayout>

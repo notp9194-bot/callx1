@@ -39,12 +39,13 @@
         android:title="📁 Media, Links &amp; Docs"
         app:showAsAction="never"/>
 
-    <item android:id="@+id/action_security"
-        android:title="🔒 Security"
-        app:showAsAction="never"/>
 
     <item android:id="@+id/action_chat_privacy"
         android:title="🛡 Chat Privacy"
+        app:showAsAction="never"/>
+
+    <item android:id="@+id/action_security"
+        android:title="🔒 Security"
         app:showAsAction="never"/>
 
 </menu>

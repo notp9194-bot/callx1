@@ -51,6 +51,16 @@
             android:text="🙏" android:textSize="28sp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="4dp"/>
+        <!-- FIX: "+" opens full emoji picker so user is not limited to 6 reactions -->
+        <TextView android:id="@+id/emoji_more"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center"
+            android:text="+" android:textSize="22sp"
+            android:textColor="#555555"
+            android:textStyle="bold"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"
+            android:contentDescription="More reactions"/>
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"

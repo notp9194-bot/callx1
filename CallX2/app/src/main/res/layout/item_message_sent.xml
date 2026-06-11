@@ -7,6 +7,25 @@
     android:gravity="end"
     android:padding="3dp">
 
+    <!-- Date header separator — shown when this message is the first of a new day -->
+    <TextView
+        android:id="@+id/tv_date_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_date_chip"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="6dp"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:visibility="gone"/>
+
     <!-- Pinned label -->
     <TextView
         android:id="@+id/tv_pinned_label"
@@ -32,15 +51,25 @@
         android:layout_marginBottom="2dp"
         android:visibility="gone"/>
 
-    <!-- Bubble -->
+    <!-- Bubble row: spacer(25%) + bubble(75%) keeps sent bubble right-aligned -->
     <LinearLayout
-        android:id="@+id/ll_bubble"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="@drawable/bubble_sent"
-        android:minWidth="80dp"
->
+        android:orientation="horizontal">
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"/>
+
+        <LinearLayout
+            android:id="@+id/ll_bubble"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="3"
+            android:orientation="vertical"
+            android:background="@drawable/bubble_sent"
+            android:minWidth="80dp">
 
         <!-- ═══ UPGRADED REPLY PREVIEW — left border + clickable ═══ -->
         <LinearLayout
@@ -131,25 +160,24 @@
             android:paddingBottom="4dp"
             android:visibility="gone"/>
 
-        <!-- ═══ LINK PREVIEW CARD (WhatsApp-style) ═══ -->
+        <!-- POLISH: Link preview card — visible only for text messages with URLs -->
         <LinearLayout
             android:id="@+id/ll_link_preview"
             android:layout_width="240dp"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/link_preview_bg_sent"
-            android:layout_marginStart="6dp"
-            android:layout_marginEnd="6dp"
-            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_reply_preview_sent"
+            android:layout_margin="6dp"
             android:clickable="true"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackground"
             android:visibility="gone">
 
+            <!-- OG image thumbnail -->
             <ImageView
                 android:id="@+id/iv_link_thumb"
                 android:layout_width="match_parent"
-                android:layout_height="130dp"
+                android:layout_height="120dp"
                 android:scaleType="centerCrop"
                 android:visibility="gone"/>
 
@@ -162,63 +190,55 @@
                 android:paddingTop="8dp"
                 android:paddingBottom="8dp">
 
+                <!-- Domain label -->
+                <TextView
+                    android:id="@+id/tv_link_domain"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFD54F"
+                    android:textSize="10sp"
+                    android:textAllCaps="true"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+
+                <!-- Page title -->
                 <TextView
                     android:id="@+id/tv_link_title"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/bubble_sent_text"
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:maxLines="2"
                     android:ellipsize="end"
-                    android:lineSpacingExtra="1dp"/>
+                    android:layout_marginTop="2dp"/>
 
+                <!-- Page description -->
                 <TextView
                     android:id="@+id/tv_link_description"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="#CCFFFFFF"
+                    android:textColor="@color/bubble_sent_text"
                     android:textSize="11sp"
+                    android:alpha="0.7"
                     android:maxLines="2"
                     android:ellipsize="end"
                     android:layout_marginTop="2dp"
                     android:visibility="gone"/>
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="5dp">
-
-                    <ImageView
-                        android:layout_width="11dp"
-                        android:layout_height="11dp"
-                        android:src="@drawable/ic_link"
-                        android:layout_marginEnd="4dp"
-                        android:alpha="0.7"/>
-
-                    <TextView
-                        android:id="@+id/tv_link_domain"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textColor="#AAFFFFFF"
-                        android:textSize="11sp"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:textAllCaps="true"/>
-                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
-        <!-- ═══ END LINK PREVIEW ═══ -->
 
         <!-- Image -->
+        <!-- FIX: was hardcoded 240×220dp — portrait photos cropped, landscape squeezed.
+             adjustViewBounds + wrap_content lets the image keep its natural aspect ratio. -->
         <ImageView
             android:id="@+id/iv_image"
             android:layout_width="240dp"
-            android:layout_height="220dp"
-            android:scaleType="centerCrop"
+            android:layout_height="wrap_content"
+            android:maxHeight="320dp"
+            android:adjustViewBounds="true"
+            android:scaleType="fitCenter"
             android:visibility="gone"/>
 
         <!-- Video -->
@@ -397,4 +417,6 @@
                 android:visibility="gone"/>
         </LinearLayout>
     </LinearLayout>
+    </LinearLayout>
+
 </LinearLayout>
