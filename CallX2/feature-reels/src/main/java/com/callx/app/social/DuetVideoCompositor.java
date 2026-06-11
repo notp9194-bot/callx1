@@ -93,6 +93,24 @@ public class DuetVideoCompositor {
      * @param bubbleNdcY   NDC Y centre of reaction bubble (-1..1), used only for mode 3
      * @return true on success
      */
+      // ─────────────────────────────────────────────────────────────────────────
+      // Progress listener — FIX v9
+      // ─────────────────────────────────────────────────────────────────────────
+
+      /**
+       * ✅ FIX (PROGRESS): Callback fired on the compositor thread as frames are encoded.
+       * pct = 0–100 inclusive. Caller must post to UI thread if updating Views.
+       */
+      public interface ProgressListener {
+          void onProgress(int pct);
+      }
+
+      /** Set once per composite() call; read from pipeline(). */
+      private ProgressListener progressListener = null;
+      /** Deduplicates callbacks so UI is not flooded on every single frame. */
+      private int lastReportedPct = -1;
+
+  
     public boolean composite(String cameraPath, String originalUrl,
                              String outputPath, int layoutMode,
                              float origVolume, float micGain,
@@ -117,6 +135,22 @@ public class DuetVideoCompositor {
             releaseGL();
         }
     }
+      /**
+       * ✅ FIX (PROGRESS): Full overload with optional ProgressListener.
+       * @param listener callback receiving 0–100% updates; pass null to disable.
+       */
+      public boolean composite(String cameraPath, String originalUrl,
+                               String outputPath, int layoutMode,
+                               float origVolume, float micGain,
+                               float bubbleNdcX, float bubbleNdcY,
+                               ProgressListener listener) {
+          this.progressListener = listener;
+          this.lastReportedPct  = -1;
+          return composite(cameraPath, originalUrl, outputPath, layoutMode,
+                           origVolume, micGain, bubbleNdcX, bubbleNdcY);
+      }
+
+  
 
     // ─────────────────────────────────────────────────────────────────────────
     // Pipeline
@@ -208,6 +242,23 @@ public class DuetVideoCompositor {
 
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         long encodedFrames = 0;
+          // ✅ FIX (PROGRESS): estimate total frames from camera file duration
+          long totalFrames = (long) OUT_FPS * 30; // safe 30s fallback
+          try {
+              MediaExtractor probe = new MediaExtractor();
+              probe.setDataSource(camPath);
+              int pt = pickTrack(probe, "video/");
+              if (pt >= 0) {
+                  MediaFormat pf = probe.getTrackFormat(pt);
+                  if (pf.containsKey(MediaFormat.KEY_DURATION)) {
+                      long durUs = pf.getLong(MediaFormat.KEY_DURATION);
+                      totalFrames = Math.max(1L, (durUs / 1_000_000L) * OUT_FPS);
+                  }
+              }
+              probe.release();
+          } catch (Exception ignored) {}
+          if (progressListener != null) progressListener.onProgress(0);
+  
 
         while (!encEOS) {
 
@@ -329,6 +380,14 @@ public class DuetVideoCompositor {
                     muxer.writeSampleData(muxVid,
                             encoder.getOutputBuffer(encOut), info);
                     encodedFrames++;
+                      // ✅ FIX (PROGRESS): emit percentage without flooding
+                      if (progressListener != null) {
+                          int pct = (int) Math.min(99L, (encodedFrames * 99L) / totalFrames);
+                          if (pct != lastReportedPct) {
+                              lastReportedPct = pct;
+                              progressListener.onProgress(pct);
+                          }
+                      }
                 }
                 encoder.releaseOutputBuffer(encOut, false);
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
@@ -351,6 +410,7 @@ public class DuetVideoCompositor {
         boolean success = encodedFrames > 0 && new File(outPath).length() > 1024;
         Log.d(TAG, "done frames=" + encodedFrames + " size=" + new File(outPath).length()
                 + " success=" + success);
+        if (success && progressListener != null) progressListener.onProgress(100);
         return success;
     }
 

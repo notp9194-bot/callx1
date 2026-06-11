@@ -71,6 +71,13 @@ public class DuetReelActivity extends AppCompatActivity {
     public static final String EXTRA_ALLOW_DUET_LEVEL  = "duet_allow_level";
     /** Whether current user follows the original creator — needed for "followers" check */
     public static final String EXTRA_VIEWER_FOLLOWS    = "duet_viewer_follows";
+    /**
+       * ✅ FIX (CHAIN DUET): Root reel ID for duet chain tracking.
+       * = reelId for a direct duet; = root original's ID for a chain duet.
+       * Passed by ReelPlayerFragment as: reel.duetRootId != null ? reel.duetRootId : reel.reelId
+       */
+      public static final String EXTRA_DUET_ROOT_ID = "duet_root_id";
+
 
     private static final int REQ_PERMISSIONS = 211;
     private static final int MAX_DUET_SEC    = 60;
@@ -131,6 +138,8 @@ public class DuetReelActivity extends AppCompatActivity {
     private int     elapsedSec    = 0;
     private String  allowDuetLevel = "everyone";
     private boolean viewerFollows  = false;
+    /** Root of the duet chain — set from EXTRA_DUET_ROOT_ID. */
+    private String  duetRootId = null;
 
     /** File written by CameraX recording */
     private File recordedCameraFile;
@@ -149,7 +158,9 @@ public class DuetReelActivity extends AppCompatActivity {
         videoUrl       = getIntent().getStringExtra(EXTRA_VIDEO_URL);
         ownerUid       = getIntent().getStringExtra(EXTRA_OWNER_UID);
         allowDuetLevel = getIntent().getStringExtra(EXTRA_ALLOW_DUET_LEVEL);
-        String cp = getIntent().getStringExtra(EXTRA_CACHED_VIDEO_PATH);
+        duetRootId = getIntent().getStringExtra(EXTRA_DUET_ROOT_ID);
+          if (duetRootId == null || duetRootId.isEmpty()) duetRootId = reelId; // direct duet fallback
+                String cp = getIntent().getStringExtra(EXTRA_CACHED_VIDEO_PATH);
         if (cp != null && new java.io.File(cp).exists()) cachedOriginalPath = cp;
         viewerFollows  = getIntent().getBooleanExtra(EXTRA_VIEWER_FOLLOWS, false);
         if (allowDuetLevel == null) allowDuetLevel = "everyone";
@@ -320,6 +331,7 @@ public class DuetReelActivity extends AppCompatActivity {
                 }
                 playerViewOriginal.setVisibility(View.VISIBLE);
                 previewViewCamera.setVisibility(View.VISIBLE);
+                removeCameraCircleClip();
                 break;
 
             case LAYOUT_TOP_BOTTOM:
@@ -329,6 +341,7 @@ public class DuetReelActivity extends AppCompatActivity {
                 }
                 playerViewOriginal.setVisibility(View.VISIBLE);
                 previewViewCamera.setVisibility(View.VISIBLE);
+                removeCameraCircleClip();
                 break;
 
             case LAYOUT_REACT_PIP:
@@ -338,6 +351,7 @@ public class DuetReelActivity extends AppCompatActivity {
                 }
                 playerViewOriginal.setVisibility(View.VISIBLE);
                 previewViewCamera.setVisibility(View.VISIBLE);
+                removeCameraCircleClip();
                 break;
 
             case LAYOUT_REACTION_BUBBLE:
@@ -356,6 +370,8 @@ public class DuetReelActivity extends AppCompatActivity {
                 previewViewCamera.setVisibility(View.VISIBLE);  // ✅ LIVE camera feed visible
                 // bubbleOverlay stays as transparent drag handle; camera syncs position in setupBubbleDrag()
                 setupBubbleDrag();
+                // ✅ FIX (CIRCLE CLIP): live preview matches compositor's circular output
+                  previewViewCamera.post(() -> applyCameraCircleClip());
                 break;
         }
         playerViewOriginal.setLayoutParams(lp1);
@@ -564,16 +580,26 @@ public class DuetReelActivity extends AppCompatActivity {
                     isRecording = true;
                     isPaused    = false;
                     runOnUiThread(() -> {
-                        exoPlayer.seekTo(0);
-                        // ✅ FIX: Mute ExoPlayer during recording so original audio
-                        // does NOT bleed into the mic. DuetVideoCompositor will mix
-                        // the original audio at origVolume in post-processing.
-                        // Without this, original audio plays twice (mic bleed + mix).
-                        exoPlayer.setVolume(0f);
-                        exoPlayer.play();
-                        btnDuetRecord.setImageResource(R.drawable.ic_pause);
-                        startCountdownTimer();
-                    });
+                          // ✅ FIX (SEEK RACE): Mute first, then wait for seek to complete
+                          // before calling play(). Without this, slow devices start the
+                          // original audio 200-400ms late causing A/V drift in the output.
+                          exoPlayer.setVolume(0f);
+                          exoPlayer.addListener(new Player.Listener() {
+                              @Override
+                              public void onPositionDiscontinuity(
+                                      @NonNull Player.PositionInfo oldPos,
+                                      @NonNull Player.PositionInfo newPos,
+                                      int reason) {
+                                  if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                                      exoPlayer.removeListener(this);
+                                      if (isRecording) exoPlayer.play();
+                                  }
+                              }
+                          });
+                          exoPlayer.seekTo(0);
+                          btnDuetRecord.setImageResource(R.drawable.ic_pause);
+                          startCountdownTimer();
+                      });
                 } else if (event instanceof VideoRecordEvent.Finalize) {
                     VideoRecordEvent.Finalize fin = (VideoRecordEvent.Finalize) event;
                     isRecording = false;
@@ -658,62 +684,107 @@ public class DuetReelActivity extends AppCompatActivity {
 
     // ── Post-recording: composite then open editor ────────────────────────────
 
-    private void onRecordingDone(String cameraFilePath) {
-        if (exoPlayer != null) exoPlayer.pause();
+    // ── Compositing state (for retry) ──────────────────────────────────────
+      private String pendingCameraFilePath = null;
 
-        // Show compositing progress
-        if (tvDuetLabel != null) tvDuetLabel.setText("Processing duet…");
-        if (progressDuet != null) {
-            progressDuet.setIndeterminate(true);
-            progressDuet.setVisibility(android.view.View.VISIBLE);
-        }
-        btnDuetRecord.setEnabled(false);
-        btnDuetFlip.setEnabled(false);
+      private void onRecordingDone(String cameraFilePath) {
+          pendingCameraFilePath = cameraFilePath;
+          runCompositor(cameraFilePath);
+      }
 
-        final String outputPath = new java.io.File(getCacheDir(),
-            "duet_composite_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
+      /**
+       * Runs DuetVideoCompositor on a background thread.
+       * ✅ FIX (PROGRESS): percentage-based progress bar via ProgressListener.
+       * ✅ FIX (RETRY): on failure shows AlertDialog with 3 options.
+       */
+      private void runCompositor(String cameraFilePath) {
+          if (exoPlayer != null) exoPlayer.pause();
 
-        final int   capturedLayout   = layoutMode;
-        // Prefer local cached file — no network dependency
-        final String capturedOriginal = (cachedOriginalPath != null)
-            ? cachedOriginalPath : videoUrl;
-        final float  capturedVol     = originalVol;
-        final float  capturedMicGain = micGain;
+          if (tvDuetLabel != null) tvDuetLabel.setText("Processing duet… 0%");
+          if (progressDuet != null) {
+              progressDuet.setIndeterminate(false);
+              progressDuet.setMax(100);
+              progressDuet.setProgress(0);
+              progressDuet.setVisibility(android.view.View.VISIBLE);
+          }
+          btnDuetRecord.setEnabled(false);
+          btnDuetFlip.setEnabled(false);
 
-        // Use a SEPARATE thread — cameraExecutor is single-threaded and still
-        // used by CameraX internally; running compositing on it causes a deadlock.
-        new Thread(() -> {
-            DuetVideoCompositor compositor = new DuetVideoCompositor();
-            // Calculate bubble NDC position (only used in LAYOUT_REACTION_BUBBLE mode)
-            float[] bubbleNdc = (bubbleOverlay != null && capturedLayout == LAYOUT_REACTION_BUBBLE)
-                    ? bubbleToNdc()
-                    : new float[]{-0.55f, -0.72f};
+          final String outputPath = new java.io.File(getCacheDir(),
+              "duet_composite_" + System.currentTimeMillis() + ".mp4").getAbsolutePath();
+          final int    capturedLayout   = layoutMode;
+          final String capturedOriginal = (cachedOriginalPath != null) ? cachedOriginalPath : videoUrl;
+          final float  capturedVol      = originalVol;
+          final float  capturedMicGain  = micGain;
+          final String capturedCamPath  = cameraFilePath;
 
-            boolean ok = compositor.composite(
-                cameraFilePath, capturedOriginal, outputPath,
-                capturedLayout, capturedVol, capturedMicGain,
-                bubbleNdc[0], bubbleNdc[1]);
+          // Use a SEPARATE thread — cameraExecutor is single-threaded (CameraX uses it)
+          new Thread(() -> {
+              DuetVideoCompositor compositor = new DuetVideoCompositor();
 
-            final String finalPath = ok ? outputPath : cameraFilePath;
+              float[] bubbleNdc = (bubbleOverlay != null && capturedLayout == LAYOUT_REACTION_BUBBLE)
+                      ? bubbleToNdc() : new float[]{-0.55f, -0.72f};
 
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (progressDuet != null) {
-                    progressDuet.setIndeterminate(false);
-                    progressDuet.setVisibility(android.view.View.GONE);
-                }
-                // ✅ duetCount and notification are fired from ReelUploadActivity
-                // AFTER the reel is actually published — not here at compositor done.
-                openEditor(finalPath);
-            });
-        }, "duet-compositor").start();
-    }
+              // ✅ FIX (PROGRESS): ProgressListener emits 0-100%
+              DuetVideoCompositor.ProgressListener progressCb = pct -> runOnUiThread(() -> {
+                  if (progressDuet != null) progressDuet.setProgress(pct);
+                  if (tvDuetLabel  != null) tvDuetLabel.setText("Processing duet… " + pct + "%");
+              });
 
-    // duetCount increment + notification are now handled in ReelUploadActivity.saveReelToFirebase()
-    // AFTER the reel is confirmed published to Firebase — not at compositor completion.
-    // This prevents double-counting and sending a notification for duets the user never posts.
+              boolean ok = compositor.composite(
+                  capturedCamPath, capturedOriginal, outputPath,
+                  capturedLayout, capturedVol, capturedMicGain,
+                  bubbleNdc[0], bubbleNdc[1], progressCb);
 
-    private void openEditor(String filePath) {
+              runOnUiThread(() -> {
+                  if (isFinishing() || isDestroyed()) return;
+                  if (progressDuet != null) progressDuet.setVisibility(android.view.View.GONE);
+                  if (tvDuetLabel  != null)
+                      tvDuetLabel.setText(ownerName.isEmpty() ? "Duet" : "Duet with @" + ownerName);
+
+                  if (ok) {
+                      // ✅ duetCount + notification fired from ReelUploadActivity after publish
+                      openEditor(outputPath);
+                  } else {
+                      // ✅ FIX (RETRY): explicit failure dialog, no silent fallback
+                      showCompositorFailureDialog(capturedCamPath, outputPath);
+                  }
+              });
+          }, "duet-compositor").start();
+      }
+
+      /**
+       * Shown when compositor returns false.
+       * Retry          — re-runs compositor (may succeed after GC frees memory).
+       * Post Raw        — sends single-camera file to editor without duet merge.
+       * Discard         — deletes temp files, returns to idle state for re-record.
+       */
+      private void showCompositorFailureDialog(String rawCamPath, String failedOut) {
+          if (isFinishing() || isDestroyed()) return;
+          btnDuetRecord.setEnabled(true);
+          btnDuetFlip.setEnabled(true);
+          new android.app.AlertDialog.Builder(this)
+              .setTitle("Could not merge videos")
+              .setMessage("Compositing failed on this device. Choose how to proceed:")
+              .setCancelable(false)
+              .setPositiveButton("Retry", (d, w) -> runCompositor(rawCamPath))
+              .setNeutralButton("Post Raw Recording", (d, w) -> {
+                  android.widget.Toast.makeText(this,
+                      "Opening without duet layout", android.widget.Toast.LENGTH_SHORT).show();
+                  openEditor(rawCamPath);
+              })
+              .setNegativeButton("Discard & Re-record", (d, w) -> {
+                  new java.io.File(rawCamPath).delete();
+                  new java.io.File(failedOut).delete();
+                  pendingCameraFilePath = null;
+                  android.widget.Toast.makeText(this,
+                      "Recording discarded — ready to re-record.",
+                      android.widget.Toast.LENGTH_SHORT).show();
+              })
+              .show();
+      }
+
+      private void openEditor(String filePath) {
         Intent i = new Intent(this, ReelEditorActivity.class);
         i.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI,          filePath);
         i.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH,       true);
@@ -724,6 +795,8 @@ public class DuetReelActivity extends AppCompatActivity {
         i.putExtra(ReelEditorActivity.EXTRA_DUET_LABEL,
                    ownerName.isEmpty() ? "Duet" : "Duet with @" + ownerName);
         i.putExtra("duet_layout_mode", layoutMode);
+        // ✅ FIX (CHAIN DUET): pass root ID so upload can persist duetRootId
+          i.putExtra(EXTRA_DUET_ROOT_ID, duetRootId != null ? duetRootId : reelId);
         startActivity(i);
     }
 
@@ -753,7 +826,31 @@ public class DuetReelActivity extends AppCompatActivity {
         else { Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show(); finish(); }
     }
 
-    @Override
+    // ── Circle clip helpers (Fix v9) ──────────────────────────────────────────
+
+      /**
+       * Apply circular ViewOutlineProvider to the camera preview so the live feed
+       * matches the circular bubble the compositor renders in the output video.
+       */
+      private void applyCameraCircleClip() {
+          if (previewViewCamera == null) return;
+          previewViewCamera.setOutlineProvider(new android.view.ViewOutlineProvider() {
+              @Override
+              public void getOutline(View view, android.graphics.Outline outline) {
+                  outline.setOval(0, 0, view.getWidth(), view.getHeight());
+              }
+          });
+          previewViewCamera.setClipToOutline(true);
+      }
+
+      /** Remove circle clip — restore rectangular preview for non-bubble layouts. */
+      private void removeCameraCircleClip() {
+          if (previewViewCamera == null) return;
+          previewViewCamera.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+          previewViewCamera.setClipToOutline(false);
+      }
+
+      @Override
     protected void onDestroy() {
         if (recordTimer != null)     recordTimer.cancel();
         if (activeRecording != null) activeRecording.stop();

@@ -69,27 +69,6 @@
             android:screenOrientation="portrait"
             android:exported="false"/>
 
-        <!-- ✅ v9: Collab Duet — invite a follower to record together in real time -->
-        <activity
-            android:name=".social.collab.CollabDuetInviteActivity"
-            android:screenOrientation="portrait"
-            android:exported="false"
-            android:theme="@style/Theme.CallX.Fullscreen"
-            android:windowSoftInputMode="adjustResize"/>
-
-        <activity
-            android:name=".social.collab.CollabDuetSessionActivity"
-            android:screenOrientation="portrait"
-            android:exported="true"
-            android:launchMode="singleTask">
-            <!-- Deep-link: collab duet invite from FCM tap -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <data android:scheme="callx" android:host="collab_duet"/>
-            </intent-filter>
-        </activity>
-
         <activity android:name="com.callx.app.camera.MultiClipCameraActivity"
             android:exported="false"
             android:theme="@style/Theme.CallX.Fullscreen"

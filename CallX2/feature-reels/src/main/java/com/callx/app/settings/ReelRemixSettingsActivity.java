@@ -61,12 +61,22 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
         swAllowShare  = findViewById(R.id.sw_allow_share);
         progressSave  = findViewById(R.id.progress_remix_save);
 
-        for (Spinner sp : new Spinner[]{spDuet, spStitch, spRemix, spAudio}) {
-            android.widget.ArrayAdapter<String> a = new android.widget.ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, OPTIONS);
-            a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-            sp.setAdapter(a);
-        }
+        android.widget.ArrayAdapter<String> adapter =
+            new android.widget.ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, OPTIONS);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+
+        spDuet.setAdapter(new android.widget.ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_item, OPTIONS));
+        ((android.widget.ArrayAdapter<String>) spDuet.getAdapter())
+            .setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+
+        spStitch.setAdapter(new android.widget.ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_item, OPTIONS));
+        spRemix.setAdapter(new android.widget.ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_item, OPTIONS));
+        spAudio.setAdapter(new android.widget.ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_item, OPTIONS));
 
         swShowViews.setChecked(true);
         swShowLikes.setChecked(true);

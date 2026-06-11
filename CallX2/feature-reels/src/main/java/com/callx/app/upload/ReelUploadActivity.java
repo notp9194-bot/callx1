@@ -138,6 +138,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String  duetLabel       = "";
     private String  duetOriginalUrl = "";
     private int     duetLayoutMode  = 0;  // ✅ FIX GAP #6: save layout mode to Firebase
+    private String  duetRootId     = null; // ✅ FIX v9 (CHAIN DUET): root reel of the chain
 
     // ✅ FIX GAP #2: stitch metadata
     private boolean isStitch           = false;
@@ -280,6 +281,9 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (dOrigUrl != null) duetOriginalUrl = dOrigUrl;
         // ✅ FIX GAP #6: read duet layout mode (was never read before → always 0 in Firebase)
         duetLayoutMode = i.getIntExtra("duet_layout_mode", 0);
+          // ✅ FIX (CHAIN DUET): read duetRootId so it can be persisted to Firebase
+          String dRootId = i.getStringExtra("duet_root_id");
+          if (dRootId != null && !dRootId.isEmpty()) duetRootId = dRootId;
 
         // ✅ FIX GAP #2: read stitch metadata
         isStitch = i.getBooleanExtra("is_stitch", false);
@@ -639,6 +643,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.duetOfOwnerUid   = a.duetOwnerUid;
                     reel.duetOriginalUrl  = a.duetOriginalUrl;
                     reel.duetLayoutMode   = a.duetLayoutMode; // ✅ FIX GAP #6: now saved
+            reel.duetRootId    = duetRootId;    // ✅ FIX (CHAIN DUET): persist root ID
                     reel.caption       = a.duetLabel.isEmpty() ? reel.caption
                                          : (a.duetLabel + (reel.caption.isEmpty() ? "" : " – " + reel.caption));
                 }
