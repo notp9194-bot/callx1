@@ -203,6 +203,10 @@ public class ReelPlayerFragment extends Fragment
         args.putInt   ("duet_count",         reel.duetCount);
         args.putString("allow_duet_level",   reel.allowDuetLevel    != null ? reel.allowDuetLevel    : "everyone");
         args.putString("allow_stitch_level", reel.allowStitchLevel  != null ? reel.allowStitchLevel  : "everyone");
+        // ✅ Duet Series fields
+        args.putString("series_id",           reel.seriesId            != null ? reel.seriesId            : "");
+        args.putString("series_title",        reel.seriesTitle         != null ? reel.seriesTitle         : "");
+        args.putInt   ("series_episode_num",  reel.seriesEpisodeNumber);
         f.setArguments(args);
         return f;
     }
@@ -240,6 +244,10 @@ public class ReelPlayerFragment extends Fragment
             reel.duetCount        = getArguments().getInt   ("duet_count",         0);
             reel.allowDuetLevel   = getArguments().getString("allow_duet_level",   "everyone");
             reel.allowStitchLevel = getArguments().getString("allow_stitch_level", "everyone");
+            // ✅ Duet Series fields
+            reel.seriesId            = getArguments().getString("series_id",          "");
+            reel.seriesTitle         = getArguments().getString("series_title",        "");
+            reel.seriesEpisodeNumber = getArguments().getInt   ("series_episode_num",  0);
         }
     }
 
@@ -1523,7 +1531,8 @@ public class ReelPlayerFragment extends Fragment
 
         com.callx.app.social.ReelMoreBottomSheet sheet =
             com.callx.app.social.ReelMoreBottomSheet.newInstance(isOwner, isSaved, speedLabel,
-                                                              duetLevel, stitchLevel, isFollowing);
+                                                              duetLevel, stitchLevel, isFollowing,
+                                                              reel.seriesId);
         sheet.show(getChildFragmentManager(), com.callx.app.social.ReelMoreBottomSheet.TAG);
     }
 
@@ -1580,6 +1589,9 @@ public class ReelPlayerFragment extends Fragment
                 openDuetBattle(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_DUET_TREE:
                 openDuetTree(); break;
+            // ── v11 Duet Series ────────────────────────────────────────────
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_VIEW_SERIES:
+                openDuetSeries(); break;
         }
     }
 
@@ -1593,6 +1605,15 @@ public class ReelPlayerFragment extends Fragment
                 float speed = SPEED_STEPS[speedIndex];
                 if (player != null) player.setPlaybackParameters(new PlaybackParameters(speed));
             }).show();
+    }
+
+    private void openDuetSeries() {
+        if (!isAdded() || getActivity() == null || reel == null) return;
+        if (reel.seriesId == null || reel.seriesId.isEmpty()) return;
+        android.content.Intent si = new android.content.Intent(
+            getActivity(), com.callx.app.social.DuetSeriesActivity.class);
+        si.putExtra(com.callx.app.social.DuetSeriesActivity.EXTRA_SERIES_ID, reel.seriesId);
+        startActivity(si);
     }
 
     private void openReelEdit() {

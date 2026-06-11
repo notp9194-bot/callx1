@@ -43,6 +43,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private static final String ARG_DUET_LEVEL   = "duet_level";   // "everyone"|"followers"|"off"
     private static final String ARG_STITCH_LEVEL = "stitch_level"; // "everyone"|"followers"|"off"
     private static final String ARG_IS_FOLLOWING = "is_following";
+    private static final String ARG_SERIES_ID   = "series_id";
 
     // Callback interface — caller handles all actions
     public interface OnItemClickListener {
@@ -76,6 +77,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
       public static final String ACTION_DUET_CHALLENGE = "duet_challenge";
       public static final String ACTION_MULTI_DUET    = "multi_duet";
       public static final String ACTION_DUET_APPROVAL = "duet_approval";
+      public static final String ACTION_VIEW_SERIES  = "view_series";
 
     // ─── Item model ──────────────────────────────────────────────────────────
     private static class MenuItem {
@@ -119,6 +121,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private String  duetLevel;
     private String  stitchLevel;
     private boolean isFollowing;
+    private String  seriesId;
 
     // ─── Factory ─────────────────────────────────────────────────────────────
 
@@ -131,6 +134,13 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
                                                   String speedLabel,
                                                   String duetLevel, String stitchLevel,
                                                   boolean isFollowing) {
+        return newInstance(isOwner, isSaved, speedLabel, duetLevel, stitchLevel, isFollowing, null);
+    }
+
+    public static ReelMoreBottomSheet newInstance(boolean isOwner, boolean isSaved,
+                                                  String speedLabel,
+                                                  String duetLevel, String stitchLevel,
+                                                  boolean isFollowing, String seriesId) {
         ReelMoreBottomSheet sheet = new ReelMoreBottomSheet();
         Bundle args = new Bundle();
         args.putBoolean(ARG_IS_OWNER,     isOwner);
@@ -139,6 +149,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         args.putString (ARG_DUET_LEVEL,   duetLevel   != null ? duetLevel   : "everyone");
         args.putString (ARG_STITCH_LEVEL, stitchLevel != null ? stitchLevel : "everyone");
         args.putBoolean(ARG_IS_FOLLOWING, isFollowing);
+        args.putString (ARG_SERIES_ID,    seriesId    != null ? seriesId    : "");
         sheet.setArguments(args);
         return sheet;
     }
@@ -164,6 +175,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             duetLevel   = getArguments().getString (ARG_DUET_LEVEL,   "everyone");
             stitchLevel = getArguments().getString (ARG_STITCH_LEVEL, "everyone");
             isFollowing = getArguments().getBoolean(ARG_IS_FOLLOWING, false);
+            seriesId    = getArguments().getString (ARG_SERIES_ID,   "");
         }
     }
 
@@ -295,6 +307,11 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         // ── Duet Challenge (v10) ──
         list.add(new MenuItem(ACTION_DUET_CHALLENGE, "Create Challenge 🏆", R.drawable.ic_reels, CLR_GOLD, false, false));
 
+        // ── Duet Series (v11) ──
+        if (seriesId != null && !seriesId.isEmpty()) {
+            list.add(new MenuItem(ACTION_VIEW_SERIES, "View Series 🎬", R.drawable.ic_duet_series, CLR_CYAN, false, false));
+        }
+
         list.add(new MenuItem(ACTION_VIDEO_REPLY,   "Video Reply",      R.drawable.ic_reply,       CLR_PURPLE, false, false));
         list.add(new MenuItem(ACTION_SHARE_TO_STORY,"Share to Story",   R.drawable.ic_share_reel,  CLR_GREEN,  true,  false));
         list.add(new MenuItem(ACTION_COLLAB_REQUEST,"Collab Request",   R.drawable.ic_group,       CLR_TEAL,   true,  false));
@@ -328,6 +345,11 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         list.add(new MenuItem(ACTION_MULTI_DUET,     "Multi Duet 👥",        R.drawable.ic_group,       CLR_PURPLE, false, false));
         list.add(new MenuItem(ACTION_DUET_CHALLENGE, "Create Challenge 🏆",  R.drawable.ic_reels,       CLR_GOLD,   false, false));
         list.add(new MenuItem(ACTION_DUET_APPROVAL,  "Duet Approval Queue",  R.drawable.ic_video_call,  CLR_TEAL,   true,  false));
+
+        // ── Duet Series (v11) ──
+        if (seriesId != null && !seriesId.isEmpty()) {
+            list.add(new MenuItem(ACTION_VIEW_SERIES, "View Series 🎬", R.drawable.ic_duet_series, CLR_CYAN, false, false));
+        }
 
         list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story", R.drawable.ic_share_reel, CLR_GREEN,  true,  false));
         list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",        R.drawable.ic_qr_code,    CLR_ORANGE, false, false));
