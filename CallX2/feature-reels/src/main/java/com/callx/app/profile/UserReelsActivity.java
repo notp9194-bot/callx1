@@ -801,7 +801,6 @@ public class UserReelsActivity extends AppCompatActivity
                       }
                   }
                   @Override
-                  public void onCancelled(@NonNull DataSnapshot snap) {}
                   public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
                       if (progressBar != null) progressBar.setVisibility(View.GONE);
                   }
