@@ -26,19 +26,19 @@ import java.util.Map;
  *  TYPE_SKELETON (0) — shimmer placeholder (Feature 3)
  *  TYPE_REEL     (1) — normal 1-col thumbnail cell
  *  TYPE_PINNED   (2) — full-width featured hero card spanning 3 cols (Feature 6)
+ *  TYPE_EMPTY    (3) — full-width empty-state card (shown when list is empty, non-skeleton)
  *
- * Features:
- *  ✅ Feature 3:  Shimmer skeleton loading
- *  ✅ Feature 4:  Long-press callback for preview dialog
- *  ✅ Feature 5:  Multi-select mode with selection overlay
- *  ✅ Feature 6:  Pinned/featured reel hero card
- *  ✅ Feature 15: Views count overlay on own-profile reels
+ * Approach-A scrolling fix:
+ *  TYPE_EMPTY is shown INSIDE the RecyclerView (not as an Activity-level overlay), so the
+ *  profile header (position 0 via ProfileHeaderAdapter + ConcatAdapter) remains visible
+ *  even when there are no reels to display.
  */
 public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public static final int TYPE_SKELETON = 0;
     public static final int TYPE_REEL     = 1;
     public static final int TYPE_PINNED   = 2;
+    public static final int TYPE_EMPTY    = 3;
 
     private static final int SKELETON_COUNT = 12;
 
@@ -62,14 +62,17 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     private boolean                     showViewsOverlay  = false;   // Feature 15
     private final Map<Integer, Boolean> selectedPositions = new HashMap<>();
 
-    /** Convenience constructor — long-press and multi-select disabled. */
-      public ReelGridAdapter(Context context,
-                             List<ReelModel> reels,
-                             OnItemClickListener clickListener) {
-          this(context, reels, clickListener, null, null);
-      }
+    private String emptyTitle    = "No Reels Yet";
+    private String emptySubtitle = "This creator hasn't posted any reels yet.";
 
-      public ReelGridAdapter(Context context,
+    /** Convenience constructor — long-press and multi-select disabled. */
+    public ReelGridAdapter(Context context,
+                           List<ReelModel> reels,
+                           OnItemClickListener clickListener) {
+        this(context, reels, clickListener, null, null);
+    }
+
+    public ReelGridAdapter(Context context,
                            List<ReelModel> reels,
                            OnItemClickListener clickListener,
                            LongPressListener longPressListener,
@@ -102,12 +105,24 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
 
     // ── Feature 15: Views overlay ─────────────────────────────────────────
 
-    /**
-     * Set true when displaying own profile — shows 👁 view count badge
-     * on each reel thumbnail cell.
-     */
     public void setShowViewsOverlay(boolean show) {
         this.showViewsOverlay = show;
+    }
+
+    // ── Empty state (Approach A: in-RecyclerView empty item) ──────────────
+
+    /**
+     * Sets the empty-state message shown when {@link #reels} is empty and not in skeleton mode.
+     * The empty item (TYPE_EMPTY) appears as a full-span item BELOW the profile header so the
+     * profile header remains visible — unlike an Activity-level overlay which would cover it.
+     */
+    public void setEmptyMessage(String title, String subtitle) {
+        this.emptyTitle    = title != null    ? title    : "No Reels Yet";
+        this.emptySubtitle = subtitle != null ? subtitle : "";
+    }
+
+    private boolean isShowingEmpty() {
+        return !skeletonMode && reels.isEmpty() && !hasPinned();
     }
 
     // ── Feature 5: Multi-select ───────────────────────────────────────────
@@ -135,6 +150,7 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     @Override
     public int getItemViewType(int position) {
         if (skeletonMode) return TYPE_SKELETON;
+        if (isShowingEmpty()) return TYPE_EMPTY;
         if (hasPinned() && position == 0) return TYPE_PINNED;
         return TYPE_REEL;
     }
@@ -142,6 +158,7 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     @Override
     public int getItemCount() {
         if (skeletonMode) return SKELETON_COUNT;
+        if (isShowingEmpty()) return 1; // one TYPE_EMPTY item
         return reels.size() + (hasPinned() ? 1 : 0);
     }
 
@@ -153,6 +170,8 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, parent, false));
         if (viewType == TYPE_PINNED)
             return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, parent, false));
+        if (viewType == TYPE_EMPTY)
+            return new EmptyVH(inf.inflate(R.layout.item_reel_empty_state, parent, false));
         return new ReelVH(inf.inflate(R.layout.item_saved_reel, parent, false));
     }
 
@@ -163,6 +182,7 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             return;
         }
         if (holder instanceof PinnedVH) { bindPinned((PinnedVH) holder); return; }
+        if (holder instanceof EmptyVH)  { bindEmpty((EmptyVH)  holder); return; }
         if (!(holder instanceof ReelVH)) return;
 
         ReelVH h = (ReelVH) holder;
@@ -170,14 +190,12 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         if (reelIdx < 0 || reelIdx >= reels.size()) return;
         ReelModel reel = reels.get(reelIdx);
 
-        // Thumbnail
         if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty())
             Glide.with(context).load(reel.thumbUrl).centerCrop()
                 .placeholder(R.drawable.ic_reels).into(h.ivThumb);
         else
             h.ivThumb.setImageResource(R.drawable.ic_reels);
 
-        // Duration badge (bottom-right)
         if (reel.duration > 0) {
             int s = (reel.duration / 1000) % 60, m = reel.duration / 60000;
             h.tvDuration.setText(String.format(Locale.getDefault(), "%d:%02d", m, s));
@@ -186,17 +204,15 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             h.tvDuration.setVisibility(View.GONE);
         }
 
-        // Feature 15: Views count overlay (top-left, own profile only)
         if (h.tvViewsOverlay != null) {
             if (showViewsOverlay && reel.viewsCount >= 0) {
-                h.tvViewsOverlay.setText("👁 " + formatCount(reel.viewsCount));
+                h.tvViewsOverlay.setText("\uD83D\uDC41 " + formatCount(reel.viewsCount));
                 h.tvViewsOverlay.setVisibility(View.VISIBLE);
             } else {
                 h.tvViewsOverlay.setVisibility(View.GONE);
             }
         }
 
-        // Multi-select overlay
         if (multiSelectMode) {
             boolean sel = Boolean.TRUE.equals(selectedPositions.get(position));
             if (h.viewSelectOverlay != null) h.viewSelectOverlay.setVisibility(sel ? View.VISIBLE : View.INVISIBLE);
@@ -245,6 +261,11 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         });
     }
 
+    private void bindEmpty(EmptyVH h) {
+        if (h.tvTitle    != null) h.tvTitle.setText(emptyTitle);
+        if (h.tvSubtitle != null) h.tvSubtitle.setText(emptySubtitle);
+    }
+
     private String formatCount(int n) {
         if (n >= 1_000_000) return String.format(Locale.getDefault(), "%.1fM", n / 1_000_000f);
         if (n >= 1_000)     return String.format(Locale.getDefault(), "%.1fK", n / 1_000f);
@@ -254,7 +275,7 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     @Override
     public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewAttachedToWindow(holder);
-        if (!(holder instanceof PinnedVH)) {
+        if (!(holder instanceof PinnedVH) && !(holder instanceof EmptyVH)) {
             holder.itemView.post(() -> {
                 int w = holder.itemView.getWidth();
                 if (w > 0) {
@@ -283,7 +304,7 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             super(v);
             ivThumb           = v.findViewById(R.id.iv_thumb);
             tvDuration        = v.findViewById(R.id.tv_duration);
-            tvViewsOverlay    = v.findViewById(R.id.tv_views_overlay);   // Feature 15
+            tvViewsOverlay    = v.findViewById(R.id.tv_views_overlay);
             viewSelectOverlay = v.findViewById(R.id.view_select_overlay);
             viewDimOverlay    = v.findViewById(R.id.view_dim_overlay);
             ivCheckmark       = v.findViewById(R.id.iv_checkmark);
@@ -309,6 +330,15 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         SkeletonVH(@NonNull View v) {
             super(v);
             shimmer = v.findViewById(R.id.shimmer_layout);
+        }
+    }
+
+    static class EmptyVH extends RecyclerView.ViewHolder {
+        TextView tvTitle, tvSubtitle;
+        EmptyVH(@NonNull View v) {
+            super(v);
+            tvTitle    = v.findViewById(R.id.tv_empty_title);
+            tvSubtitle = v.findViewById(R.id.tv_empty_subtitle);
         }
     }
 }
