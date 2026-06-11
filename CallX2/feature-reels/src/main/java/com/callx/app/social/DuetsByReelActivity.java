@@ -107,7 +107,7 @@ public class DuetsByReelActivity extends AppCompatActivity {
           if (btnDuetTree != null) {
               btnDuetTree.setOnClickListener(v -> {
                   Intent it = new Intent(this, DuetTreeActivity.class);
-                  it.putExtra(DuetTreeActivity.EXTRA_REEL_ID,    originalReelId);
+                  it.putExtra(DuetTreeActivity.EXTRA_ROOT_REEL_ID, originalReelId);
                   it.putExtra(DuetTreeActivity.EXTRA_OWNER_NAME, ownerName);
                   startActivity(it);
               });

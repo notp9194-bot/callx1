@@ -1727,52 +1727,60 @@ public class ReelPlayerFragment extends Fragment
           Intent i = new Intent(getActivity(), DuetInviteActivity.class);
           i.putExtra(DuetInviteActivity.EXTRA_REEL_ID,    reel.reelId);
           i.putExtra(DuetInviteActivity.EXTRA_OWNER_NAME, reel.ownerName);
-          i.putExtra(DuetInviteActivity.EXTRA_THUMB_URL,  reel.thumbUrl != null ? reel.thumbUrl : "");
+          i.putExtra(DuetInviteActivity.EXTRA_REEL_THUMB, reel.thumbUrl != null ? reel.thumbUrl : "");
+          i.putExtra(DuetInviteActivity.EXTRA_VIDEO_URL,  reel.videoUrl != null ? reel.videoUrl : "");
+          i.putExtra(DuetInviteActivity.EXTRA_OWNER_UID,  reel.uid != null ? reel.uid : "");
           startActivity(i);
       }
 
       private void openDuetBattle() {
           if (!isAdded() || getActivity() == null || reel == null) return;
+          String myUid = safeMyUid();
+          // Battle needs two reels — this opens with current viewer's reel as "mine"
+          // and the displayed reel as "theirs"
           Intent i = new Intent(getActivity(), DuetBattleCreateActivity.class);
-          i.putExtra(DuetBattleCreateActivity.EXTRA_REEL_ID,       reel.reelId);
-          i.putExtra(DuetBattleCreateActivity.EXTRA_OWNER_UID,     reel.uid);
-          i.putExtra(DuetBattleCreateActivity.EXTRA_OWNER_NAME,    reel.ownerName);
-          i.putExtra(DuetBattleCreateActivity.EXTRA_VIDEO_URL,     reel.videoUrl);
-          i.putExtra(DuetBattleCreateActivity.EXTRA_THUMB_URL,     reel.thumbUrl != null ? reel.thumbUrl : "");
+          i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_REEL_ID,    reel.reelId);
+          i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_VIDEO_URL,  reel.videoUrl != null ? reel.videoUrl : "");
+          i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_REEL_THUMB, reel.thumbUrl != null ? reel.thumbUrl : "");
+          i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_NAME,       reel.ownerName != null ? reel.ownerName : "");
+          i.putExtra(DuetBattleCreateActivity.EXTRA_THEIR_UID,        reel.uid != null ? reel.uid : "");
+          i.putExtra(DuetBattleCreateActivity.EXTRA_ORIGINAL_REEL_ID, reel.reelId);
           startActivity(i);
       }
 
       private void openDuetTree() {
           if (!isAdded() || getActivity() == null || reel == null) return;
           Intent i = new Intent(getActivity(), DuetTreeActivity.class);
-          i.putExtra(DuetTreeActivity.EXTRA_REEL_ID,    reel.reelId);
-          i.putExtra(DuetTreeActivity.EXTRA_OWNER_NAME, reel.ownerName);
+          i.putExtra(DuetTreeActivity.EXTRA_ROOT_REEL_ID, reel.reelId);
+          i.putExtra(DuetTreeActivity.EXTRA_OWNER_NAME,   reel.ownerName != null ? reel.ownerName : "");
           startActivity(i);
       }
 
       private void openDuetChallenge() {
           if (!isAdded() || getActivity() == null || reel == null) return;
           Intent i = new Intent(getActivity(), DuetChallengeCreateActivity.class);
-          i.putExtra(DuetChallengeCreateActivity.EXTRA_REEL_ID,   reel.reelId);
-          i.putExtra(DuetChallengeCreateActivity.EXTRA_VIDEO_URL, reel.videoUrl);
-          i.putExtra(DuetChallengeCreateActivity.EXTRA_THUMB_URL, reel.thumbUrl != null ? reel.thumbUrl : "");
+          i.putExtra(DuetChallengeCreateActivity.EXTRA_REEL_ID,    reel.reelId);
+          i.putExtra(DuetChallengeCreateActivity.EXTRA_VIDEO_URL,  reel.videoUrl != null ? reel.videoUrl : "");
+          i.putExtra(DuetChallengeCreateActivity.EXTRA_THUMB_URL,  reel.thumbUrl != null ? reel.thumbUrl : "");
+          i.putExtra(DuetChallengeCreateActivity.EXTRA_OWNER_NAME, reel.ownerName != null ? reel.ownerName : "");
           startActivity(i);
       }
 
       private void openMultiDuet() {
           if (!isAdded() || getActivity() == null || reel == null) return;
           Intent i = new Intent(getActivity(), MultiDuetActivity.class);
-          i.putExtra(MultiDuetActivity.EXTRA_REEL_ID,    reel.reelId);
-          i.putExtra(MultiDuetActivity.EXTRA_VIDEO_URL,  reel.videoUrl);
-          i.putExtra(MultiDuetActivity.EXTRA_OWNER_NAME, reel.ownerName);
-          i.putExtra(MultiDuetActivity.EXTRA_THUMB_URL,  reel.thumbUrl != null ? reel.thumbUrl : "");
+          i.putExtra(MultiDuetActivity.EXTRA_ORIGINAL_REEL_ID, reel.reelId);
+          i.putExtra(MultiDuetActivity.EXTRA_VIDEO_URL,        reel.videoUrl != null ? reel.videoUrl : "");
+          i.putExtra(MultiDuetActivity.EXTRA_OWNER_NAME,       reel.ownerName != null ? reel.ownerName : "");
+          i.putExtra(MultiDuetActivity.EXTRA_OWNER_UID,        reel.uid != null ? reel.uid : "");
           startActivity(i);
       }
 
       private void openDuetApproval() {
           if (!isAdded() || getActivity() == null || reel == null) return;
           Intent i = new Intent(getActivity(), DuetApprovalQueueActivity.class);
-          i.putExtra(DuetApprovalQueueActivity.EXTRA_REEL_ID, reel.reelId);
+          i.putExtra(DuetApprovalQueueActivity.EXTRA_REEL_ID,    reel.reelId);
+          i.putExtra(DuetApprovalQueueActivity.EXTRA_REEL_TITLE, reel.ownerName != null ? "@" + reel.ownerName : "");
           startActivity(i);
       }
 
