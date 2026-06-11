@@ -360,6 +360,10 @@
             android:theme="@style/Theme.AppCompat.NoActionBar"/>
 
     
+                    <!-- ── Duet Series v11 ── -->
+          <activity android:name="com.callx.app.social.DuetSeriesActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.DuetSeriesCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
+
           <!-- ── Advanced Duet Features v10 ── -->
           <activity android:name="com.callx.app.social.DuetInviteActivity" android:screenOrientation="portrait" android:exported="false"/>
           <activity android:name="com.callx.app.social.DuetApprovalQueueActivity" android:screenOrientation="portrait" android:exported="false"/>
