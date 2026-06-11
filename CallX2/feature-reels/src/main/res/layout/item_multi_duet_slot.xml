@@ -2,7 +2,7 @@
   <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
       android:layout_width="match_parent" android:layout_height="100dp"
       android:orientation="vertical" android:gravity="center"
-      android:background="#1A1A1A" android:margin="6dp" android:padding="8dp">
+      android:background="#1A1A1A" android:layout_margin="6dp" android:padding="8dp">
 
       <FrameLayout android:layout_width="wrap_content" android:layout_height="wrap_content">
           <ImageView android:id="@+id/iv_slot_avatar"
