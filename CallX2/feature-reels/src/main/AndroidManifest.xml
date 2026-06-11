@@ -65,7 +65,7 @@
 
         <!-- ✅ FIX (GAP #2 — v8): StitchesByReelActivity registered -->
         <activity
-            android:name=".social.StitchesByReelActivity"
+            android:name="com.callx.app.social.StitchesByReelActivity"
             android:screenOrientation="portrait"
             android:exported="false"/>
 
@@ -361,13 +361,23 @@
 
     
           <!-- ── Advanced Duet Features v10 ── -->
-          <activity android:name=".social.DuetInviteActivity" android:screenOrientation="portrait" android:exported="false"/>
-          <activity android:name=".social.DuetApprovalQueueActivity" android:screenOrientation="portrait" android:exported="false"/>
-          <activity android:name=".social.DuetBattleActivity" android:screenOrientation="portrait" android:exported="false"/>
-          <activity android:name=".social.DuetBattleCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
-          <activity android:name=".social.MultiDuetActivity" android:screenOrientation="portrait" android:exported="false"/>
-          <activity android:name=".social.DuetChallengeCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
-          <activity android:name=".social.DuetChallengeLeaderboardActivity" android:screenOrientation="portrait" android:exported="false"/>
-          <activity android:name=".social.DuetTreeActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.DuetInviteActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.DuetApprovalQueueActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.DuetBattleActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.DuetBattleCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.MultiDuetActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.DuetChallengeCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.DuetChallengeLeaderboardActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.DuetTreeActivity" android:screenOrientation="portrait" android:exported="false"/>
+
+          <!-- ── Repost / Share System ── -->
+          <activity android:name="com.callx.app.social.ReelRepostListActivity"
+              android:exported="false"
+              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:windowSoftInputMode="adjustResize"/>
+          <activity android:name="com.callx.app.social.RepostWithCaptionActivity"
+              android:exported="false"
+              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:windowSoftInputMode="adjustResize"/>
     </application>
 </manifest>
