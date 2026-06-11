@@ -57,6 +57,8 @@ public class DuetsByReelActivity extends AppCompatActivity {
     private RecyclerView rvDuets;
     private ProgressBar  progressDuets;
     private View         layoutEmpty;
+      private android.widget.ImageButton btnDuetTree;
+      private android.widget.ImageButton btnDuetBattleFromList;
 
     private String               originalReelId;
     private String               ownerName;
@@ -98,6 +100,27 @@ public class DuetsByReelActivity extends AppCompatActivity {
         rvDuets.setLayoutManager(glm);
         rvDuets.setAdapter(adapter);
         btnBack.setOnClickListener(v -> finish());
+
+          btnDuetTree = findViewById(R.id.btn_duet_tree);
+          btnDuetBattleFromList = findViewById(R.id.btn_duet_battle_from_list);
+
+          if (btnDuetTree != null) {
+              btnDuetTree.setOnClickListener(v -> {
+                  Intent it = new Intent(this, DuetTreeActivity.class);
+                  it.putExtra(DuetTreeActivity.EXTRA_REEL_ID,    originalReelId);
+                  it.putExtra(DuetTreeActivity.EXTRA_OWNER_NAME, ownerName);
+                  startActivity(it);
+              });
+          }
+          if (btnDuetBattleFromList != null) {
+              btnDuetBattleFromList.setOnClickListener(v -> {
+                  android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+                  b.setTitle("⚔️ Duet Battle");
+                  b.setMessage("Pick a duet from the list, then tap the duet's card to create a battle against it.");
+                  b.setPositiveButton("Got it", null);
+                  b.show();
+              });
+          }
 
         // ── Scroll listener: load next page when near bottom ─────────────────
         rvDuets.addOnScrollListener(new RecyclerView.OnScrollListener() {

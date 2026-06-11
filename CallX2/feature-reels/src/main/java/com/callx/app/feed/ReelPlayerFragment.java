@@ -59,6 +59,13 @@ import com.callx.app.followers.ReelCollabRequestActivity;
 import com.callx.app.profile.ReelQRCodeActivity;
 import com.callx.app.comments.ReelPinnedCommentsActivity;
 import com.callx.app.social.ReelShareToStoryActivity;
+  import com.callx.app.social.DuetInviteActivity;
+  import com.callx.app.social.DuetBattleActivity;
+  import com.callx.app.social.DuetBattleCreateActivity;
+  import com.callx.app.social.DuetTreeActivity;
+  import com.callx.app.social.DuetChallengeCreateActivity;
+  import com.callx.app.social.DuetApprovalQueueActivity;
+  import com.callx.app.social.MultiDuetActivity;
 
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
@@ -1713,7 +1720,63 @@ public class ReelPlayerFragment extends Fragment
         startActivity(i);
     }
 
-    // ── Firebase listeners ────────────────────────────────────────────────
+    // ── Advanced Duet entry points (v10) ─────────────────────────────────
+
+      private void openDuetInvite() {
+          if (!isAdded() || getActivity() == null || reel == null) return;
+          Intent i = new Intent(getActivity(), DuetInviteActivity.class);
+          i.putExtra(DuetInviteActivity.EXTRA_REEL_ID,    reel.reelId);
+          i.putExtra(DuetInviteActivity.EXTRA_OWNER_NAME, reel.ownerName);
+          i.putExtra(DuetInviteActivity.EXTRA_THUMB_URL,  reel.thumbUrl != null ? reel.thumbUrl : "");
+          startActivity(i);
+      }
+
+      private void openDuetBattle() {
+          if (!isAdded() || getActivity() == null || reel == null) return;
+          Intent i = new Intent(getActivity(), DuetBattleCreateActivity.class);
+          i.putExtra(DuetBattleCreateActivity.EXTRA_REEL_ID,       reel.reelId);
+          i.putExtra(DuetBattleCreateActivity.EXTRA_OWNER_UID,     reel.uid);
+          i.putExtra(DuetBattleCreateActivity.EXTRA_OWNER_NAME,    reel.ownerName);
+          i.putExtra(DuetBattleCreateActivity.EXTRA_VIDEO_URL,     reel.videoUrl);
+          i.putExtra(DuetBattleCreateActivity.EXTRA_THUMB_URL,     reel.thumbUrl != null ? reel.thumbUrl : "");
+          startActivity(i);
+      }
+
+      private void openDuetTree() {
+          if (!isAdded() || getActivity() == null || reel == null) return;
+          Intent i = new Intent(getActivity(), DuetTreeActivity.class);
+          i.putExtra(DuetTreeActivity.EXTRA_REEL_ID,    reel.reelId);
+          i.putExtra(DuetTreeActivity.EXTRA_OWNER_NAME, reel.ownerName);
+          startActivity(i);
+      }
+
+      private void openDuetChallenge() {
+          if (!isAdded() || getActivity() == null || reel == null) return;
+          Intent i = new Intent(getActivity(), DuetChallengeCreateActivity.class);
+          i.putExtra(DuetChallengeCreateActivity.EXTRA_REEL_ID,   reel.reelId);
+          i.putExtra(DuetChallengeCreateActivity.EXTRA_VIDEO_URL, reel.videoUrl);
+          i.putExtra(DuetChallengeCreateActivity.EXTRA_THUMB_URL, reel.thumbUrl != null ? reel.thumbUrl : "");
+          startActivity(i);
+      }
+
+      private void openMultiDuet() {
+          if (!isAdded() || getActivity() == null || reel == null) return;
+          Intent i = new Intent(getActivity(), MultiDuetActivity.class);
+          i.putExtra(MultiDuetActivity.EXTRA_REEL_ID,    reel.reelId);
+          i.putExtra(MultiDuetActivity.EXTRA_VIDEO_URL,  reel.videoUrl);
+          i.putExtra(MultiDuetActivity.EXTRA_OWNER_NAME, reel.ownerName);
+          i.putExtra(MultiDuetActivity.EXTRA_THUMB_URL,  reel.thumbUrl != null ? reel.thumbUrl : "");
+          startActivity(i);
+      }
+
+      private void openDuetApproval() {
+          if (!isAdded() || getActivity() == null || reel == null) return;
+          Intent i = new Intent(getActivity(), DuetApprovalQueueActivity.class);
+          i.putExtra(DuetApprovalQueueActivity.EXTRA_REEL_ID, reel.reelId);
+          startActivity(i);
+      }
+
+      // ── Firebase listeners ────────────────────────────────────────────────
 
     private void startFirebaseListeners() {
         loadLiveReactionCounts(); // Feature 12

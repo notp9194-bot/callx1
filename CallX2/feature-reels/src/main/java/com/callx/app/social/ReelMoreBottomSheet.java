@@ -69,6 +69,13 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_PINNED_COMMENTS     = "pinned_comments";
     public static final String ACTION_QR_CODE             = "qr_code";
     public static final String ACTION_DELETE              = "delete";
+      // ── Advanced Duet Actions (v10) ──
+      public static final String ACTION_DUET_INVITE   = "duet_invite";
+      public static final String ACTION_DUET_BATTLE   = "duet_battle";
+      public static final String ACTION_DUET_TREE     = "duet_tree";
+      public static final String ACTION_DUET_CHALLENGE = "duet_challenge";
+      public static final String ACTION_MULTI_DUET    = "multi_duet";
+      public static final String ACTION_DUET_APPROVAL = "duet_approval";
 
     // ─── Item model ──────────────────────────────────────────────────────────
     private static class MenuItem {
