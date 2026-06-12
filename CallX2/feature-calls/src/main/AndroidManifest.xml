@@ -93,6 +93,9 @@
                 <action android:name="com.callx.app.ACTION_GROUP_MUTE"/>
                 <action android:name="com.callx.app.ACTION_GROUP_UNMUTE"/>
                 <action android:name="com.callx.app.ACTION_GROUP_LEAVE"/>
+
+                <!-- Small Window quick launch (v32.10) -->
+                <action android:name="com.callx.app.ACTION_OPEN_SMALL_WINDOW"/>
             </intent-filter>
         </receiver>
         <receiver android:name="com.callx.app.services.GroupCallActionReceiver"

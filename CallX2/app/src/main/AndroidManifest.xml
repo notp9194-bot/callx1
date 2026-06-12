@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <!-- FIX v14: shortService type — required for ReelNotificationService on Android 14+ -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE"/>
+    <!-- FIX v32.10: specialUse type requires this permission on Android 14+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
@@ -781,7 +783,7 @@
         <service
             android:name=".smallwindow.SmallWindowService"
             android:exported="false"
-            android:foregroundServiceType="shortService"
+            android:foregroundServiceType="specialUse"
             android:stopWithTask="false"/>
 
       </application>

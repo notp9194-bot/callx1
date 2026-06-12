@@ -16,6 +16,7 @@ import com.callx.app.R;
  *
  * Start karo:
  *   Intent svc = new Intent(context, SmallWindowService.class);
+ *   svc.putExtra("userId", "uid_123");
  *   svc.putExtra("name", "Ali Hassan");
  *   svc.putExtra("status", "Online");
  *   context.startForegroundService(svc);   // API 26+
@@ -25,11 +26,12 @@ import com.callx.app.R;
  */
 public class SmallWindowService extends Service {
 
-    public static final String EXTRA_NAME   = "name";
-    public static final String EXTRA_STATUS = "status";
+    public static final String EXTRA_USER_ID = "userId";
+    public static final String EXTRA_NAME    = "name";
+    public static final String EXTRA_STATUS  = "status";
 
-    private static final String CHANNEL_ID   = "small_window_channel";
-    private static final int    NOTIF_ID     = 9901;
+    private static final String CHANNEL_ID = "small_window_channel";
+    private static final int    NOTIF_ID   = 9901;
 
     @Override
     public void onCreate() {
@@ -39,13 +41,20 @@ public class SmallWindowService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String name   = intent != null ? intent.getStringExtra(EXTRA_NAME)   : "CallX";
-        String status = intent != null ? intent.getStringExtra(EXTRA_STATUS) : "";
+        String userId = intent != null ? intent.getStringExtra(EXTRA_USER_ID) : null;
+        String name   = intent != null ? intent.getStringExtra(EXTRA_NAME)    : "CallX";
+        String status = intent != null ? intent.getStringExtra(EXTRA_STATUS)  : "";
 
-        startForeground(NOTIF_ID, buildNotification(name, status));
+        // Android 14+ (API 34): specialUse type requires explicit foreground type flag
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIF_ID, buildNotification(name, status),
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+        } else {
+            startForeground(NOTIF_ID, buildNotification(name, status));
+        }
 
-        // Show the floating window
-        SmallWindowManager.getInstance().show(getApplicationContext(), name, status);
+        // Show the floating window — pass userId for deep-link / chat open
+        SmallWindowManager.getInstance().show(getApplicationContext(), userId, name, status);
 
         return START_NOT_STICKY;
     }

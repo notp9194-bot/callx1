@@ -426,6 +426,39 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               pendingResult.finish();
               return;
           }
+        // (v32.10) Small Window — notification se direct floating window launch
+        if (Constants.ACTION_OPEN_SMALL_WINDOW.equals(action)) {
+            if (nm != null) nm.cancel(notifId); // notification dismiss karo
+            android.content.Context appCtx = context.getApplicationContext();
+            // SYSTEM_ALERT_WINDOW check — agar permission nahi hai to Settings kholo
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
+                    && !android.provider.Settings.canDrawOverlays(appCtx)) {
+                Intent permIntent = new Intent(
+                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:" + appCtx.getPackageName()));
+                permIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                appCtx.startActivity(permIntent);
+                pendingResult.finish();
+                return;
+            }
+            // SmallWindowService start karo (cross-module: Class.forName)
+            try {
+                Class<?> svcClass = Class.forName("com.callx.app.smallwindow.SmallWindowService");
+                Intent svc = new Intent(appCtx, svcClass);
+                svc.putExtra("userId", partnerUid != null ? partnerUid : "");
+                svc.putExtra("name",   partnerName != null ? partnerName : "Chat");
+                svc.putExtra("status", "CallX Small Window");
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    appCtx.startForegroundService(svc);
+                } else {
+                    appCtx.startService(svc);
+                }
+            } catch (ClassNotFoundException e) {
+                android.util.Log.w("NotifActionReceiver", "SmallWindowService not found", e);
+            }
+            pendingResult.finish();
+            return;
+        }
         // (Feature 4 / 12) Permanent block — sender ka koi notification nahi.
         // Sender ko ek baar return notification jaata hai.
         if (Constants.ACTION_PERMA_BLOCK.equals(action)) {

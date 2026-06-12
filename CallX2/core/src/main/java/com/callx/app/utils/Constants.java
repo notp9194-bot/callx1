@@ -246,6 +246,7 @@ public class Constants {
 
       // ── Missed call: video call back ──────────────────────────────────────
       public static final String ACTION_VIDEO_CALL_BACK     = "com.callx.app.ACTION_VIDEO_CALL_BACK";
+      public static final String ACTION_OPEN_SMALL_WINDOW   = "com.callx.app.ACTION_OPEN_SMALL_WINDOW";
 
       // ── Missed call: quick reply suggestions ─────────────────────────────
       public static final String ACTION_QUICK_REPLY_1       = "com.callx.app.QUICK_REPLY_1";

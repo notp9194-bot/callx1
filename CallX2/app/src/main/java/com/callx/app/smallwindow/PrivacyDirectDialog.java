@@ -142,8 +142,9 @@ public class PrivacyDirectDialog extends BottomSheetDialogFragment {
 
         // Start SmallWindowService (foreground service)
         Intent svc = new Intent(ctx, SmallWindowService.class);
-        svc.putExtra(SmallWindowService.EXTRA_NAME,   userName);
-        svc.putExtra(SmallWindowService.EXTRA_STATUS, userStatus);
+        svc.putExtra(SmallWindowService.EXTRA_USER_ID, userId);
+        svc.putExtra(SmallWindowService.EXTRA_NAME,    userName);
+        svc.putExtra(SmallWindowService.EXTRA_STATUS,  userStatus);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ctx.startForegroundService(svc);

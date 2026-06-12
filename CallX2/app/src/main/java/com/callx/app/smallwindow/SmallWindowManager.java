@@ -22,7 +22,7 @@ import com.callx.app.R;
  *  - Android 8+ TYPE_APPLICATION_OVERLAY use karta hai
  *
  * Usage:
- *   SmallWindowManager.getInstance().show(context, "Ali Hassan", "Online");
+ *   SmallWindowManager.getInstance().show(context, "uid_123", "Ali Hassan", "Online");
  *   SmallWindowManager.getInstance().dismiss(context);
  *
  * Requires: android.permission.SYSTEM_ALERT_WINDOW
@@ -40,7 +40,8 @@ public class SmallWindowManager {
     private View    bubbleView;
     private boolean isMinimized = false;
 
-    // ── Cached name/status for bubble restore ─────────────────────────────
+    // ── Cached userId/name/status for bubble restore ──────────────────────
+    private String cachedUserId;
     private String cachedName;
     private String cachedStatus;
 
@@ -53,14 +54,16 @@ public class SmallWindowManager {
     /**
      * Small window dikhao.
      *
-     * @param context Application context
-     * @param name    Contact / chat ka naam
-     * @param status  Status text (e.g. "Online", "In a call")
+     * @param context  Application context
+     * @param userId   Firebase UID — future deep-link / re-open chat ke liye
+     * @param name     Contact / chat ka naam
+     * @param status   Status text (e.g. "Online", "In a call")
      */
-    public void show(Context context, String name, String status) {
+    public void show(Context context, String userId, String name, String status) {
         if (smallWindowView != null) dismiss(context); // purana remove karo
 
         // Cache for bubble restore
+        if (userId != null) cachedUserId = userId;
         if (name   != null) cachedName   = name;
         if (status != null) cachedStatus = status;
 
@@ -79,8 +82,6 @@ public class SmallWindowManager {
             dpToPx(context, 260),
             dpToPx(context, 180),
             overlayType,
-            // FLAG_NOT_FOCUSABLE: keyboard nahi khulegi, lekin buttons kaam karenge
-            // FLAG_WATCH_OUTSIDE_TOUCH: bahar tap pe dismiss nahi hoga (optional)
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT);
@@ -99,7 +100,6 @@ public class SmallWindowManager {
         if (tvStatus != null) tvStatus.setText(cachedStatus != null ? cachedStatus : "");
 
         // ── Drag logic on root view ───────────────────────────────────────
-        // Use a wrapper to distinguish drag vs click on buttons
         smallWindowView.setOnTouchListener(new View.OnTouchListener() {
             private boolean isDragging = false;
 
@@ -112,7 +112,7 @@ public class SmallWindowManager {
                         initialTouchX = event.getRawX();
                         initialTouchY = event.getRawY();
                         isDragging    = false;
-                        return false; // let children (buttons) consume if they want
+                        return false;
 
                     case MotionEvent.ACTION_MOVE:
                         float dx = event.getRawX() - initialTouchX;
@@ -129,7 +129,7 @@ public class SmallWindowManager {
                         return false;
 
                     case MotionEvent.ACTION_UP:
-                        return isDragging; // consume only if we were dragging
+                        return isDragging;
                 }
                 return false;
             }
@@ -144,7 +144,6 @@ public class SmallWindowManager {
         if (btnClose != null) {
             btnClose.setOnClickListener(v -> {
                 dismiss(context);
-                // Stop the foreground service too
                 try {
                     context.stopService(new android.content.Intent(context, SmallWindowService.class));
                 } catch (Exception ignored) {}
@@ -161,11 +160,9 @@ public class SmallWindowManager {
         if (smallWindowView == null || isMinimized) return;
         isMinimized = true;
 
-        // Remove the main small window
         try { wm.removeView(smallWindowView); } catch (Exception ignored) {}
         smallWindowView = null;
 
-        // Create bubble
         LayoutInflater inflater = LayoutInflater.from(context);
         bubbleView = inflater.inflate(R.layout.layout_small_window_bubble, null);
 
@@ -185,7 +182,6 @@ public class SmallWindowManager {
         bubbleParams.x = 24;
         bubbleParams.y = 80;
 
-        // Drag + tap on bubble
         bubbleView.setOnTouchListener(new View.OnTouchListener() {
             private boolean isDragging = false;
 
@@ -207,7 +203,6 @@ public class SmallWindowManager {
                             isDragging = true;
                         }
                         if (isDragging) {
-                            // Gravity.END → x is from right edge, so invert horizontal
                             bubbleParams.x = initialX - (int) dx;
                             bubbleParams.y = initialY + (int) dy;
                             try { wm.updateViewLayout(bubbleView, bubbleParams); } catch (Exception ignored) {}
@@ -217,12 +212,11 @@ public class SmallWindowManager {
 
                     case MotionEvent.ACTION_UP:
                         if (!isDragging) {
-                            // Tap — restore small window
                             try { wm.removeView(bubbleView); } catch (Exception ignored) {}
                             bubbleView  = null;
                             isMinimized = false;
-                            // Use cachedName/cachedStatus — not null anymore
-                            show(context, cachedName, cachedStatus);
+                            // Restore with cached userId
+                            show(context, cachedUserId, cachedName, cachedStatus);
                         }
                         return true;
                 }
@@ -248,6 +242,7 @@ public class SmallWindowManager {
             bubbleView = null;
         }
         isMinimized  = false;
+        cachedUserId = null;
         cachedName   = null;
         cachedStatus = null;
     }

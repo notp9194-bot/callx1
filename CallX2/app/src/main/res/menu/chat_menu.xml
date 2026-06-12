@@ -48,4 +48,9 @@
         android:title="🔒 Security"
         app:showAsAction="never"/>
 
+    <!-- Small Window — WhatsApp-style floating overlay (v32.10) -->
+    <item android:id="@+id/action_small_window"
+        android:title="🪟 Small Window"
+        app:showAsAction="never"/>
+
 </menu>

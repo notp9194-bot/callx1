@@ -1003,6 +1003,16 @@ public class CallxMessagingService extends FirebaseMessagingService {
             new NotificationCompat.Action.Builder(
                     R.drawable.ic_message_notification, "Block", blockPi)
                 .build();
+        // Action: Small Window — floating overlay quick launch from notification
+        PendingIntent smallWindowPi = PendingIntent.getBroadcast(this, notifId * 10 + 7,
+            buildActionIntent(Constants.ACTION_OPEN_SMALL_WINDOW, fromUid, fromName,
+                fromPhoto, chatId, notifId),
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        NotificationCompat.Action smallWindowAction =
+            new NotificationCompat.Action.Builder(
+                    R.drawable.ic_message_notification, "🪟 Small Window", smallWindowPi)
+                .setShowsUserInterface(false)
+                .build();
         // MessagingStyle — expands to last 3 messages + current message (Feature 7)
         // NOTE: FCM can arrive before Firebase DB write propagates, so the
         // current `text` from the payload is always appended last to guarantee
@@ -1058,6 +1068,7 @@ public class CallxMessagingService extends FirebaseMessagingService {
             .addAction(markReadAction)
             .addAction(muteAction)
             .addAction(blockAction)
+            .addAction(smallWindowAction)
             .setGroup(Constants.GROUP_KEY_MESSAGES)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicB.build());
