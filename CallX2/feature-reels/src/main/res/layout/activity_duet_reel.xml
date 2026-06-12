@@ -54,8 +54,10 @@
             android:layout_height="2dp"
             android:background="@color/brand_primary"/>
 
-        <!-- Camera preview (bottom half) -->
+        <!-- Camera preview (bottom half)
+             id="frame_camera_container" — used for setLayerType(HARDWARE, paint) live filter -->
         <FrameLayout
+            android:id="@+id/frame_camera_container"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
@@ -64,6 +66,22 @@
                 android:id="@+id/preview_view_camera"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"/>
+
+            <!-- Active filter badge (top-right of camera pane) -->
+            <TextView
+                android:id="@+id/tv_active_filter_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_margin="8dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:background="#AA000000"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:visibility="gone"/>
 
             <TextView
                 android:layout_width="wrap_content"
@@ -80,6 +98,14 @@
                 android:background="#66000000"/>
         </FrameLayout>
     </LinearLayout>
+
+    <!-- ── Full-screen overlay container for draggable text + stickers ───── -->
+    <!-- Transparent: video shows through; overlays (TextViews) injected in code -->
+    <FrameLayout
+        android:id="@+id/frame_duet_overlays"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"/>
 
     <!-- ── Top controls bar ──────────────────────────────────────────────── -->
     <LinearLayout
@@ -112,7 +138,6 @@
             android:fontFamily="sans-serif-medium"
             android:gravity="center"/>
 
-        <!-- View Duets button (shows all duets of this reel) -->
         <ImageButton
             android:id="@+id/btn_view_duets"
             android:layout_width="44dp"
@@ -132,7 +157,7 @@
             android:contentDescription="Flip camera"/>
     </LinearLayout>
 
-    <!-- ── Layout mode selector (side-by-side / top-bottom / pip) ────────── -->
+    <!-- ── Layout mode selector (top-right corner) ───────────────────────── -->
     <LinearLayout
         android:id="@+id/layout_duet_selector"
         android:layout_width="wrap_content"
@@ -144,7 +169,6 @@
         android:background="#55000000"
         android:padding="6dp">
 
-        <!-- Side-by-side -->
         <ImageButton
             android:id="@+id/btn_layout_side_by_side"
             android:layout_width="40dp"
@@ -155,7 +179,6 @@
             android:contentDescription="Side by Side"
             android:alpha="1.0"/>
 
-        <!-- Top-Bottom -->
         <ImageButton
             android:id="@+id/btn_layout_top_bottom"
             android:layout_width="40dp"
@@ -167,7 +190,6 @@
             android:alpha="0.4"
             android:layout_marginTop="4dp"/>
 
-        <!-- PiP / React -->
         <ImageButton
             android:id="@+id/btn_layout_pip"
             android:layout_width="40dp"
@@ -179,7 +201,6 @@
             android:alpha="0.4"
             android:layout_marginTop="4dp"/>
 
-        <!-- Reaction Bubble -->
         <ImageButton
             android:id="@+id/btn_layout_reaction_bubble"
             android:layout_width="40dp"
@@ -192,12 +213,95 @@
             android:layout_marginTop="4dp"/>
     </LinearLayout>
 
-    <!-- ── Reaction Bubble draggable overlay ─────────────────────────────── -->
+    <!-- ── Live Editing Tools Panel (right side, vertically centred) ──────── -->
     <!--
-        Circular FrameLayout that the user drags to position the bubble.
-        Shown only in LAYOUT_REACTION_BUBBLE mode (visibility toggled in code).
-        ShapeAppearance circle is handled via clipToOutline in Activity.
+        3 tool buttons stacked vertically:
+          • Filter  — opens horizontal filter-chip strip
+          • T       — opens text overlay dialog
+          • 😊      — opens sticker emoji picker
+        Shown at all times; usable before AND during recording.
     -->
+    <LinearLayout
+        android:id="@+id/panel_live_tools"
+        android:layout_width="52dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|end"
+        android:layout_marginEnd="6dp"
+        android:orientation="vertical"
+        android:background="#77000000"
+        android:padding="6dp"
+        android:elevation="12dp">
+
+        <!-- ① Filter button -->
+        <ImageButton
+            android:id="@+id/btn_tool_filter"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center_horizontal"
+            android:src="@drawable/ic_reels"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="Live Filters"
+            android:padding="6dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="Filter"
+            android:textColor="#CCFFFFFF"
+            android:textSize="8sp"
+            android:layout_marginBottom="10dp"/>
+
+        <!-- ② Text overlay button -->
+        <TextView
+            android:id="@+id/btn_tool_text"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center_horizontal"
+            android:text="T"
+            android:gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:fontFamily="sans-serif-black"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Add Text"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="Text"
+            android:textColor="#CCFFFFFF"
+            android:textSize="8sp"
+            android:layout_marginBottom="10dp"/>
+
+        <!-- ③ Sticker button -->
+        <TextView
+            android:id="@+id/btn_tool_sticker"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center_horizontal"
+            android:text="😊"
+            android:gravity="center"
+            android:textSize="24sp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Add Sticker"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="Sticker"
+            android:textColor="#CCFFFFFF"
+            android:textSize="8sp"/>
+    </LinearLayout>
+
+    <!-- ── Reaction Bubble draggable overlay ─────────────────────────────── -->
     <FrameLayout
         android:id="@+id/view_bubble_overlay"
         android:layout_width="120dp"
@@ -211,14 +315,12 @@
         android:outlineProvider="background"
         android:elevation="8dp">
 
-        <!-- Camera preview mirrored into bubble -->
         <androidx.camera.view.PreviewView
             android:id="@+id/preview_view_bubble"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             app:scaleType="fillCenter"/>
 
-        <!-- Drag handle hint -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -228,6 +330,35 @@
             android:textColor="#CCFFFFFF"
             android:textSize="9sp"/>
     </FrameLayout>
+
+    <!-- ── Filter Strip Panel (slides up above bottom controls) ──────────── -->
+    <!--
+        Horizontal scroll of 12 filter chips (Normal → Clarendon).
+        Visibility: GONE by default; toggled in code when Filter button is tapped.
+        Positioned at marginBottom ~218dp so it floats just above the bottom panel.
+    -->
+    <HorizontalScrollView
+        android:id="@+id/panel_filter_strip"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="218dp"
+        android:scrollbars="none"
+        android:background="#DD000000"
+        android:visibility="gone"
+        android:elevation="14dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <LinearLayout
+            android:id="@+id/container_filter_chips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:gravity="center_vertical"/>
+    </HorizontalScrollView>
 
     <!-- ── Bottom controls ───────────────────────────────────────────────── -->
     <LinearLayout
@@ -326,7 +457,6 @@
             android:textSize="11sp"
             android:layout_marginBottom="10dp"/>
 
-        <!-- Timer -->
         <TextView
             android:id="@+id/tv_duet_timer"
             android:layout_width="wrap_content"
@@ -337,7 +467,6 @@
             android:fontFamily="sans-serif-medium"
             android:layout_marginBottom="8dp"/>
 
-        <!-- Progress bar -->
         <ProgressBar
             android:id="@+id/progress_duet"
             style="@style/Widget.AppCompat.ProgressBar.Horizontal"
@@ -349,7 +478,6 @@
             android:progressBackgroundTint="#44FFFFFF"
             android:layout_marginBottom="16dp"/>
 
-        <!-- Record button -->
         <ImageButton
             android:id="@+id/btn_duet_record"
             android:layout_width="72dp"
@@ -361,7 +489,7 @@
             android:contentDescription="Record duet"/>
     </LinearLayout>
 
-    <!-- ── 3-2-1 Countdown overlay (shown over everything) ───────────────── -->
+    <!-- ── 3-2-1 Countdown overlay ───────────────────────────────────────── -->
     <TextView
         android:id="@+id/tv_duet_countdown"
         android:layout_width="wrap_content"
