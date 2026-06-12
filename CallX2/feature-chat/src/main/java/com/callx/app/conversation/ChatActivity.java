@@ -182,6 +182,9 @@ public class ChatActivity extends AppCompatActivity {
 
     // ── Typing debounce ───────────────────────────────────────────────────
     private final android.os.Handler typingHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // ── Disappearing messages expiry cleanup ──────────────────────────────
+    private final android.os.Handler expiryHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable expiryRunnable;
     private final Runnable           stopTypingRunnable = () -> setOurTypingStatus(false);
 
     // ─────────────────────────────────────────────────────────────────────
@@ -229,6 +232,9 @@ public class ChatActivity extends AppCompatActivity {
         // ── Task 5: Offline banner + message pruning ──
         setupNetworkMonitor();
         ioExecutor.execute(() -> db.messageDao().pruneOldMessages(chatId, 500));
+
+        // Disappearing messages — expired messages cleanup (every 30s while chat is open)
+        scheduleExpiryCleanup();
 
         // Predictive preload of other hot chats (background)
         ChatRepository.getInstance(this).preloadRecentChats(chatId);
@@ -294,6 +300,7 @@ public class ChatActivity extends AppCompatActivity {
         if (onlineListener != null && partnerUid != null)
             FirebaseUtils.getUserRef(partnerUid).removeEventListener(onlineListener);
         typingHandler.removeCallbacks(stopTypingRunnable);
+        if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
         clearOurTypingStatus();
         if (connMgr != null && netCallback != null) {
             try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
@@ -318,6 +325,45 @@ public class ChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
     // NETWORK MONITORING (Task 5)
     // ─────────────────────────────────────────────────────────────────────
+
+    // ── Disappearing Messages — Expiry Cleanup ────────────────────────────
+    private void scheduleExpiryCleanup() {
+        expiryRunnable = new Runnable() {
+            @Override public void run() {
+                if (db == null) return;
+                ioExecutor.execute(() -> {
+                    int deleted = db.messageDao().deleteExpiredMessages(System.currentTimeMillis());
+                    if (deleted > 0) {
+                        // Also delete from Firebase for this chatId
+                        deleteExpiredFromFirebase();
+                    }
+                });
+                expiryHandler.postDelayed(this, 30_000L); // every 30s
+            }
+        };
+        expiryHandler.post(expiryRunnable);
+    }
+
+    /** Firebase se bhi expired messages delete karo (sender side cleanup) */
+    private void deleteExpiredFromFirebase() {
+        if (messagesRef == null || chatId == null) return;
+        long nowMs = System.currentTimeMillis();
+        messagesRef.orderByChild("expiresAt").endAt(nowMs)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        for (DataSnapshot child : snap.getChildren()) {
+                            Object expiresAtRaw = child.child("expiresAt").getValue();
+                            if (expiresAtRaw instanceof Long) {
+                                long expiresAt = (Long) expiresAtRaw;
+                                if (expiresAt > 0 && expiresAt <= nowMs) {
+                                    child.getRef().removeValue();
+                                }
+                            }
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+    }
 
     private void setupNetworkMonitor() {
         connMgr = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
@@ -809,6 +855,7 @@ public class ChatActivity extends AppCompatActivity {
         m.reelId                = e.reelId;       // FIX: reel_seen bubble
         m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
         m.fontStyle             = e.fontStyle;    // FIX: typing style — Room se load hone par preserve karo
+        m.expiresAt             = e.expiresAt;    // Disappearing messages
         return m;
     }
 
@@ -841,6 +888,7 @@ public class ChatActivity extends AppCompatActivity {
         e.reelId                  = m.reelId;           // FIX: reel_seen bubble
         e.reelThumbUrl            = m.reelThumbUrl;      // FIX: reel_seen bubble thumbnail
         e.fontStyle               = m.fontStyle;         // FIX: typing style preserve
+        e.expiresAt               = m.expiresAt;          // Disappearing messages
         e.syncedAt                = System.currentTimeMillis();
         return e;
     }
@@ -957,6 +1005,14 @@ public class ChatActivity extends AppCompatActivity {
         if (key == null) return;
         m.id = key;
 
+        // Disappearing messages — ChatPrivacyManager se disappear timer check karo
+        com.callx.app.utils.ChatPrivacyManager privMgr =
+                new com.callx.app.utils.ChatPrivacyManager(this, chatId, false);
+        long disappearMs = privMgr.getDisappearingMs();
+        if (disappearMs > 0) {
+            m.expiresAt = m.timestamp + disappearMs;
+        }
+
         // Step 1: Room mein turant save karo (status = pending)
         MessageEntity entity = messageToEntity(m, "pending");
         Executors.newSingleThreadExecutor().execute(() ->
@@ -1034,6 +1090,7 @@ public class ChatActivity extends AppCompatActivity {
         e.isGroup        = false;
         e.syncedAt       = System.currentTimeMillis();
         e.fontStyle      = m.fontStyle;
+        e.expiresAt      = m.expiresAt;  // Disappearing messages
         return e;
     }
 

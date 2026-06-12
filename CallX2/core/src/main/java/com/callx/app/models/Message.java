@@ -80,6 +80,14 @@ public class Message {
     /** True if this message belongs to a group chat */
     public boolean isGroup;
 
+    // ── Feature 11: Disappearing Messages ────────────────────────────────
+    /**
+     * Epoch ms at which this message should auto-delete.
+     * Set by sender = timestamp + disappearingMs from ChatPrivacyManager.
+     * 0 or null = no expiry.
+     */
+    public Long expiresAt;
+
     // ── Feature: Typing Font Style ────────────────────────────────────────
     /**
      * Font style ID used when this message was typed.

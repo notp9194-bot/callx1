@@ -3,6 +3,7 @@ package com.callx.app.conversation;
 import android.content.Context;
 import android.content.Intent;
 import android.media.MediaPlayer;
+import android.os.CountDownTimer;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
@@ -807,6 +808,43 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 h.tvStatus.setVisibility(View.GONE);
             }
         }
+
+        // ── Disappearing message countdown ────────────────────────────────
+        if (h.activeCountDown != null) {
+            h.activeCountDown.cancel();
+            h.activeCountDown = null;
+        }
+        if (h.tvExpiry != null) {
+            long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
+            long remaining = expiresAt - System.currentTimeMillis();
+            if (expiresAt > 0 && remaining > 0) {
+                h.tvExpiry.setVisibility(View.VISIBLE);
+                h.tvExpiry.setText("⏳ " + formatRemaining(remaining));
+                h.activeCountDown = new CountDownTimer(remaining, 1000L) {
+                    @Override public void onTick(long ms) {
+                        if (h.tvExpiry != null)
+                            h.tvExpiry.setText("⏳ " + formatRemaining(ms));
+                    }
+                    @Override public void onFinish() {
+                        if (h.tvExpiry != null) h.tvExpiry.setVisibility(View.GONE);
+                    }
+                }.start();
+            } else {
+                h.tvExpiry.setVisibility(View.GONE);
+            }
+        }
+    }
+
+    /** Convert ms remaining → "23h", "45m", "30s" */
+    private static String formatRemaining(long ms) {
+        long secs  = ms / 1000;
+        long mins  = secs / 60;
+        long hours = mins / 60;
+        long days  = hours / 24;
+        if (days  > 0) return days  + "d";
+        if (hours > 0) return hours + "h";
+        if (mins  > 0) return mins  + "m";
+        return secs + "s";
     }
 
     private void setupLongPress(VH h, Message m, boolean sent, Context ctx) {
@@ -1186,6 +1224,16 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
     @Override public int getItemCount() { return messages.size(); }
 
+    @Override
+    public void onViewRecycled(@NonNull VH holder) {
+        super.onViewRecycled(holder);
+        // Cancel any running countdown timer to prevent leaks on recycled views
+        if (holder.activeCountDown != null) {
+            holder.activeCountDown.cancel();
+            holder.activeCountDown = null;
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Font Style helper — TypingStyleManager.STYLE_* (0–19) ko TextView pe apply
     // ─────────────────────────────────────────────────────────────────────────
@@ -1281,6 +1329,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         LinearLayout llLinkPreview;
         TextView     tvLinkTitle, tvLinkDomain, tvLinkDescription;
         ImageView    ivLinkThumb;
+        // ── Disappearing messages ──
+        TextView        tvExpiry;
+        CountDownTimer  activeCountDown;
 
         VH(View v) {
             super(v);
@@ -1315,6 +1366,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvLinkDomain   = v.findViewById(R.id.tv_link_domain);
             tvLinkDescription = v.findViewById(R.id.tv_link_description);
             ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
+            tvExpiry       = v.findViewById(R.id.tv_expiry);
         }
     }
 }

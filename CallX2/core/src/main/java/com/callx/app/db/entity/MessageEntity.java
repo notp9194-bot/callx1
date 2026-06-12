@@ -80,5 +80,11 @@ public class MessageEntity {
      */
     public int fontStyle;
 
+    /**
+     * Disappearing messages — epoch ms at which this message auto-deletes.
+     * 0 / null = no expiry. Set by sender at push time.
+     */
+    public Long expiresAt;
+
     public MessageEntity() {}
 }

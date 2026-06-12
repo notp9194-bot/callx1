@@ -164,6 +164,11 @@ public interface MessageDao {
     // PRUNING / CLEANUP
     // ─────────────────────────────────────────────────────────────
 
+    /** Disappearing messages — delete all messages whose expiresAt has passed. */
+    @WorkerThread
+    @Query("DELETE FROM messages WHERE expiresAt IS NOT NULL AND expiresAt > 0 AND expiresAt <= :nowMs")
+    int deleteExpiredMessages(long nowMs);
+
     /** Prune old messages — keep last N per chat. Storage management. */
     @WorkerThread
     @Query("DELETE FROM messages WHERE chatId = :chatId AND timestamp < " +

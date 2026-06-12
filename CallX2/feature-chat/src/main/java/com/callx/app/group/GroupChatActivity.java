@@ -108,26 +108,18 @@ public class GroupChatActivity extends AppCompatActivity {
     // ── State ──────────────────────────────────────────────────────────────
     private boolean isAdmin    = false;
     private boolean isRecording = false;
-    private final Map<String, String> memberNames    = new HashMap<>();
-    private final Map<String, String> memberRoles    = new HashMap<>();
+    private final Map<String, String> memberNames = new HashMap<>();
+    private final Map<String, String> memberRoles = new HashMap<>();
     private final Map<String, Long>   memberLastSeen = new HashMap<>();
     private final Map<String, String> typingNames    = new HashMap<>();
-    private final Map<String, String> memberPhotos   = new HashMap<>();
     private int   totalMembers = 0;
     private boolean amTyping   = false;
 
-    // ── @Mention suggest ───────────────────────────────────────────────────
-    private MentionSuggestAdapter mentionAdapter;
-    private RecyclerView          rvMentionSuggest;
-    /** @ character ka start position track karo taaki partial text replace kar sakein */
-    private int mentionAtStart = -1;
-
-    // ── In-chat Search ─────────────────────────────────────────────────────
-    private final java.util.List<Integer> searchMatchPositions = new java.util.ArrayList<>();
-    private int searchCurrentIndex = -1;
-
     // ── Handlers ───────────────────────────────────────────────────────────
     private final android.os.Handler typingHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
+    // ── Disappearing messages expiry cleanup ──────────────────────────────
+    private final android.os.Handler expiryHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable expiryRunnable;
     private final Runnable           stopTyping     = () -> setMyTyping(false);
     private final android.os.Handler subtitleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable subtitleTick = new Runnable() {
@@ -184,7 +176,6 @@ public class GroupChatActivity extends AppCompatActivity {
         startRealtimeListener();
 
         setupInputBar();
-        setupMentionSuggest();
         setupPinnedBanner();
         setupReplyCancel();
         setupRealtimeHeader();
@@ -194,6 +185,9 @@ public class GroupChatActivity extends AppCompatActivity {
         // ── Task 5: Offline banner + message pruning ──
         setupNetworkMonitor();
         ioExecutor.execute(() -> db.messageDao().pruneOldMessages(groupId, 500));
+
+        // Disappearing messages — expired messages cleanup
+        scheduleExpiryCleanup();
 
         // Analytics + delta sync + predictive preload
         CacheManager.getInstance(this).getAnalytics().recordChatOpen(groupId);
@@ -211,6 +205,7 @@ public class GroupChatActivity extends AppCompatActivity {
     protected void onDestroy() {
         subtitleHandler.removeCallbacks(subtitleTick);
         typingHandler.removeCallbacks(stopTyping);
+        if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
         setMyTyping(false);
         if (groupMessagesRef != null && messageListener != null)
             groupMessagesRef.removeEventListener(messageListener);
@@ -237,6 +232,38 @@ public class GroupChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
     // NETWORK MONITORING (Task 5)
     // ─────────────────────────────────────────────────────────────────────
+
+    // ── Disappearing Messages — Expiry Cleanup ────────────────────────────
+    private void scheduleExpiryCleanup() {
+        expiryRunnable = new Runnable() {
+            @Override public void run() {
+                if (db == null) return;
+                ioExecutor.execute(() -> {
+                    int deleted = db.messageDao().deleteExpiredMessages(System.currentTimeMillis());
+                    if (deleted > 0) deleteExpiredFromFirebase();
+                });
+                expiryHandler.postDelayed(this, 30_000L);
+            }
+        };
+        expiryHandler.post(expiryRunnable);
+    }
+
+    private void deleteExpiredFromFirebase() {
+        if (groupMessagesRef == null) return;
+        long nowMs = System.currentTimeMillis();
+        groupMessagesRef.orderByChild("expiresAt").endAt(nowMs)
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                        for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
+                            Object raw = child.child("expiresAt").getValue();
+                            if (raw instanceof Long && (Long) raw > 0 && (Long) raw <= nowMs) {
+                                child.getRef().removeValue();
+                            }
+                        }
+                    }
+                    @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                });
+    }
 
     private void setupNetworkMonitor() {
         connMgr = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
@@ -323,11 +350,10 @@ public class GroupChatActivity extends AppCompatActivity {
             android.view.Menu m = popup.getMenu();
             m.add(0, R.id.menu_group_info,           0, "ℹ Group Info").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             m.add(0, R.id.menu_group_settings,       1, "⚙ Group Settings").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_search,             2, "🔍 Search").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.menu_invite,               3, "🔗 Invite Link").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.menu_starred,              4, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_customization, 5, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_privacy,       6, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_invite,               2, "🔗 Invite Link").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_starred,              3, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_privacy,       5, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             if (isAdmin) {
                 m.add(0, R.id.menu_admin_panel, 6, "👑 Admin Panel").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
                 m.add(0, R.id.menu_rename,      7, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
@@ -516,6 +542,7 @@ public class GroupChatActivity extends AppCompatActivity {
         m.starred           = e.starred;
         m.pinned            = e.pinned;
         m.fontStyle         = e.fontStyle;  // FIX: typing style — Room se load hone par preserve karo
+        m.expiresAt         = e.expiresAt;  // Disappearing messages
         return m;
     }
 
@@ -545,6 +572,7 @@ public class GroupChatActivity extends AppCompatActivity {
         e.isGroup               = true;
         e.syncedAt              = System.currentTimeMillis();
         e.fontStyle             = m.fontStyle;
+        e.expiresAt             = m.expiresAt;  // Disappearing messages
         return e;
     }
 
@@ -579,10 +607,6 @@ public class GroupChatActivity extends AppCompatActivity {
                     typingHandler.removeCallbacks(stopTyping);
                     setMyTyping(false);
                 }
-
-                // @Mention detection — cursor ke pehle @ dhundho
-                handleMentionDetection(s.toString(),
-                        binding.etMessage.getSelectionEnd());
             }
         });
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
@@ -627,9 +651,6 @@ public class GroupChatActivity extends AppCompatActivity {
         m.text = text;
         pushMessage(m, text);
         clearReply();
-
-        // @Mention: message mein @ wale members ko push notification bhejo
-        notifyMentionedUsers(text);
     }
 
     private Message buildOutgoing() {
@@ -652,6 +673,14 @@ public class GroupChatActivity extends AppCompatActivity {
         String key = groupMessagesRef.push().getKey();
         if (key == null) return;
         m.id = key;
+
+        // Disappearing messages — ChatPrivacyManager se disappear timer check karo
+        com.callx.app.utils.ChatPrivacyManager privMgr =
+                new com.callx.app.utils.ChatPrivacyManager(this, groupId, true);
+        long disappearMs = privMgr.getDisappearingMs();
+        if (disappearMs > 0) {
+            m.expiresAt = m.timestamp + disappearMs;
+        }
 
         // Step 1: Room mein turant save karo status=pending
         MessageEntity pending = modelToEntity(m);
@@ -711,161 +740,6 @@ public class GroupChatActivity extends AppCompatActivity {
         if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
         groupMessagesRef.child(m.id).child("readBy")
                 .child(currentUid).setValue(true);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // @MENTION SUGGEST
-    // ─────────────────────────────────────────────────────────────────────
-
-    /**
-     * Mention suggest RecyclerView wire karo.
-     * Adapter bana ke RecyclerView se attach karo.
-     */
-    private void setupMentionSuggest() {
-        rvMentionSuggest = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.rv_mention_suggest);
-        if (rvMentionSuggest == null) return;
-
-        mentionAdapter = new MentionSuggestAdapter((uid, name) -> {
-            // Member tap hone par: cursor ke pehle @query ko @name space se replace karo
-            Editable editable = binding.etMessage.getText();
-            if (editable == null) return;
-            String full = editable.toString();
-            int cursor  = binding.etMessage.getSelectionEnd();
-            if (mentionAtStart >= 0 && mentionAtStart <= cursor) {
-                // @query hata ke @name paste karo
-                editable.replace(mentionAtStart, cursor, "@" + name + " ");
-                binding.etMessage.setSelection(mentionAtStart + name.length() + 2);
-            } else {
-                // Fallback: text ke end mein paste karo
-                editable.append("@" + name + " ");
-            }
-            hideMentionSuggest();
-            mentionAtStart = -1;
-        });
-
-        rvMentionSuggest.setLayoutManager(
-                new LinearLayoutManager(this));
-        rvMentionSuggest.setAdapter(mentionAdapter);
-    }
-
-    /**
-     * Typed text mein @ pattern detect karo aur suggestions dikhao/chhupao.
-     * Logic: cursor ke pehle pichli @ se lekar cursor tak ka text = query.
-     * Agar @ ke baad space aaye ya @ na ho toh hide karo.
-     */
-    private void handleMentionDetection(String fullText, int cursor) {
-        if (rvMentionSuggest == null || mentionAdapter == null) return;
-        if (cursor < 0 || cursor > fullText.length()) {
-            hideMentionSuggest(); return;
-        }
-
-        String beforeCursor = fullText.substring(0, cursor);
-        int atPos = beforeCursor.lastIndexOf('@');
-
-        if (atPos < 0) {
-            hideMentionSuggest();
-            mentionAtStart = -1;
-            return;
-        }
-
-        String afterAt = beforeCursor.substring(atPos + 1);
-        // Space ya newline aa gaya matlab @ complete ho gaya — hide karo
-        if (afterAt.contains(" ") || afterAt.contains("\n")) {
-            hideMentionSuggest();
-            mentionAtStart = -1;
-            return;
-        }
-
-        // @ ke pehle space/start hona chahiye (beech mein @ nahi, jaise email)
-        if (atPos > 0) {
-            char prev = beforeCursor.charAt(atPos - 1);
-            if (prev != ' ' && prev != '\n') {
-                hideMentionSuggest();
-                mentionAtStart = -1;
-                return;
-            }
-        }
-
-        // Valid mention trigger — filter karo aur show karo
-        mentionAtStart = atPos;
-        mentionAdapter.filter(afterAt);
-
-        if (mentionAdapter.getItemCount() > 0) {
-            showMentionSuggest();
-        } else {
-            hideMentionSuggest();
-        }
-    }
-
-    private void showMentionSuggest() {
-        if (rvMentionSuggest != null && rvMentionSuggest.getVisibility() != View.VISIBLE) {
-            rvMentionSuggest.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void hideMentionSuggest() {
-        if (rvMentionSuggest != null && rvMentionSuggest.getVisibility() == View.VISIBLE) {
-            rvMentionSuggest.setVisibility(View.GONE);
-        }
-    }
-
-    /** memberNames + memberPhotos se MemberItem list banao (current user exclude) */
-    private List<MentionSuggestAdapter.MemberItem> buildMemberItems() {
-        List<MentionSuggestAdapter.MemberItem> items = new ArrayList<>();
-        for (Map.Entry<String, String> e : memberNames.entrySet()) {
-            String uid = e.getKey();
-            if (uid.equals(currentUid)) continue;  // khud ko suggest mat karo
-            String photo = memberPhotos.containsKey(uid) ? memberPhotos.get(uid) : "";
-            items.add(new MentionSuggestAdapter.MemberItem(uid, e.getValue(), photo));
-        }
-        // Alphabetical sort
-        java.util.Collections.sort(items, (a, b) -> a.name.compareToIgnoreCase(b.name));
-        return items;
-    }
-
-    /**
-     * Message text mein @name dhundho, unke UID nikalo, aur
-     * PushNotify.notifyGroupMention() se individually notify karo.
-     * Sirf current group ke members ko notify karo.
-     */
-    private void notifyMentionedUsers(String text) {
-        if (text == null || text.isEmpty()) return;
-        com.google.firebase.auth.FirebaseUser me =
-                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
-        String myPhoto = (me != null && me.getPhotoUrl() != null)
-                ? me.getPhotoUrl().toString() : "";
-
-        // Build reverse map: lowercase name → uid
-        Map<String, String> nameLowerToUid = new HashMap<>();
-        for (Map.Entry<String, String> e : memberNames.entrySet()) {
-            if (!e.getKey().equals(currentUid))
-                nameLowerToUid.put(e.getValue().toLowerCase(), e.getKey());
-        }
-
-        // Regex: @naam (word chars only, no space) — naam ke baad space/end/newline hona chahiye
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                "@([\\w]{1,40})(?=\\s|$)");
-        java.util.regex.Matcher matcher = pattern.matcher(text);
-
-        Set<String> notifiedUids = new HashSet<>();
-        while (matcher.find()) {
-            String rawName    = matcher.group(1).trim();
-            String lowerName  = rawName.toLowerCase();
-            String mentionUid = nameLowerToUid.get(lowerName);
-
-            if (mentionUid != null && !notifiedUids.contains(mentionUid)) {
-                notifiedUids.add(mentionUid);
-                final String uid = mentionUid;
-                ioExecutor.execute(() ->
-                    PushNotify.notifyGroupMention(
-                            groupId, uid,
-                            currentUid, currentName != null ? currentName : "",
-                            myPhoto != null ? myPhoto : "",
-                            "@" + rawName + ": " + text)
-                );
-            }
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1109,7 +983,7 @@ public class GroupChatActivity extends AppCompatActivity {
                     Object val = c.getValue();
                     String name = val != null ? String.valueOf(val) : "";
                     if (name.isEmpty() || "true".equalsIgnoreCase(name))
-                        name = memberNames.containsKey(uid) ? memberNames.get(uid) : "Someone";
+                        name = memberNames.getOrDefault(uid, "Someone");
                     typingNames.put(uid, name);
                 }
                 refreshSubtitle();
@@ -1125,23 +999,15 @@ public class GroupChatActivity extends AppCompatActivity {
                     String uid = c.getKey();
                     if (uid == null) continue;
                     latest.add(uid);
-                    String name  = c.child("name").getValue(String.class);
-                    String role  = c.child("role").getValue(String.class);
-                    String photo = c.child("photoUrl").getValue(String.class);
-                    if (photo == null) photo = c.child("thumbUrl").getValue(String.class);
-                    memberNames.put(uid, name   != null ? name   : "Member");
-                    memberRoles.put(uid, role   != null ? role   : "member");
-                    if (photo != null) memberPhotos.put(uid, photo);
+                    String name = c.child("name").getValue(String.class);
+                    String role = c.child("role").getValue(String.class);
+                    memberNames.put(uid, name != null ? name : "Member");
+                    memberRoles.put(uid, role != null ? role : "member");
                 }
                 totalMembers = latest.size();
                 for (String uid : latest) {
                     if (!presenceListeners.containsKey(uid) && !uid.equals(currentUid))
                         subscribePresence(uid);
-                }
-                // Mention adapter ko fresh member list do (current user ko exclude karo)
-                if (mentionAdapter != null) {
-                    List<MentionSuggestAdapter.MemberItem> items = buildMemberItems();
-                    mentionAdapter.setMembers(items);
                 }
                 refreshSubtitle();
             }
@@ -1230,8 +1096,8 @@ public class GroupChatActivity extends AppCompatActivity {
     }
 
     private void showMemberOptions(String uid) {
-        String name   = memberNames.containsKey(uid)  ? memberNames.get(uid)  : "Member";
-        boolean isAdm = "admin".equals(memberRoles.containsKey(uid) ? memberRoles.get(uid) : "member");
+        String name   = memberNames.getOrDefault(uid, "Member");
+        boolean isAdm = "admin".equals(memberRoles.getOrDefault(uid, "member"));
         String[] opts = { "Remove from group", isAdm ? "Revoke admin" : "Make admin" };
         new AlertDialog.Builder(this)
                 .setTitle(name)
@@ -1550,136 +1416,9 @@ public class GroupChatActivity extends AppCompatActivity {
         }
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
-        if (id == R.id.action_search)    { openSearch(); return true; }
         if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
         if (id == R.id.action_chat_privacy) { showGroupChatPrivacySheet(); return true; }
         return super.onOptionsItemSelected(item);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // IN-CHAT SEARCH
-    // ─────────────────────────────────────────────────────────────────────
-
-    private void openSearch() {
-        android.view.View llSearch = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.ll_search_bar);
-        if (llSearch == null) return;
-        llSearch.setVisibility(View.VISIBLE);
-
-        android.widget.EditText etSearch = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.et_search);
-        if (etSearch != null) {
-            etSearch.requestFocus();
-            android.view.inputmethod.InputMethodManager imm =
-                    (android.view.inputmethod.InputMethodManager)
-                            getSystemService(INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showSoftInput(etSearch, 0);
-
-            etSearch.addTextChangedListener(new android.text.TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-                @Override public void afterTextChanged(android.text.Editable s) {}
-                @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
-                    String query = s.toString().trim();
-                    if (query.length() < 2) {
-                        searchMatchPositions.clear();
-                        searchCurrentIndex = -1;
-                        updateSearchUI();
-                        return;
-                    }
-                    runSearchQuery(query);
-                }
-            });
-
-            etSearch.setOnEditorActionListener((v, actionId, e) -> {
-                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
-                    navigateSearch(true);
-                    return true;
-                }
-                return false;
-            });
-        }
-
-        android.view.View btnPrev = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.btn_search_prev);
-        android.view.View btnNext = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.btn_search_next);
-        android.view.View btnClose = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.btn_close_search);
-
-        if (btnPrev  != null) btnPrev.setOnClickListener(v  -> navigateSearch(false));
-        if (btnNext  != null) btnNext.setOnClickListener(v  -> navigateSearch(true));
-        if (btnClose != null) btnClose.setOnClickListener(v -> closeSearch());
-    }
-
-    private void runSearchQuery(String query) {
-        ioExecutor.execute(() -> {
-            List<MessageEntity> all =
-                    db.messageDao().getMessagesPaged(groupId, 2000, 0);
-            List<Integer> matches = new ArrayList<>();
-            String lq = query.toLowerCase(java.util.Locale.getDefault());
-            for (int i = 0; i < all.size(); i++) {
-                MessageEntity e = all.get(i);
-                if (e.text != null &&
-                    e.text.toLowerCase(java.util.Locale.getDefault()).contains(lq)) {
-                    matches.add(i);
-                }
-            }
-            runOnUiThread(() -> {
-                searchMatchPositions.clear();
-                searchMatchPositions.addAll(matches);
-                searchCurrentIndex = matches.isEmpty() ? -1 : matches.size() - 1;
-                updateSearchUI();
-                if (!matches.isEmpty())
-                    binding.rvMessages.scrollToPosition(
-                            searchMatchPositions.get(searchCurrentIndex));
-            });
-        });
-    }
-
-    private void navigateSearch(boolean forward) {
-        if (searchMatchPositions.isEmpty()) return;
-        if (forward) {
-            searchCurrentIndex = (searchCurrentIndex + 1) % searchMatchPositions.size();
-        } else {
-            searchCurrentIndex = (searchCurrentIndex - 1 + searchMatchPositions.size())
-                                  % searchMatchPositions.size();
-        }
-        updateSearchUI();
-        binding.rvMessages.scrollToPosition(
-                searchMatchPositions.get(searchCurrentIndex));
-    }
-
-    private void updateSearchUI() {
-        android.widget.TextView tvCount = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.tv_search_count);
-        android.view.View btnPrev = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.btn_search_prev);
-        android.view.View btnNext = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.btn_search_next);
-        if (tvCount == null) return;
-        if (searchMatchPositions.isEmpty()) {
-            tvCount.setVisibility(View.GONE);
-            if (btnPrev != null) btnPrev.setVisibility(View.GONE);
-            if (btnNext != null) btnNext.setVisibility(View.GONE);
-        } else {
-            String label = (searchCurrentIndex + 1) + " / " + searchMatchPositions.size();
-            tvCount.setText(label);
-            tvCount.setVisibility(View.VISIBLE);
-            if (btnPrev != null) btnPrev.setVisibility(View.VISIBLE);
-            if (btnNext != null) btnNext.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void closeSearch() {
-        android.view.View llSearch = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.ll_search_bar);
-        if (llSearch != null) llSearch.setVisibility(View.GONE);
-        android.widget.EditText etSearch = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.et_search);
-        if (etSearch != null) etSearch.setText("");
-        searchMatchPositions.clear();
-        searchCurrentIndex = -1;
-        updateSearchUI();
     }
 
     private void showGroupChatPrivacySheet() {
