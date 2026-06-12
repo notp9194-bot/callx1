@@ -1016,6 +1016,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
     }
 
+    private void showChatAvatarZoom(String photoUrl) {
         if (getContext() == null) return;
         android.app.Dialog dialog = new android.app.Dialog(
             getContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen);
