@@ -40,8 +40,12 @@ public class SmallWindowManager {
     private View    bubbleView;
     private boolean isMinimized = false;
 
+    // ── Cached name/status for bubble restore ─────────────────────────────
+    private String cachedName;
+    private String cachedStatus;
+
     // ── Drag state ────────────────────────────────────────────────────────
-    private int  initialX, initialY;
+    private int   initialX, initialY;
     private float initialTouchX, initialTouchY;
 
     // ─────────────────────────────────────────────────────────────────────
@@ -55,6 +59,10 @@ public class SmallWindowManager {
      */
     public void show(Context context, String name, String status) {
         if (smallWindowView != null) dismiss(context); // purana remove karo
+
+        // Cache for bubble restore
+        if (name   != null) cachedName   = name;
+        if (status != null) cachedStatus = status;
 
         WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         if (wm == null) return;
@@ -71,7 +79,10 @@ public class SmallWindowManager {
             dpToPx(context, 260),
             dpToPx(context, 180),
             overlayType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            // FLAG_NOT_FOCUSABLE: keyboard nahi khulegi, lekin buttons kaam karenge
+            // FLAG_WATCH_OUTSIDE_TOUCH: bahar tap pe dismiss nahi hoga (optional)
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT);
 
         params.gravity = Gravity.TOP | Gravity.START;
@@ -79,31 +90,49 @@ public class SmallWindowManager {
         params.y = 120;
 
         // ── Bind views ────────────────────────────────────────────────────
-        TextView tvName   = smallWindowView.findViewById(R.id.tv_sw_name);
-        TextView tvStatus = smallWindowView.findViewById(R.id.tv_sw_status);
+        TextView    tvName   = smallWindowView.findViewById(R.id.tv_sw_name);
+        TextView    tvStatus = smallWindowView.findViewById(R.id.tv_sw_status);
         ImageButton btnMin   = smallWindowView.findViewById(R.id.btn_sw_minimize);
         ImageButton btnClose = smallWindowView.findViewById(R.id.btn_sw_close);
 
-        if (tvName   != null) tvName.setText(name   != null ? name   : "");
-        if (tvStatus != null) tvStatus.setText(status != null ? status : "");
+        if (tvName   != null) tvName.setText(cachedName   != null ? cachedName   : "");
+        if (tvStatus != null) tvStatus.setText(cachedStatus != null ? cachedStatus : "");
 
-        // ── Drag logic ────────────────────────────────────────────────────
-        smallWindowView.setOnTouchListener((v, event) -> {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    initialX      = params.x;
-                    initialY      = params.y;
-                    initialTouchX = event.getRawX();
-                    initialTouchY = event.getRawY();
-                    return true;
+        // ── Drag logic on root view ───────────────────────────────────────
+        // Use a wrapper to distinguish drag vs click on buttons
+        smallWindowView.setOnTouchListener(new View.OnTouchListener() {
+            private boolean isDragging = false;
 
-                case MotionEvent.ACTION_MOVE:
-                    params.x = initialX + (int)(event.getRawX() - initialTouchX);
-                    params.y = initialY + (int)(event.getRawY() - initialTouchY);
-                    wm.updateViewLayout(smallWindowView, params);
-                    return true;
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        initialX      = params.x;
+                        initialY      = params.y;
+                        initialTouchX = event.getRawX();
+                        initialTouchY = event.getRawY();
+                        isDragging    = false;
+                        return false; // let children (buttons) consume if they want
+
+                    case MotionEvent.ACTION_MOVE:
+                        float dx = event.getRawX() - initialTouchX;
+                        float dy = event.getRawY() - initialTouchY;
+                        if (!isDragging && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+                            isDragging = true;
+                        }
+                        if (isDragging) {
+                            params.x = initialX + (int) dx;
+                            params.y = initialY + (int) dy;
+                            try { wm.updateViewLayout(smallWindowView, params); } catch (Exception ignored) {}
+                            return true;
+                        }
+                        return false;
+
+                    case MotionEvent.ACTION_UP:
+                        return isDragging; // consume only if we were dragging
+                }
+                return false;
             }
-            return false;
         });
 
         // ── Minimize button ───────────────────────────────────────────────
@@ -113,7 +142,13 @@ public class SmallWindowManager {
 
         // ── Close button ──────────────────────────────────────────────────
         if (btnClose != null) {
-            btnClose.setOnClickListener(v -> dismiss(context));
+            btnClose.setOnClickListener(v -> {
+                dismiss(context);
+                // Stop the foreground service too
+                try {
+                    context.stopService(new android.content.Intent(context, SmallWindowService.class));
+                } catch (Exception ignored) {}
+            });
         }
 
         wm.addView(smallWindowView, params);
@@ -128,6 +163,7 @@ public class SmallWindowManager {
 
         // Remove the main small window
         try { wm.removeView(smallWindowView); } catch (Exception ignored) {}
+        smallWindowView = null;
 
         // Create bubble
         LayoutInflater inflater = LayoutInflater.from(context);
@@ -141,40 +177,57 @@ public class SmallWindowManager {
             dpToPx(context, 56),
             dpToPx(context, 56),
             overlayType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT);
 
         bubbleParams.gravity = Gravity.TOP | Gravity.END;
         bubbleParams.x = 24;
         bubbleParams.y = 80;
 
-        // Drag on bubble
-        bubbleView.setOnTouchListener((v, event) -> {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    initialX      = bubbleParams.x;
-                    initialY      = bubbleParams.y;
-                    initialTouchX = event.getRawX();
-                    initialTouchY = event.getRawY();
-                    return true;
-                case MotionEvent.ACTION_MOVE:
-                    bubbleParams.x = initialX - (int)(event.getRawX() - initialTouchX);
-                    bubbleParams.y = initialY + (int)(event.getRawY() - initialTouchY);
-                    wm.updateViewLayout(bubbleView, bubbleParams);
-                    return true;
-                case MotionEvent.ACTION_UP:
-                    float dx = Math.abs(event.getRawX() - initialTouchX);
-                    float dy = Math.abs(event.getRawY() - initialTouchY);
-                    if (dx < 10 && dy < 10) {
-                        // Tap — restore
-                        try { wm.removeView(bubbleView); } catch (Exception ignored) {}
-                        bubbleView = null;
-                        isMinimized = false;
-                        show(context, null, null); // re-show (caller should cache name/status)
+        // Drag + tap on bubble
+        bubbleView.setOnTouchListener(new View.OnTouchListener() {
+            private boolean isDragging = false;
+
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        initialX      = bubbleParams.x;
+                        initialY      = bubbleParams.y;
+                        initialTouchX = event.getRawX();
+                        initialTouchY = event.getRawY();
+                        isDragging    = false;
+                        return true;
+
+                    case MotionEvent.ACTION_MOVE: {
+                        float dx = event.getRawX() - initialTouchX;
+                        float dy = event.getRawY() - initialTouchY;
+                        if (!isDragging && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+                            isDragging = true;
+                        }
+                        if (isDragging) {
+                            // Gravity.END → x is from right edge, so invert horizontal
+                            bubbleParams.x = initialX - (int) dx;
+                            bubbleParams.y = initialY + (int) dy;
+                            try { wm.updateViewLayout(bubbleView, bubbleParams); } catch (Exception ignored) {}
+                        }
+                        return true;
                     }
-                    return true;
+
+                    case MotionEvent.ACTION_UP:
+                        if (!isDragging) {
+                            // Tap — restore small window
+                            try { wm.removeView(bubbleView); } catch (Exception ignored) {}
+                            bubbleView  = null;
+                            isMinimized = false;
+                            // Use cachedName/cachedStatus — not null anymore
+                            show(context, cachedName, cachedStatus);
+                        }
+                        return true;
+                }
+                return false;
             }
-            return false;
         });
 
         wm.addView(bubbleView, bubbleParams);
@@ -194,7 +247,9 @@ public class SmallWindowManager {
             try { wm.removeView(bubbleView); } catch (Exception ignored) {}
             bubbleView = null;
         }
-        isMinimized = false;
+        isMinimized  = false;
+        cachedName   = null;
+        cachedStatus = null;
     }
 
     public boolean isShowing() {
