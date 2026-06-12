@@ -54,14 +54,14 @@ public class SmallWindowService extends Service {
         }
 
         // Show the floating window — pass userId for deep-link / chat open
-        SmallWindowManager.getInstance().show(getApplicationContext(), userId, name, status);
+        SmallWindowManager.getInstance().show(this, userId, name, status);
 
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        SmallWindowManager.getInstance().dismiss(getApplicationContext());
+        SmallWindowManager.getInstance().dismiss(this);
         super.onDestroy();
     }
 
