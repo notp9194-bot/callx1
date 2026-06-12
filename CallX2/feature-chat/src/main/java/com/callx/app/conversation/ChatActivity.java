@@ -2905,11 +2905,98 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void showChatPrivacySheet() {
-        com.callx.app.chat.ui.ChatPrivacyBottomSheet sheet =
-                com.callx.app.chat.ui.ChatPrivacyBottomSheet.newInstance(
-                        chatId, false, partnerName != null ? partnerName : "Chat");
-        sheet.show(getSupportFragmentManager(),
-                com.callx.app.chat.ui.ChatPrivacyBottomSheet.TAG);
+        // Main privacy menu — choose which setting to change
+        String displayName = partnerName != null ? partnerName : "Chat";
+        com.callx.app.utils.ChatPrivacyManager pm =
+                new com.callx.app.utils.ChatPrivacyManager(this, chatId, false);
+
+        String[] options = {
+            "⏳ Disappearing Messages  [" + pm.getDisappearingLabel() + "]",
+            "⏱ Message Timer  [" + pm.getMsgTimerLabel() + "]",
+            "🗑 Auto-Delete Old Messages  [" + pm.getAutoDeleteLabel() + "]"
+        };
+
+        new AlertDialog.Builder(this)
+            .setTitle("🛡 Chat Privacy — " + displayName)
+            .setItems(options, (d, which) -> {
+                if (which == 0) showDisappearingDialog(pm);
+                else if (which == 1) showMsgTimerDialog(pm);
+                else showAutoDeleteDialog(pm);
+            })
+            .setNegativeButton("Close", null)
+            .show();
+    }
+
+    private void showDisappearingDialog(com.callx.app.utils.ChatPrivacyManager pm) {
+        String[] labels = {"Off", "24 hours", "7 days", "30 days"};
+        long[]   values = {
+            com.callx.app.utils.ChatPrivacyManager.DISAPPEAR_OFF,
+            com.callx.app.utils.ChatPrivacyManager.DISAPPEAR_24H,
+            com.callx.app.utils.ChatPrivacyManager.DISAPPEAR_7D,
+            com.callx.app.utils.ChatPrivacyManager.DISAPPEAR_30D
+        };
+        long cur = pm.getDisappearingMs();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
+        final int[] sel = {checked};
+        new AlertDialog.Builder(this)
+            .setTitle("⏳ Disappearing Messages")
+            .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
+            .setPositiveButton("Set", (d, w) -> {
+                pm.setDisappearingMs(values[sel[0]]);
+                android.widget.Toast.makeText(this, "Disappearing: " + labels[sel[0]], android.widget.Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void showMsgTimerDialog(com.callx.app.utils.ChatPrivacyManager pm) {
+        String[] labels = {"Off", "10 seconds", "30 seconds", "1 minute", "5 minutes", "1 hour"};
+        long[]   values = {
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_OFF,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_10S,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_30S,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_1M,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_5M,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_1H
+        };
+        long cur = pm.getMsgTimerMs();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
+        final int[] sel = {checked};
+        new AlertDialog.Builder(this)
+            .setTitle("⏱ Message Timer")
+            .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
+            .setPositiveButton("Set", (d, w) -> {
+                pm.setMsgTimerMs(values[sel[0]]);
+                android.widget.Toast.makeText(this, "Timer: " + labels[sel[0]], android.widget.Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void showAutoDeleteDialog(com.callx.app.utils.ChatPrivacyManager pm) {
+        String[] labels = {"Never", "After 7 days", "After 30 days", "After 90 days", "After 6 months"};
+        long[]   values = {
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_OFF,
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_7D,
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_30D,
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_90D,
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_180D
+        };
+        long cur = pm.getAutoDeleteDays();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
+        final int[] sel = {checked};
+        new AlertDialog.Builder(this)
+            .setTitle("🗑 Auto-Delete Old Messages")
+            .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
+            .setPositiveButton("Set", (d, w) -> {
+                pm.setAutoDeleteDays(values[sel[0]]);
+                android.widget.Toast.makeText(this, "Auto-delete: " + labels[sel[0]], android.widget.Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     private void showFontSizePicker() {
