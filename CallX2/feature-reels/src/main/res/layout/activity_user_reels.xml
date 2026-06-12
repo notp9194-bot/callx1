@@ -442,7 +442,7 @@
                     android:layout_weight="1" android:orientation="vertical" android:gravity="center">
                     <ImageButton android:id="@+id/btn_audio_call"
                         android:layout_width="46dp" android:layout_height="46dp"
-                        android:src="@drawable/ic_call"
+                        android:src="@drawable/ic_phone"
                         android:background="@drawable/bg_circle_action"
                         android:tint="#00F260"
                         android:contentDescription="Audio Call" android:padding="13dp"/>
@@ -548,11 +548,11 @@
 
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:icon="@drawable/ic_favorite_border"/>
+                android:icon="@drawable/ic_heart"/>
 
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:icon="@drawable/ic_bookmark_border"/>
+                android:icon="@drawable/ic_bookmark"/>
 
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
