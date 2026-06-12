@@ -41,7 +41,8 @@
         android:theme="@style/Theme.CallX"
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:resizeableActivity="true">
 
         <activity android:name=".activities.AuthActivity"
             android:exported="true"
@@ -57,7 +58,8 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:resizeableActivity="true"
-            android:supportsPictureInPicture="true">
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|uiMode">
             <!-- Handles taps on reel notifications when app is killed/Doze
                  FCM notification payload: click_action = "OPEN_REEL_NOTIFICATION" -->
             <intent-filter>
