@@ -7,7 +7,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
-import com.callx.app.utils.SwipeToDismissHelper;
 import com.callx.app.x.R;
 
 /**
@@ -40,11 +39,5 @@ public class XImageViewerActivity extends AppCompatActivity {
         if (ivFull != null) ivFull.setOnClickListener(v -> finish());
         View btnClose = findViewById(R.id.btn_x_viewer_close);
         if (btnClose != null) btnClose.setOnClickListener(v -> finish());
-
-        // Swipe down to close
-        if (ivFull != null) {
-            View root = findViewById(android.R.id.content);
-            SwipeToDismissHelper.attach(ivFull, root, this::finish);
-        }
     }
 }

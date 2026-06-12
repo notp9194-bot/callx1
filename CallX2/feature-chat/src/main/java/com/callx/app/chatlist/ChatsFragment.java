@@ -24,7 +24,6 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.ChatEntity;
 import com.callx.app.models.User;
 import com.callx.app.utils.FirebaseUtils;
-import com.callx.app.utils.SwipeToDismissHelper;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -982,10 +981,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (w != null) w.setLayout(
             android.view.WindowManager.LayoutParams.MATCH_PARENT,
             android.view.WindowManager.LayoutParams.MATCH_PARENT);
-
-        // Swipe down to close (ignored while pinch-zoomed in)
-        SwipeToDismissHelper.attach(pv, root, pv::getScale, dialog::dismiss);
-
         dialog.show();
     }
 }

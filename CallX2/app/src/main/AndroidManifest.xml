@@ -764,5 +764,17 @@
             android:name=".services.VideoCompressService"
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             Small Window Feature — v32.5
+             SmallWindowService: floating overlay window (like MIUI Small Window)
+             Requires: SYSTEM_ALERT_WINDOW (already declared above)
+             ══════════════════════════════════════════════════════════════ -->
+        <service
+            android:name=".smallwindow.SmallWindowService"
+            android:exported="false"
+            android:foregroundServiceType="shortService"
+            android:stopWithTask="false"/>
+
       </application>
 </manifest>

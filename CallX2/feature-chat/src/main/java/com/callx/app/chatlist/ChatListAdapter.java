@@ -15,7 +15,6 @@ import com.callx.app.conversation.ChatActivity;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
-import com.callx.app.utils.SwipeToDismissHelper;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -313,10 +312,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         if (w != null) w.setLayout(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT);
-
-        // Swipe down to close (ignored while pinch-zoomed in)
-        SwipeToDismissHelper.attach(photoView, root, photoView::getScale, dialog::dismiss);
-
         dialog.show();
     }
 

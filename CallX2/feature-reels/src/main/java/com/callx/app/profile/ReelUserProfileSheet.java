@@ -18,7 +18,6 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
-import com.callx.app.utils.SwipeToDismissHelper;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
@@ -626,14 +625,6 @@ public class ReelUserProfileSheet {
         if (w != null) w.setLayout(
             android.view.WindowManager.LayoutParams.MATCH_PARENT,
             android.view.WindowManager.LayoutParams.MATCH_PARENT);
-
-        // Swipe down to close (ignored while pinch-zoomed in)
-        SwipeToDismissHelper.attach(
-            pv,
-            root,
-            pv::getScale,
-            dialog::dismiss);
-
         dialog.show();
     }
 
