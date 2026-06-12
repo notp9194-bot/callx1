@@ -576,6 +576,15 @@
 
     </LinearLayout>
 
+    <!-- @mention suggestion list — group chat mein @ type karne par dikhao -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_mention_suggest"
+        android:layout_width="match_parent"
+        android:layout_height="192dp"
+        android:background="@color/surface_card"
+        android:elevation="6dp"
+        android:visibility="gone"/>
+
     <!-- Input row -->
     <LinearLayout
         android:id="@+id/ll_input_row"

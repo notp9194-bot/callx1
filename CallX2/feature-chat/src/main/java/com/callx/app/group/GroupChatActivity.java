@@ -108,12 +108,19 @@ public class GroupChatActivity extends AppCompatActivity {
     // ── State ──────────────────────────────────────────────────────────────
     private boolean isAdmin    = false;
     private boolean isRecording = false;
-    private final Map<String, String> memberNames = new HashMap<>();
-    private final Map<String, String> memberRoles = new HashMap<>();
+    private final Map<String, String> memberNames    = new HashMap<>();
+    private final Map<String, String> memberRoles    = new HashMap<>();
     private final Map<String, Long>   memberLastSeen = new HashMap<>();
     private final Map<String, String> typingNames    = new HashMap<>();
+    private final Map<String, String> memberPhotos   = new HashMap<>();
     private int   totalMembers = 0;
     private boolean amTyping   = false;
+
+    // ── @Mention suggest ───────────────────────────────────────────────────
+    private MentionSuggestAdapter mentionAdapter;
+    private RecyclerView          rvMentionSuggest;
+    /** @ character ka start position track karo taaki partial text replace kar sakein */
+    private int mentionAtStart = -1;
 
     // ── Handlers ───────────────────────────────────────────────────────────
     private final android.os.Handler typingHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -173,6 +180,7 @@ public class GroupChatActivity extends AppCompatActivity {
         startRealtimeListener();
 
         setupInputBar();
+        setupMentionSuggest();
         setupPinnedBanner();
         setupReplyCancel();
         setupRealtimeHeader();
@@ -566,6 +574,10 @@ public class GroupChatActivity extends AppCompatActivity {
                     typingHandler.removeCallbacks(stopTyping);
                     setMyTyping(false);
                 }
+
+                // @Mention detection — cursor ke pehle @ dhundho
+                handleMentionDetection(s.toString(),
+                        binding.etMessage.getSelectionEnd());
             }
         });
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
@@ -610,6 +622,9 @@ public class GroupChatActivity extends AppCompatActivity {
         m.text = text;
         pushMessage(m, text);
         clearReply();
+
+        // @Mention: message mein @ wale members ko push notification bhejo
+        notifyMentionedUsers(text);
     }
 
     private Message buildOutgoing() {
@@ -691,6 +706,161 @@ public class GroupChatActivity extends AppCompatActivity {
         if (m == null || m.id == null || currentUid.equals(m.senderId)) return;
         groupMessagesRef.child(m.id).child("readBy")
                 .child(currentUid).setValue(true);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // @MENTION SUGGEST
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Mention suggest RecyclerView wire karo.
+     * Adapter bana ke RecyclerView se attach karo.
+     */
+    private void setupMentionSuggest() {
+        rvMentionSuggest = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.rv_mention_suggest);
+        if (rvMentionSuggest == null) return;
+
+        mentionAdapter = new MentionSuggestAdapter((uid, name) -> {
+            // Member tap hone par: cursor ke pehle @query ko @name space se replace karo
+            Editable editable = binding.etMessage.getText();
+            if (editable == null) return;
+            String full = editable.toString();
+            int cursor  = binding.etMessage.getSelectionEnd();
+            if (mentionAtStart >= 0 && mentionAtStart <= cursor) {
+                // @query hata ke @name paste karo
+                editable.replace(mentionAtStart, cursor, "@" + name + " ");
+                binding.etMessage.setSelection(mentionAtStart + name.length() + 2);
+            } else {
+                // Fallback: text ke end mein paste karo
+                editable.append("@" + name + " ");
+            }
+            hideMentionSuggest();
+            mentionAtStart = -1;
+        });
+
+        rvMentionSuggest.setLayoutManager(
+                new LinearLayoutManager(this));
+        rvMentionSuggest.setAdapter(mentionAdapter);
+    }
+
+    /**
+     * Typed text mein @ pattern detect karo aur suggestions dikhao/chhupao.
+     * Logic: cursor ke pehle pichli @ se lekar cursor tak ka text = query.
+     * Agar @ ke baad space aaye ya @ na ho toh hide karo.
+     */
+    private void handleMentionDetection(String fullText, int cursor) {
+        if (rvMentionSuggest == null || mentionAdapter == null) return;
+        if (cursor < 0 || cursor > fullText.length()) {
+            hideMentionSuggest(); return;
+        }
+
+        String beforeCursor = fullText.substring(0, cursor);
+        int atPos = beforeCursor.lastIndexOf('@');
+
+        if (atPos < 0) {
+            hideMentionSuggest();
+            mentionAtStart = -1;
+            return;
+        }
+
+        String afterAt = beforeCursor.substring(atPos + 1);
+        // Space ya newline aa gaya matlab @ complete ho gaya — hide karo
+        if (afterAt.contains(" ") || afterAt.contains("\n")) {
+            hideMentionSuggest();
+            mentionAtStart = -1;
+            return;
+        }
+
+        // @ ke pehle space/start hona chahiye (beech mein @ nahi, jaise email)
+        if (atPos > 0) {
+            char prev = beforeCursor.charAt(atPos - 1);
+            if (prev != ' ' && prev != '\n') {
+                hideMentionSuggest();
+                mentionAtStart = -1;
+                return;
+            }
+        }
+
+        // Valid mention trigger — filter karo aur show karo
+        mentionAtStart = atPos;
+        mentionAdapter.filter(afterAt);
+
+        if (mentionAdapter.getItemCount() > 0) {
+            showMentionSuggest();
+        } else {
+            hideMentionSuggest();
+        }
+    }
+
+    private void showMentionSuggest() {
+        if (rvMentionSuggest != null && rvMentionSuggest.getVisibility() != View.VISIBLE) {
+            rvMentionSuggest.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void hideMentionSuggest() {
+        if (rvMentionSuggest != null && rvMentionSuggest.getVisibility() == View.VISIBLE) {
+            rvMentionSuggest.setVisibility(View.GONE);
+        }
+    }
+
+    /** memberNames + memberPhotos se MemberItem list banao (current user exclude) */
+    private List<MentionSuggestAdapter.MemberItem> buildMemberItems() {
+        List<MentionSuggestAdapter.MemberItem> items = new ArrayList<>();
+        for (Map.Entry<String, String> e : memberNames.entrySet()) {
+            String uid = e.getKey();
+            if (uid.equals(currentUid)) continue;  // khud ko suggest mat karo
+            String photo = memberPhotos.getOrDefault(uid, "");
+            items.add(new MentionSuggestAdapter.MemberItem(uid, e.getValue(), photo));
+        }
+        // Alphabetical sort
+        java.util.Collections.sort(items, (a, b) -> a.name.compareToIgnoreCase(b.name));
+        return items;
+    }
+
+    /**
+     * Message text mein @name dhundho, unke UID nikalo, aur
+     * PushNotify.notifyGroupMention() se individually notify karo.
+     * Sirf current group ke members ko notify karo.
+     */
+    private void notifyMentionedUsers(String text) {
+        if (text == null || text.isEmpty()) return;
+        com.google.firebase.auth.FirebaseUser me =
+                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+        String myPhoto = (me != null && me.getPhotoUrl() != null)
+                ? me.getPhotoUrl().toString() : "";
+
+        // Build reverse map: lowercase name → uid
+        Map<String, String> nameLowerToUid = new HashMap<>();
+        for (Map.Entry<String, String> e : memberNames.entrySet()) {
+            if (!e.getKey().equals(currentUid))
+                nameLowerToUid.put(e.getValue().toLowerCase(), e.getKey());
+        }
+
+        // Regex: @naam (word chars only, no space) — naam ke baad space/end/newline hona chahiye
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "@([\\w]{1,40})(?=\\s|$)");
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+
+        Set<String> notifiedUids = new HashSet<>();
+        while (matcher.find()) {
+            String rawName    = matcher.group(1).trim();
+            String lowerName  = rawName.toLowerCase();
+            String mentionUid = nameLowerToUid.get(lowerName);
+
+            if (mentionUid != null && !notifiedUids.contains(mentionUid)) {
+                notifiedUids.add(mentionUid);
+                final String uid = mentionUid;
+                ioExecutor.execute(() ->
+                    PushNotify.notifyGroupMention(
+                            groupId, uid,
+                            currentUid, currentName != null ? currentName : "",
+                            myPhoto != null ? myPhoto : "",
+                            "@" + rawName + ": " + text)
+                );
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -950,15 +1120,23 @@ public class GroupChatActivity extends AppCompatActivity {
                     String uid = c.getKey();
                     if (uid == null) continue;
                     latest.add(uid);
-                    String name = c.child("name").getValue(String.class);
-                    String role = c.child("role").getValue(String.class);
-                    memberNames.put(uid, name != null ? name : "Member");
-                    memberRoles.put(uid, role != null ? role : "member");
+                    String name  = c.child("name").getValue(String.class);
+                    String role  = c.child("role").getValue(String.class);
+                    String photo = c.child("photoUrl").getValue(String.class);
+                    if (photo == null) photo = c.child("thumbUrl").getValue(String.class);
+                    memberNames.put(uid, name   != null ? name   : "Member");
+                    memberRoles.put(uid, role   != null ? role   : "member");
+                    if (photo != null) memberPhotos.put(uid, photo);
                 }
                 totalMembers = latest.size();
                 for (String uid : latest) {
                     if (!presenceListeners.containsKey(uid) && !uid.equals(currentUid))
                         subscribePresence(uid);
+                }
+                // Mention adapter ko fresh member list do (current user ko exclude karo)
+                if (mentionAdapter != null) {
+                    List<MentionSuggestAdapter.MemberItem> items = buildMemberItems();
+                    mentionAdapter.setMembers(items);
                 }
                 refreshSubtitle();
             }
