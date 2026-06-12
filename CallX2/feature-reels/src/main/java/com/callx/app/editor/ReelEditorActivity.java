@@ -240,6 +240,7 @@ public class ReelEditorActivity extends AppCompatActivity {
                     android.graphics.Color.argb(200, 255, 215, 0));
             }
         }
+    }
 
     // ── View binding ──────────────────────────────────────────────────────
 
