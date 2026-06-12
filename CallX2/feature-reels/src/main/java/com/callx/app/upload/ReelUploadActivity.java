@@ -161,25 +161,6 @@ public class ReelUploadActivity extends AppCompatActivity {
   
     private int     stitchDurationSec  = 3;
 
-    // ── Editor effect fields (received from ReelEditorActivity) ──────────────
-    private String  edFilterName       = "";
-    private float   edFilterBrightness = 0f;
-    private float   edFilterContrast   = 1f;
-    private float   edFilterSaturation = 1f;
-    private String  edStickerJson      = "";
-    private String  edSubtitlesJson    = "";
-    private boolean edSubtitlesEnabled = false;
-    private int     edSubtitlesFontSize = 16;
-    private String  edTransitionName   = "";
-    private String  edVoiceEffectName  = "";
-    private float   edVoiceSpeed       = 1.0f;
-    private String  edThumbnailPath    = "";
-
-    // ── Upload preview overlay views (injected programmatically) ─────────────
-    private android.view.View         uploadFilterOverlay;
-    private android.widget.TextView   uploadSubtitleBar;
-    private android.widget.LinearLayout uploadBadgeStrip;
-
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -191,7 +172,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         toolbar.setNavigationOnClickListener(v -> finish());
 
         bindViews();
-        injectUploadOverlays(); // ✅ inject filter/sticker/subtitle overlay layers
         setupChipDefaults();
 
         layoutPickVideo.setOnClickListener(v -> checkPermissionAndPickVideo());
@@ -354,37 +334,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (sUrl   != null) stitchOriginalUrl = sUrl;
         if (sOwner != null) stitchOwnerUid    = sOwner;
         stitchDurationSec = i.getIntExtra("stitch_duration_sec", 3);
-
-        // ✅ FIX: Read all editing tool results from ReelEditorActivity
-        String ef = i.getStringExtra("filter_name");
-        if (ef != null && !ef.isEmpty()) {
-            edFilterName        = ef;
-            edFilterBrightness  = i.getFloatExtra("filter_brightness", 0f);
-            edFilterContrast    = i.getFloatExtra("filter_contrast",   1f);
-            edFilterSaturation  = i.getFloatExtra("filter_saturation", 1f);
-        }
-        String esj = i.getStringExtra("sticker_json");
-        if (esj != null && !esj.isEmpty()) edStickerJson = esj;
-
-        String subj = i.getStringExtra("subtitles_json");
-        if (subj != null && !subj.isEmpty()) {
-            edSubtitlesJson     = subj;
-            edSubtitlesEnabled  = i.getBooleanExtra("subtitles_enabled", true);
-            edSubtitlesFontSize = i.getIntExtra("subtitles_font_size", 16);
-        }
-        String trn = i.getStringExtra("transition_name");
-        if (trn != null && !trn.isEmpty()) edTransitionName = trn;
-
-        String vfx = i.getStringExtra("voice_effect_name");
-        if (vfx != null && !vfx.isEmpty()) {
-            edVoiceEffectName = vfx;
-            edVoiceSpeed      = i.getFloatExtra("voice_speed", 1.0f);
-        }
-        String thp = i.getStringExtra("thumbnail_path");
-        if (thp != null && !thp.isEmpty()) edThumbnailPath = thp;
-
-        // Apply all overlays now that we have the data
-        applyEditorEffectsToUploadPreview();
 
         // ── Duet Series ─────────────────────────────────────────────────────
         String sId2   = i.getStringExtra(ReelPostDetailsActivity.RESULT_SERIES_ID);
@@ -723,15 +672,6 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                 reel.audienceType = audienceType;
 
-                // ✅ Store editing tool metadata in Firebase for rendering on playback
-                if (!a.edFilterName.isEmpty())       reel.filterName       = a.edFilterName;
-                if (!a.edStickerJson.isEmpty())       reel.stickerJson      = a.edStickerJson;
-                if (!a.edSubtitlesJson.isEmpty())     reel.subtitlesJson    = a.edSubtitlesJson;
-                if (a.edSubtitlesEnabled)             reel.subtitlesEnabled = true;
-                if (!a.edTransitionName.isEmpty())    reel.transitionName   = a.edTransitionName;
-                if (!a.edVoiceEffectName.isEmpty())   reel.voiceEffectName  = a.edVoiceEffectName;
-                if (a.edVoiceSpeed != 1.0f)           reel.voiceSpeed       = a.edVoiceSpeed;
-
                 // ✅ Duet & Stitch permission — set by creator at upload time
                 String duetLevel   = a.getDuetLevel();
                 String stitchLevel = a.getStitchLevel();
@@ -940,162 +880,4 @@ public class ReelUploadActivity extends AppCompatActivity {
         releasePreviewPlayer();
         super.onDestroy();
     }
-
-    // ── Upload screen overlay helpers (✅ v15 fix) ────────────────────────
-
-    private void injectUploadOverlays() {
-        if (playerPreview == null) return;
-        android.view.ViewGroup parent = (android.view.ViewGroup) playerPreview.getParent();
-        if (!(parent instanceof android.widget.FrameLayout)) return;
-        android.widget.FrameLayout fl = (android.widget.FrameLayout) parent;
-        int dp = (int) getResources().getDisplayMetrics().density;
-
-        uploadFilterOverlay = new android.view.View(this);
-        uploadFilterOverlay.setBackgroundColor(0x00000000);
-        uploadFilterOverlay.setClickable(false);
-        uploadFilterOverlay.setVisibility(android.view.View.GONE);
-        fl.addView(uploadFilterOverlay, new android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
-
-        uploadSubtitleBar = new android.widget.TextView(this);
-        uploadSubtitleBar.setTextColor(android.graphics.Color.WHITE);
-        uploadSubtitleBar.setTextSize(16);
-        uploadSubtitleBar.setGravity(android.view.Gravity.CENTER);
-        uploadSubtitleBar.setPadding(16*dp, 8*dp, 16*dp, 8*dp);
-        uploadSubtitleBar.setBackgroundColor(0xCC000000);
-        uploadSubtitleBar.setVisibility(android.view.View.GONE);
-        android.widget.FrameLayout.LayoutParams subLp = new android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-            android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
-        subLp.bottomMargin = 16*dp;
-        fl.addView(uploadSubtitleBar, subLp);
-
-        uploadBadgeStrip = new android.widget.LinearLayout(this);
-        uploadBadgeStrip.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        uploadBadgeStrip.setPadding(8*dp, 8*dp, 8*dp, 8*dp);
-        uploadBadgeStrip.setVisibility(android.view.View.GONE);
-        android.widget.FrameLayout.LayoutParams badgeLp = new android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-            android.view.Gravity.TOP | android.view.Gravity.START);
-        badgeLp.topMargin  = 8*dp;
-        badgeLp.leftMargin = 8*dp;
-        fl.addView(uploadBadgeStrip, badgeLp);
-    }
-
-    private void applyEditorEffectsToUploadPreview() {
-        // Filter overlay
-        if (!edFilterName.isEmpty() && !edFilterName.equals("Normal") && uploadFilterOverlay != null) {
-            int c;
-            switch (edFilterName) {
-                case "Warm":      c = 0x22FF8800; break;
-                case "Cool":      c = 0x220044FF; break;
-                case "Vivid":     c = 0x1AFF00AA; break;
-                case "Fade":      c = 0x33FFFFFF; break;
-                case "Drama":     c = 0x33000000; break;
-                case "Vintage":   c = 0x22884400; break;
-                case "Mono":      c = 0x44888888; break;
-                case "Noir":      c = 0x55000000; break;
-                case "Juno":      c = 0x22FFAA00; break;
-                case "Lark":      c = 0x1500DDFF; break;
-                case "Clarendon": c = 0x220055CC; break;
-                default:           c = 0x11FFFFFF; break;
-            }
-            uploadFilterOverlay.setBackgroundColor(c);
-            uploadFilterOverlay.setVisibility(android.view.View.VISIBLE);
-            addUploadBadge("filter", "🎨 " + edFilterName);
-        }
-
-        // Sticker overlay
-        if (!edStickerJson.isEmpty() && playerPreview != null) {
-            android.view.ViewGroup p2 = (android.view.ViewGroup) playerPreview.getParent();
-            if (p2 instanceof android.widget.FrameLayout) {
-                android.widget.FrameLayout fl2 = (android.widget.FrameLayout) p2;
-                int dp = (int) getResources().getDisplayMetrics().density;
-                String val = "✨";
-                try {
-                    int vs = edStickerJson.indexOf("\"value\":\"") + 9;
-                    int ve = edStickerJson.indexOf("\"", vs);
-                    if (vs > 8 && ve > vs) val = edStickerJson.substring(vs, ve);
-                } catch (Exception ignored) {}
-                android.widget.TextView sv = new android.widget.TextView(this);
-                sv.setText(val); sv.setTextSize(32);
-                sv.setTextColor(android.graphics.Color.WHITE);
-                sv.setPadding(8*dp, 4*dp, 8*dp, 4*dp);
-                sv.setBackgroundColor(0x55000000);
-                fl2.addView(sv, new android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.view.Gravity.CENTER));
-                addUploadBadge("sticker", "✨ Sticker");
-            }
-        }
-
-        // Subtitle bar
-        if (edSubtitlesEnabled && !edSubtitlesJson.isEmpty() && uploadSubtitleBar != null) {
-            String cap = "";
-            try {
-                int ts = edSubtitlesJson.indexOf("\"text\":\"") + 8;
-                int te = edSubtitlesJson.indexOf("\"", ts);
-                if (ts > 7 && te > ts) cap = edSubtitlesJson.substring(ts, te);
-            } catch (Exception ignored) {}
-            uploadSubtitleBar.setText(cap.isEmpty() ? "Subtitles active" : cap);
-            uploadSubtitleBar.setTextSize(edSubtitlesFontSize);
-            uploadSubtitleBar.setVisibility(android.view.View.VISIBLE);
-            addUploadBadge("subtitle", "💬 Subtitles");
-        }
-
-        // Voice speed to preview player
-        if (!edVoiceEffectName.isEmpty()) {
-            addUploadBadge("voice", "🎙 " + edVoiceEffectName);
-            if (previewPlayer != null && edVoiceSpeed != 1.0f) {
-                try { previewPlayer.setPlaybackParameters(
-                    new androidx.media3.common.PlaybackParameters(edVoiceSpeed)); }
-                catch (Exception ignored) {}
-            }
-        }
-
-        // Transition badge
-        if (!edTransitionName.isEmpty())
-            addUploadBadge("transition", "⚡ " + edTransitionName);
-
-        // Thumbnail override
-        if (!edThumbnailPath.isEmpty() && ivThumbPreview != null) {
-            try {
-                android.graphics.Bitmap bmp =
-                    android.graphics.BitmapFactory.decodeFile(edThumbnailPath);
-                if (bmp != null) {
-                    ivThumbPreview.setImageBitmap(bmp);
-                    ivThumbPreview.setVisibility(android.view.View.VISIBLE);
-                }
-            } catch (Exception ignored) {}
-        }
-    }
-
-    private void addUploadBadge(String tag, String label) {
-        if (uploadBadgeStrip == null || label == null) return;
-        for (int i = uploadBadgeStrip.getChildCount() - 1; i >= 0; i--) {
-            if (tag.equals(uploadBadgeStrip.getChildAt(i).getTag()))
-                uploadBadgeStrip.removeViewAt(i);
-        }
-        int dp = (int) getResources().getDisplayMetrics().density;
-        android.widget.TextView chip = new android.widget.TextView(this);
-        chip.setTag(tag); chip.setText(label);
-        chip.setTextColor(android.graphics.Color.WHITE); chip.setTextSize(11);
-        chip.setPadding(8*dp, 4*dp, 8*dp, 4*dp);
-        android.graphics.drawable.GradientDrawable gd =
-            new android.graphics.drawable.GradientDrawable();
-        gd.setColor(0xCC9B59B6); gd.setCornerRadius(12*dp);
-        chip.setBackground(gd);
-        android.widget.LinearLayout.LayoutParams lp =
-            new android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.setMarginEnd(4*dp);
-        uploadBadgeStrip.addView(chip, lp);
-        uploadBadgeStrip.setVisibility(android.view.View.VISIBLE);
-    }
-
 }

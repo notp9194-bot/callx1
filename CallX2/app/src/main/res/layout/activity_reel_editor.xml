@@ -48,7 +48,7 @@
             android:background="@drawable/bg_reel_follow_btn"/>
     </LinearLayout>
 
-    <!-- Video Preview (9:16 aspect) -->
+    <!-- Video Preview (9:16 aspect) — takes remaining space above controls -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -100,211 +100,222 @@
             android:visibility="gone"/>
     </FrameLayout>
 
-    <!-- Editor controls -->
-    <LinearLayout
+    <!-- ✅ FIX: Bottom controls wrapped in ScrollView so all tools are
+         accessible on small screens (previously tools could be cut off) -->
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="#1A1A1A"
-        android:padding="16dp">
+        android:fillViewport="false"
+        android:scrollbars="none"
+        android:overScrollMode="never">
 
-        <!-- Trim section -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="TRIM"
-            android:textColor="#AAFFFFFF"
-            android:textSize="11sp"
-            android:fontFamily="sans-serif-medium"
-            android:letterSpacing="0.1"
-            android:layout_marginBottom="8dp"/>
-
+        <!-- Editor controls -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:orientation="vertical"
+            android:background="#1A1A1A"
+            android:padding="16dp">
 
+            <!-- Trim section -->
             <TextView
-                android:id="@+id/tv_editor_trim_start"
-                android:layout_width="40dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="0:00"
-                android:textColor="#CCFFFFFF"
-                android:textSize="12sp"/>
-
-            <SeekBar
-                android:id="@+id/sb_editor_trim_start"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:progressTint="@color/brand_primary"
-                android:thumbTint="@color/white"/>
-
-            <TextView
-                android:id="@+id/tv_editor_duration"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:text="0:30"
-                android:textColor="#CCFFFFFF"
-                android:textSize="12sp"
-                android:gravity="end"/>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="4dp">
-
-            <TextView
-                android:id="@+id/tv_editor_trim_end"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:text="0:30"
-                android:textColor="#CCFFFFFF"
-                android:textSize="12sp"/>
-
-            <SeekBar
-                android:id="@+id/sb_editor_trim_end"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:progressTint="@color/brand_accent"
-                android:thumbTint="@color/white"/>
-
-            <View
-                android:layout_width="40dp"
-                android:layout_height="1dp"/>
-        </LinearLayout>
-
-        <!-- Text overlay -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#33FFFFFF"
-            android:layout_marginVertical="12dp"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="TEXT OVERLAY"
-            android:textColor="#AAFFFFFF"
-            android:textSize="11sp"
-            android:fontFamily="sans-serif-medium"
-            android:letterSpacing="0.1"
-            android:layout_marginBottom="8dp"/>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <EditText
-                android:id="@+id/et_text_overlay"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
-                android:layout_weight="1"
-                android:hint="Add text to video..."
-                android:textColorHint="#66FFFFFF"
-                android:textColor="#FFFFFF"
-                android:background="@drawable/bg_comment_input"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:singleLine="true"/>
-
-            <TextView
-                android:id="@+id/btn_add_text"
-                android:layout_width="60dp"
-                android:layout_height="44dp"
-                android:text="Add"
-                android:gravity="center"
-                android:textColor="@color/brand_primary"
-                android:textSize="14sp"
+                android:text="TRIM"
+                android:textColor="#AAFFFFFF"
+                android:textSize="11sp"
                 android:fontFamily="sans-serif-medium"
-                android:layout_marginStart="8dp"/>
-        </LinearLayout>
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp"/>
 
-        <!-- Editor tools row -->
-        <View android:layout_width="match_parent" android:layout_height="1dp"
-            android:background="#33FFFFFF" android:layout_marginTop="12dp" android:layout_marginBottom="8dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="EDITING TOOLS" android:textColor="#AAFFFFFF" android:textSize="11sp"
-            android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
-            android:layout_marginBottom="8dp"/>
-        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:scrollbars="none">
-            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:gravity="center_vertical">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
-                    <ImageButton android:id="@+id/btn_tool_filters" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_filter"
-            android:tint="#A855F7" android:background="@drawable/bg_speed_chip" android:contentDescription="Filters"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Filters" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
-                </LinearLayout>
+                <TextView
+                    android:id="@+id/tv_editor_trim_start"
+                    android:layout_width="40dp"
+                    android:layout_height="wrap_content"
+                    android:text="0:00"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="12sp"/>
 
-                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
-                    <ImageButton android:id="@+id/btn_tool_stickers" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_sparkle"
-            android:tint="#FFD700" android:background="@drawable/bg_speed_chip" android:contentDescription="Stickers"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Stickers" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
-                </LinearLayout>
+                <SeekBar
+                    android:id="@+id/sb_editor_trim_start"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:progressTint="@color/brand_primary"
+                    android:thumbTint="@color/white"/>
 
-                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
-                    <ImageButton android:id="@+id/btn_tool_subtitles" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_caption" android:background="@drawable/bg_speed_chip"
-                        android:tint="@color/white" android:contentDescription="Subtitles"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Subtitles" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
-                </LinearLayout>
-
-                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
-                    <ImageButton android:id="@+id/btn_tool_transitions" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_swap"
-            android:tint="#A855F7" android:background="@drawable/bg_speed_chip" android:contentDescription="Transitions"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Transitions" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
-                </LinearLayout>
-
-                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
-                    <ImageButton android:id="@+id/btn_tool_voice" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_mic" android:background="@drawable/bg_speed_chip"
-                        android:tint="@color/white" android:contentDescription="Voice FX"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Voice FX" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
-                </LinearLayout>
-
-                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
-                    <ImageButton android:id="@+id/btn_tool_audio_mixer" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_music"
-            android:tint="#00E5FF" android:background="@drawable/bg_speed_chip" android:contentDescription="Audio Mixer"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Audio Mix" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
-                </LinearLayout>
-
-                <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:gravity="center">
-                    <ImageButton android:id="@+id/btn_tool_thumbnail" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_gallery" android:background="@drawable/bg_speed_chip"
-                        android:tint="@color/white" android:contentDescription="Thumbnail"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Thumbnail" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
-                </LinearLayout>
-
+                <TextView
+                    android:id="@+id/tv_editor_duration"
+                    android:layout_width="40dp"
+                    android:layout_height="wrap_content"
+                    android:text="0:30"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="12sp"
+                    android:gravity="end"/>
             </LinearLayout>
-        </HorizontalScrollView>
 
-    </LinearLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="4dp">
+
+                <TextView
+                    android:id="@+id/tv_editor_trim_end"
+                    android:layout_width="40dp"
+                    android:layout_height="wrap_content"
+                    android:text="0:30"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="12sp"/>
+
+                <SeekBar
+                    android:id="@+id/sb_editor_trim_end"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:progressTint="@color/brand_accent"
+                    android:thumbTint="@color/white"/>
+
+                <View
+                    android:layout_width="40dp"
+                    android:layout_height="1dp"/>
+            </LinearLayout>
+
+            <!-- Text overlay -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#33FFFFFF"
+                android:layout_marginVertical="12dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TEXT OVERLAY"
+                android:textColor="#AAFFFFFF"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/et_text_overlay"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:hint="Add text to video..."
+                    android:textColorHint="#66FFFFFF"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_comment_input"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:singleLine="true"/>
+
+                <TextView
+                    android:id="@+id/btn_add_text"
+                    android:layout_width="60dp"
+                    android:layout_height="44dp"
+                    android:text="Add"
+                    android:gravity="center"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="14sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:layout_marginStart="8dp"/>
+            </LinearLayout>
+
+            <!-- Editor tools row -->
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#33FFFFFF" android:layout_marginTop="12dp" android:layout_marginBottom="8dp"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="EDITING TOOLS" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp"/>
+            <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:scrollbars="none">
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingBottom="4dp">
+
+                    <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                        <ImageButton android:id="@+id/btn_tool_filters" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_filter"
+                            android:tint="#A855F7" android:background="@drawable/bg_speed_chip" android:contentDescription="Filters"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Filters" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                        <ImageButton android:id="@+id/btn_tool_stickers" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_sparkle"
+                            android:tint="#FFD700" android:background="@drawable/bg_speed_chip" android:contentDescription="Stickers"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Stickers" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                        <ImageButton android:id="@+id/btn_tool_subtitles" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_caption" android:background="@drawable/bg_speed_chip"
+                            android:tint="@color/white" android:contentDescription="Subtitles"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Subtitles" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                        <ImageButton android:id="@+id/btn_tool_transitions" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_swap"
+                            android:tint="#A855F7" android:background="@drawable/bg_speed_chip" android:contentDescription="Transitions"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Transitions" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                        <ImageButton android:id="@+id/btn_tool_voice" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_mic" android:background="@drawable/bg_speed_chip"
+                            android:tint="@color/white" android:contentDescription="Voice FX"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Voice FX" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
+                        <ImageButton android:id="@+id/btn_tool_audio_mixer" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_music"
+                            android:tint="#00E5FF" android:background="@drawable/bg_speed_chip" android:contentDescription="Audio Mixer"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Audio Mix" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:gravity="center">
+                        <ImageButton android:id="@+id/btn_tool_thumbnail" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_gallery" android:background="@drawable/bg_speed_chip"
+                            android:tint="@color/white" android:contentDescription="Thumbnail"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Thumbnail" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                </LinearLayout>
+            </HorizontalScrollView>
+
+        </LinearLayout>
+    </ScrollView>
 
 </LinearLayout>
