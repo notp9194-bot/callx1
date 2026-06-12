@@ -15,6 +15,7 @@ import android.content.Intent;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
+import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -81,6 +82,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         // Avatar click → contact bottom sheet (same as Calls tab)
         adapter.setOnAvatarClickListener(u -> showContactBottomSheet(u));
+
+        // Long-press on chat item → PrivacyDirectDialog (Lock / App info / Small window)
+        adapter.setOnLongPressListener((user, anchor) -> showPrivacyDirectDialog(user));
 
         v.findViewById(R.id.btn_cancel_selection_chats).setOnClickListener(x -> {
             adapter.clearSelection();
@@ -943,8 +947,75 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
     }
 
-    // ── Avatar Zoom Dialog ───────────────────────────────────────────────────
-    private void showChatAvatarZoom(String photoUrl) {
+    // ── PrivacyDirectDialog (Long-press → Lock / App info / Small window) ───
+    private void showPrivacyDirectDialog(User user) {
+        if (getContext() == null || user == null) return;
+
+        // Fetch fresh status from Firebase for the dialog
+        String nameStr   = user.name   != null ? user.name   : "User";
+        String statusStr = "Offline";
+
+        // Show dialog immediately, status will update async if needed
+        try {
+            Class<?> cls = Class.forName("com.callx.app.smallwindow.PrivacyDirectDialog");
+            java.lang.reflect.Method newInstance = cls.getMethod(
+                "newInstance", String.class, String.class, String.class);
+
+            final String finalStatus = statusStr;
+            // Try to get online status from Firebase, then show dialog
+            if (user.uid != null) {
+                com.callx.app.utils.FirebaseUtils.getUserRef(user.uid)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot snap) {
+                            String liveStatus = "Offline";
+                            Boolean online = snap.child("online").getValue(Boolean.class);
+                            if (Boolean.TRUE.equals(online)) liveStatus = "Online";
+                            try {
+                                Object dialog = newInstance.invoke(null,
+                                    user.uid, nameStr, liveStatus);
+                                if (dialog instanceof androidx.fragment.app.DialogFragment
+                                        && getParentFragmentManager() != null) {
+                                    ((androidx.fragment.app.DialogFragment) dialog)
+                                        .show(getParentFragmentManager(), "privacy_direct");
+                                }
+                            } catch (Exception ex) {
+                                showPrivacyDirectFallback(user.uid, nameStr, liveStatus);
+                            }
+                        }
+                        @Override public void onCancelled(DatabaseError e) {
+                            showPrivacyDirectFallback(
+                                user.uid, nameStr, finalStatus);
+                        }
+                    });
+            } else {
+                Object dialog = newInstance.invoke(null, "", nameStr, finalStatus);
+                if (dialog instanceof androidx.fragment.app.DialogFragment
+                        && getParentFragmentManager() != null) {
+                    ((androidx.fragment.app.DialogFragment) dialog)
+                        .show(getParentFragmentManager(), "privacy_direct");
+                }
+            }
+        } catch (Exception e) {
+            // Fallback: show plain toast with small window option
+            showPrivacyDirectFallback(
+                user.uid != null ? user.uid : "", nameStr, statusStr);
+        }
+    }
+
+    private void showPrivacyDirectFallback(String uid, String name, String status) {
+        // Direct instantiation fallback if reflection fails (both in same APK)
+        try {
+            com.callx.app.smallwindow.PrivacyDirectDialog dialog =
+                com.callx.app.smallwindow.PrivacyDirectDialog.newInstance(uid, name, status);
+            dialog.show(getParentFragmentManager(), "privacy_direct");
+        } catch (Exception ex) {
+            // Last resort
+            if (getContext() != null)
+                android.widget.Toast.makeText(getContext(),
+                    "Options not available", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
         if (getContext() == null) return;
         android.app.Dialog dialog = new android.app.Dialog(
             getContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen);

@@ -31,9 +31,14 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         void onAvatarClick(User user);
     }
 
+    public interface OnLongPressListener {
+        void onLongPress(User user, View anchor);
+    }
+
     private final List<User> contacts;
     private final SelectionListener selectionListener;
     private OnAvatarClickListener avatarClickListener;
+    private OnLongPressListener longPressListener;
     // Change 3: 12-hour format
     private final SimpleDateFormat fmt = new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private Set<String> specialRequestSenders = new HashSet<>();
@@ -53,6 +58,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     public void setOnAvatarClickListener(OnAvatarClickListener listener) {
         this.avatarClickListener = listener;
+    }
+
+    public void setOnLongPressListener(OnLongPressListener listener) {
+        this.longPressListener = listener;
     }
 
     @NonNull @Override
@@ -154,6 +163,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         });
 
         h.itemView.setOnLongClickListener(v -> {
+            if (longPressListener != null) {
+                longPressListener.onLongPress(u, v);
+                return true;
+            }
             if (!isSelecting) {
                 isSelecting = true;
                 if (u.uid != null) selectedUids.add(u.uid);
