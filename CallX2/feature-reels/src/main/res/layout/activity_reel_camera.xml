@@ -183,6 +183,26 @@
             android:text="Filters" android:textColor="#CCFFFFFF" android:textSize="10sp"
             android:layout_marginBottom="10dp"/>
 
+        <ImageButton android:id="@+id/btn_camera_text"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_emoji"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Text"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Text" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
+        <ImageButton android:id="@+id/btn_camera_stickers"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:src="@drawable/ic_emoji"
+            android:tint="#FFD60A"
+            android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Stickers"
+            android:layout_marginBottom="2dp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Stickers" android:textColor="#CCFFFFFF" android:textSize="10sp"
+            android:layout_marginBottom="10dp"/>
+
         <ImageButton android:id="@+id/btn_camera_speed"
             android:layout_width="44dp" android:layout_height="44dp"
             android:src="@drawable/ic_speed"

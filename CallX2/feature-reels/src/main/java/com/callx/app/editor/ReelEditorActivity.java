@@ -71,6 +71,14 @@ public class ReelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_DUET_OWNER_UID      = "editor_duet_owner_uid";
     public static final String EXTRA_DUET_LABEL          = "editor_duet_label";
 
+    // ✅ NEW: Live filter/text/sticker presets carried over from ReelCameraActivity
+    public static final String EXTRA_PRESET_FILTER_NAME       = "preset_filter_name";
+    public static final String EXTRA_PRESET_FILTER_BRIGHTNESS = "preset_filter_brightness";
+    public static final String EXTRA_PRESET_FILTER_CONTRAST   = "preset_filter_contrast";
+    public static final String EXTRA_PRESET_FILTER_SATURATION = "preset_filter_saturation";
+    public static final String EXTRA_PRESET_FILTER_BEAUTY     = "preset_filter_beauty";
+    public static final String EXTRA_PRESET_STICKERS_JSON     = "preset_stickers_json";
+
     private static final int REQ_FILTERS     = 401;
     private static final int REQ_STICKERS    = 402;
     private static final int REQ_SUBTITLES   = 403;
@@ -186,8 +194,52 @@ public class ReelEditorActivity extends AppCompatActivity {
         loadMetadata();
         setupPlayer();
         injectOverlayViews();   // ← NEW: add dynamic overlay views to video FrameLayout
+        applyPresetsFromCamera(); // ✅ NEW: re-apply live filter/text/sticker chosen during recording
         setupListeners();
     }
+
+    /**
+     * ✅ NEW: If the user already picked a filter / added text / stickers LIVE on the
+     * camera recording screen (ReelCameraActivity), re-apply them here so nothing is lost
+     * between recording → editing.
+     */
+    private void applyPresetsFromCamera() {
+        String presetFilter = getIntent().getStringExtra(EXTRA_PRESET_FILTER_NAME);
+        if (presetFilter != null && !presetFilter.isEmpty()) {
+            filterName       = presetFilter;
+            filterBrightness = getIntent().getFloatExtra(EXTRA_PRESET_FILTER_BRIGHTNESS, 0f);
+            filterContrast   = getIntent().getFloatExtra(EXTRA_PRESET_FILTER_CONTRAST,   1f);
+            filterSaturation = getIntent().getFloatExtra(EXTRA_PRESET_FILTER_SATURATION, 1f);
+            filterBeauty     = getIntent().getFloatExtra(EXTRA_PRESET_FILTER_BEAUTY,     0f);
+            applyFilterVisual(filterName, filterBrightness, filterContrast, filterSaturation);
+            if (btnToolFilters != null) btnToolFilters.setColorFilter(
+                android.graphics.Color.argb(200, 168, 85, 247));
+        }
+
+        String presetStickers = getIntent().getStringExtra(EXTRA_PRESET_STICKERS_JSON);
+        if (presetStickers != null && presetStickers.length() > 2) {
+            // Simple split of top-level JSON objects in the array: "[{...},{...}]"
+            String inner = presetStickers.substring(1, presetStickers.length() - 1).trim();
+            if (!inner.isEmpty()) {
+                int depth = 0, start = 0;
+                for (int i = 0; i < inner.length(); i++) {
+                    char c = inner.charAt(i);
+                    if (c == '{') depth++;
+                    else if (c == '}') {
+                        depth--;
+                        if (depth == 0) {
+                            String obj = inner.substring(start, i + 1);
+                            stickerJson = obj;
+                            addStickerOverlay(obj);
+                            start = i + 1;
+                            while (start < inner.length() && (inner.charAt(start) == ',' )) start++;
+                        }
+                    }
+                }
+                if (btnToolStickers != null) btnToolStickers.setColorFilter(
+                    android.graphics.Color.argb(200, 255, 215, 0));
+            }
+        }
 
     // ── View binding ──────────────────────────────────────────────────────
 
@@ -751,6 +803,57 @@ public class ReelEditorActivity extends AppCompatActivity {
     // ── Proceed to upload ─────────────────────────────────────────────────
 
     private void proceedToUpload() {
+        boolean hasFilter   = !filterName.isEmpty() && !filterName.equals("Normal");
+        boolean hasOverlays = !stickerJson.isEmpty();
+
+        // ✅ NEW: If a filter or text/sticker overlay is active and we have a local file,
+        // burn them into the actual video pixels (Media3 Transformer) before uploading.
+        if (isFilePath && (hasFilter || hasOverlays) && videoUriStr != null && !videoUriStr.isEmpty()) {
+            runHardBakeExport();
+            return;
+        }
+        proceedToUploadInternal();
+    }
+
+    /** Re-encodes the video with the selected filter + text/stickers baked in, then continues to upload. */
+    private void runHardBakeExport() {
+        android.app.ProgressDialog dialog = new android.app.ProgressDialog(this);
+        dialog.setMessage("Applying filter & overlays…");
+        dialog.setCancelable(false);
+        dialog.setIndeterminate(false);
+        dialog.setMax(100);
+        dialog.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        dialog.show();
+
+        java.util.List<ReelVideoExportEngine.OverlayItem> overlays =
+            ReelVideoExportEngine.parseOverlayJsonArray(stickerJson);
+
+        ReelVideoExportEngine.export(this, videoUriStr, filterName,
+            filterBrightness, filterContrast, filterSaturation, overlays,
+            new ReelVideoExportEngine.ExportCallback() {
+                @Override public void onProgress(int percent) {
+                    if (percent >= 0) dialog.setProgress(percent);
+                }
+                @Override public void onSuccess(String outputPath) {
+                    if (isFinishing() || isDestroyed()) return;
+                    dialog.dismiss();
+                    videoUriStr = outputPath;
+                    isFilePath  = true;
+                    Toast.makeText(ReelEditorActivity.this, "Filter & overlays applied ✓", Toast.LENGTH_SHORT).show();
+                    proceedToUploadInternal();
+                }
+                @Override public void onError(Exception e) {
+                    if (isFinishing() || isDestroyed()) return;
+                    dialog.dismiss();
+                    Toast.makeText(ReelEditorActivity.this,
+                        "Couldn't bake filter/overlay, uploading original video.", Toast.LENGTH_SHORT).show();
+                    // Fall back to original file — upload proceeds without hard-baked effects.
+                    proceedToUploadInternal();
+                }
+            });
+    }
+
+    private void proceedToUploadInternal() {
         String textOverlay = (tvTextPreview != null
             && tvTextPreview.getVisibility() == View.VISIBLE)
             ? tvTextPreview.getText().toString() : "";
