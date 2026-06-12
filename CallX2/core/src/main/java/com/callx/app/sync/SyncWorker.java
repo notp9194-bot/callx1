@@ -220,6 +220,12 @@ public class SyncWorker extends Worker {
                 long cutoff7d = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000;
                 db.userDao().pruneStale(cutoff7d);
 
+                // FIX #3: Call logs prune — sirf last 500 rakho
+                // Bina is fix ke table unbounded grow karta rehta tha
+                int prunedLogs = db.callLogDao().pruneOldLogs(500);
+                if (prunedLogs > 0)
+                    Log.d(TAG, "Call logs pruned: " + prunedLogs + " old entries removed");
+
                 // ── v18 IMPROVEMENT 5: Failed media upload retry ──────────
                 // Offline mein image/video/file upload fail hua tha — ab retry karo
                 List<com.callx.app.db.entity.MessageEntity> failedUploads =

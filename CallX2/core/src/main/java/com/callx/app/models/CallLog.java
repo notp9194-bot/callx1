@@ -7,5 +7,6 @@ public class CallLog {
     public String mediaType;   // audio | video
     public Long timestamp;
     public Long duration;
+    public String partnerPhoto;  // FIX: avatar URL — Room cache se instant load
     public CallLog() {}
 }

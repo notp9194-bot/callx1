@@ -124,8 +124,9 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                     : Color.parseColor("#64748B"));
 
         // Load avatar — also cache resolved URL for bottom sheet
+        // FIX #1: Room se partnerPhoto pehle use karo — Firebase query sirf tab jab nahi hai
         if (l.partnerUid != null && !l.partnerUid.isEmpty() && h.ivAvatar != null) {
-            // Use cached if available
+            // Priority 1: in-memory photoCache (same session)
             if (photoCache.containsKey(l.partnerUid)) {
                 String cached = photoCache.get(l.partnerUid);
                 if (cached != null && !cached.isEmpty())
@@ -133,15 +134,25 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_person)
                         .into(h.ivAvatar);
+            } else if (l.partnerPhoto != null && !l.partnerPhoto.isEmpty()) {
+                // Priority 2: Room cache se photo — instant, no network needed
+                photoCache.put(l.partnerUid, l.partnerPhoto);
+                Glide.with(ctx).load(l.partnerPhoto)
+                    .apply(RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_person)
+                    .into(h.ivAvatar);
             } else {
+                // Priority 3: Firebase se fetch (sirf tab jab Room mein bhi nahi)
                 FirebaseUtils.getUserRef(l.partnerUid)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(DataSnapshot snap) {
                             String photo = snap.child("photoUrl").getValue(String.class);
                             String thumb = snap.child("thumbUrl").getValue(String.class);
                             String callAvatar = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                            // Cache it
+                            // Cache it in memory
                             if (callAvatar != null) photoCache.put(l.partnerUid, callAvatar);
+                            // Also update partnerPhoto so next bind uses Room cache
+                            l.partnerPhoto = callAvatar;
                             if (callAvatar != null && !callAvatar.isEmpty() && ctx != null)
                                 Glide.with(ctx).load(callAvatar)
                                     .apply(RequestOptions.circleCropTransform())

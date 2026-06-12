@@ -40,6 +40,10 @@ import com.callx.app.call.CallActivity;
 
 public class CallsFragment extends Fragment implements CallHistoryAdapter.SelectionListener {
 
+    // FIX #2: Shared executor — ek hi thread pool, bar-bar naya nahi banta
+    private final java.util.concurrent.ExecutorService dbExecutor =
+        Executors.newSingleThreadExecutor();
+
     private final List<CallLog> allLogs = new ArrayList<>();
     private final List<CallLog> logs    = new ArrayList<>();
     private CallHistoryAdapter adapter;
@@ -871,7 +875,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
     private void loadCallLogs() {
         if (getContext() != null) {
             AppDatabase db = AppDatabase.getInstance(getContext());
-            Executors.newSingleThreadExecutor().execute(() -> {
+            dbExecutor.execute(() -> {
                 List<CallLogEntity> cached = db.callLogDao().getAllCallLogsSync();
                 if (cached != null && !cached.isEmpty()) {
                     List<CallLog> roomLogs = new ArrayList<>();
@@ -880,6 +884,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                         l.id          = e.id;
                         l.partnerUid  = e.partnerUid;
                         l.partnerName = e.partnerName;
+                        l.partnerPhoto = e.partnerPhoto; // FIX #1: Room se photo restore
                         l.direction   = e.direction;
                         l.mediaType   = e.mediaType;
                         l.timestamp   = e.timestamp;
@@ -913,6 +918,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                         entity.id          = l.id;
                         entity.partnerUid  = l.partnerUid;
                         entity.partnerName = l.partnerName;
+                        entity.partnerPhoto = l.partnerPhoto; // FIX #1: avatar Room mein save
                         entity.direction   = l.direction;
                         entity.mediaType   = l.mediaType;
                         entity.timestamp   = l.timestamp;
@@ -929,7 +935,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
 
                 if (getContext() != null && !toSave.isEmpty()) {
                     AppDatabase db = AppDatabase.getInstance(getContext());
-                    Executors.newSingleThreadExecutor().execute(() ->
+                    dbExecutor.execute(() ->
                         db.callLogDao().insertCallLogs(toSave));
                 }
             }
@@ -1134,5 +1140,12 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         adapter.clearSelection();
         applyFilter();
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        // FIX #2: Executor shutdown — memory leak prevent
+        dbExecutor.shutdown();
     }
 }
