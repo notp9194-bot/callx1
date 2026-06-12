@@ -105,7 +105,7 @@ public class ChatPrivacyBottomSheet extends BottomSheetDialogFragment {
             }
             final int[] sel = {checkedIdx};
 
-            new AlertDialog.Builder(requireContext())
+            new AlertDialog.Builder(requireActivity())
                 .setTitle("⏳ Disappearing Messages")
                 .setMessage("New messages in this chat will disappear after the selected time.")
                 .setSingleChoiceItems(labels, checkedIdx, (d, which) -> sel[0] = which)
@@ -143,7 +143,7 @@ public class ChatPrivacyBottomSheet extends BottomSheetDialogFragment {
             }
             final int[] sel = {checkedIdx};
 
-            new AlertDialog.Builder(requireContext())
+            new AlertDialog.Builder(requireActivity())
                 .setTitle("⏱ Message Timer")
                 .setMessage("Messages will be automatically deleted after this time once seen by the recipient.")
                 .setSingleChoiceItems(labels, checkedIdx, (d, which) -> sel[0] = which)
@@ -180,7 +180,7 @@ public class ChatPrivacyBottomSheet extends BottomSheetDialogFragment {
             }
             final int[] sel = {checkedIdx};
 
-            new AlertDialog.Builder(requireContext())
+            new AlertDialog.Builder(requireActivity())
                 .setTitle("🗑 Auto-Delete Old Messages")
                 .setMessage("Messages older than the selected period will be automatically removed from this chat on your device.")
                 .setSingleChoiceItems(labels, checkedIdx, (d, which) -> sel[0] = which)
