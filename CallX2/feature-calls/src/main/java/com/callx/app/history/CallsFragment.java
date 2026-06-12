@@ -1087,6 +1087,8 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         String uid = FirebaseUtils.getCurrentUid();
         if (uid != null && contactsListener != null)
             FirebaseUtils.getContactsRef(uid).removeEventListener(contactsListener);
+        // FIX #2: Executor shutdown — memory leak prevent
+        dbExecutor.shutdown();
     }
 
     // ── Selection ──────────────────────────────────────────────────────────
@@ -1142,10 +1144,4 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
     }
 
-    @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        // FIX #2: Executor shutdown — memory leak prevent
-        dbExecutor.shutdown();
-    }
 }
