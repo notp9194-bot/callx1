@@ -1003,11 +1003,18 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     }
 
     private void showPrivacyDirectFallback(String uid, String name, String status) {
-        // Direct instantiation fallback if reflection fails (both in same APK)
+        // Reflection-based fallback (PrivacyDirectDialog lives in :app module,
+        // not on feature-chat's compile classpath, so no direct reference here)
         try {
-            com.callx.app.smallwindow.PrivacyDirectDialog dialog =
-                com.callx.app.smallwindow.PrivacyDirectDialog.newInstance(uid, name, status);
-            dialog.show(getParentFragmentManager(), "privacy_direct");
+            Class<?> cls = Class.forName("com.callx.app.smallwindow.PrivacyDirectDialog");
+            java.lang.reflect.Method newInstance = cls.getMethod(
+                "newInstance", String.class, String.class, String.class);
+            Object dialog = newInstance.invoke(null, uid, name, status);
+            if (dialog instanceof androidx.fragment.app.DialogFragment
+                    && getParentFragmentManager() != null) {
+                ((androidx.fragment.app.DialogFragment) dialog)
+                    .show(getParentFragmentManager(), "privacy_direct");
+            }
         } catch (Exception ex) {
             // Last resort
             if (getContext() != null)
