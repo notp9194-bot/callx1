@@ -122,6 +122,10 @@ public class GroupChatActivity extends AppCompatActivity {
     /** @ character ka start position track karo taaki partial text replace kar sakein */
     private int mentionAtStart = -1;
 
+    // ── In-chat Search ─────────────────────────────────────────────────────
+    private final java.util.List<Integer> searchMatchPositions = new java.util.ArrayList<>();
+    private int searchCurrentIndex = -1;
+
     // ── Handlers ───────────────────────────────────────────────────────────
     private final android.os.Handler typingHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable           stopTyping     = () -> setMyTyping(false);
@@ -319,10 +323,11 @@ public class GroupChatActivity extends AppCompatActivity {
             android.view.Menu m = popup.getMenu();
             m.add(0, R.id.menu_group_info,           0, "ℹ Group Info").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             m.add(0, R.id.menu_group_settings,       1, "⚙ Group Settings").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.menu_invite,               2, "🔗 Invite Link").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.menu_starred,              3, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_privacy,       5, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_search,             2, "🔍 Search").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_invite,               3, "🔗 Invite Link").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.menu_starred,              4, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_customization, 5, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            m.add(0, R.id.action_chat_privacy,       6, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             if (isAdmin) {
                 m.add(0, R.id.menu_admin_panel, 6, "👑 Admin Panel").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
                 m.add(0, R.id.menu_rename,      7, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
@@ -811,7 +816,7 @@ public class GroupChatActivity extends AppCompatActivity {
         for (Map.Entry<String, String> e : memberNames.entrySet()) {
             String uid = e.getKey();
             if (uid.equals(currentUid)) continue;  // khud ko suggest mat karo
-            String photo = memberPhotos.getOrDefault(uid, "");
+            String photo = memberPhotos.containsKey(uid) ? memberPhotos.get(uid) : "";
             items.add(new MentionSuggestAdapter.MemberItem(uid, e.getValue(), photo));
         }
         // Alphabetical sort
@@ -1104,7 +1109,7 @@ public class GroupChatActivity extends AppCompatActivity {
                     Object val = c.getValue();
                     String name = val != null ? String.valueOf(val) : "";
                     if (name.isEmpty() || "true".equalsIgnoreCase(name))
-                        name = memberNames.getOrDefault(uid, "Someone");
+                        name = memberNames.containsKey(uid) ? memberNames.get(uid) : "Someone";
                     typingNames.put(uid, name);
                 }
                 refreshSubtitle();
@@ -1225,8 +1230,8 @@ public class GroupChatActivity extends AppCompatActivity {
     }
 
     private void showMemberOptions(String uid) {
-        String name   = memberNames.getOrDefault(uid, "Member");
-        boolean isAdm = "admin".equals(memberRoles.getOrDefault(uid, "member"));
+        String name   = memberNames.containsKey(uid)  ? memberNames.get(uid)  : "Member";
+        boolean isAdm = "admin".equals(memberRoles.containsKey(uid) ? memberRoles.get(uid) : "member");
         String[] opts = { "Remove from group", isAdm ? "Revoke admin" : "Make admin" };
         new AlertDialog.Builder(this)
                 .setTitle(name)
@@ -1545,9 +1550,136 @@ public class GroupChatActivity extends AppCompatActivity {
         }
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
+        if (id == R.id.action_search)    { openSearch(); return true; }
         if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
         if (id == R.id.action_chat_privacy) { showGroupChatPrivacySheet(); return true; }
         return super.onOptionsItemSelected(item);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // IN-CHAT SEARCH
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void openSearch() {
+        android.view.View llSearch = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.ll_search_bar);
+        if (llSearch == null) return;
+        llSearch.setVisibility(View.VISIBLE);
+
+        android.widget.EditText etSearch = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.et_search);
+        if (etSearch != null) {
+            etSearch.requestFocus();
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager)
+                            getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(etSearch, 0);
+
+            etSearch.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+                @Override public void afterTextChanged(android.text.Editable s) {}
+                @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
+                    String query = s.toString().trim();
+                    if (query.length() < 2) {
+                        searchMatchPositions.clear();
+                        searchCurrentIndex = -1;
+                        updateSearchUI();
+                        return;
+                    }
+                    runSearchQuery(query);
+                }
+            });
+
+            etSearch.setOnEditorActionListener((v, actionId, e) -> {
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                    navigateSearch(true);
+                    return true;
+                }
+                return false;
+            });
+        }
+
+        android.view.View btnPrev = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.btn_search_prev);
+        android.view.View btnNext = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.btn_search_next);
+        android.view.View btnClose = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.btn_close_search);
+
+        if (btnPrev  != null) btnPrev.setOnClickListener(v  -> navigateSearch(false));
+        if (btnNext  != null) btnNext.setOnClickListener(v  -> navigateSearch(true));
+        if (btnClose != null) btnClose.setOnClickListener(v -> closeSearch());
+    }
+
+    private void runSearchQuery(String query) {
+        ioExecutor.execute(() -> {
+            List<MessageEntity> all =
+                    db.messageDao().getMessagesPaged(groupId, 2000, 0);
+            List<Integer> matches = new ArrayList<>();
+            String lq = query.toLowerCase(java.util.Locale.getDefault());
+            for (int i = 0; i < all.size(); i++) {
+                MessageEntity e = all.get(i);
+                if (e.text != null &&
+                    e.text.toLowerCase(java.util.Locale.getDefault()).contains(lq)) {
+                    matches.add(i);
+                }
+            }
+            runOnUiThread(() -> {
+                searchMatchPositions.clear();
+                searchMatchPositions.addAll(matches);
+                searchCurrentIndex = matches.isEmpty() ? -1 : matches.size() - 1;
+                updateSearchUI();
+                if (!matches.isEmpty())
+                    binding.rvMessages.scrollToPosition(
+                            searchMatchPositions.get(searchCurrentIndex));
+            });
+        });
+    }
+
+    private void navigateSearch(boolean forward) {
+        if (searchMatchPositions.isEmpty()) return;
+        if (forward) {
+            searchCurrentIndex = (searchCurrentIndex + 1) % searchMatchPositions.size();
+        } else {
+            searchCurrentIndex = (searchCurrentIndex - 1 + searchMatchPositions.size())
+                                  % searchMatchPositions.size();
+        }
+        updateSearchUI();
+        binding.rvMessages.scrollToPosition(
+                searchMatchPositions.get(searchCurrentIndex));
+    }
+
+    private void updateSearchUI() {
+        android.widget.TextView tvCount = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.tv_search_count);
+        android.view.View btnPrev = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.btn_search_prev);
+        android.view.View btnNext = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.btn_search_next);
+        if (tvCount == null) return;
+        if (searchMatchPositions.isEmpty()) {
+            tvCount.setVisibility(View.GONE);
+            if (btnPrev != null) btnPrev.setVisibility(View.GONE);
+            if (btnNext != null) btnNext.setVisibility(View.GONE);
+        } else {
+            String label = (searchCurrentIndex + 1) + " / " + searchMatchPositions.size();
+            tvCount.setText(label);
+            tvCount.setVisibility(View.VISIBLE);
+            if (btnPrev != null) btnPrev.setVisibility(View.VISIBLE);
+            if (btnNext != null) btnNext.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void closeSearch() {
+        android.view.View llSearch = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.ll_search_bar);
+        if (llSearch != null) llSearch.setVisibility(View.GONE);
+        android.widget.EditText etSearch = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.et_search);
+        if (etSearch != null) etSearch.setText("");
+        searchMatchPositions.clear();
+        searchCurrentIndex = -1;
+        updateSearchUI();
     }
 
     private void showGroupChatPrivacySheet() {
