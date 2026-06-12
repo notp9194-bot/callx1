@@ -3047,6 +3047,7 @@ public class ChatActivity extends AppCompatActivity {
         if (id == R.id.action_media_links_docs) { openAllMediaLinksDocs(); return true; }
         if (id == R.id.action_security) { showChatSecuritySheet(); return true; }
         if (id == R.id.action_chat_privacy) { showChatPrivacySheet(); return true; }
+        if (id == R.id.action_small_window) { openSmallWindow();      return true; }
         return super.onOptionsItemSelected(item);
     }
 
@@ -3067,6 +3068,50 @@ public class ChatActivity extends AppCompatActivity {
                 && grantResults.length > 0
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             toggleRecording();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SMALL WINDOW (v32.5)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Chat ko floating small window mein open karo.
+     * SmallWindowService ko Class.forName se start karte hain (cross-module safe).
+     */
+    private void openSmallWindow() {
+        android.content.Context appCtx = getApplicationContext();
+
+        // SYSTEM_ALERT_WINDOW permission check
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
+                && !android.provider.Settings.canDrawOverlays(appCtx)) {
+            Intent permIntent = new Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:" + appCtx.getPackageName()));
+            startActivity(permIntent);
+            Toast.makeText(this,
+                "'Display over other apps' permission dijiye phir Small Window use karo",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        String name   = partnerName != null ? partnerName : "Chat";
+        String status = "CallX Small Window";
+
+        try {
+            Class<?> svcClass = Class.forName("com.callx.app.smallwindow.SmallWindowService");
+            Intent svc = new Intent(appCtx, svcClass);
+            svc.putExtra("name",   name);
+            svc.putExtra("status", status);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                appCtx.startForegroundService(svc);
+            } else {
+                appCtx.startService(svc);
+            }
+            // Move app to background so small window is visible
+            moveTaskToBack(true);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(this, "Small Window unavailable", Toast.LENGTH_SHORT).show();
         }
     }
 
