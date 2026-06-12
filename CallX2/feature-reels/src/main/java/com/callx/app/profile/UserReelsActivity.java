@@ -38,6 +38,10 @@ import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.UserEntity;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -110,6 +114,8 @@ public class UserReelsActivity extends AppCompatActivity
 
     // State
     private String  targetUid, targetName, targetPhoto;
+    // Offline-first Room executor
+    private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
     private boolean isFollowing      = false;
     private boolean isMultiSelect    = false;
     private boolean isSelf           = false;
@@ -155,6 +161,7 @@ public class UserReelsActivity extends AppCompatActivity
         setupScrollPagination();
         setupTabs();
         setupMultiSelectBar();
+        loadFromRoom(); // Offline-first: Room se instant load
         loadUserProfile();
         loadFollowState();
         loadVerifiedStatus();
@@ -1437,6 +1444,54 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Profile data ──────────────────────────────────────────────────────
 
+    // ── Offline-first: Room se naam + photo turant dikhao ──────────────────
+    private void loadFromRoom() {
+        if (targetUid == null || targetUid.isEmpty()) return;
+        dbExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+            UserEntity cached = db.userDao().getUser(targetUid);
+            if (cached == null) return;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                // Name
+                if (cached.name != null && !cached.name.isEmpty()) {
+                    targetName = cached.name;
+                    if (tvName != null) tvName.setText(cached.name);
+                }
+                // Avatar — thumb fast, fallback full photo
+                String url = (cached.thumbUrl != null && !cached.thumbUrl.isEmpty())
+                    ? cached.thumbUrl : cached.photoUrl;
+                if (url != null && !url.isEmpty() && ivAvatar != null) {
+                    targetPhoto = url;
+                    Glide.with(UserReelsActivity.this).load(url).circleCrop()
+                        .placeholder(R.drawable.ic_person).into(ivAvatar);
+                }
+                // Bio / about
+                if (cached.about != null && !cached.about.isEmpty() && tvBio != null) {
+                    tvBio.setText(cached.about);
+                    tvBio.setVisibility(View.VISIBLE);
+                }
+            });
+        });
+    }
+
+    // ── Firebase se aaya data → Room mein save karo ──────────────────────
+    private void saveToRoom(String name, String photo, String thumb, String bio) {
+        if (targetUid == null) return;
+        dbExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+            UserEntity e = db.userDao().getUser(targetUid);
+            if (e == null) e = new UserEntity();
+            e.uid = targetUid;
+            if (name  != null && !name.isEmpty())  e.name     = name;
+            if (photo != null && !photo.isEmpty()) e.photoUrl = photo;
+            if (thumb != null && !thumb.isEmpty()) e.thumbUrl = thumb;
+            if (bio   != null && !bio.isEmpty())   e.about    = bio;
+            e.cachedAt = System.currentTimeMillis();
+            db.userDao().insertUser(e);
+        });
+    }
+
     private void loadUserProfile() {
         // Reels profile load karo (reels/users/{uid}) — chat profile nahi
         com.google.firebase.database.FirebaseDatabase.getInstance()
@@ -1489,9 +1544,14 @@ public class UserReelsActivity extends AppCompatActivity
                     ? (twitter.startsWith("http") ? twitter : "https://x.com/" + twitter.replace("@",""))
                     : null;
                 bindSocialRow(layoutOtherLink, tvOtherLink, twitter, otherUrl, twitter);
+
+                // FIX: Room mein save karo — next time offline instantly dikhega
+                saveToRoom(name, photo, photoThumb, bio);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
+        // Save to Room after Firebase load — next time offline kaam aayega
+        // (called inside onDataChange above via saveToRoom)
         FirebaseUtils.getReelFollowersRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (tvFollowers != null) tvFollowers.setText(String.valueOf(snap.getChildrenCount()));
@@ -1644,5 +1704,5 @@ public class UserReelsActivity extends AppCompatActivity
 
     @Override protected void onPause()   { super.onPause();   dismissPreviewDialog(); stopAvatarAnimation(); }
     @Override protected void onResume()  { super.onResume();  loadAvatarAndStartAnimation(); }
-    @Override protected void onDestroy() { super.onDestroy(); dismissPreviewDialog(); stopAvatarAnimation(); }
+    @Override protected void onDestroy() { super.onDestroy(); dismissPreviewDialog(); stopAvatarAnimation(); dbExecutor.shutdown(); }
 }

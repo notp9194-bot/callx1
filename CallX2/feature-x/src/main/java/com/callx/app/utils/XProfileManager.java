@@ -16,6 +16,9 @@ import java.util.Map;
  */
 public class XProfileManager {
 
+    // ── In-memory profile cache — same session mein repeat Firebase call nahi ──
+    private static final Map<String, XProfile> sCache = new java.util.concurrent.ConcurrentHashMap<>();
+
     public interface ProfileCallback {
         void onProfile(XProfile profile);
     }
@@ -27,19 +30,32 @@ public class XProfileManager {
 
     // ── Load ─────────────────────────────────────────────────────────────────
 
-    /** One-time load of an X profile. */
+    /** One-time load of an X profile — cache-first, Firebase fallback. */
     public static void load(String uid, ProfileCallback cb) {
+        // FIX: Same session mein cache se instant load — Firebase call nahi
+        if (uid != null && sCache.containsKey(uid)) {
+            if (cb != null) cb.onProfile(sCache.get(uid));
+            return;
+        }
         XFirebaseUtils.xUserRef(uid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     XProfile p = snap.getValue(XProfile.class);
-                    if (p != null) p.uid = snap.getKey();
+                    if (p != null) {
+                        p.uid = snap.getKey();
+                        sCache.put(uid, p); // Cache karo next call ke liye
+                    }
                     if (cb != null) cb.onProfile(p);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     if (cb != null) cb.onProfile(null);
                 }
             });
+    }
+
+    /** Cache invalidate karo jab profile update ho (EditProfile ke baad call karo). */
+    public static void invalidate(String uid) {
+        if (uid != null) sCache.remove(uid);
     }
 
     /** Real-time listener for an X profile. Returns the listener so caller can detach it. */
