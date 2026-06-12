@@ -29,6 +29,10 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
 
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.UserEntity;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.conversation.ChatActivity;
@@ -61,6 +65,9 @@ public class UserProfileActivity extends AppCompatActivity {
     private final Handler   animHandler = new Handler(Looper.getMainLooper());
     private Runnable        animRunnable;
     private boolean         animRunning = false;
+
+    // Offline-first: Room DB se profile load karne ke liye
+    private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -123,11 +130,92 @@ public class UserProfileActivity extends AppCompatActivity {
         binding.btnBlock.setOnClickListener(v -> confirmBlock());
         binding.btnReport.setOnClickListener(v -> confirmReport());
 
+        // ── Offline-first: Room se turant load karo (no network needed) ──
+        loadFromRoom();
+
         // ── Load fresh data from Firebase ──────────────────────────────
         loadProfile();
         loadMuteState();
         loadBlockState();
         loadAvatarAndStartAnimation();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // OFFLINE-FIRST: Room se instant load
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Room DB se cached profile instantly dikhao — network ka wait nahi.
+     * Firebase loadProfile() baad mein fresh data se override kar dega.
+     * Agar Room mein kuch nahi hai toh kuch nahi hoga (silent, no crash).
+     */
+    private void loadFromRoom() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        dbExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+            UserEntity cached = db.userDao().getUser(partnerUid);
+            if (cached == null) return; // Pehli baar hai — Room mein kuch nahi
+
+            // UI thread pe update karo
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+
+                // Name
+                if (cached.name != null && !cached.name.isEmpty()) {
+                    binding.tvName.setText(cached.name);
+                    binding.collapsingToolbar.setTitle(cached.name);
+                    partnerName = cached.name;
+                }
+
+                // CallX ID
+                if (cached.callxId != null && !cached.callxId.isEmpty()) {
+                    binding.tvCallxId.setText("@" + cached.callxId);
+                }
+
+                // About
+                if (cached.about != null && !cached.about.isEmpty()) {
+                    binding.tvAbout.setText(cached.about);
+                    binding.cardAbout.setVisibility(View.VISIBLE);
+                }
+
+                // Avatar — thumb pehle (fast), phir full photo
+                String avatarUrl = null;
+                if (cached.thumbUrl != null && !cached.thumbUrl.isEmpty()) {
+                    avatarUrl = cached.thumbUrl;
+                } else if (cached.photoUrl != null && !cached.photoUrl.isEmpty()) {
+                    avatarUrl = cached.photoUrl;
+                }
+                if (avatarUrl != null) {
+                    partnerPhoto = avatarUrl;
+                    Glide.with(UserProfileActivity.this)
+                        .load(avatarUrl)
+                        .placeholder(R.drawable.ic_person)
+                        .error(R.drawable.ic_person)
+                        .into(binding.ivAvatarLarge);
+                }
+            });
+        });
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // FIREBASE se aaya data → Room mein save karo (next time offline kaam aaye)
+    // ──────────────────────────────────────────────────────────────────────
+
+    private void saveToRoom(String name, String about, String callxId,
+                            String photoUrl, String thumbUrl) {
+        dbExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+            UserEntity existing = db.userDao().getUser(partnerUid);
+            UserEntity entity = existing != null ? existing : new UserEntity();
+            entity.uid      = partnerUid;
+            if (name    != null && !name.isEmpty())    entity.name    = name;
+            if (about   != null && !about.isEmpty())   entity.about   = about;
+            if (callxId != null && !callxId.isEmpty()) entity.callxId = callxId;
+            if (photoUrl != null && !photoUrl.isEmpty()) entity.photoUrl = photoUrl;
+            if (thumbUrl != null && !thumbUrl.isEmpty()) entity.thumbUrl = thumbUrl;
+            entity.cachedAt = System.currentTimeMillis();
+            db.userDao().insertUser(entity);
+        });
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -246,6 +334,9 @@ public class UserProfileActivity extends AppCompatActivity {
 
                     // Mute state from Firebase (same path as ChatActivity: /muted/{myUid}/{partnerUid})
                     // We load it separately after profile load
+
+                    // Room mein save karo — agli baar offline mein kaam aayega
+                    saveToRoom(name, about, callxId, photo, thumb);
                 }
 
                 @Override
@@ -699,7 +790,7 @@ public class UserProfileActivity extends AppCompatActivity {
 
     @Override protected void onPause()   { super.onPause();   stopAvatarAnimation(); }
     @Override protected void onResume()  { super.onResume();  if (partnerUid != null) loadAvatarAndStartAnimation(); }
-    @Override protected void onDestroy() { super.onDestroy(); stopAvatarAnimation(); }
+    @Override protected void onDestroy() { super.onDestroy(); stopAvatarAnimation(); dbExecutor.shutdown(); }
 
     // ─── 3-dot overflow menu ─────────────────────────────────────
     @Override
