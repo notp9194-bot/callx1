@@ -22,7 +22,7 @@ import androidx.media3.effect.Contrast;
 import androidx.media3.effect.OverlayEffect;
 import androidx.media3.effect.OverlaySettings;
 import androidx.media3.effect.RgbAdjustment;
-import androidx.media3.effect.RgbFilter;
+import androidx.media3.effect.RgbMatrix;
 import androidx.media3.transformer.Composition;
 import androidx.media3.transformer.EditedMediaItem;
 import androidx.media3.transformer.Effects;
@@ -52,6 +52,18 @@ import java.util.List;
 public class ReelVideoExportEngine {
 
     private static final String TAG = "ReelVideoExport";
+
+    // Luminosity-based grayscale colour matrix (column-major 4x4, as used by GL).
+    private static final float[] GRAYSCALE_MATRIX = {
+        0.213f, 0.213f, 0.213f, 0f,
+        0.715f, 0.715f, 0.715f, 0f,
+        0.072f, 0.072f, 0.072f, 0f,
+        0f,     0f,     0f,     1f
+    };
+
+    private static RgbMatrix grayscaleEffect() {
+        return (presentationTimeUs, useHdr) -> GRAYSCALE_MATRIX;
+    }
 
     public interface ExportCallback {
         /** Called periodically on the main thread, percent is 0-100 (may be -1 if unknown). */
@@ -228,10 +240,10 @@ public class ReelVideoExportEngine {
 
         switch (filterName) {
             case "Mono":
-                effects.add(RgbFilter.createGrayscaleEffect());
+                effects.add(grayscaleEffect());
                 break;
             case "Noir":
-                effects.add(RgbFilter.createGrayscaleEffect());
+                effects.add(grayscaleEffect());
                 effects.add(new Contrast(0.35f));
                 break;
             case "Warm":
@@ -274,11 +286,11 @@ public class ReelVideoExportEngine {
             // brightness already in -80..80 range from ReelFiltersActivity; approximate via RGB scale.
             float scale = 1f + (brightness / 255f);
             scale = Math.max(0.5f, Math.min(1.5f, scale));
-            effects.add(new RgbAdjustment.Builder().setScale(scale).build());
+            effects.add(new RgbAdjustment.Builder().setRedScale(scale).setGreenScale(scale).setBlueScale(scale).build());
         }
         if (saturation <= 0.15f) {
             // Fully desaturated → grayscale
-            effects.add(RgbFilter.createGrayscaleEffect());
+            effects.add(grayscaleEffect());
         }
     }
 
