@@ -48,7 +48,8 @@
 
         <activity android:name=".activities.AuthActivity"
             android:exported="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:layout="@xml/layout">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -61,7 +62,8 @@
             android:launchMode="singleTop"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|uiMode">
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|uiMode"
+            android:layout="@xml/layout">
             <!-- Handles taps on reel notifications when app is killed/Doze
                  FCM notification payload: click_action = "OPEN_REEL_NOTIFICATION" -->
             <intent-filter>
@@ -85,11 +87,13 @@
         <activity android:name=".activities.ChatActivity"     android:exported="false"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="adjustResize"
+            android:layout="@xml/layout"/>
         <activity android:name=".activities.GroupChatActivity" android:exported="false"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="adjustResize"
+            android:layout="@xml/layout"/>
         <activity android:name=".activities.GroupInfoActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

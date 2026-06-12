@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    layout.xml — Multi-Window / Small Window minimum size constraints.
+
+    Yeh file Android ko batati hai ki app minimum kitni width/height
+    mein run kar sakta hai. Iske bina recents mein "Small window" option
+    nahi dikhta (WhatsApp jaisa).
+
+    android:defaultWidth  = default window width (freeform mode)
+    android:defaultHeight = default window height (freeform mode)
+    android:minWidth      = minimum allowed width  (small window ke liye zaroori)
+    android:minHeight     = minimum allowed height (small window ke liye zaroori)
+    android:gravity       = starting position (center / top / etc.)
+-->
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:defaultWidth="480dp"
+    android:defaultHeight="600dp"
+    android:minWidth="320dp"
+    android:minHeight="400dp"
+    android:gravity="center" />
