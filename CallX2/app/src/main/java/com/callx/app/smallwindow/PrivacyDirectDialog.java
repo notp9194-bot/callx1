@@ -116,24 +116,24 @@ public class PrivacyDirectDialog extends BottomSheetDialogFragment {
         LinearLayout rowSmallWindow = root.findViewById(R.id.row_pd_small_window);
         if (rowSmallWindow != null) {
             rowSmallWindow.setOnClickListener(v -> {
+                Context appCtx = requireContext().getApplicationContext();
                 dismiss();
-                openSmallWindow();
+                openSmallWindow(appCtx);
             });
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────
 
-    private void openSmallWindow() {
-        Context ctx = requireContext().getApplicationContext();
-
+    private void openSmallWindow(Context ctx) {
         // Check SYSTEM_ALERT_WINDOW permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && !Settings.canDrawOverlays(ctx)) {
             // Ask user to grant permission
             Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:" + ctx.getPackageName()));
-            startActivity(i);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
             Toast.makeText(ctx,
                 "'Display over other apps' permission dijiye phir try karo",
                 Toast.LENGTH_LONG).show();
