@@ -24,6 +24,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.R;
 import com.callx.app.databinding.ActivityUserProfileBinding;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.SwipeToDismissHelper;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
@@ -611,6 +612,14 @@ public class UserProfileActivity extends AppCompatActivity {
         if (w != null) w.setLayout(
             android.view.WindowManager.LayoutParams.MATCH_PARENT,
             android.view.WindowManager.LayoutParams.MATCH_PARENT);
+
+        // Swipe down to close (ignored while pinch-zoomed in)
+        SwipeToDismissHelper.attach(
+            photoView,
+            root,
+            photoView::getScale,
+            dialog::dismiss);
+
         dialog.show();
     }
 

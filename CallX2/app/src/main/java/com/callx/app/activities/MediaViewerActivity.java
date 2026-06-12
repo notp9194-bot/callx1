@@ -19,6 +19,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.github.chrisbanes.photoview.PhotoView;
 import com.callx.app.databinding.ActivityMediaViewerBinding;
 import com.callx.app.utils.MediaCache;
+import com.callx.app.utils.SwipeToDismissHelper;
 
 import java.io.File;
 
@@ -76,6 +77,9 @@ public class MediaViewerActivity extends AppCompatActivity {
             // For video — tap player toggles top bar
             binding.player.setOnClickListener(v -> toggleUI());
 
+            // Swipe down to close
+            SwipeToDismissHelper.attach(binding.player, binding.getRoot(), this::finish);
+
         } else {
             binding.ivFull.setVisibility(View.VISIBLE);
             binding.player.setVisibility(View.GONE);
@@ -85,6 +89,13 @@ public class MediaViewerActivity extends AppCompatActivity {
 
             // Tap image → toggle top bar
             binding.ivFull.setOnViewTapListener((view, x, y) -> toggleUI());
+
+            // Swipe down to close (ignored while pinch-zoomed in)
+            SwipeToDismissHelper.attach(
+                binding.ivFull,
+                binding.getRoot(),
+                () -> binding.ivFull.getScale(),
+                this::finish);
         }
     }
 

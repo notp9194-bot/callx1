@@ -36,6 +36,7 @@ import com.callx.app.models.ReelModel;
   import com.callx.app.models.DuetSeriesModel;
   import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.SwipeToDismissHelper;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.db.AppDatabase;
@@ -1699,6 +1700,14 @@ public class UserReelsActivity extends AppCompatActivity
         android.view.Window dw = dialog.getWindow();
         if (dw != null) dw.setLayout(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+
+        // Swipe down to close (ignored while pinch-zoomed in)
+        SwipeToDismissHelper.attach(
+            photoView,
+            root,
+            photoView::getScale,
+            dialog::dismiss);
+
         dialog.show();
     }
 

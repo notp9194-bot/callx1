@@ -21,6 +21,7 @@ import com.callx.app.db.entity.CallLogEntity;
 import com.callx.app.models.CallLog;
 import com.callx.app.models.User;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.SwipeToDismissHelper;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.*;
 import com.google.firebase.auth.FirebaseAuth;
@@ -1077,6 +1078,14 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         if (w != null) w.setLayout(
             android.view.WindowManager.LayoutParams.MATCH_PARENT,
             android.view.WindowManager.LayoutParams.MATCH_PARENT);
+
+        // Swipe down to close (ignored while pinch-zoomed in)
+        SwipeToDismissHelper.attach(
+            photoView,
+            root,
+            photoView::getScale,
+            dialog::dismiss);
+
         dialog.show();
     }
 

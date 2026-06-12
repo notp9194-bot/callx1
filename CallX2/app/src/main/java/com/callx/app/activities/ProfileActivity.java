@@ -19,6 +19,7 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.SwipeToDismissHelper;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.UserProfileChangeRequest;
 import com.google.firebase.database.*;
@@ -275,6 +276,14 @@ public class ProfileActivity extends AppCompatActivity {
         if (w != null) w.setLayout(
             android.view.WindowManager.LayoutParams.MATCH_PARENT,
             android.view.WindowManager.LayoutParams.MATCH_PARENT);
+
+        // Swipe down to close (ignored while pinch-zoomed in)
+        SwipeToDismissHelper.attach(
+            photoView,
+            root,
+            photoView::getScale,
+            dialog::dismiss);
+
         dialog.show();
     }
 }
