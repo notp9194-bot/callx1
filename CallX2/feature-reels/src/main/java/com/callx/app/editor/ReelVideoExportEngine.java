@@ -23,7 +23,6 @@ import androidx.media3.effect.OverlayEffect;
 import androidx.media3.effect.OverlaySettings;
 import androidx.media3.effect.RgbAdjustment;
 import androidx.media3.effect.RgbFilter;
-import androidx.media3.effect.StaticOverlaySettings;
 import androidx.media3.transformer.Composition;
 import androidx.media3.transformer.EditedMediaItem;
 import androidx.media3.transformer.Effects;
@@ -324,7 +323,7 @@ public class ReelVideoExportEngine {
 
             @Override
             public OverlaySettings getOverlaySettings(long presentationTimeUs) {
-                return new StaticOverlaySettings.Builder().build();
+                return new OverlaySettings.Builder().build();
             }
         };
 
