@@ -24,6 +24,7 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import com.google.android.material.tabs.TabLayout;
+import com.google.android.material.appbar.AppBarLayout;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.reels.R;
@@ -49,12 +50,15 @@ import java.util.*;
 /**
  * UserReelsActivity — Full production reel profile screen.
  *
- * SCROLLING FIX v2:
- *  - Removed NestedScrollView entirely.
- *  - Profile header, tabs now live ABOVE the SwipeRefreshLayout + RecyclerView.
- *  - RecyclerView gets match_parent height and owns all scrolling.
- *  - Pagination uses RecyclerView.OnScrollListener (no NestedScrollView needed).
- *  - SwipeRefreshLayout enabled only when RV is at top (canScrollVertically(-1) == false).
+ * SCROLLING FIX v3 (CoordinatorLayout):
+ *  - Root layout is now CoordinatorLayout + AppBarLayout.
+ *  - Profile header (avatar, bio, social links, actions) is inside AppBarLayout
+ *    with scroll|enterAlways flags — scrolls up when user scrolls the grid.
+ *  - Nav bar + TabLayout use noScroll flags — always visible.
+ *  - SwipeRefreshLayout uses app:layout_behavior="appbar_scrolling_view_behavior"
+ *    — ALWAYS gets full remaining height regardless of profile content size.
+ *  - Pagination via RecyclerView.OnScrollListener.
+ *  - No canScrollVertically() guard needed — AppBarLayout handles SwipeRefresh conflict.
  */
 public class UserReelsActivity extends AppCompatActivity
         implements ReelGridAdapter.LongPressListener,
@@ -87,6 +91,10 @@ public class UserReelsActivity extends AppCompatActivity
     private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
     private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
     private LinearLayout    layoutActions;
+
+    // ── Mini avatar (nav bar — fades in when profile header scrolls away) ───
+    private CircleImageView ivAvatarMini;
+    private AppBarLayout    appBarLayout;
 
     // ── Avatar peek animation fields ──────────────────────────────────────
     private CircleImageView ivAnimChat, ivAnimX, ivAnimYoutube;
@@ -151,6 +159,7 @@ public class UserReelsActivity extends AppCompatActivity
 
         bindViews();
         setupHeader();
+        setupMiniAvatarCollapse();
         setupSwipeRefresh();
         setupScrollPagination();
         setupTabs();
@@ -225,6 +234,8 @@ public class UserReelsActivity extends AppCompatActivity
         layoutInstagram  = findViewById(R.id.layout_instagram);
         layoutYoutube    = findViewById(R.id.layout_youtube);
         layoutOtherLink  = findViewById(R.id.layout_other_link);
+        ivAvatarMini     = findViewById(R.id.iv_avatar_mini);
+        appBarLayout     = findViewById(R.id.app_bar_layout);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -236,9 +247,13 @@ public class UserReelsActivity extends AppCompatActivity
         });
 
         if (targetName  != null) tvName.setText(targetName);
-        if (targetPhoto != null && !targetPhoto.isEmpty())
+        if (targetPhoto != null && !targetPhoto.isEmpty()) {
             Glide.with(this).load(targetPhoto).circleCrop()
                 .placeholder(R.drawable.ic_person).into(ivAvatar);
+            if (ivAvatarMini != null)
+                Glide.with(this).load(targetPhoto).circleCrop()
+                    .placeholder(R.drawable.ic_person).into(ivAvatarMini);
+        }
 
         if (btnShareProfile != null) btnShareProfile.setOnClickListener(v -> shareProfile());
 
@@ -302,6 +317,36 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
+    // ── Mini avatar collapse (Instagram-style) ────────────────────────────
+
+    /**
+     * As the collapsible profile header scrolls away, the mini avatar in the
+     * nav bar fades IN. When the header comes back into view, it fades OUT.
+     *
+     * Threshold: starts fading at 40% collapse, fully visible at 80%.
+     */
+    private void setupMiniAvatarCollapse() {
+        if (appBarLayout == null || ivAvatarMini == null) return;
+        appBarLayout.addOnOffsetChangedListener((appBar, verticalOffset) -> {
+            int totalScrollRange = appBar.getTotalScrollRange();
+            if (totalScrollRange == 0) return;
+
+            // collapsePercent: 0.0 = fully expanded, 1.0 = fully collapsed
+            float collapsePercent = Math.abs(verticalOffset) / (float) totalScrollRange;
+
+            // Fade-in zone: 40% → 80% collapsed
+            float alpha;
+            if (collapsePercent < 0.40f) {
+                alpha = 0f;
+            } else if (collapsePercent > 0.80f) {
+                alpha = 1f;
+            } else {
+                alpha = (collapsePercent - 0.40f) / 0.40f;
+            }
+            ivAvatarMini.setAlpha(alpha);
+        });
+    }
+
     // ── SwipeRefresh ──────────────────────────────────────────────────────
 
     private void setupSwipeRefresh() {
@@ -312,28 +357,20 @@ public class UserReelsActivity extends AppCompatActivity
             loadCurrentTab(true);
             if (activeTab == TAB_REELS) loadPinnedReel();
         });
-        // Initially enabled; scroll listener will toggle it
         swipeRefresh.setEnabled(true);
     }
 
-    // ── Scroll listener for pagination + SwipeRefresh guard ───────────────
+    // ── Scroll listener for pagination ────────────────────────────────────
 
     /**
-     * SCROLLING FIX: RecyclerView.OnScrollListener handles both:
-     *  1. Disabling SwipeRefresh when not at top (prevents gesture conflict)
-     *  2. Triggering pagination when near the bottom
-     *
-     * No NestedScrollView needed — RecyclerView scrolls freely.
+     * SCROLLING FIX v3: Only handles pagination.
+     * SwipeRefreshLayout conflict is handled automatically by CoordinatorLayout
+     * + AppBarLayout behavior — no canScrollVertically() guard needed here.
      */
     private void setupScrollPagination() {
         rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                // Allow pull-to-refresh only when list is fully at top
-                if (swipeRefresh != null) {
-                    swipeRefresh.setEnabled(!rv.canScrollVertically(-1));
-                }
-
                 // Pagination trigger: load next page when 6 items from end
                 if (isLoadingMore) return;
                 if (!getCurrentTabHasMore()) return;

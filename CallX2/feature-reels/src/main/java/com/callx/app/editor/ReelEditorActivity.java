@@ -32,10 +32,6 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.result.ActivityResult;
-import androidx.activity.result.ActivityResultCallback;
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
@@ -54,18 +50,15 @@ import com.callx.app.editor.ReelThumbnailPickerActivity;
 import java.io.File;
 
 /**
- * ReelEditorActivity v14 — Editing tools fixed for duet + normal reels.
+ * ReelEditorActivity v13 — Full visual apply of all editing tools.
  *
- * Fixes over v13:
- *  ✅ FIX: Migrated ALL tool launches from deprecated startActivityForResult to
- *     ActivityResultLauncher (registerForActivityResult). Fixes result-drop on
- *     Android 13/14 when called from duet flow.
- *  ✅ FIX: duet_root_id now forwarded to ReelUploadActivity in proceedToUpload().
- *  ✅ FIX: Editor bottom panel wrapped in ScrollView — tools accessible on all
- *     screen sizes (previously cut off on small phones).
- *  ✅ FIX: Toast confirmation added for every tool result so user knows it applied.
- *  ✅ All v13 visual apply logic retained (filter overlay, sticker drag, subtitle bar,
- *     badge strip, thumbnail corner badge).
+ * Fixes over v12:
+ *  ✅ FIX: Filter ColorMatrix now VISUALLY applied as overlay on video preview
+ *  ✅ FIX: Sticker/emoji added as draggable overlay TextView on video frame
+ *  ✅ FIX: Subtitle preview bar shown at bottom of video with first caption
+ *  ✅ FIX: Active tool badges shown at top-left of video (filter name, voice, transition)
+ *  ✅ FIX: Thumbnail preview shown in small corner badge after selection
+ *  ✅ All v12 onActivityResult handling retained (result storage + duet pass-through)
  */
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public class ReelEditorActivity extends AppCompatActivity {
@@ -78,14 +71,13 @@ public class ReelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_DUET_OWNER_UID      = "editor_duet_owner_uid";
     public static final String EXTRA_DUET_LABEL          = "editor_duet_label";
 
-    // ── ActivityResultLaunchers (replaces deprecated startActivityForResult) ──
-    private ActivityResultLauncher<Intent> launcherFilters;
-    private ActivityResultLauncher<Intent> launcherStickers;
-    private ActivityResultLauncher<Intent> launcherSubtitles;
-    private ActivityResultLauncher<Intent> launcherTransitions;
-    private ActivityResultLauncher<Intent> launcherVoice;
-    private ActivityResultLauncher<Intent> launcherAudioMixer;
-    private ActivityResultLauncher<Intent> launcherThumbnail;
+    private static final int REQ_FILTERS     = 401;
+    private static final int REQ_STICKERS    = 402;
+    private static final int REQ_SUBTITLES   = 403;
+    private static final int REQ_TRANSITIONS = 404;
+    private static final int REQ_VOICE       = 405;
+    private static final int REQ_AUDIO_MIXER = 406;
+    private static final int REQ_THUMBNAIL   = 407;
 
     // ── XML views ─────────────────────────────────────────────────────────
     private PlayerView    playerView;
@@ -100,9 +92,13 @@ public class ReelEditorActivity extends AppCompatActivity {
                           btnToolTransitions, btnToolVoice, btnToolAudioMixer, btnToolThumbnail;
 
     // ── Dynamic overlay views (added programmatically to the video FrameLayout) ──
+    /** Semi-transparent colour overlay that simulates the selected filter */
     private View          filterOverlayView;
+    /** Chip strip at top of video showing active tools */
     private LinearLayout  badgeStrip;
+    /** Subtitle preview bar pinned to bottom of video frame */
     private TextView      tvSubtitlePreview;
+    /** Small thumbnail preview badge (bottom-right corner) */
     private ImageView     ivThumbBadge;
 
     // ── Player ───────────────────────────────────────────────────────────
@@ -120,7 +116,6 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String  duetOwnerUid    = "";
     private String  duetLabel       = "";
     private String  duetOriginalUrl = "";
-    private String  duetRootId      = "";  // ✅ FIX: track root ID for chain duets
 
     // ── Pre-selected sound ───────────────────────────────────────────────
     private String preSelectedSoundId    = "";
@@ -134,7 +129,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     private float  filterContrast   = 1f;
     private float  filterSaturation = 1f;
     private float  filterBeauty     = 0f;
-    // Stickers
+    // Stickers (list of all added stickers, each is a draggable TextView in the FrameLayout)
     private String stickerJson = "";
     // Subtitles
     private String  subtitlesJson     = "";
@@ -159,15 +154,9 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String thumbnailPath    = "";
     private long   thumbnailFrameMs = 0;
 
-    // ── Register launchers BEFORE onCreate (must be in field init or constructor) ──
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        // ✅ FIX: Register all ActivityResultLaunchers here (must be before setContentView)
-        registerLaunchers();
-
         setContentView(R.layout.activity_reel_editor);
 
         videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
@@ -179,10 +168,6 @@ public class ReelEditorActivity extends AppCompatActivity {
         duetLabel      = nvl(getIntent().getStringExtra(EXTRA_DUET_LABEL));
         String dUrl    = getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_URL);
         if (dUrl != null) duetOriginalUrl = dUrl;
-        // ✅ FIX: Read duet_root_id so it can be forwarded to upload
-        String dRootId = getIntent().getStringExtra(DuetReelActivity.EXTRA_DUET_ROOT_ID);
-        if (dRootId != null && !dRootId.isEmpty()) duetRootId = dRootId;
-        else duetRootId = duetOriginalId;
 
         String si = getIntent().getStringExtra("selected_sound_id");
         String st = getIntent().getStringExtra("selected_sound_title");
@@ -200,146 +185,8 @@ public class ReelEditorActivity extends AppCompatActivity {
         bindViews();
         loadMetadata();
         setupPlayer();
-        injectOverlayViews();
+        injectOverlayViews();   // ← NEW: add dynamic overlay views to video FrameLayout
         setupListeners();
-
-        // ✅ Show duet badge in title if this is a duet edit
-        if (isDuet && !duetLabel.isEmpty()) {
-            updateBadge("duet", "🎭 " + duetLabel);
-        }
-    }
-
-    // ── Register ActivityResultLaunchers ──────────────────────────────────
-
-    /**
-     * ✅ FIX: All tool activities now use ActivityResultLauncher instead of
-     * deprecated startActivityForResult. This fixes result-drop on Android 13/14
-     * especially when ReelEditorActivity is started from DuetReelActivity.
-     */
-    private void registerLaunchers() {
-        launcherFilters = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-                Intent data = result.getData();
-                filterName       = nvl(data.getStringExtra(ReelFiltersActivity.RESULT_FILTER_NAME));
-                filterBrightness = data.getFloatExtra(ReelFiltersActivity.RESULT_BRIGHTNESS,   0f);
-                filterContrast   = data.getFloatExtra(ReelFiltersActivity.RESULT_CONTRAST,     1f);
-                filterSaturation = data.getFloatExtra(ReelFiltersActivity.RESULT_SATURATION,   1f);
-                filterBeauty     = data.getFloatExtra(ReelFiltersActivity.RESULT_BEAUTY_LEVEL, 0f);
-                applyFilterVisual(filterName, filterBrightness, filterContrast, filterSaturation);
-                if (btnToolFilters != null) btnToolFilters.setColorFilter(
-                    Color.argb(200, 168, 85, 247));
-                if (!filterName.isEmpty() && !filterName.equals("Normal"))
-                    Toast.makeText(this, "Filter \"" + filterName + "\" applied ✓", Toast.LENGTH_SHORT).show();
-            });
-
-        launcherStickers = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-                String sJson = result.getData().getStringExtra(ReelStickerPickerActivity.RESULT_STICKER_JSON);
-                if (sJson != null && !sJson.isEmpty()) {
-                    stickerJson = sJson;
-                    addStickerOverlay(sJson);
-                    if (btnToolStickers != null) btnToolStickers.setColorFilter(
-                        Color.argb(200, 255, 215, 0));
-                    Toast.makeText(this, "Sticker added ✓", Toast.LENGTH_SHORT).show();
-                }
-            });
-
-        launcherSubtitles = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-                Intent data = result.getData();
-                String subs = data.getStringExtra(ReelSubtitlesActivity.RESULT_SUBTITLES_JSON);
-                if (subs != null && !subs.isEmpty()) {
-                    subtitlesJson     = subs;
-                    subtitlesEnabled  = data.getBooleanExtra(ReelSubtitlesActivity.RESULT_ENABLED,   true);
-                    subtitlesFontSize = data.getIntExtra(ReelSubtitlesActivity.RESULT_FONT_SIZE,     16);
-                    subtitlesStyle    = data.getIntExtra(ReelSubtitlesActivity.RESULT_STYLE,         0);
-                    applySubtitlePreview(subtitlesJson, subtitlesEnabled, subtitlesFontSize);
-                    if (btnToolSubtitles != null) btnToolSubtitles.setColorFilter(Color.WHITE);
-                    Toast.makeText(this, "Subtitles applied ✓", Toast.LENGTH_SHORT).show();
-                }
-            });
-
-        launcherTransitions = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-                Intent data = result.getData();
-                String tName = data.getStringExtra(ReelTransitionsActivity.RESULT_TRANSITION_NAME);
-                if (tName != null && !tName.isEmpty()) {
-                    transitionName     = tName;
-                    transitionDuration = data.getIntExtra(
-                        ReelTransitionsActivity.RESULT_TRANSITION_DURATION, 300);
-                    transitionApplyAll = data.getBooleanExtra(
-                        ReelTransitionsActivity.RESULT_APPLY_ALL, true);
-                    updateBadge("transition", "⚡ " + transitionName);
-                    if (btnToolTransitions != null) btnToolTransitions.setColorFilter(
-                        Color.argb(200, 168, 85, 247));
-                    Toast.makeText(this, "Transition: " + transitionName + " applied ✓",
-                        Toast.LENGTH_SHORT).show();
-                }
-            });
-
-        launcherVoice = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-                Intent data = result.getData();
-                String vName = data.getStringExtra(ReelVoiceEffectsActivity.RESULT_EFFECT_NAME);
-                if (vName != null && !vName.isEmpty()) {
-                    voiceEffectName = vName;
-                    voicePitch      = data.getFloatExtra(ReelVoiceEffectsActivity.RESULT_PITCH,  1.0f);
-                    voiceSpeed      = data.getFloatExtra(ReelVoiceEffectsActivity.RESULT_SPEED,  1.0f);
-                    voiceReverb     = data.getFloatExtra(ReelVoiceEffectsActivity.RESULT_REVERB, 0.0f);
-                    updateBadge("voice", "🎙 " + voiceEffectName);
-                    if (player != null && voiceSpeed != 1.0f) {
-                        try {
-                            player.setPlaybackParameters(
-                                new androidx.media3.common.PlaybackParameters(voiceSpeed));
-                        } catch (Exception ignored) {}
-                    }
-                    if (btnToolVoice != null) btnToolVoice.setColorFilter(Color.WHITE);
-                    if (!vName.equals("Normal"))
-                        Toast.makeText(this, "Voice FX \"" + vName + "\" applied ✓",
-                            Toast.LENGTH_SHORT).show();
-                }
-            });
-
-        launcherAudioMixer = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-                Intent data = result.getData();
-                mixOrigVol       = data.getFloatExtra(ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
-                mixMusicVol      = data.getFloatExtra(ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
-                String mvp       = data.getStringExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
-                mixVoiceoverPath = mvp != null ? mvp : "";
-                mixVoiceoverVol  = data.getFloatExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
-                if (player != null) player.setVolume(mixOrigVol);
-                updateBadge("audio", "🎵 Audio Mix");
-                Toast.makeText(this, "Audio mix applied ✓", Toast.LENGTH_SHORT).show();
-            });
-
-        launcherThumbnail = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-                Intent data = result.getData();
-                String tPath = data.getStringExtra(ReelThumbnailPickerActivity.RESULT_THUMB_PATH);
-                if (tPath != null && !tPath.isEmpty()) {
-                    thumbnailPath    = tPath;
-                    thumbnailFrameMs = data.getLongExtra(
-                        ReelThumbnailPickerActivity.RESULT_THUMB_FRAME_MS, 0);
-                    applyThumbnailBadge(thumbnailPath);
-                    if (btnToolThumbnail != null) btnToolThumbnail.setColorFilter(Color.WHITE);
-                    Toast.makeText(this, "Thumbnail set ✓", Toast.LENGTH_SHORT).show();
-                }
-            });
     }
 
     // ── View binding ──────────────────────────────────────────────────────
@@ -369,6 +216,13 @@ public class ReelEditorActivity extends AppCompatActivity {
 
     // ── Inject dynamic overlay views into the video FrameLayout ──────────
 
+    /**
+     * Programmatically adds overlay views into the FrameLayout that wraps the PlayerView.
+     * Called once in onCreate after bindViews().
+     * Layers (bottom→top): PlayerView | filterOverlayView | tvTextPreview (XML) |
+     *                       sticker TextViews (added per sticker) | tvSubtitlePreview |
+     *                       ivThumbBadge | badgeStrip
+     */
     private void injectOverlayViews() {
         if (playerView == null) return;
         ViewGroup parent = (ViewGroup) playerView.getParent();
@@ -427,33 +281,47 @@ public class ReelEditorActivity extends AppCompatActivity {
 
     // ── Visual apply helpers ──────────────────────────────────────────────
 
+    /**
+     * Visually apply a filter by:
+     *  a) Setting a semi-transparent colour overlay to simulate the tint
+     *  b) Updating a badge chip in the badge strip
+     */
     private void applyFilterVisual(String name, float brightness, float contrast, float saturation) {
         if (filterOverlayView == null) return;
+
+        // Determine overlay colour based on filter preset
         int overlayColor;
         switch (name) {
-            case "Warm":      overlayColor = 0x22FF8800; break;
-            case "Cool":      overlayColor = 0x220044FF; break;
-            case "Vivid":     overlayColor = 0x1AFF00AA; break;
-            case "Fade":      overlayColor = 0x33FFFFFF; break;
-            case "Drama":     overlayColor = 0x33000000; break;
-            case "Vintage":   overlayColor = 0x22884400; break;
-            case "Mono":      overlayColor = 0x44888888; break;
-            case "Noir":      overlayColor = 0x55000000; break;
-            case "Juno":      overlayColor = 0x22FFAA00; break;
-            case "Lark":      overlayColor = 0x1500DDFF; break;
-            case "Clarendon": overlayColor = 0x220055CC; break;
-            case "Normal":    overlayColor = 0x00000000; break;
+            case "Warm":      overlayColor = 0x22FF8800; break; // orange tint
+            case "Cool":      overlayColor = 0x220044FF; break; // blue tint
+            case "Vivid":     overlayColor = 0x1AFF00AA; break; // slight magenta
+            case "Fade":      overlayColor = 0x33FFFFFF; break; // white wash
+            case "Drama":     overlayColor = 0x33000000; break; // darken
+            case "Vintage":   overlayColor = 0x22884400; break; // sepia-ish
+            case "Mono":      overlayColor = 0x44888888; break; // grey tint (simulates desaturate)
+            case "Noir":      overlayColor = 0x55000000; break; // strong dark
+            case "Juno":      overlayColor = 0x22FFAA00; break; // warm yellow
+            case "Lark":      overlayColor = 0x1500DDFF; break; // light blue
+            case "Clarendon": overlayColor = 0x220055CC; break; // rich blue
+            case "Normal":    overlayColor = 0x00000000; break; // clear
             default:          overlayColor = 0x11FFFFFF; break;
         }
+
         if (name.equals("Normal") || name.isEmpty()) {
             filterOverlayView.setVisibility(View.GONE);
         } else {
             filterOverlayView.setBackgroundColor(overlayColor);
             filterOverlayView.setVisibility(View.VISIBLE);
         }
+
         updateBadge("filter", name.equals("Normal") ? null : "🎨 " + name);
     }
 
+    /**
+     * Add a sticker as a draggable TextView on the video FrameLayout.
+     * Each call adds a new sticker (supports multiple stickers).
+     * Sticker JSON format: {"type":"emoji","value":"😀","x":0.5,"y":0.5}
+     */
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     private void addStickerOverlay(String stickerJson) {
         if (playerView == null || stickerJson.isEmpty()) return;
@@ -462,6 +330,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         FrameLayout fl = (FrameLayout) parent;
         int dp = (int) getResources().getDisplayMetrics().density;
 
+        // Parse value from JSON (simple substring approach, no heavy JSON lib)
         String value = "";
         try {
             int vStart = stickerJson.indexOf("\"value\":\"") + 9;
@@ -470,6 +339,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
         if (value.isEmpty()) value = "✨";
 
+        // Handle text stickers that store "text|#RRGGBB"
         int textColor = Color.WHITE;
         if (value.contains("|#")) {
             int sep = value.lastIndexOf("|#");
@@ -491,6 +361,7 @@ public class ReelEditorActivity extends AppCompatActivity {
             Gravity.CENTER);
         fl.addView(stickerView, lp);
 
+        // Make sticker draggable
         final float[] startTouch = new float[2];
         final float[] startPos   = new float[2];
         stickerView.setOnTouchListener((v, event) -> {
@@ -506,6 +377,7 @@ public class ReelEditorActivity extends AppCompatActivity {
                     v.setY(startPos[1] + (event.getRawY() - startTouch[1]));
                     return true;
                 case MotionEvent.ACTION_UP:
+                    // Double-tap to remove (long click)
                     return true;
             }
             return false;
@@ -515,12 +387,18 @@ public class ReelEditorActivity extends AppCompatActivity {
             return true;
         });
 
+        // Bounce animation
         stickerView.setScaleX(0.3f);
         stickerView.setScaleY(0.3f);
         stickerView.animate().scaleX(1f).scaleY(1f).setDuration(250).start();
+
         updateBadge("sticker", "✨ Sticker");
     }
 
+    /**
+     * Show subtitle preview at the bottom of the video.
+     * Displays the first subtitle line as a representative preview.
+     */
     private void applySubtitlePreview(String json, boolean enabled, int fontSize) {
         if (tvSubtitlePreview == null) return;
         if (!enabled || json.isEmpty()) {
@@ -528,21 +406,31 @@ public class ReelEditorActivity extends AppCompatActivity {
             updateBadge("subtitle", null);
             return;
         }
+        // Extract first caption text from JSON array
+        // Format: [{"text":"Caption text","start":0,"end":3000},...]
         String firstCaption = "";
         try {
             int tStart = json.indexOf("\"text\":\"") + 8;
             int tEnd   = json.indexOf("\"", tStart);
             if (tStart > 7 && tEnd > tStart) firstCaption = json.substring(tStart, tEnd);
         } catch (Exception ignored) {}
+
         if (firstCaption.isEmpty()) firstCaption = "Subtitles active";
+
         tvSubtitlePreview.setText(firstCaption);
         tvSubtitlePreview.setTextSize(fontSize);
         tvSubtitlePreview.setVisibility(View.VISIBLE);
         updateBadge("subtitle", "💬 Subtitles");
     }
 
+    /**
+     * Show/update a badge chip in the badge strip.
+     * tag: unique key (e.g. "filter", "voice", "transition")
+     * label: chip text, or null to remove the badge
+     */
     private void updateBadge(String tag, String label) {
         if (badgeStrip == null) return;
+        // Remove existing badge with this tag
         for (int i = badgeStrip.getChildCount() - 1; i >= 0; i--) {
             View child = badgeStrip.getChildAt(i);
             if (tag.equals(child.getTag())) {
@@ -553,6 +441,7 @@ public class ReelEditorActivity extends AppCompatActivity {
             if (badgeStrip.getChildCount() == 0) badgeStrip.setVisibility(View.GONE);
             return;
         }
+
         int dp = (int) getResources().getDisplayMetrics().density;
         TextView chip = new TextView(this);
         chip.setTag(tag);
@@ -560,18 +449,25 @@ public class ReelEditorActivity extends AppCompatActivity {
         chip.setTextColor(Color.WHITE);
         chip.setTextSize(11);
         chip.setPadding(8 * dp, 4 * dp, 8 * dp, 4 * dp);
+        chip.setBackgroundColor(0xCC9B59B6); // purple chip background
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.setMarginEnd(4 * dp);
+
+        // Slightly rounded — use outline drawable fallback to a simple color
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
         gd.setColor(0xCC9B59B6);
         gd.setCornerRadius(12 * dp);
         chip.setBackground(gd);
+
         badgeStrip.addView(chip, lp);
         badgeStrip.setVisibility(View.VISIBLE);
     }
 
+    /**
+     * Show the selected thumbnail as a small corner badge and highlight the tool button.
+     */
     private void applyThumbnailBadge(String path) {
         if (ivThumbBadge == null || path.isEmpty()) return;
         try {
@@ -579,8 +475,8 @@ public class ReelEditorActivity extends AppCompatActivity {
             if (bmp != null) {
                 ivThumbBadge.setImageBitmap(bmp);
                 ivThumbBadge.setVisibility(View.VISIBLE);
-                android.graphics.drawable.GradientDrawable border =
-                    new android.graphics.drawable.GradientDrawable();
+                // Rounded border
+                android.graphics.drawable.GradientDrawable border = new android.graphics.drawable.GradientDrawable();
                 border.setStroke(3, Color.WHITE);
                 border.setCornerRadius(8 * (int) getResources().getDisplayMetrics().density);
                 ivThumbBadge.setForeground(border);
@@ -648,7 +544,6 @@ public class ReelEditorActivity extends AppCompatActivity {
                 tvTextPreview.setText(text);
                 tvTextPreview.setVisibility(View.VISIBLE);
                 etTextOverlay.setText("");
-                Toast.makeText(this, "Text overlay added ✓", Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -684,32 +579,32 @@ public class ReelEditorActivity extends AppCompatActivity {
             @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
 
-        // ── Tool buttons — use launchers ─────────────────────────────────
+        // ── Tool buttons ─────────────────────────────────────────────────
 
         if (btnToolFilters != null) btnToolFilters.setOnClickListener(v -> {
             Intent i = new Intent(this, ReelFiltersActivity.class);
             i.putExtra(ReelFiltersActivity.EXTRA_THUMBNAIL_URI, videoUriStr);
-            launcherFilters.launch(i);
+            startActivityForResult(i, REQ_FILTERS);
         });
 
         if (btnToolStickers != null) btnToolStickers.setOnClickListener(v ->
-            launcherStickers.launch(new Intent(this, ReelStickerPickerActivity.class)));
+            startActivityForResult(new Intent(this, ReelStickerPickerActivity.class), REQ_STICKERS));
 
         if (btnToolSubtitles != null) btnToolSubtitles.setOnClickListener(v -> {
             Intent i = new Intent(this, ReelSubtitlesActivity.class);
             i.putExtra(ReelSubtitlesActivity.EXTRA_VIDEO_URI,    videoUriStr);
             i.putExtra(ReelSubtitlesActivity.EXTRA_IS_FILE_PATH, isFilePath);
-            launcherSubtitles.launch(i);
+            startActivityForResult(i, REQ_SUBTITLES);
         });
 
         if (btnToolTransitions != null) btnToolTransitions.setOnClickListener(v ->
-            launcherTransitions.launch(new Intent(this, ReelTransitionsActivity.class)));
+            startActivityForResult(new Intent(this, ReelTransitionsActivity.class), REQ_TRANSITIONS));
 
         if (btnToolVoice != null) btnToolVoice.setOnClickListener(v -> {
             Intent i = new Intent(this, ReelVoiceEffectsActivity.class);
-            i.putExtra(ReelVoiceEffectsActivity.EXTRA_AUDIO_PATH,   videoUriStr);
+            i.putExtra(ReelVoiceEffectsActivity.EXTRA_AUDIO_PATH, videoUriStr);
             i.putExtra(ReelVoiceEffectsActivity.EXTRA_IS_FILE_PATH, isFilePath);
-            launcherVoice.launch(i);
+            startActivityForResult(i, REQ_VOICE);
         });
 
         if (btnToolAudioMixer != null) btnToolAudioMixer.setOnClickListener(v -> {
@@ -719,17 +614,138 @@ public class ReelEditorActivity extends AppCompatActivity {
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  preSelectedSoundTitle);
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, "");
-            launcherAudioMixer.launch(i);
+            startActivityForResult(i, REQ_AUDIO_MIXER);
         });
 
         if (btnToolThumbnail != null) btnToolThumbnail.setOnClickListener(v -> {
             Intent i = new Intent(this, ReelThumbnailPickerActivity.class);
             i.putExtra(ReelThumbnailPickerActivity.EXTRA_VIDEO_URI,    videoUriStr);
             i.putExtra(ReelThumbnailPickerActivity.EXTRA_IS_FILE_PATH, isFilePath);
-            launcherThumbnail.launch(i);
+            startActivityForResult(i, REQ_THUMBNAIL);
         });
 
         btnNext.setOnClickListener(v -> proceedToUpload());
+    }
+
+    // ── onActivityResult — store results AND visually apply ───────────────
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode,
+                                    @androidx.annotation.Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null) return;
+
+        switch (requestCode) {
+
+            case REQ_FILTERS: {
+                filterName       = nvl(data.getStringExtra(ReelFiltersActivity.RESULT_FILTER_NAME));
+                filterBrightness = data.getFloatExtra(ReelFiltersActivity.RESULT_BRIGHTNESS,   0f);
+                filterContrast   = data.getFloatExtra(ReelFiltersActivity.RESULT_CONTRAST,     1f);
+                filterSaturation = data.getFloatExtra(ReelFiltersActivity.RESULT_SATURATION,   1f);
+                filterBeauty     = data.getFloatExtra(ReelFiltersActivity.RESULT_BEAUTY_LEVEL, 0f);
+                // ✅ VISUALLY APPLY filter overlay on video preview
+                applyFilterVisual(filterName, filterBrightness, filterContrast, filterSaturation);
+                if (btnToolFilters != null) btnToolFilters.setColorFilter(
+                    android.graphics.Color.argb(200, 168, 85, 247)); // purple tint = active
+                break;
+            }
+
+            case REQ_STICKERS: {
+                String sJson = data.getStringExtra(ReelStickerPickerActivity.RESULT_STICKER_JSON);
+                if (sJson != null && !sJson.isEmpty()) {
+                    stickerJson = sJson;
+                    // ✅ VISUALLY APPLY — add draggable sticker on video frame
+                    addStickerOverlay(sJson);
+                    if (btnToolStickers != null) btnToolStickers.setColorFilter(
+                        android.graphics.Color.argb(200, 255, 215, 0)); // gold tint = active
+                }
+                break;
+            }
+
+            case REQ_SUBTITLES: {
+                String subs = data.getStringExtra(ReelSubtitlesActivity.RESULT_SUBTITLES_JSON);
+                if (subs != null && !subs.isEmpty()) {
+                    subtitlesJson     = subs;
+                    subtitlesEnabled  = data.getBooleanExtra(ReelSubtitlesActivity.RESULT_ENABLED,   true);
+                    subtitlesFontSize = data.getIntExtra(ReelSubtitlesActivity.RESULT_FONT_SIZE,     16);
+                    subtitlesStyle    = data.getIntExtra(ReelSubtitlesActivity.RESULT_STYLE,         0);
+                    // ✅ VISUALLY APPLY — show subtitle bar at bottom of video
+                    applySubtitlePreview(subtitlesJson, subtitlesEnabled, subtitlesFontSize);
+                    if (btnToolSubtitles != null) btnToolSubtitles.setColorFilter(
+                        android.graphics.Color.WHITE);
+                }
+                break;
+            }
+
+            case REQ_TRANSITIONS: {
+                String tName = data.getStringExtra(ReelTransitionsActivity.RESULT_TRANSITION_NAME);
+                if (tName != null && !tName.isEmpty()) {
+                    transitionName     = tName;
+                    transitionDuration = data.getIntExtra(
+                        ReelTransitionsActivity.RESULT_TRANSITION_DURATION, 300);
+                    transitionApplyAll = data.getBooleanExtra(
+                        ReelTransitionsActivity.RESULT_APPLY_ALL, true);
+                    // ✅ VISUALLY APPLY — badge chip
+                    updateBadge("transition", "⚡ " + transitionName);
+                    Toast.makeText(this, "Transition: " + transitionName + " applied ✓",
+                        Toast.LENGTH_SHORT).show();
+                    if (btnToolTransitions != null) btnToolTransitions.setColorFilter(
+                        android.graphics.Color.argb(200, 168, 85, 247));
+                }
+                break;
+            }
+
+            case REQ_VOICE: {
+                String vName = data.getStringExtra(ReelVoiceEffectsActivity.RESULT_EFFECT_NAME);
+                if (vName != null && !vName.isEmpty()) {
+                    voiceEffectName = vName;
+                    voicePitch      = data.getFloatExtra(ReelVoiceEffectsActivity.RESULT_PITCH,  1.0f);
+                    voiceSpeed      = data.getFloatExtra(ReelVoiceEffectsActivity.RESULT_SPEED,  1.0f);
+                    voiceReverb     = data.getFloatExtra(ReelVoiceEffectsActivity.RESULT_REVERB, 0.0f);
+                    // ✅ VISUALLY APPLY — badge chip + playback speed hint
+                    updateBadge("voice", "🎙 " + voiceEffectName);
+                    // Apply speed to player preview (pitch not adjustable via ExoPlayer directly)
+                    if (player != null && voiceSpeed != 1.0f) {
+                        try {
+                            androidx.media3.common.PlaybackParameters pp =
+                                new androidx.media3.common.PlaybackParameters(voiceSpeed);
+                            player.setPlaybackParameters(pp);
+                        } catch (Exception ignored) {}
+                    }
+                    if (btnToolVoice != null) btnToolVoice.setColorFilter(
+                        android.graphics.Color.WHITE);
+                }
+                break;
+            }
+
+            case REQ_AUDIO_MIXER: {
+                mixOrigVol       = data.getFloatExtra(ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
+                mixMusicVol      = data.getFloatExtra(ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
+                String mvp       = data.getStringExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
+                mixVoiceoverPath = mvp != null ? mvp : "";
+                mixVoiceoverVol  = data.getFloatExtra(ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
+                // Apply original volume to player preview
+                if (player != null) player.setVolume(mixOrigVol);
+                updateBadge("audio", "🎵 Audio Mix");
+                Toast.makeText(this, "Audio mix applied ✓", Toast.LENGTH_SHORT).show();
+                break;
+            }
+
+            case REQ_THUMBNAIL: {
+                String tPath = data.getStringExtra(ReelThumbnailPickerActivity.RESULT_THUMB_PATH);
+                if (tPath != null && !tPath.isEmpty()) {
+                    thumbnailPath    = tPath;
+                    thumbnailFrameMs = data.getLongExtra(
+                        ReelThumbnailPickerActivity.RESULT_THUMB_FRAME_MS, 0);
+                    // ✅ VISUALLY APPLY — show thumb as corner badge
+                    applyThumbnailBadge(thumbnailPath);
+                    Toast.makeText(this, "Thumbnail set ✓", Toast.LENGTH_SHORT).show();
+                    if (btnToolThumbnail != null) btnToolThumbnail.setColorFilter(
+                        android.graphics.Color.WHITE);
+                }
+                break;
+            }
+        }
     }
 
     // ── Proceed to upload ─────────────────────────────────────────────────
@@ -808,9 +824,6 @@ public class ReelEditorActivity extends AppCompatActivity {
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_ORIGINAL_URL, duetOriginalUrl);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_OWNER_UID,    duetOwnerUid);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_LABEL,        duetLabel);
-            // ✅ FIX: Forward duet_root_id so upload can persist chain info
-            if (!duetRootId.isEmpty())
-                intent.putExtra(DuetReelActivity.EXTRA_DUET_ROOT_ID, duetRootId);
         }
 
         startActivity(intent);
