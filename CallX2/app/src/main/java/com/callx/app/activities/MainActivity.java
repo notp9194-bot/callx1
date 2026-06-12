@@ -424,6 +424,52 @@ public class MainActivity extends AppCompatActivity {
             ? null : FirebaseAuth.getInstance().getCurrentUser().getUid();
     }
 
+    // ── Overlay permission callback — auto-retry SmallWindow ─────────────────
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == com.callx.app.smallwindow.PrivacyDirectDialog.REQ_OVERLAY_PERMISSION) {
+            // User returned from overlay permission settings
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
+                    && android.provider.Settings.canDrawOverlays(this)) {
+                // Permission granted — auto-launch if pending data exists
+                String uid    = getIntent().getStringExtra("_sw_pending_uid");
+                String name   = getIntent().getStringExtra("_sw_pending_name");
+                String status = getIntent().getStringExtra("_sw_pending_status");
+
+                if (uid != null || name != null) {
+                    // Clean up pending extras
+                    getIntent().removeExtra("_sw_pending_uid");
+                    getIntent().removeExtra("_sw_pending_name");
+                    getIntent().removeExtra("_sw_pending_status");
+
+                    // Launch service
+                    android.content.Intent svc = new android.content.Intent(
+                        this, com.callx.app.smallwindow.SmallWindowService.class);
+                    svc.putExtra(com.callx.app.smallwindow.SmallWindowService.EXTRA_USER_ID, uid);
+                    svc.putExtra(com.callx.app.smallwindow.SmallWindowService.EXTRA_NAME,
+                        name != null ? name : "");
+                    svc.putExtra(com.callx.app.smallwindow.SmallWindowService.EXTRA_STATUS,
+                        status != null ? status : "");
+
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        startForegroundService(svc);
+                    } else {
+                        startService(svc);
+                    }
+
+                    android.widget.Toast.makeText(this,
+                        "Small window open!", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                android.widget.Toast.makeText(this,
+                    "Permission nahi mili — Settings mein jaake ON karo",
+                    android.widget.Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
     private void requestPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)

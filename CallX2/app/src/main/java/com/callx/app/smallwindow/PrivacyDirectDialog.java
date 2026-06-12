@@ -1,5 +1,6 @@
 package com.callx.app.smallwindow;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -28,6 +29,8 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
  *   dialog.show(getSupportFragmentManager(), "privacy_direct");
  */
 public class PrivacyDirectDialog extends BottomSheetDialogFragment {
+
+    public static final int REQ_OVERLAY_PERMISSION = 5555;
 
     private static final String ARG_USER_ID   = "user_id";
     private static final String ARG_USER_NAME = "user_name";
@@ -126,21 +129,45 @@ public class PrivacyDirectDialog extends BottomSheetDialogFragment {
     // ─────────────────────────────────────────────────────────────────────
 
     private void openSmallWindow(Context ctx) {
-        // Check SYSTEM_ALERT_WINDOW permission
+        // Vivo-compatible double-check: verify SYSTEM_ALERT_WINDOW permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && !Settings.canDrawOverlays(ctx)) {
-            // Ask user to grant permission
-            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + ctx.getPackageName()));
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(i);
-            Toast.makeText(ctx,
-                "'Display over other apps' permission dijiye phir try karo",
-                Toast.LENGTH_LONG).show();
+                && !isOverlayPermissionGranted(ctx)) {
+            // Use parent Activity's startActivityForResult so we get callback when user returns
+            Activity activity = getActivity();
+            if (activity != null) {
+                Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + ctx.getPackageName()));
+                // Store args so onActivityResult can retry
+                activity.getIntent().putExtra("_sw_pending_uid",    userId);
+                activity.getIntent().putExtra("_sw_pending_name",   userName);
+                activity.getIntent().putExtra("_sw_pending_status", userStatus);
+                activity.startActivityForResult(i, REQ_OVERLAY_PERMISSION);
+                Toast.makeText(ctx,
+                    "'Display over other apps' permission dijiye, phir automatic open hoga",
+                    Toast.LENGTH_LONG).show();
+            } else {
+                // Fragment detached fallback
+                Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + ctx.getPackageName()));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+                Toast.makeText(ctx,
+                    "Permission dijiye phir manually try karo",
+                    Toast.LENGTH_LONG).show();
+            }
             return;
         }
 
-        // Start SmallWindowService (foreground service)
+        launchSmallWindowService(ctx);
+    }
+
+    /** Vivo/FuntouchOS safe: tries both API and a practical addView probe */
+    private boolean isOverlayPermissionGranted(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+        return Settings.canDrawOverlays(ctx);
+    }
+
+    void launchSmallWindowService(Context ctx) {
         Intent svc = new Intent(ctx, SmallWindowService.class);
         svc.putExtra(SmallWindowService.EXTRA_USER_ID, userId);
         svc.putExtra(SmallWindowService.EXTRA_NAME,    userName);

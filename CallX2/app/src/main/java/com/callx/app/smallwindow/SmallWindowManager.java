@@ -10,6 +10,8 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageButton;
 import android.widget.TextView;
+import android.util.Log;
+import android.widget.Toast;
 import com.callx.app.R;
 
 /**
@@ -83,7 +85,7 @@ public class SmallWindowManager {
             dpToPx(context, 180),
             overlayType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT);
 
         params.gravity = Gravity.TOP | Gravity.START;
@@ -150,8 +152,30 @@ public class SmallWindowManager {
             });
         }
 
-        wm.addView(smallWindowView, params);
-        isMinimized = false;
+        // Vivo/FuntouchOS: canDrawOverlays() sometimes lies — do a real permission check
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && !android.provider.Settings.canDrawOverlays(context)) {
+            Toast.makeText(context,
+                "'Display over other apps' permission nahi hai. Settings > Apps > Special app access > Display over other apps mein ON karo.",
+                Toast.LENGTH_LONG).show();
+            smallWindowView = null;
+            return;
+        }
+
+        try {
+            wm.addView(smallWindowView, params);
+            isMinimized = false;
+        } catch (WindowManager.BadTokenException e) {
+            Log.e("SmallWindowManager", "BadTokenException — overlay permission denied by system", e);
+            Toast.makeText(context,
+                "Floating window permission nahi mili. Settings mein jaake ON karo.",
+                Toast.LENGTH_LONG).show();
+            smallWindowView = null;
+        } catch (Exception e) {
+            Log.e("SmallWindowManager", "addView failed", e);
+            Toast.makeText(context, "Floating window nahi khul saka: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            smallWindowView = null;
+        }
     }
 
     // ── Minimize → corner bubble ──────────────────────────────────────────
@@ -175,7 +199,7 @@ public class SmallWindowManager {
             dpToPx(context, 56),
             overlayType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT);
 
         bubbleParams.gravity = Gravity.TOP | Gravity.END;
