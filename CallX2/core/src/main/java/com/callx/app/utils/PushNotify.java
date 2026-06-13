@@ -594,6 +594,29 @@ public class PushNotify {
 
     // ── Reel Notification: Repost ─────────────────────────────────────────
 
+    // ── Live Notification ─────────────────────────────────────────────────
+
+    /**
+     * Notify an invited contact that a live has started.
+     * Server: POST /notify  {type: "live_invite"}
+     * Android: CallxMessagingService handles type "live_invite" → opens LiveViewerActivity
+     */
+    public static void notifyLive(String toUid, String fromUid, String fromName,
+                                  String fromPhoto, String liveId) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",     toUid     == null ? "" : toUid)
+                .put("fromUid",   fromUid   == null ? "" : fromUid)
+                .put("fromName",  fromName  == null ? "" : fromName)
+                .put("fromPhoto", fromPhoto == null ? "" : fromPhoto)
+                .put("liveId",    liveId    == null ? "" : liveId)
+                .put("type",      "live_invite");
+            postAsync(Constants.SERVER_URL + "/notify", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyLive err: " + e.getMessage());
+        }
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────
 
     private static void postAsync(String url, JSONObject body) {

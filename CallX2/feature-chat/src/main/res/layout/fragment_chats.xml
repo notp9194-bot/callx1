@@ -136,9 +136,11 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:padding="8dp"
+            android:paddingBottom="80dp"
             android:clipToPadding="false"/>
     </LinearLayout>
 
+    <!-- Empty state -->
     <LinearLayout
         android:id="@+id/empty_state"
         android:layout_width="match_parent"
@@ -161,4 +163,21 @@
             android:textSize="13sp"
             android:layout_marginTop="6dp"/>
     </LinearLayout>
+
+    <!-- Floating LIVE button -->
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fab_go_live"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="20dp"
+        android:text="  LIVE"
+        android:textColor="@color/white"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:backgroundTint="#E53935"
+        app:icon="@drawable/ic_live_dot"
+        app:iconTint="@color/white"
+        xmlns:app="http://schemas.android.com/apk/res-auto"/>
+
 </FrameLayout>

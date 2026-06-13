@@ -21,5 +21,17 @@
         <activity android:name="com.callx.app.settings.MutedChatsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+
+        <!-- Live Feature Activities -->
+        <activity android:name="com.callx.app.live.LiveActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name="com.callx.app.live.LiveViewerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
     </application>
 </manifest>

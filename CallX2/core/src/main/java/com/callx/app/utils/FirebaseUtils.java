@@ -281,4 +281,22 @@ public class FirebaseUtils {
     public static DatabaseReference getReelRepostsByUserRef(String uid) {
         return db().getReference("userReposts").child(uid);
     }
+
+    // ── Live Streaming ────────────────────────────────────────────────────
+
+    /**
+     * Root live sessions node: lives/{liveId}/
+     * Stores active and ended live session data (host, viewers, messages, status).
+     */
+    public static DatabaseReference getLivesRef() {
+        return db().getReference("lives");
+    }
+
+    /**
+     * Per-user currently active live: userActiveLive/{uid} = liveId
+     * Set when host starts, removed when host ends live.
+     */
+    public static DatabaseReference getUserActiveLiveRef(String uid) {
+        return db().getReference("userActiveLive").child(uid);
+    }
 }

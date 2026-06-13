@@ -136,6 +136,9 @@ public class CallxMessagingService extends FirebaseMessagingService {
         } else if ("special_request".equals(type)) {
             // Sender (jo perma-block ho chuka hai) ne special request bheji
             showSpecialRequestNotification(data);
+        } else if ("live_invite".equals(type)) {
+            // Live invite — koi contact live shuru kiya hai
+            showLiveInviteNotification(data);
         } else if ("unblock_notify".equals(type)) {
             // Blocker ne unblock kar diya — blocked user ko notify karo
             showUnblockNotification(data);
