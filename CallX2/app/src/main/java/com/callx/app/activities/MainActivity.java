@@ -218,8 +218,21 @@ public class MainActivity extends AppCompatActivity {
 
         binding.fabAction.setOnClickListener(v -> {
             int pos = binding.viewPager.getCurrentItem();
-            if      (pos == TAB_CHATS)  startActivity(new Intent(this, SearchActivity.class));
-            else if (pos == TAB_STATUS) startActivity(new Intent(this, NewStatusActivity.class));
+            if (pos == TAB_CHATS) {
+                // LIVE — contact picker bottom sheet
+                try {
+                    Class<?> cls = Class.forName("com.callx.app.live.LiveContactPickerBottomSheet");
+                    java.lang.reflect.Method m = cls.getMethod("newInstance");
+                    Object sheet = m.invoke(null);
+                    if (sheet instanceof androidx.fragment.app.DialogFragment) {
+                        ((androidx.fragment.app.DialogFragment) sheet)
+                            .show(getSupportFragmentManager(), "live_picker");
+                    }
+                } catch (Exception ex) {
+                    android.widget.Toast.makeText(this,
+                        "Live shuru nahi ho saka", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            } else if (pos == TAB_STATUS) startActivity(new Intent(this, NewStatusActivity.class));
             else if (pos == TAB_GROUPS) startActivity(new Intent(this, NewGroupActivity.class));
             else if (pos == TAB_REELS)  startActivity(new Intent(this, ReelUploadActivity.class));
             else                        startActivity(new Intent(this, SearchActivity.class));
@@ -497,11 +510,35 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateFab(int position) {
         switch (position) {
-            case TAB_CHATS:  binding.fabAction.setImageResource(R.drawable.ic_status_add); break;
-            case TAB_STATUS: binding.fabAction.setImageResource(R.drawable.ic_camera);     break;
-            case TAB_GROUPS: binding.fabAction.setImageResource(R.drawable.ic_group);      break;
-            case TAB_REELS:  binding.fabAction.setImageResource(R.drawable.ic_add_reels);  break;
-            case TAB_CALLS:  binding.fabAction.setImageResource(R.drawable.ic_phone);      break;
+            case TAB_CHATS:
+                binding.fabAction.setImageResource(R.drawable.ic_live_red);
+                binding.fabAction.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(0xFFE53935));
+                break;
+            case TAB_STATUS:
+                binding.fabAction.setImageResource(R.drawable.ic_camera);
+                binding.fabAction.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(
+                        getResources().getColor(R.color.brand_primary, null)));
+                break;
+            case TAB_GROUPS:
+                binding.fabAction.setImageResource(R.drawable.ic_group);
+                binding.fabAction.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(
+                        getResources().getColor(R.color.brand_primary, null)));
+                break;
+            case TAB_REELS:
+                binding.fabAction.setImageResource(R.drawable.ic_add_reels);
+                binding.fabAction.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(
+                        getResources().getColor(R.color.brand_primary, null)));
+                break;
+            case TAB_CALLS:
+                binding.fabAction.setImageResource(R.drawable.ic_phone);
+                binding.fabAction.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(
+                        getResources().getColor(R.color.brand_primary, null)));
+                break;
         }
     }
 

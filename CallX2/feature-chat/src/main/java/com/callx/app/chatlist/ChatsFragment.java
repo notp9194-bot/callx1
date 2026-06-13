@@ -36,7 +36,6 @@ import java.util.*;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.live.LiveContactPickerBottomSheet;
-import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 
 /**
  * ChatsFragment v15 — Offline-First
@@ -105,16 +104,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Phir Firebase listener lagao (online sync + Room update)
         loadContacts();
         loadSpecialRequests();
-
-        // Live FAB — Chats tab mein LIVE button
-        ExtendedFloatingActionButton fabLive = v.findViewById(R.id.fab_go_live);
-        if (fabLive != null) {
-            fabLive.setOnClickListener(x -> {
-                LiveContactPickerBottomSheet sheet = LiveContactPickerBottomSheet.newInstance();
-                sheet.show(getChildFragmentManager(), "live_picker");
-            });
-        }
-
         return v;
     }
 
