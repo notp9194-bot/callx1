@@ -34,18 +34,40 @@
         android:scaleType="centerCrop"
         android:contentDescription="Reel thumbnail"/>
 
-    <!-- ── Photo dot indicator ───────────────────────────────────────────────
-         Row of dots at the top-center showing current photo position.
-         Visible only for photo_slideshow reels. Dots are added programmatically.
+    <!-- ── Story-style photo progress bar ───────────────────────────────────
+         N thin animated segments at the very top, one per photo.
+         Each active segment fills left→right over photoDurationMs ms.
+         Populated programmatically by ReelPlayerFragment.buildStoryProgress().
+         Visible only for photo_slideshow reels.
     -->
     <LinearLayout
-        android:id="@+id/ll_photo_dots"
-        android:layout_width="wrap_content"
-        android:layout_height="8dp"
-        android:layout_gravity="top|center_horizontal"
+        android:id="@+id/ll_story_progress"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_gravity="top"
         android:layout_marginTop="10dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
+        android:visibility="gone"/>
+
+    <!-- Photo counter badge: "2 / 5" — top-right corner -->
+    <TextView
+        android:id="@+id/tv_photo_counter"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="12dp"
+        android:text="1 / 1"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:background="#66000000"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
         android:visibility="gone"/>
 
     <!-- Double tap like animation -->

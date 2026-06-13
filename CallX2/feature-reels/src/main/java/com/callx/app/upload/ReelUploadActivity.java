@@ -138,6 +138,12 @@ public class ReelUploadActivity extends AppCompatActivity {
     private Button                btnPickPhotos;
     private LinearLayout          llPhotoPreviewContainer;
     private TextView              tvPhotoCount;
+    // Advanced photo settings
+    private android.widget.RadioGroup rgPhotoDuration;
+    private android.widget.RadioGroup rgTransition;
+    private int                   selectedDurationMs       = 3000;
+    private String                selectedTransitionType   = "fade";
+    private int                   coverPhotoIndex          = 0;
 
     private Uri                    selectedUri;
     private String                 preSelectedSoundId    = "";
@@ -210,6 +216,27 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (btnMediaTypePhotos != null) btnMediaTypePhotos.setOnClickListener(v -> switchToPhotoMode());
         if (btnPickPhotos      != null) btnPickPhotos.setOnClickListener(v      -> checkPermissionAndPickPhotos());
 
+        // Duration picker
+        if (rgPhotoDuration != null) {
+            rgPhotoDuration.setOnCheckedChangeListener((group, checkedId) -> {
+                if (checkedId == R.id.rb_dur_2)       selectedDurationMs = 2000;
+                else if (checkedId == R.id.rb_dur_5)  selectedDurationMs = 5000;
+                else if (checkedId == R.id.rb_dur_7)  selectedDurationMs = 7000;
+                else if (checkedId == R.id.rb_dur_10) selectedDurationMs = 10000;
+                else                                   selectedDurationMs = 3000;
+            });
+        }
+
+        // Transition picker
+        if (rgTransition != null) {
+            rgTransition.setOnCheckedChangeListener((group, checkedId) -> {
+                if (checkedId == R.id.rb_tr_slide)      selectedTransitionType = "slide";
+                else if (checkedId == R.id.rb_tr_zoom)  selectedTransitionType = "zoom";
+                else if (checkedId == R.id.rb_tr_none)  selectedTransitionType = "none";
+                else                                     selectedTransitionType = "fade";
+            });
+        }
+
         // If launched from ReelEditorActivity, pre-load the video + text overlay
         handleEditorExtras();
     }
@@ -251,6 +278,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         btnPickPhotos           = findViewById(R.id.btn_pick_photos);
         llPhotoPreviewContainer = findViewById(R.id.ll_photo_preview_container);
         tvPhotoCount            = findViewById(R.id.tv_photo_count);
+        rgPhotoDuration         = findViewById(R.id.rg_photo_duration);
+        rgTransition            = findViewById(R.id.rg_transition);
     }
 
     private void setupChipDefaults() {
@@ -545,7 +574,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         Glide.with(this).load(uri).centerCrop().into(thumb);
 
-        // Small remove button (×) in top-right corner
+        // Remove button (×) — top-right
         TextView btnRemove = new TextView(this);
         android.widget.FrameLayout.LayoutParams blp =
             new android.widget.FrameLayout.LayoutParams(
@@ -563,19 +592,63 @@ public class ReelUploadActivity extends AppCompatActivity {
             if (pos >= 0 && pos < selectedPhotoUris.size()) {
                 selectedPhotoUris.remove(pos);
                 llPhotoPreviewContainer.removeView(frame);
+                if (coverPhotoIndex >= selectedPhotoUris.size()) coverPhotoIndex = 0;
+                refreshCoverIndicators();
                 updatePhotoCountLabel();
                 if (selectedPhotoUris.isEmpty()) btnPostReel.setEnabled(false);
             }
         });
 
+        // Cover star (★) — bottom-left, tap to set this as cover photo
+        TextView btnCover = new TextView(this);
+        android.widget.FrameLayout.LayoutParams clp =
+            new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
+        clp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.START;
+        btnCover.setLayoutParams(clp);
+        btnCover.setText(index == coverPhotoIndex ? "★" : "☆");
+        btnCover.setTextColor(index == coverPhotoIndex ? 0xFFFFD700 : 0xAAFFFFFF);
+        btnCover.setTextSize(14f);
+        btnCover.setBackgroundColor(0xAA000000);
+        btnCover.setPadding(4, 0, 4, 0);
+        btnCover.setTag("cover_star");
+        btnCover.setOnClickListener(v -> {
+            int pos = llPhotoPreviewContainer.indexOfChild(frame);
+            if (pos >= 0) {
+                coverPhotoIndex = pos;
+                refreshCoverIndicators();
+                android.widget.Toast.makeText(this, "Cover photo set!", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+
         frame.addView(thumb);
         frame.addView(btnRemove);
+        frame.addView(btnCover);
         llPhotoPreviewContainer.addView(frame);
     }
 
     private void updatePhotoCountLabel() {
         if (tvPhotoCount != null) {
             tvPhotoCount.setText(selectedPhotoUris.size() + " / " + MAX_PHOTOS);
+        }
+    }
+
+    /** Refreshes all cover star icons in the thumbnail row after cover index changes. */
+    private void refreshCoverIndicators() {
+        if (llPhotoPreviewContainer == null) return;
+        for (int i = 0; i < llPhotoPreviewContainer.getChildCount(); i++) {
+            android.view.ViewGroup frame =
+                (android.view.ViewGroup) llPhotoPreviewContainer.getChildAt(i);
+            if (frame == null) continue;
+            for (int j = 0; j < frame.getChildCount(); j++) {
+                android.view.View child = frame.getChildAt(j);
+                if ("cover_star".equals(child.getTag()) && child instanceof TextView) {
+                    boolean isCover = (i == coverPhotoIndex);
+                    ((TextView) child).setText(isCover ? "★" : "☆");
+                    ((TextView) child).setTextColor(isCover ? 0xFFFFD700 : 0xAAFFFFFF);
+                }
+            }
         }
     }
 
@@ -908,19 +981,26 @@ public class ReelUploadActivity extends AppCompatActivity {
                     String thumb = snap.child("thumbUrl").getValue(String.class);
                     String safePhoto = (thumb != null && !thumb.isEmpty()) ? thumb : (photo != null ? photo : "");
 
-                    // Use first photo as thumbnail
-                    String thumbUrl = photoUrls.isEmpty() ? "" : photoUrls.get(0);
+                    // Use cover photo (creator-selected or first) as thumbnail
+                    int safeCover = (a.coverPhotoIndex >= 0 && a.coverPhotoIndex < photoUrls.size())
+                        ? a.coverPhotoIndex : 0;
+                    String thumbUrl = photoUrls.isEmpty() ? "" : photoUrls.get(safeCover);
+                    int durMs  = a.selectedDurationMs > 0 ? a.selectedDurationMs : 3000;
+                    String trType = a.selectedTransitionType != null
+                        ? a.selectedTransitionType : "fade";
 
                     ReelModel reel = new ReelModel(
                         reelId, myUid, finalMyName, safePhoto,
                         "", thumbUrl, caption, musicName,
-                        System.currentTimeMillis(), photoUrls.size() * 3000, 0, 0);
+                        System.currentTimeMillis(), (long) photoUrls.size() * durMs, 0, 0);
 
-                    reel.mediaType      = "photo_slideshow";
-                    reel.photoUrls      = photoUrls;
-                    reel.photoDurationMs = 3000;
-                    reel.audienceType   = audienceType;
-                    reel.thumbUrl       = thumbUrl;
+                    reel.mediaType       = "photo_slideshow";
+                    reel.photoUrls       = photoUrls;
+                    reel.photoDurationMs = durMs;
+                    reel.transitionType  = trType;
+                    reel.coverPhotoIndex = safeCover;
+                    reel.audienceType    = audienceType;
+                    reel.thumbUrl        = thumbUrl;
 
                     // Duet / Stitch permissions
                     String duetLevel   = a.getDuetLevel();

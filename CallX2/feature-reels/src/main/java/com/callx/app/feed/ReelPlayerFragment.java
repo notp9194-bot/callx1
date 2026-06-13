@@ -175,14 +175,17 @@ public class ReelPlayerFragment extends Fragment
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
     // ── Photo Slideshow State ──────────────────────────────────────────────
-    private ViewPager2     vpPhotos;
-    private LinearLayout   llPhotoDots;
-    private boolean        isPhotoMode       = false;
+    private ViewPager2        vpPhotos;
+    private LinearLayout      llStoryProgress;
+    private TextView          tvPhotoCounter;
+    private boolean           isPhotoMode            = false;
+    private boolean           photoSlideshowPaused   = false;
     private ArrayList<String> photoUrls;
-    private int            photoDurationMs   = 3000;
-    private int            currentPhotoIndex = 0;
-    private final Handler  photoHandler      = new Handler(Looper.getMainLooper());
-    private Runnable       photoAdvanceRunnable;
+    private int               photoDurationMs        = 3000;
+    private int               currentPhotoIndex      = 0;
+    private final Handler     photoHandler           = new Handler(Looper.getMainLooper());
+    private Runnable          photoAdvanceRunnable;
+    private android.animation.ObjectAnimator storySegmentAnimator;
 
     // ── Factory ───────────────────────────────────────────────────────────
 
@@ -405,7 +408,8 @@ public class ReelPlayerFragment extends Fragment
         progressVideo     = v.findViewById(R.id.progress_video);
         progressBuffering = v.findViewById(R.id.progress_buffering);
         vpPhotos          = v.findViewById(R.id.vp_photos);
-        llPhotoDots       = v.findViewById(R.id.ll_photo_dots);
+        llStoryProgress   = v.findViewById(R.id.ll_story_progress);
+        tvPhotoCounter    = v.findViewById(R.id.tv_photo_counter);
     }
 
     private void populateStaticData() {
@@ -1106,12 +1110,12 @@ public class ReelPlayerFragment extends Fragment
 
     /**
      * Called from populateStaticData() when reel.isPhotoSlideshow() == true.
-     * Hides the PlayerView, shows the photo ViewPager2, builds dot indicators,
-     * and sets up manual-swipe callback.
+     * Hides the PlayerView, shows the photo ViewPager2, builds story progress bar,
+     * applies transition PageTransformer, and sets up touch gestures.
      */
     private void setupPhotoMode() {
         if (!isAdded() || getContext() == null || reel == null) return;
-        if (vpPhotos == null || llPhotoDots == null) return;
+        if (vpPhotos == null || llStoryProgress == null) return;
 
         photoUrls = reel.photoUrls != null
             ? new ArrayList<>(reel.photoUrls)
@@ -1122,126 +1126,188 @@ public class ReelPlayerFragment extends Fragment
         isPhotoMode       = true;
         currentPhotoIndex = 0;
 
-        // Show photo ViewPager2, hide video PlayerView
+        // Show photo ViewPager2, hide video PlayerView + progress bar
         playerView.setVisibility(View.GONE);
         vpPhotos.setVisibility(View.VISIBLE);
+        if (progressVideo != null) progressVideo.setVisibility(View.GONE);
 
         // Hide mute button for photo reels without music
         if (btnMute != null && (reel.musicUrl == null || reel.musicUrl.isEmpty())) {
             btnMute.setVisibility(View.GONE);
         }
 
-        // Wire up adapter
+        // ── Adapter with Ken Burns ─────────────────────────────────────────
         ReelPhotoSlideshowAdapter adapter = new ReelPhotoSlideshowAdapter(photoUrls);
+        adapter.setPhotoDurationMs(photoDurationMs);
         vpPhotos.setAdapter(adapter);
 
-        // Sync dot indicator on manual swipe + restart auto-advance timer
+        // ── Transition PageTransformer ─────────────────────────────────────
+        String tt = reel.transitionType != null ? reel.transitionType : "fade";
+        ViewPager2.PageTransformer transformer = ReelPhotoSlideshowAdapter.getPageTransformer(tt);
+        if (transformer != null) vpPhotos.setPageTransformer(transformer);
+
+        // ── Story progress segments ────────────────────────────────────────
+        buildStoryProgress(photoUrls.size());
+        llStoryProgress.setVisibility(View.VISIBLE);
+
+        // ── Photo counter badge ────────────────────────────────────────────
+        if (tvPhotoCounter != null) {
+            tvPhotoCounter.setVisibility(View.VISIBLE);
+            tvPhotoCounter.setText("1 / " + photoUrls.size());
+        }
+
+        // ── Page change: update story bar + counter on manual swipe ───────
         vpPhotos.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
             public void onPageSelected(int position) {
                 currentPhotoIndex = position;
-                updatePhotoDots(position);
-                // Update progress bar proportionally
-                if (progressVideo != null && !photoUrls.isEmpty()) {
-                    int progress = (int)((float)(position + 1) / photoUrls.size() * 1000f);
-                    progressVideo.setProgress(progress);
+                stopStorySegmentAnimation();
+                animateStorySegment(position, photoDurationMs);
+                if (tvPhotoCounter != null) {
+                    tvPhotoCounter.setText((position + 1) + " / " + photoUrls.size());
                 }
-                // Restart auto-advance timer from this photo
                 stopPhotoSlideshow();
                 startPhotoSlideshow();
             }
         });
 
-        // Build and show dot indicators
-        buildPhotoDots(photoUrls.size());
-        llPhotoDots.setVisibility(View.VISIBLE);
-        updatePhotoDots(0);
+        // ── Touch: long-press to pause, release to resume ─────────────────
+        GestureDetector gd = new GestureDetector(requireContext(),
+            new GestureDetector.SimpleOnGestureListener() {
+                @Override
+                public void onLongPress(android.view.MotionEvent e) {
+                    if (!photoSlideshowPaused) {
+                        photoSlideshowPaused = true;
+                        stopPhotoSlideshow();
+                        if (storySegmentAnimator != null) storySegmentAnimator.pause();
+                    }
+                }
+            });
+        vpPhotos.setOnTouchListener((v, event) -> {
+            gd.onTouchEvent(event);
+            if (event.getAction() == android.view.MotionEvent.ACTION_UP && photoSlideshowPaused) {
+                photoSlideshowPaused = false;
+                if (storySegmentAnimator != null) storySegmentAnimator.resume();
+                startPhotoSlideshow();
+            }
+            return false;
+        });
     }
 
-    /** Creates N dot views inside llPhotoDots (all inactive initially). */
-    private void buildPhotoDots(int count) {
-        if (llPhotoDots == null || !isAdded() || getContext() == null) return;
-        llPhotoDots.removeAllViews();
+    // ── Story progress bar ────────────────────────────────────────────────
+
+    /**
+     * Builds N thin FrameLayout segments inside llStoryProgress.
+     * Each segment has a dim background track + white fill view (animated).
+     */
+    private void buildStoryProgress(int count) {
+        if (llStoryProgress == null || !isAdded() || getContext() == null) return;
+        llStoryProgress.removeAllViews();
+        int marginPx = dpToPx(2);
         for (int i = 0; i < count; i++) {
-            View dot = new View(requireContext());
-            int sizePx = dpToPx(4);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(sizePx, sizePx);
-            lp.setMargins(dpToPx(3), 0, dpToPx(3), 0);
-            dot.setLayoutParams(lp);
-            android.graphics.drawable.GradientDrawable shape =
-                new android.graphics.drawable.GradientDrawable();
-            shape.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            shape.setColor(0x80FFFFFF);
-            dot.setBackground(shape);
-            llPhotoDots.addView(dot);
+            android.widget.FrameLayout seg = new android.widget.FrameLayout(requireContext());
+            LinearLayout.LayoutParams segLp = new LinearLayout.LayoutParams(0, dpToPx(3), 1f);
+            if (i > 0)       segLp.leftMargin  = marginPx;
+            if (i < count-1) segLp.rightMargin = marginPx;
+            seg.setLayoutParams(segLp);
+
+            // Track (dim white background)
+            View track = new View(requireContext());
+            track.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+            track.setBackgroundColor(0x55FFFFFF);
+            seg.addView(track);
+
+            // Fill (white, scaleX animated 0→1, pivot at left)
+            View fill = new View(requireContext());
+            fill.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+            fill.setBackgroundColor(0xFFFFFFFF);
+            fill.setPivotX(0f);
+            fill.setScaleX(i < currentPhotoIndex ? 1f : 0f);
+            seg.addView(fill);
+
+            llStoryProgress.addView(seg);
         }
     }
 
-    /** Highlights the active dot and shrinks the rest. */
-    private void updatePhotoDots(int activeIndex) {
-        if (llPhotoDots == null || !isAdded()) return;
-        int activeSizePx   = dpToPx(6);
-        int inactiveSizePx = dpToPx(4);
-        for (int i = 0; i < llPhotoDots.getChildCount(); i++) {
-            View dot = llPhotoDots.getChildAt(i);
-            if (dot == null) continue;
-            boolean active = (i == activeIndex);
-            int sz = active ? activeSizePx : inactiveSizePx;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(sz, sz);
-            lp.setMargins(dpToPx(3), 0, dpToPx(3), 0);
-            dot.setLayoutParams(lp);
-            android.graphics.drawable.GradientDrawable shape =
-                new android.graphics.drawable.GradientDrawable();
-            shape.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            shape.setColor(active ? 0xFFFFFFFF : 0x80FFFFFF);
-            dot.setBackground(shape);
+    /** Returns the fill View for a given segment index, or null. */
+    private View getStoryFill(int index) {
+        if (llStoryProgress == null || index < 0 || index >= llStoryProgress.getChildCount())
+            return null;
+        android.widget.FrameLayout seg =
+            (android.widget.FrameLayout) llStoryProgress.getChildAt(index);
+        if (seg == null || seg.getChildCount() < 2) return null;
+        return seg.getChildAt(1);
+    }
+
+    /** Instantly fills all segments before index, clears all after; animates segment at index. */
+    private void animateStorySegment(int index, long durationMs) {
+        if (llStoryProgress == null) return;
+        stopStorySegmentAnimation();
+        int total = llStoryProgress.getChildCount();
+        for (int i = 0; i < total; i++) {
+            View f = getStoryFill(i);
+            if (f != null) f.setScaleX(i < index ? 1f : 0f);
+        }
+        View fill = getStoryFill(index);
+        if (fill == null) return;
+        fill.setPivotX(0f);
+        fill.setScaleX(0f);
+        storySegmentAnimator = android.animation.ObjectAnimator.ofFloat(fill, "scaleX", 0f, 1f);
+        storySegmentAnimator.setDuration(durationMs);
+        storySegmentAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+        storySegmentAnimator.start();
+    }
+
+    private void stopStorySegmentAnimation() {
+        if (storySegmentAnimator != null) {
+            storySegmentAnimator.cancel();
+            storySegmentAnimator = null;
         }
     }
 
     /**
      * Schedules the next photo advance every photoDurationMs ms.
-     * When the last photo is reached, waits 400ms then calls autoAdvance()
-     * to move to the next reel (same as video reaching STATE_ENDED).
+     * When the last photo is reached, waits 400ms then calls autoAdvance().
      */
     private void startPhotoSlideshow() {
         if (!isPhotoMode || photoUrls == null || photoUrls.isEmpty()) return;
+        if (photoSlideshowPaused) return;
         stopPhotoSlideshow();
+        animateStorySegment(currentPhotoIndex, photoDurationMs);
         photoAdvanceRunnable = new Runnable() {
             @Override public void run() {
                 if (!isAdded() || vpPhotos == null || photoUrls == null) return;
                 if (currentPhotoIndex < photoUrls.size() - 1) {
                     currentPhotoIndex++;
                     vpPhotos.setCurrentItem(currentPhotoIndex, true);
-                    updatePhotoDots(currentPhotoIndex);
-                    if (progressVideo != null) {
-                        int progress = (int)((float)(currentPhotoIndex + 1)
-                            / photoUrls.size() * 1000f);
-                        progressVideo.setProgress(progress);
+                    if (tvPhotoCounter != null) {
+                        tvPhotoCounter.setText((currentPhotoIndex + 1) + " / " + photoUrls.size());
                     }
                     photoHandler.postDelayed(this, photoDurationMs);
                 } else {
-                    // End of slideshow → advance to next reel
-                    if (progressVideo != null) progressVideo.setProgress(1000);
+                    // End of slideshow → mark last segment full, then advance reel
+                    View lastFill = getStoryFill(photoUrls.size() - 1);
+                    if (lastFill != null) lastFill.setScaleX(1f);
                     photoHandler.postDelayed(() -> {
                         if (isAdded()) autoAdvance();
                     }, 400);
                 }
             }
         };
-        // Set initial progress for the current photo
-        if (progressVideo != null && !photoUrls.isEmpty()) {
-            int progress = (int)((float)(currentPhotoIndex + 1) / photoUrls.size() * 1000f);
-            progressVideo.setProgress(progress);
-        }
         photoHandler.postDelayed(photoAdvanceRunnable, photoDurationMs);
     }
 
-    /** Cancels any pending photo-advance runnable. */
+    /** Cancels any pending photo-advance runnable and stops segment animation. */
     private void stopPhotoSlideshow() {
         if (photoAdvanceRunnable != null) {
             photoHandler.removeCallbacks(photoAdvanceRunnable);
             photoAdvanceRunnable = null;
         }
+        stopStorySegmentAnimation();
     }
 
     private void toggleMute() {

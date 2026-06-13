@@ -221,6 +221,169 @@
                         android:textColor="#FFFFFF"
                         android:background="@color/brand_primary"
                         style="?attr/borderlessButtonStyle"/>
+
+                    <!-- ── Duration per photo ──────────────────────────────── -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Duration per photo"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:layout_marginTop="14dp"
+                        android:layout_marginBottom="6dp"/>
+
+                    <RadioGroup
+                        android:id="@+id/rg_photo_duration"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <RadioButton
+                            android:id="@+id/rb_dur_2"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="2s"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_dur_3"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="3s"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:checked="true"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_dur_5"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="5s"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_dur_7"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="7s"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_dur_10"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="10s"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+                    </RadioGroup>
+
+                    <!-- ── Transition style ────────────────────────────────── -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Transition style"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:layout_marginTop="14dp"
+                        android:layout_marginBottom="6dp"/>
+
+                    <RadioGroup
+                        android:id="@+id/rg_transition"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <RadioButton
+                            android:id="@+id/rb_tr_fade"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Fade"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:checked="true"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_tr_slide"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Slide"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_tr_zoom"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Zoom"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_tr_none"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="None"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+                    </RadioGroup>
+
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 

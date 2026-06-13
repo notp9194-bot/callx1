@@ -63,6 +63,16 @@ public class ReelModel {
      * Default: 3000ms (3 seconds per photo), min 1s, max 10s.
      */
     public int photoDurationMs = 3000;
+    /**
+     * Transition animation between photos: "fade" | "slide" | "zoom" | "none".
+     * Default: "fade" (cross-fade, like Instagram).
+     */
+    public String transitionType = "fade";
+    /**
+     * Index of the photo used as the reel cover / thumbnail.
+     * Default: 0 (first photo). Stored so feed can show the chosen cover.
+     */
+    public int coverPhotoIndex = 0;
 
     // ── Duet fields ──────────────────────────────────────────────────────────
     public String  allowDuetLevel = "everyone";
