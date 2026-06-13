@@ -14,6 +14,10 @@ dependencyResolutionManagement {
         maven {
             url "https://storage.zego.im/maven"
             content { includeGroup "im.zego" }
+            metadataSources {
+                mavenPom()
+                artifact()
+            }
         }
     }
 }

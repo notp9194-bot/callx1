@@ -10,10 +10,10 @@ package com.callx.app.live;
  */
 public class ZegoConfig {
 
-    // TODO: Apna ZegoCloud AppID yahan daalo (long number, console se milega)
-    public static final long APP_ID = 1983063690;
+    // ZegoCloud AppID (from console.zegocloud.com)
+    public static final long APP_ID = 1983063690L;
 
-    // TODO: Apna ZegoCloud AppSign yahan daalo (64-char hex string, console se milega)
+    // ZegoCloud AppSign (64-char hex string)
     public static final String APP_SIGN = "7d2e03040fd4cd2e736306730580f7a5c396fa35d453a96ea5655efad5b282ab";
 
     private ZegoConfig() {}
