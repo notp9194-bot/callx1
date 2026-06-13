@@ -26,12 +26,12 @@
         <activity android:name="com.callx.app.live.LiveActivity"
             android:exported="false"
             android:screenOrientation="portrait"
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:theme="@style/Theme.CallX.Fullscreen"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
         <activity android:name="com.callx.app.live.LiveViewerActivity"
             android:exported="false"
             android:screenOrientation="portrait"
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:theme="@style/Theme.CallX.Fullscreen"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
     </application>
 </manifest>
