@@ -344,6 +344,11 @@ public class DuetReelActivity extends AppCompatActivity {
             finish(); return;
         }
 
+        // Duet screen khulte hi original reel video preload karo background mein
+        // Bina iske setupOriginalPlayer() mein ExoPlayer buffer karta tha
+        UnifiedVideoCacheManager.preloadPartial(this, videoUrl,
+            UnifiedVideoCacheManager.Module.REELS);
+
         cameraExecutor = Executors.newSingleThreadExecutor();
         bindViews();
 

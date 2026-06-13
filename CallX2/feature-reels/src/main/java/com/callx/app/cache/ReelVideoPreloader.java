@@ -12,6 +12,7 @@ import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.CacheWriter;
 import androidx.media3.datasource.DataSpec;
 
+import com.callx.app.cache.UnifiedVideoCacheManager;
 import com.callx.app.models.ReelModel;
 
 import java.util.HashSet;
@@ -84,8 +85,19 @@ public class ReelVideoPreloader {
 
         for (int i = position + 1; i <= position + PRELOAD_COUNT && i < reels.size(); i++) {
             ReelModel reel = reels.get(i);
-            if (reel == null || reel.videoUrl == null || reel.videoUrl.isEmpty()) continue;
-            preloadSingle(reel.videoUrl);
+            if (reel == null) continue;
+
+            // Main reel video
+            if (reel.videoUrl != null && !reel.videoUrl.isEmpty()) {
+                preloadSingle(reel.videoUrl);
+            }
+
+            // Duet original — agar yeh reel ek duet hai toh partner ka video bhi preload karo
+            // Bina iske duet play hone par partner video fresh download hoti thi
+            if (reel.duetOriginalUrl != null && !reel.duetOriginalUrl.isEmpty()) {
+                preloadSingle(reel.duetOriginalUrl);
+                Log.d(TAG, "Duet original preloading: " + shortUrl(reel.duetOriginalUrl));
+            }
         }
     }
 

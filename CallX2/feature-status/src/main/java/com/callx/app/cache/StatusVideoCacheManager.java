@@ -1,71 +1,56 @@
 package com.callx.app.cache;
+
 import android.content.Context;
 import android.util.Log;
+
 import androidx.annotation.OptIn;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.cache.CacheDataSource;
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
-import com.callx.app.cache.UnifiedVideoCacheManager;
-import java.io.File;
-import com.callx.app.viewer.StatusViewerActivity;
-import com.callx.app.feed.StatusFragment;
+
 /**
- * StatusVideoCacheManager — Singleton ExoPlayer cache specifically for Status videos.
- *
- * Exactly Reels jaisa pattern (ReelCacheManager mirror):
- *   ✅ 200 MB dedicated disk cache (Status videos chhote hote hain)
- *   ✅ LRU eviction — purane status videos automatically remove hote hain
- *   ✅ CacheDataSource.Factory — ExoPlayer pehle cache check karta hai, phir internet
- *   ✅ Singleton — ek hi instance pure app mein
- *
- * Flow:
- *   1. StatusMediaPreloader: StatusFragment open hone par contacts ke video
- *      statuses ka pehla 2MB background mein download ho jaata hai.
- *   2. StatusViewerActivity.showVideoStatus(): is factory se ExoPlayer banao →
- *      cache hit = instant play, no buffering.
+ * StatusVideoCacheManager — delegates to UnifiedVideoCacheManager (STATUS module).
+ * Kept for backward compatibility with StatusViewerActivity + StatusMediaPreloader.
  */
 @OptIn(markerClass = UnstableApi.class)
 public class StatusVideoCacheManager {
-    private static final String TAG        = "StatusVideoCache";
-    private static final long   CACHE_SIZE = 200L * 1024 * 1024; // 200 MB
-    private static final String CACHE_DIR  = "status_video_cache";
-    private static SimpleCache              sSimpleCache;
-    private static CacheDataSource.Factory  sCacheDataSourceFactory;
-    private static boolean                  sInitialized = false;
+
+    private static final String TAG = "StatusVideoCache";
+
+    private static SimpleCache             sSimpleCache;
+    private static CacheDataSource.Factory sCacheDataSourceFactory;
+    private static boolean                 sInitialized = false;
+
     private StatusVideoCacheManager() {}
-    /**
-     * Init — CallxApp.onCreate() mein call karo.
-     * Double-call safe (idempotent).
-     */
+
     public static synchronized void init(Context context) {
         if (sInitialized) return;
-        UnifiedVideoCacheManager.init(context);
-        sSimpleCache = UnifiedVideoCacheManager.getSimpleCache();
-        sCacheDataSourceFactory = UnifiedVideoCacheManager.getFactory(
-            UnifiedVideoCacheManager.Module.STATUS);
-        sInitialized = true;
-        Log.d(TAG, "StatusVideoCacheManager → UnifiedVideoCacheManager (STATUS)");
-    } catch (Exception e) {
+        try {
+            UnifiedVideoCacheManager.init(context);
+            sSimpleCache            = UnifiedVideoCacheManager.getSimpleCache();
+            sCacheDataSourceFactory = UnifiedVideoCacheManager.getFactory(
+                UnifiedVideoCacheManager.Module.STATUS);
+            sInitialized = true;
+            Log.d(TAG, "StatusVideoCacheManager → UnifiedVideoCacheManager (STATUS)");
+        } catch (Exception e) {
             Log.e(TAG, "Failed to init StatusVideoCacheManager", e);
         }
     }
-    /** ExoPlayer ke liye CacheDataSource.Factory */
+
     public static CacheDataSource.Factory getCacheDataSourceFactory() {
         if (!sInitialized) {
-            throw new IllegalStateException("StatusVideoCacheManager.init(context) pehle call karo!");
+            throw new IllegalStateException("StatusVideoCacheManager.init() pehle call karo!");
         }
         return sCacheDataSourceFactory;
     }
-    /** StatusMediaPreloader ke liye raw SimpleCache */
+
     public static SimpleCache getSimpleCache() {
         if (!sInitialized) {
-            throw new IllegalStateException("StatusVideoCacheManager.init(context) pehle call karo!");
+            throw new IllegalStateException("StatusVideoCacheManager.init() pehle call karo!");
         }
         return sSimpleCache;
     }
-    /** Kitna data cache mein hai is URL ka (bytes). 0 = not cached. */
+
     public static long getCachedBytes(String videoUrl) {
         if (!sInitialized || sSimpleCache == null) return 0;
         try {
@@ -75,20 +60,14 @@ public class StatusVideoCacheManager {
             return 0;
         }
     }
-    /** App terminate par release karo — CallxApp.onTerminate() mein */
+
     public static synchronized void release() {
+        // Shared cache — UnifiedVideoCacheManager.release() handles actual release
         sSimpleCache            = null;
         sCacheDataSourceFactory = null;
         sInitialized            = false;
         Log.d(TAG, "StatusVideoCacheManager detached.");
-    } catch (Exception e) {
-                Log.e(TAG, "Error releasing", e);
-            } finally {
-                sSimpleCache            = null;
-                sCacheDataSourceFactory = null;
-                sInitialized            = false;
-            }
-        }
     }
+
     public static boolean isInitialized() { return sInitialized; }
 }
