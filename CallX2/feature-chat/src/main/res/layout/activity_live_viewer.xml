@@ -4,12 +4,11 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Stream view placeholder (Agora remote view here) -->
-    <View
+    <!-- Stream view (ZegoCloud renders host's remote stream here) -->
+    <android.view.TextureView
         android:id="@+id/live_viewer_stream"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#1A1A2E"/>
+        android:layout_height="match_parent"/>
 
     <!-- Top bar: host name + LIVE badge + leave -->
     <LinearLayout

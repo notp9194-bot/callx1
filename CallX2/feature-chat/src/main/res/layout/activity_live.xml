@@ -4,12 +4,11 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Camera preview placeholder (integrate Agora SurfaceView here) -->
-    <View
+    <!-- Camera preview (ZegoCloud renders local stream here) -->
+    <android.view.TextureView
         android:id="@+id/live_camera_preview"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#1A1A2E"/>
+        android:layout_height="match_parent"/>
 
     <!-- LIVE badge + viewer count — top row -->
     <LinearLayout

@@ -1,7 +1,9 @@
 package com.callx.app.live;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.view.View;
+import android.view.TextureView;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.ImageButton;
@@ -9,6 +11,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
@@ -43,6 +47,11 @@ public class LiveViewerActivity extends AppCompatActivity {
 
     private ValueEventListener messagesListener;
     private ValueEventListener statusListener;
+    private ValueEventListener streamIdListener;
+
+    private static final int REQ_PERMISSIONS = 9002;
+    private TextureView remoteView;
+    private String playingStreamId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,6 +74,7 @@ public class LiveViewerActivity extends AppCompatActivity {
         setupUI();
         joinLive();
         startListeners();
+        checkPermissionsAndJoinStream();
     }
 
     private void setupUI() {
@@ -72,6 +82,7 @@ public class LiveViewerActivity extends AppCompatActivity {
         tvHostName  = findViewById(R.id.tv_live_host_name);
         tvLiveStatus = findViewById(R.id.tv_live_badge);
         etMessage   = findViewById(R.id.et_live_viewer_message);
+        remoteView  = findViewById(R.id.live_viewer_stream);
         ImageButton btnSend  = findViewById(R.id.btn_live_viewer_send);
         ImageButton btnLeave = findViewById(R.id.btn_leave_live);
 
@@ -157,7 +168,62 @@ public class LiveViewerActivity extends AppCompatActivity {
     private void leaveLive() {
         if (myUid != null && liveId != null)
             LiveManager.getLiveViewersRef(liveId).child(myUid).removeValue();
+        stopWatching();
         finish();
+    }
+
+    // ── ZegoCloud streaming (viewer side) ────────────────────────────────
+
+    private void checkPermissionsAndJoinStream() {
+        // Viewer needs RECORD_AUDIO only if they ever speak; for pure watching,
+        // ZegoCloud still requires mic permission for the engine in BROADCAST scenario.
+        String perm = Manifest.permission.RECORD_AUDIO;
+        if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED) {
+            joinStream();
+        } else {
+            ActivityCompat.requestPermissions(this, new String[]{perm}, REQ_PERMISSIONS);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                            @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_PERMISSIONS) {
+            joinStream(); // proceed even if denied — chat still works
+        }
+    }
+
+    private void joinStream() {
+        LiveStreamManager manager = LiveStreamManager.getInstance();
+        manager.init(getApplication(), null);
+
+        if (!manager.isReady() || liveId == null) return;
+
+        manager.loginRoom(liveId, myUid != null ? myUid : "viewer", myName != null ? myName : "Viewer");
+
+        // Listen for streamId so we know which stream to play
+        streamIdListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                String sid = snap.getValue(String.class);
+                if (sid != null && !sid.equals(playingStreamId)) {
+                    if (playingStreamId != null) manager.stopPlaying(playingStreamId);
+                    playingStreamId = sid;
+                    if (remoteView != null) manager.startPlaying(sid, remoteView);
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        LiveManager.getLiveRef(liveId).child("streamId").addValueEventListener(streamIdListener);
+    }
+
+    private void stopWatching() {
+        LiveStreamManager manager = LiveStreamManager.getInstance();
+        if (!manager.isReady()) return;
+        if (playingStreamId != null) manager.stopPlaying(playingStreamId);
+        if (liveId != null) manager.logoutRoom(liveId);
+        if (liveId != null && streamIdListener != null)
+            LiveManager.getLiveRef(liveId).child("streamId").removeEventListener(streamIdListener);
     }
 
     @Override
@@ -169,5 +235,6 @@ public class LiveViewerActivity extends AppCompatActivity {
             LiveManager.getLiveRef(liveId).child("status").removeEventListener(statusListener);
         if (myUid != null && liveId != null)
             LiveManager.getLiveViewersRef(liveId).child(myUid).removeValue();
+        stopWatching();
     }
 }

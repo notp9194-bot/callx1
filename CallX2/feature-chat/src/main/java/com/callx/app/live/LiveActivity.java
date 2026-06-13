@@ -1,6 +1,9 @@
 package com.callx.app.live;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.EditText;
@@ -10,6 +13,8 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
@@ -48,6 +53,11 @@ public class LiveActivity extends AppCompatActivity {
     private ValueEventListener messagesListener;
     private ValueEventListener viewersListener;
 
+    private static final int REQ_PERMISSIONS = 9001;
+    private String streamId;
+    private boolean isFrontCamera = true;
+    private TextureView localPreview;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -71,12 +81,14 @@ public class LiveActivity extends AppCompatActivity {
         setupUI();
         createLiveSession();
         notifyInvitedContacts();
+        checkPermissionsAndStartStreaming();
     }
 
     private void setupUI() {
         rvChat        = findViewById(R.id.rv_live_chat);
         tvViewerCount = findViewById(R.id.tv_live_viewer_count);
         etMessage     = findViewById(R.id.et_live_message);
+        localPreview  = findViewById(R.id.live_camera_preview);
         ImageButton btnSend   = findViewById(R.id.btn_live_send);
         ImageButton btnEndLive = findViewById(R.id.btn_end_live);
         View btnSwitchCamera  = findViewById(R.id.btn_switch_camera);
@@ -97,8 +109,10 @@ public class LiveActivity extends AppCompatActivity {
         );
 
         if (btnSwitchCamera != null) {
-            btnSwitchCamera.setOnClickListener(v ->
-                Toast.makeText(this, "Camera switch", Toast.LENGTH_SHORT).show());
+            btnSwitchCamera.setOnClickListener(v -> {
+                isFrontCamera = !isFrontCamera;
+                LiveStreamManager.getInstance().useFrontCamera(isFrontCamera);
+            });
         }
 
         etMessage.setOnEditorActionListener((textView, i, event) -> {
@@ -109,6 +123,7 @@ public class LiveActivity extends AppCompatActivity {
     private void createLiveSession() {
         if (liveId == null || myUid == null) return;
         liveRef = LiveManager.getLiveRef(liveId);
+        streamId = "stream_" + liveId;
 
         Map<String, Object> liveData = new HashMap<>();
         liveData.put("hostUid",   myUid);
@@ -116,6 +131,7 @@ public class LiveActivity extends AppCompatActivity {
         liveData.put("status",    "active");
         liveData.put("startedAt", ServerValue.TIMESTAMP);
         liveData.put("viewerCount", 0);
+        liveData.put("streamId",  streamId);
 
         Map<String, Object> invitedMap = new HashMap<>();
         for (String uid : invitedUids) invitedMap.put(uid, true);
@@ -202,7 +218,67 @@ public class LiveActivity extends AppCompatActivity {
     private void endLive() {
         if (liveRef != null) liveRef.child("status").setValue("ended");
         if (myUid != null) LiveManager.getUserActiveLiveRef(myUid).removeValue();
+        stopStreaming();
         finish();
+    }
+
+    // ── ZegoCloud streaming ──────────────────────────────────────────────
+
+    private void checkPermissionsAndStartStreaming() {
+        String[] perms = {Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO};
+        boolean granted = true;
+        for (String p : perms) {
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                granted = false;
+                break;
+            }
+        }
+        if (granted) {
+            startStreaming();
+        } else {
+            ActivityCompat.requestPermissions(this, perms, REQ_PERMISSIONS);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                            @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_PERMISSIONS) {
+            boolean granted = true;
+            for (int r : grantResults) if (r != PackageManager.PERMISSION_GRANTED) granted = false;
+            if (granted) {
+                startStreaming();
+            } else {
+                Toast.makeText(this, "Camera/Mic permission ke bina live nahi ho sakta",
+                    Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void startStreaming() {
+        LiveStreamManager manager = LiveStreamManager.getInstance();
+        manager.init(getApplication(), null);
+
+        if (!manager.isReady()) {
+            Toast.makeText(this,
+                "ZegoCloud AppID/AppSign set nahi hai — sirf chat live hai, video nahi",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        manager.loginRoom(liveId, myUid, myName);
+        if (localPreview != null) manager.startPreview(localPreview);
+        manager.useFrontCamera(isFrontCamera);
+        manager.startPublishing(streamId);
+    }
+
+    private void stopStreaming() {
+        LiveStreamManager manager = LiveStreamManager.getInstance();
+        if (!manager.isReady()) return;
+        manager.stopPublishing();
+        manager.stopPreview();
+        if (liveId != null) manager.logoutRoom(liveId);
     }
 
     @Override
@@ -212,6 +288,7 @@ public class LiveActivity extends AppCompatActivity {
             LiveManager.getLiveMessagesRef(liveId).removeEventListener(messagesListener);
         if (liveRef != null && viewersListener != null)
             LiveManager.getLiveViewersRef(liveId).removeEventListener(viewersListener);
+        stopStreaming();
     }
 
     @Override public void onBackPressed() {
