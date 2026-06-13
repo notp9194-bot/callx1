@@ -167,13 +167,14 @@
     -->
     <LinearLayout
         android:id="@+id/right_actions"
-        android:layout_width="56dp"
+        android:layout_width="68dp"
         android:layout_height="wrap_content"
         android:layout_gravity="end|bottom"
         android:orientation="vertical"
         android:gravity="center_horizontal"
         android:paddingBottom="8dp"
-        android:paddingEnd="4dp">
+        android:paddingEnd="8dp"
+        android:paddingStart="4dp">
 
         <!-- Like -->
         <ImageButton
