@@ -20,6 +20,7 @@ import com.callx.app.activities.LockScreenActivity;
 import com.callx.app.cache.CacheAnalytics;
 import com.callx.app.cache.ReelCacheManager;
 import com.callx.app.cache.XTweetCacheManager;
+import com.callx.app.cache.UnifiedVideoCacheManager;
 import com.callx.app.cache.StatusVideoCacheManager;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.cache.NetworkCacheHelper;
@@ -112,7 +113,10 @@ public class CallxApp extends Application {
             // Cache system: CacheManager, SyncWorker, StatusCacheManager, StatusBackgroundService
             initCacheSystem();
 
-            // v21 Video System: init ExoPlayer 200MB disk cache
+            // v32 Unified Video Cache — replaces 4 separate caches (was 1150MB total)
+            // Now: 500MB shared, partial caching (4MB/reel = ~125 reels), weighted quotas
+            UnifiedVideoCacheManager.init(CallxApp.this);
+            // Legacy managers auto-delegate to UnifiedVideoCacheManager
             com.callx.app.utils.ExoPlayerManager.init(CallxApp.this);
 
             // Reels: 500MB dedicated cache for Instagram-like instant playback
@@ -145,6 +149,7 @@ public class CallxApp extends Application {
                 cache.clearMemoryCache();
                 // FIX #MEM-3B: Reel + ExoPlayer video cache bhi trim karo — OOM se bachao
                 ReelCacheManager.trimMemory();
+                UnifiedVideoCacheManager.trimMemory();
                 com.callx.app.utils.ExoPlayerManager.trimMemory();
                 Log.w(TAG, "onTrimMemory CRITICAL — full memory cache + video caches cleared");
 
@@ -413,6 +418,7 @@ public class CallxApp extends Application {
         ReelCacheManager.release();
         XTweetCacheManager.release(); // X tweet video cache
         StatusVideoCacheManager.release();
+        UnifiedVideoCacheManager.release();
         super.onTerminate();
     }
 

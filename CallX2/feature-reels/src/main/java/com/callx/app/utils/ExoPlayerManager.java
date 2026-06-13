@@ -21,6 +21,7 @@ import androidx.media3.datasource.cache.SimpleCache;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 
+import com.callx.app.cache.UnifiedVideoCacheManager;
 import java.io.File;
 
 /**
@@ -76,13 +77,11 @@ public class ExoPlayerManager {
     // ── Init (call once in Application.onCreate or Activity) ─────────────
 
     public static void init(Context ctx) {
-        if (videoCache != null) return; // already initialized
-        long cacheSize = isLowMemoryDevice(ctx) ? CACHE_SIZE_LOW : CACHE_SIZE_NORM;
-        cacheDir   = new File(ctx.getCacheDir(), "exo_video_cache");
-        videoCache = new SimpleCache(cacheDir,
-            new LeastRecentlyUsedCacheEvictor(cacheSize));
-        Log.i(TAG, "ExoPlayer cache initialized: " + cacheSize / (1024 * 1024) + "MB"
-            + (isLowMemoryDevice(ctx) ? " [low-ram device]" : ""));
+        if (videoCache != null) return;
+        // Use UnifiedVideoCacheManager — no separate cache needed
+        UnifiedVideoCacheManager.init(ctx);
+        videoCache = UnifiedVideoCacheManager.getSimpleCache();
+        Log.i(TAG, "ExoPlayerManager → UnifiedVideoCacheManager (CHAT)");
     }
 
     // ── Play ──────────────────────────────────────────────────────────────
@@ -103,16 +102,8 @@ public class ExoPlayerManager {
         // Auto-pause any currently playing video
         pauseCurrent();
 
-        // Build cached data source
-        DefaultHttpDataSource.Factory httpFactory =
-            new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15_000)
-                .setReadTimeoutMs(20_000);
-
-        CacheDataSource.Factory cacheFactory = new CacheDataSource.Factory()
-            .setCache(getCache(ctx))
-            .setUpstreamDataSourceFactory(httpFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+        // Use unified chat cache factory (partial 8MB, shared 500MB pool)
+        CacheDataSource.Factory cacheFactory = getChatFactory(ctx);
 
         // Build player
         ExoPlayer player = new ExoPlayer.Builder(ctx).build();
@@ -232,6 +223,12 @@ public class ExoPlayerManager {
     private static SimpleCache getCache(Context ctx) {
         if (videoCache == null) init(ctx);
         return videoCache;
+    }
+
+    @OptIn(markerClass = UnstableApi.class)
+    private static CacheDataSource.Factory getChatFactory(Context ctx) {
+        if (!UnifiedVideoCacheManager.isInitialized()) UnifiedVideoCacheManager.init(ctx);
+        return UnifiedVideoCacheManager.getFactory(UnifiedVideoCacheManager.Module.CHAT);
     }
 
     // ── Cache size query ──────────────────────────────────────────────────

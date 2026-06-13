@@ -7,6 +7,7 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
+import com.callx.app.cache.UnifiedVideoCacheManager;
 import java.io.File;
 import com.callx.app.viewer.StatusViewerActivity;
 import com.callx.app.feed.StatusFragment;
@@ -40,25 +41,13 @@ public class StatusVideoCacheManager {
      */
     public static synchronized void init(Context context) {
         if (sInitialized) return;
-        try {
-            File cacheDir = new File(context.getCacheDir(), CACHE_DIR);
-            if (!cacheDir.exists()) cacheDir.mkdirs();
-            LeastRecentlyUsedCacheEvictor evictor =
-                new LeastRecentlyUsedCacheEvictor(CACHE_SIZE);
-            sSimpleCache = new SimpleCache(cacheDir, evictor);
-            DefaultHttpDataSource.Factory httpFactory =
-                new DefaultHttpDataSource.Factory()
-                    .setConnectTimeoutMs(15_000)
-                    .setReadTimeoutMs(15_000)
-                    .setAllowCrossProtocolRedirects(true);
-            // Cache-first: local cache → internet + auto-save
-            sCacheDataSourceFactory = new CacheDataSource.Factory()
-                .setCache(sSimpleCache)
-                .setUpstreamDataSourceFactory(httpFactory)
-                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
-            sInitialized = true;
-            Log.d(TAG, "StatusVideoCacheManager init. Dir: " + cacheDir.getAbsolutePath());
-        } catch (Exception e) {
+        UnifiedVideoCacheManager.init(context);
+        sSimpleCache = UnifiedVideoCacheManager.getSimpleCache();
+        sCacheDataSourceFactory = UnifiedVideoCacheManager.getFactory(
+            UnifiedVideoCacheManager.Module.STATUS);
+        sInitialized = true;
+        Log.d(TAG, "StatusVideoCacheManager → UnifiedVideoCacheManager (STATUS)");
+    } catch (Exception e) {
             Log.e(TAG, "Failed to init StatusVideoCacheManager", e);
         }
     }
@@ -88,11 +77,11 @@ public class StatusVideoCacheManager {
     }
     /** App terminate par release karo — CallxApp.onTerminate() mein */
     public static synchronized void release() {
-        if (sSimpleCache != null) {
-            try {
-                sSimpleCache.release();
-                Log.d(TAG, "StatusVideoCacheManager released.");
-            } catch (Exception e) {
+        sSimpleCache            = null;
+        sCacheDataSourceFactory = null;
+        sInitialized            = false;
+        Log.d(TAG, "StatusVideoCacheManager detached.");
+    } catch (Exception e) {
                 Log.e(TAG, "Error releasing", e);
             } finally {
                 sSimpleCache            = null;

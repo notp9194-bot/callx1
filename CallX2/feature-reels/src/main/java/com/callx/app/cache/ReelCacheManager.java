@@ -14,6 +14,7 @@ import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
 
+import com.callx.app.cache.UnifiedVideoCacheManager;
 import java.io.File;
 
 /**
@@ -43,10 +44,9 @@ public class ReelCacheManager {
 
     private static final String TAG = "ReelCacheManager";
 
-    // FIX #MEM-3A: 500MB → adaptive
-    // Low-end phones mein 500MB bahut zyada tha — OOM crash hota tha
-    private static final long CACHE_SIZE_LOW  = 200L * 1024 * 1024; // 200MB
-    private static final long CACHE_SIZE_NORM = 350L * 1024 * 1024; // 350MB
+    // Adaptive cache: low-end 300MB, normal 500MB
+    private static final long CACHE_SIZE_LOW  = 300L * 1024 * 1024; // 300MB
+    private static final long CACHE_SIZE_NORM = 500L * 1024 * 1024; // 500MB
     private static final String CACHE_DIR  = "reel_video_cache";
 
     private static SimpleCache            sSimpleCache;
@@ -66,39 +66,13 @@ public class ReelCacheManager {
      */
     public static synchronized void init(Context context) {
         if (sInitialized) return;
-
-        try {
-            File cacheDir = new File(context.getCacheDir(), CACHE_DIR);
-            if (!cacheDir.exists()) cacheDir.mkdirs();
-
-            // FIX #MEM-3A: Adaptive size — low-end 200MB, normal 350MB
-            long cacheSize = isLowMemoryDevice(context) ? CACHE_SIZE_LOW : CACHE_SIZE_NORM;
-            LeastRecentlyUsedCacheEvictor evictor =
-                new LeastRecentlyUsedCacheEvictor(cacheSize);
-
-            sSimpleCache = new SimpleCache(cacheDir, evictor);
-
-            // HTTP DataSource — normal internet se video fetch karta hai
-            DefaultHttpDataSource.Factory httpFactory =
-                new DefaultHttpDataSource.Factory()
-                    .setConnectTimeoutMs(15_000)
-                    .setReadTimeoutMs(15_000)
-                    .setAllowCrossProtocolRedirects(true);
-
-            // CacheDataSource.Factory:
-            //   1. Pehle cache check karta hai → instant play
-            //   2. Cache miss → internet se fetch + automatically cache mein save
-            sCacheDataSourceFactory = new CacheDataSource.Factory()
-                .setCache(sSimpleCache)
-                .setUpstreamDataSourceFactory(httpFactory)
-                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
-
-            sInitialized = true;
-            Log.d(TAG, "ReelCacheManager initialized. Cache dir: " + cacheDir.getAbsolutePath());
-
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize ReelCacheManager", e);
-        }
+        // Delegate to UnifiedVideoCacheManager
+        UnifiedVideoCacheManager.init(context);
+        sSimpleCache = UnifiedVideoCacheManager.getSimpleCache();
+        sCacheDataSourceFactory = UnifiedVideoCacheManager.getFactory(
+            UnifiedVideoCacheManager.Module.REELS);
+        sInitialized = true;
+        Log.d(TAG, "ReelCacheManager → UnifiedVideoCacheManager (REELS)");
     }
 
     /**
@@ -163,18 +137,11 @@ public class ReelCacheManager {
      * Application.onTerminate() ya CallxApp mein call karo.
      */
     public static synchronized void release() {
-        if (sSimpleCache != null) {
-            try {
-                sSimpleCache.release();
-                Log.d(TAG, "ReelCacheManager released.");
-            } catch (Exception e) {
-                Log.e(TAG, "Error releasing cache", e);
-            } finally {
-                sSimpleCache        = null;
-                sCacheDataSourceFactory = null;
-                sInitialized        = false;
-            }
-        }
+        // Shared cache — don't release here, UnifiedVideoCacheManager.release() handles it
+        sSimpleCache            = null;
+        sCacheDataSourceFactory = null;
+        sInitialized            = false;
+        Log.d(TAG, "ReelCacheManager detached from UnifiedVideoCacheManager.");
     }
 
     public static boolean isInitialized() {
