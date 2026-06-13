@@ -876,6 +876,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                                 Toast.makeText(a, "Photo upload failed: " + message, Toast.LENGTH_LONG).show();
                             }
                         }
+                    }
                 });
         }
     }
