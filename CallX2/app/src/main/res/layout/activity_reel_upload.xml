@@ -384,6 +384,105 @@
                             android:paddingBottom="6dp"/>
                     </RadioGroup>
 
+                    <!-- ── Photo Filter ───────────────────────────────────── -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Photo filter"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:layout_marginTop="14dp"
+                        android:layout_marginBottom="6dp"/>
+
+                    <RadioGroup
+                        android:id="@+id/rg_photo_filter"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="4dp">
+
+                        <RadioButton
+                            android:id="@+id/rb_filter_normal"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Normal"
+                            android:textSize="11sp"
+                            android:gravity="center"
+                            android:checked="true"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_filter_warm"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="🌅 Warm"
+                            android:textSize="11sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_filter_cool"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="❄ Cool"
+                            android:textSize="11sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_filter_vivid"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="🎨 Vivid"
+                            android:textSize="11sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:layout_marginEnd="3dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+
+                        <RadioButton
+                            android:id="@+id/rb_filter_bw"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="⬛ B&amp;W"
+                            android:textSize="11sp"
+                            android:gravity="center"
+                            android:button="@null"
+                            android:background="@drawable/bg_reel_follow_btn"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"/>
+                    </RadioGroup>
+
+                    <!-- Reorder hint -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="💡 Long-press a photo to reorder or remove"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:layout_marginTop="10dp"
+                        android:layout_marginBottom="2dp"/>
+
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 

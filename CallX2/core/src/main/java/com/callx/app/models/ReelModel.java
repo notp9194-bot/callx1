@@ -73,6 +73,11 @@ public class ReelModel {
      * Default: 0 (first photo). Stored so feed can show the chosen cover.
      */
     public int coverPhotoIndex = 0;
+    /**
+     * Visual color filter applied to every photo in the slideshow.
+     * Values: "normal" | "warm" | "cool" | "vivid" | "bw". Default: "normal".
+     */
+    public String photoFilter = "normal";
 
     // ── Duet fields ──────────────────────────────────────────────────────────
     public String  allowDuetLevel = "everyone";

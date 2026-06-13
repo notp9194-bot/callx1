@@ -2,12 +2,15 @@ package com.callx.app.feed;
 
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.ImageView;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager2.widget.ViewPager2;
 import com.bumptech.glide.Glide;
@@ -22,15 +25,17 @@ import java.util.List;
 /**
  * ReelPhotoSlideshowAdapter — drives the photo ViewPager2 inside ReelPlayerFragment.
  *
- * Advanced features v2:
- *  ✅ Ken Burns pan+zoom effect on each photo after it loads
- *  ✅ Supports transitionType: "fade" | "slide" | "zoom" | "none"
- *  ✅ Static PageTransformer factory: getPageTransformer(type)
+ * Advance Level v3 features:
+ *  ✅ Ken Burns pan+zoom (ObjectAnimator after Glide load)
+ *  ✅ Transition PageTransformers: fade / zoomOut / depth / none
+ *  ✅ Photo filters via ColorMatrix: normal / warm / cool / vivid / bw
+ *  ✅ setFilter() hot-swaps the filter live (notifyDataSetChanged)
  */
 public class ReelPhotoSlideshowAdapter extends RecyclerView.Adapter<ReelPhotoSlideshowAdapter.PhotoVH> {
 
     private final List<String> photoUrls;
-    private int photoDurationMs = 3000;
+    private int    photoDurationMs = 3000;
+    private String photoFilter     = "normal";
 
     public ReelPhotoSlideshowAdapter(List<String> photoUrls) {
         this.photoUrls = photoUrls;
@@ -39,6 +44,14 @@ public class ReelPhotoSlideshowAdapter extends RecyclerView.Adapter<ReelPhotoSli
     public void setPhotoDurationMs(int ms) {
         this.photoDurationMs = ms;
     }
+
+    /** Change the named color filter and rebind all visible pages. */
+    public void setFilter(String filter) {
+        this.photoFilter = (filter != null) ? filter : "normal";
+        notifyDataSetChanged();
+    }
+
+    // ── RecyclerView.Adapter ─────────────────────────────────────────────────
 
     @NonNull
     @Override
@@ -50,30 +63,33 @@ public class ReelPhotoSlideshowAdapter extends RecyclerView.Adapter<ReelPhotoSli
 
     @Override
     public void onBindViewHolder(@NonNull PhotoVH holder, int position) {
-        // Reset any previous Ken Burns animation
-        holder.ivPhoto.clearAnimation();
+        // Cancel any leftover Ken Burns animator from a recycled view
+        Object oldTag = holder.ivPhoto.getTag();
+        if (oldTag instanceof AnimatorSet) ((AnimatorSet) oldTag).cancel();
         holder.ivPhoto.setScaleX(1f);
         holder.ivPhoto.setScaleY(1f);
         holder.ivPhoto.setTranslationX(0f);
         holder.ivPhoto.setTranslationY(0f);
 
-        String url = photoUrls.get(position);
+        // Apply color filter before image loads (instant feedback)
+        holder.ivPhoto.setColorFilter(buildColorFilter(photoFilter));
+
         Glide.with(holder.ivPhoto.getContext())
-                .load(url)
+                .load(photoUrls.get(position))
                 .centerCrop()
                 .placeholder(android.R.color.black)
                 .listener(new RequestListener<android.graphics.drawable.Drawable>() {
                     @Override
                     public boolean onLoadFailed(GlideException e, Object model,
-                                                Target<android.graphics.drawable.Drawable> target,
-                                                boolean isFirstResource) {
+                                                Target<android.graphics.drawable.Drawable> t,
+                                                boolean first) {
                         return false;
                     }
                     @Override
-                    public boolean onResourceReady(android.graphics.drawable.Drawable resource,
+                    public boolean onResourceReady(android.graphics.drawable.Drawable res,
                                                    Object model,
-                                                   Target<android.graphics.drawable.Drawable> target,
-                                                   DataSource dataSource, boolean isFirstResource) {
+                                                   Target<android.graphics.drawable.Drawable> t,
+                                                   DataSource src, boolean first) {
                         startKenBurns(holder.ivPhoto, photoDurationMs);
                         return false;
                     }
@@ -90,6 +106,7 @@ public class ReelPhotoSlideshowAdapter extends RecyclerView.Adapter<ReelPhotoSli
         holder.ivPhoto.setScaleY(1f);
         holder.ivPhoto.setTranslationX(0f);
         holder.ivPhoto.setTranslationY(0f);
+        holder.ivPhoto.clearColorFilter();
     }
 
     @Override
@@ -97,24 +114,20 @@ public class ReelPhotoSlideshowAdapter extends RecyclerView.Adapter<ReelPhotoSli
         return photoUrls != null ? photoUrls.size() : 0;
     }
 
-    // ── Ken Burns ──────────────────────────────────────────────────────────
+    // ── Ken Burns pan+zoom ────────────────────────────────────────────────────
 
     private void startKenBurns(ImageView iv, long durationMs) {
-        iv.setScaleX(1f);
-        iv.setScaleY(1f);
-        iv.setTranslationX(0f);
-        iv.setTranslationY(0f);
+        iv.setScaleX(1f); iv.setScaleY(1f);
+        iv.setTranslationX(0f); iv.setTranslationY(0f);
 
-        // Alternating direction per invocation (pseudo-random from time)
         long seed = System.nanoTime();
-        float dx = ((seed & 1) == 0 ? 1f : -1f) * 22f;
-        float dy = ((seed & 2) == 0 ? 1f : -1f) * 14f;
-        float scale = 1.14f;
+        float dx = ((seed & 1L) == 0 ? 1f : -1f) * 22f;
+        float dy = ((seed & 2L) == 0 ? 1f : -1f) * 14f;
 
-        ObjectAnimator sX = ObjectAnimator.ofFloat(iv, "scaleX",    1.0f,  scale);
-        ObjectAnimator sY = ObjectAnimator.ofFloat(iv, "scaleY",    1.0f,  scale);
-        ObjectAnimator tX = ObjectAnimator.ofFloat(iv, "translationX", 0f, dx);
-        ObjectAnimator tY = ObjectAnimator.ofFloat(iv, "translationY", 0f, dy);
+        ObjectAnimator sX = ObjectAnimator.ofFloat(iv, "scaleX",      1.0f, 1.14f);
+        ObjectAnimator sY = ObjectAnimator.ofFloat(iv, "scaleY",      1.0f, 1.14f);
+        ObjectAnimator tX = ObjectAnimator.ofFloat(iv, "translationX", 0f,  dx);
+        ObjectAnimator tY = ObjectAnimator.ofFloat(iv, "translationY", 0f,  dy);
 
         AnimatorSet set = new AnimatorSet();
         set.playTogether(sX, sY, tX, tY);
@@ -124,13 +137,47 @@ public class ReelPhotoSlideshowAdapter extends RecyclerView.Adapter<ReelPhotoSli
         iv.setTag(set);
     }
 
-    // ── PageTransformer factory ────────────────────────────────────────────
+    // ── Color filter builder ─────────────────────────────────────────────────
 
-    /**
-     * Returns the correct ViewPager2.PageTransformer for the given transitionType string.
-     * Pass to vpPhotos.setPageTransformer().
-     * Returns null for "none" (default VP2 slide animation).
-     */
+    @Nullable
+    private static ColorMatrixColorFilter buildColorFilter(String filter) {
+        if (filter == null || "normal".equals(filter)) return null;
+        ColorMatrix cm = new ColorMatrix();
+        switch (filter) {
+            case "warm":
+                // Boost reds & warm tones, cool down blues
+                cm.set(new float[]{
+                    1.20f, 0f,    0f,    0f, 15f,
+                    0f,    1.05f, 0f,    0f,  5f,
+                    0f,    0f,    0.85f, 0f,-15f,
+                    0f,    0f,    0f,    1f,  0f
+                });
+                break;
+            case "cool":
+                // Boost blues, tone down reds
+                cm.set(new float[]{
+                    0.85f, 0f, 0f,    0f,-15f,
+                    0f,    1f, 0f,    0f,  0f,
+                    0f,    0f, 1.20f, 0f, 20f,
+                    0f,    0f, 0f,    1f,  0f
+                });
+                break;
+            case "vivid":
+                cm.setSaturation(1.9f);
+                break;
+            case "bw":
+                cm.setSaturation(0f);
+                break;
+            default:
+                return null;
+        }
+        return new ColorMatrixColorFilter(cm);
+    }
+
+    // ── PageTransformer factory ───────────────────────────────────────────────
+
+    /** Returns the PageTransformer for the given transitionType, or null for "none". */
+    @Nullable
     public static ViewPager2.PageTransformer getPageTransformer(String type) {
         if (type == null) return new FadePageTransformer();
         switch (type) {
@@ -141,65 +188,60 @@ public class ReelPhotoSlideshowAdapter extends RecyclerView.Adapter<ReelPhotoSli
         }
     }
 
-    // ── Fade transformer ───────────────────────────────────────────────────
+    // ── Fade ─────────────────────────────────────────────────────────────────
 
     public static class FadePageTransformer implements ViewPager2.PageTransformer {
         @Override
-        public void transformPage(@NonNull View page, float position) {
-            if (position < -1f || position > 1f) {
+        public void transformPage(@NonNull View page, float pos) {
+            if (pos < -1f || pos > 1f) {
                 page.setAlpha(0f);
             } else {
-                float alpha = 1f - Math.abs(position);
-                page.setAlpha(alpha);
-                page.setTranslationX(-position * page.getWidth());
+                page.setAlpha(1f - Math.abs(pos));
+                page.setTranslationX(-pos * page.getWidth());
             }
         }
     }
 
-    // ── Zoom-out transformer (Instagram carousel style) ────────────────────
+    // ── Zoom-out ─────────────────────────────────────────────────────────────
 
     public static class ZoomOutPageTransformer implements ViewPager2.PageTransformer {
         private static final float MIN_SCALE = 0.85f;
         private static final float MIN_ALPHA = 0.5f;
         @Override
-        public void transformPage(@NonNull View page, float position) {
-            if (position < -1f || position > 1f) {
+        public void transformPage(@NonNull View page, float pos) {
+            if (pos < -1f || pos > 1f) {
                 page.setAlpha(0f);
             } else {
-                float scale  = Math.max(MIN_SCALE, 1f - Math.abs(position) * (1f - MIN_SCALE));
+                float scale = Math.max(MIN_SCALE, 1f - Math.abs(pos) * (1f - MIN_SCALE));
                 page.setScaleX(scale);
                 page.setScaleY(scale);
-                float alpha = MIN_ALPHA + (scale - MIN_SCALE) / (1f - MIN_SCALE) * (1f - MIN_ALPHA);
-                page.setAlpha(alpha);
+                page.setAlpha(MIN_ALPHA + (scale - MIN_SCALE) / (1f - MIN_SCALE) * (1f - MIN_ALPHA));
             }
         }
     }
 
-    // ── Depth transformer (slide-out / zoom-in) ────────────────────────────
+    // ── Depth ────────────────────────────────────────────────────────────────
 
     public static class DepthPageTransformer implements ViewPager2.PageTransformer {
         @Override
-        public void transformPage(@NonNull View page, float position) {
-            if (position < -1f) {
+        public void transformPage(@NonNull View page, float pos) {
+            if (pos < -1f) {
                 page.setAlpha(0f);
-            } else if (position <= 0f) {
-                page.setAlpha(1f);
-                page.setTranslationX(0f);
-                page.setScaleX(1f);
-                page.setScaleY(1f);
-            } else if (position <= 1f) {
-                page.setAlpha(1f - position);
-                page.setTranslationX(-page.getWidth() * position);
-                float s = 0.75f + (1f - position) * 0.25f;
-                page.setScaleX(s);
-                page.setScaleY(s);
+            } else if (pos <= 0f) {
+                page.setAlpha(1f); page.setTranslationX(0f);
+                page.setScaleX(1f); page.setScaleY(1f);
+            } else if (pos <= 1f) {
+                page.setAlpha(1f - pos);
+                page.setTranslationX(-page.getWidth() * pos);
+                float s = 0.75f + (1f - pos) * 0.25f;
+                page.setScaleX(s); page.setScaleY(s);
             } else {
                 page.setAlpha(0f);
             }
         }
     }
 
-    // ── ViewHolder ─────────────────────────────────────────────────────────
+    // ── ViewHolder ────────────────────────────────────────────────────────────
 
     static class PhotoVH extends RecyclerView.ViewHolder {
         final ImageView ivPhoto;

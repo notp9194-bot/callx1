@@ -141,8 +141,10 @@ public class ReelUploadActivity extends AppCompatActivity {
     // Advanced photo settings
     private android.widget.RadioGroup rgPhotoDuration;
     private android.widget.RadioGroup rgTransition;
+    private android.widget.RadioGroup rgPhotoFilter;
     private int                   selectedDurationMs       = 3000;
     private String                selectedTransitionType   = "fade";
+    private String                selectedFilter           = "normal";
     private int                   coverPhotoIndex          = 0;
 
     private Uri                    selectedUri;
@@ -237,6 +239,17 @@ public class ReelUploadActivity extends AppCompatActivity {
             });
         }
 
+        // Filter picker
+        if (rgPhotoFilter != null) {
+            rgPhotoFilter.setOnCheckedChangeListener((group, checkedId) -> {
+                if (checkedId == R.id.rb_filter_warm)       selectedFilter = "warm";
+                else if (checkedId == R.id.rb_filter_cool)  selectedFilter = "cool";
+                else if (checkedId == R.id.rb_filter_vivid) selectedFilter = "vivid";
+                else if (checkedId == R.id.rb_filter_bw)    selectedFilter = "bw";
+                else                                         selectedFilter = "normal";
+            });
+        }
+
         // If launched from ReelEditorActivity, pre-load the video + text overlay
         handleEditorExtras();
     }
@@ -280,6 +293,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         tvPhotoCount            = findViewById(R.id.tv_photo_count);
         rgPhotoDuration         = findViewById(R.id.rg_photo_duration);
         rgTransition            = findViewById(R.id.rg_transition);
+        rgPhotoFilter           = findViewById(R.id.rg_photo_filter);
     }
 
     private void setupChipDefaults() {
@@ -622,10 +636,80 @@ public class ReelUploadActivity extends AppCompatActivity {
             }
         });
 
+        // Long-press popup: Move Left / Move Right / Set Cover / Remove
+        frame.setOnLongClickListener(v -> {
+            android.widget.PopupMenu popup = new android.widget.PopupMenu(this, v);
+            popup.getMenu().add(0, 1, 0, "◀  Move Left");
+            popup.getMenu().add(0, 2, 0, "Move Right  ▶");
+            popup.getMenu().add(0, 3, 0, "★  Set as Cover");
+            popup.getMenu().add(0, 4, 0, "✕  Remove");
+            popup.setOnMenuItemClickListener(item -> {
+                int pos = llPhotoPreviewContainer.indexOfChild(v);
+                if (pos < 0) return false;
+                switch (item.getItemId()) {
+                    case 1: movePhotoLeft(pos);  return true;
+                    case 2: movePhotoRight(pos); return true;
+                    case 3:
+                        coverPhotoIndex = pos;
+                        refreshCoverIndicators();
+                        Toast.makeText(this, "Cover photo set!", Toast.LENGTH_SHORT).show();
+                        return true;
+                    case 4:
+                        selectedPhotoUris.remove(pos);
+                        llPhotoPreviewContainer.removeView(v);
+                        if (coverPhotoIndex >= selectedPhotoUris.size()) coverPhotoIndex = 0;
+                        refreshCoverIndicators();
+                        updatePhotoCountLabel();
+                        if (selectedPhotoUris.isEmpty()) btnPostReel.setEnabled(false);
+                        return true;
+                }
+                return false;
+            });
+            popup.show();
+            return true;
+        });
+
         frame.addView(thumb);
         frame.addView(btnRemove);
         frame.addView(btnCover);
         llPhotoPreviewContainer.addView(frame);
+    }
+
+    /** Swaps photo at pos with the one before it, then rebuilds thumbnails. */
+    private void movePhotoLeft(int pos) {
+        if (pos <= 0) {
+            Toast.makeText(this, "Already the first photo", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        android.net.Uri tmp = selectedPhotoUris.get(pos);
+        selectedPhotoUris.set(pos, selectedPhotoUris.get(pos - 1));
+        selectedPhotoUris.set(pos - 1, tmp);
+        if (coverPhotoIndex == pos)       coverPhotoIndex = pos - 1;
+        else if (coverPhotoIndex == pos - 1) coverPhotoIndex = pos;
+        rebuildPhotoThumbnails();
+    }
+
+    /** Swaps photo at pos with the one after it, then rebuilds thumbnails. */
+    private void movePhotoRight(int pos) {
+        if (pos >= selectedPhotoUris.size() - 1) {
+            Toast.makeText(this, "Already the last photo", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        android.net.Uri tmp = selectedPhotoUris.get(pos);
+        selectedPhotoUris.set(pos, selectedPhotoUris.get(pos + 1));
+        selectedPhotoUris.set(pos + 1, tmp);
+        if (coverPhotoIndex == pos)       coverPhotoIndex = pos + 1;
+        else if (coverPhotoIndex == pos + 1) coverPhotoIndex = pos;
+        rebuildPhotoThumbnails();
+    }
+
+    /** Clears the thumbnail strip and rebuilds it from selectedPhotoUris. */
+    private void rebuildPhotoThumbnails() {
+        if (llPhotoPreviewContainer == null) return;
+        llPhotoPreviewContainer.removeAllViews();
+        for (int i = 0; i < selectedPhotoUris.size(); i++) {
+            addPhotoPreviewThumbnail(selectedPhotoUris.get(i), i);
+        }
     }
 
     private void updatePhotoCountLabel() {
@@ -999,6 +1083,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.photoDurationMs = durMs;
                     reel.transitionType  = trType;
                     reel.coverPhotoIndex = safeCover;
+                    reel.photoFilter     = (a.selectedFilter != null) ? a.selectedFilter : "normal";
                     reel.audienceType    = audienceType;
                     reel.thumbUrl        = thumbUrl;
 

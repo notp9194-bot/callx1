@@ -186,6 +186,7 @@ public class ReelPlayerFragment extends Fragment
     private final Handler     photoHandler           = new Handler(Looper.getMainLooper());
     private Runnable          photoAdvanceRunnable;
     private android.animation.ObjectAnimator storySegmentAnimator;
+    private TextView          tvPauseBadge;
 
     // ── Factory ───────────────────────────────────────────────────────────
 
@@ -410,6 +411,7 @@ public class ReelPlayerFragment extends Fragment
         vpPhotos          = v.findViewById(R.id.vp_photos);
         llStoryProgress   = v.findViewById(R.id.ll_story_progress);
         tvPhotoCounter    = v.findViewById(R.id.tv_photo_counter);
+        tvPauseBadge      = v.findViewById(R.id.tv_pause_badge);
     }
 
     private void populateStaticData() {
@@ -1136,9 +1138,10 @@ public class ReelPlayerFragment extends Fragment
             btnMute.setVisibility(View.GONE);
         }
 
-        // ── Adapter with Ken Burns ─────────────────────────────────────────
+        // ── Adapter: Ken Burns + photo filter ────────────────────────────────
         ReelPhotoSlideshowAdapter adapter = new ReelPhotoSlideshowAdapter(photoUrls);
         adapter.setPhotoDurationMs(photoDurationMs);
+        adapter.setFilter(reel.photoFilter);
         vpPhotos.setAdapter(adapter);
 
         // ── Transition PageTransformer ─────────────────────────────────────
@@ -1171,24 +1174,68 @@ public class ReelPlayerFragment extends Fragment
             }
         });
 
-        // ── Touch: long-press to pause, release to resume ─────────────────
+        // ── Touch gestures: tap-left/right nav + long-press pause ────────────
         GestureDetector gd = new GestureDetector(requireContext(),
             new GestureDetector.SimpleOnGestureListener() {
+
+                /** Single tap: left 35% → prev photo, right 65% → next photo. */
+                @Override
+                public boolean onSingleTapUp(android.view.MotionEvent e) {
+                    if (vpPhotos == null || photoUrls == null) return false;
+                    int screenW = requireContext().getResources().getDisplayMetrics().widthPixels;
+                    float x = e.getRawX();
+                    if (x < screenW * 0.35f) {
+                        // Navigate backwards
+                        if (currentPhotoIndex > 0) {
+                            currentPhotoIndex--;
+                            vpPhotos.setCurrentItem(currentPhotoIndex, false);
+                            stopPhotoSlideshow();
+                            animateStorySegment(currentPhotoIndex, photoDurationMs);
+                            if (tvPhotoCounter != null)
+                                tvPhotoCounter.setText((currentPhotoIndex + 1) + " / " + photoUrls.size());
+                            startPhotoSlideshow();
+                        }
+                    } else if (x > screenW * 0.65f) {
+                        // Navigate forwards
+                        if (currentPhotoIndex < photoUrls.size() - 1) {
+                            currentPhotoIndex++;
+                            vpPhotos.setCurrentItem(currentPhotoIndex, false);
+                            stopPhotoSlideshow();
+                            animateStorySegment(currentPhotoIndex, photoDurationMs);
+                            if (tvPhotoCounter != null)
+                                tvPhotoCounter.setText((currentPhotoIndex + 1) + " / " + photoUrls.size());
+                            startPhotoSlideshow();
+                        }
+                    }
+                    return true;
+                }
+
+                /** Long-press: pause slideshow + show ⏸ badge. */
                 @Override
                 public void onLongPress(android.view.MotionEvent e) {
                     if (!photoSlideshowPaused) {
                         photoSlideshowPaused = true;
                         stopPhotoSlideshow();
                         if (storySegmentAnimator != null) storySegmentAnimator.pause();
+                        if (tvPauseBadge != null) {
+                            tvPauseBadge.setVisibility(View.VISIBLE);
+                            tvPauseBadge.animate().alpha(1f).setDuration(150).start();
+                        }
                     }
                 }
             });
+
         vpPhotos.setOnTouchListener((v, event) -> {
             gd.onTouchEvent(event);
+            // ACTION_UP after long-press: resume slideshow + hide ⏸ badge
             if (event.getAction() == android.view.MotionEvent.ACTION_UP && photoSlideshowPaused) {
                 photoSlideshowPaused = false;
                 if (storySegmentAnimator != null) storySegmentAnimator.resume();
                 startPhotoSlideshow();
+                if (tvPauseBadge != null) {
+                    tvPauseBadge.animate().alpha(0f).setDuration(200)
+                        .withEndAction(() -> tvPauseBadge.setVisibility(View.GONE)).start();
+                }
             }
             return false;
         });
