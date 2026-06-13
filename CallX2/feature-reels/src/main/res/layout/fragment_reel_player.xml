@@ -15,6 +15,17 @@
         app:resize_mode="zoom"
         app:surface_type="surface_view"/>
 
+    <!-- ── Photo Slideshow ViewPager2 ───────────────────────────────────────
+         Shown instead of PlayerView for photo_slideshow reels.
+         Hidden (GONE) by default; shown only when mediaType == "photo_slideshow".
+         User can also manually swipe between photos.
+    -->
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/vp_photos"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"/>
+
     <!-- Thumbnail placeholder (shown before video loads) -->
     <ImageView
         android:id="@+id/iv_thumb"
@@ -22,6 +33,20 @@
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:contentDescription="Reel thumbnail"/>
+
+    <!-- ── Photo dot indicator ───────────────────────────────────────────────
+         Row of dots at the top-center showing current photo position.
+         Visible only for photo_slideshow reels. Dots are added programmatically.
+    -->
+    <LinearLayout
+        android:id="@+id/ll_photo_dots"
+        android:layout_width="wrap_content"
+        android:layout_height="8dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:visibility="gone"/>
 
     <!-- Double tap like animation -->
     <ImageView

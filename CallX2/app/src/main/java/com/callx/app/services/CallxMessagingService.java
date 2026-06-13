@@ -136,8 +136,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
         } else if ("special_request".equals(type)) {
             // Sender (jo perma-block ho chuka hai) ne special request bheji
             showSpecialRequestNotification(data);
-        } else if ("live_invite".equals(type)) {
-            showLiveInviteNotification(data);
         } else if ("unblock_notify".equals(type)) {
             // Blocker ne unblock kar diya — blocked user ko notify karo
             showUnblockNotification(data);
@@ -2357,50 +2355,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
         if (data == null) return null;
         String v = data.get(key);
         return (v != null && !v.isEmpty()) ? v : null;
-    }
-
-
-    private void showLiveInviteNotification(java.util.Map<String, String> data) {
-        String fromName = data.getOrDefault("fromName", "Koi");
-        String liveId   = data.getOrDefault("liveId", "");
-        String hostUid  = data.getOrDefault("fromUid", "");
-        if (liveId.isEmpty()) return;
-
-        android.app.NotificationManager nm =
-            (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            android.app.NotificationChannel ch = new android.app.NotificationChannel(
-                "live_invite", "Live Invitations",
-                android.app.NotificationManager.IMPORTANCE_HIGH);
-            ch.setDescription("Live session invitations");
-            if (nm != null) nm.createNotificationChannel(ch);
-        }
-
-        android.content.Intent intent = new android.content.Intent();
-        intent.setClassName(getPackageName(), "com.callx.app.live.LiveViewerActivity");
-        intent.putExtra("liveId",   liveId);
-        intent.putExtra("hostUid",  hostUid);
-        intent.putExtra("hostName", fromName);
-        intent.setFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-
-        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
-            this, liveId.hashCode(), intent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT
-            | android.app.PendingIntent.FLAG_IMMUTABLE);
-
-        androidx.core.app.NotificationCompat.Builder builder =
-            new androidx.core.app.NotificationCompat.Builder(this, "live_invite")
-                .setSmallIcon(android.R.drawable.presence_video_online)
-                .setContentTitle(fromName + " Live hai!")
-                .setContentText("Tap karke join karo")
-                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .setContentIntent(pi);
-
-        if (nm != null)
-            nm.notify(("live_" + liveId).hashCode(), builder.build());
     }
 
 }

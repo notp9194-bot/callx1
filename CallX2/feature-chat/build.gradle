@@ -53,10 +53,4 @@ dependencies {
 
     // Chrome Custom Tabs — in-app browser
     implementation 'androidx.browser:browser:1.8.0'
-
-    // ZegoCloud — real-time live streaming (camera + audio)
-    // '+' = Gradle latest available 3.x build from ZegoCloud's repo.
-    // Fixed version daalna ho to ZegoCloud console > SDK Downloads > Release Notes se exact
-    // version number copy karke yahan daal do (e.g. 'im.zego:express-video:3.20.1')
-    implementation 'im.zego:express-video:3.+'
 }

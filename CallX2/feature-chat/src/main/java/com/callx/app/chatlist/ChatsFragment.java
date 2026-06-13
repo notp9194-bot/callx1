@@ -35,7 +35,6 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.*;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
-import com.callx.app.live.LiveContactPickerBottomSheet;
 
 /**
  * ChatsFragment v15 — Offline-First

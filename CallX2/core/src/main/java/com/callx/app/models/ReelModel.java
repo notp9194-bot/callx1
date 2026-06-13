@@ -23,10 +23,6 @@ public class ReelModel {
     public String  musicCoverUrl;
     public String  musicArtist;
     public int     musicStartSec;
-    /**
-     * Cloudinary URL of the reel's own extracted audio track.
-     * Uploaded at post time so "Original Audio" screen can stream it.
-     */
     public String  originalAudioUrl;
     public String  thumbnailUrl;
     public long    timestamp;
@@ -50,65 +46,46 @@ public class ReelModel {
     public String  repostedFromUid;
     public String  repostedFromName;
 
-    // ── Duet fields ──────────────────────────────────────────────────────────
+    // ── Photo Slideshow fields ────────────────────────────────────────────────
     /**
-     * Granular duet permission.
-     * Values: "everyone" (default) | "followers" | "off"
-     * Used by ReelPlayerFragment and DuetReelActivity for enforcement.
-     * Note: allowDuet boolean is kept for backwards-compat with older reel nodes.
+     * Media type: "video" (default) | "photo_slideshow"
+     * photo_slideshow = Instagram-style reel made of photos (up to 10).
      */
+    public String mediaType = "video";
+    /**
+     * Ordered list of photo URLs for photo_slideshow type reels.
+     * Each photo is displayed for photoDurationMs milliseconds with
+     * a cross-fade transition before advancing to the next.
+     */
+    public List<String> photoUrls;
+    /**
+     * Duration each photo is shown in milliseconds.
+     * Default: 3000ms (3 seconds per photo), min 1s, max 10s.
+     */
+    public int photoDurationMs = 3000;
+
+    // ── Duet fields ──────────────────────────────────────────────────────────
     public String  allowDuetLevel = "everyone";
-    /** Legacy boolean — kept for backward compat; prefer allowDuetLevel. */
     public boolean allowDuet      = true;
-    /** If this reel is a duet, the ID of the original reel it was made from. */
     public String  duetOf;
-    /** ✅ v8 — chain duet root: always points to the original reel in a duet chain.
-     *  Set at upload time. For a direct duet: duetRootId == duetOf.
-     *  For a duet-of-a-duet: duetRootId == original reel ID, duetOf == intermediate. */
     public String  duetRootId;
-    /** UID of the original reel's creator (for push notification targeting). */
     public String  duetOfOwnerUid;
-    /** URL of the original reel video (used by feed to render side-by-side). */
     public String  duetOriginalUrl;
-    /** Running count of duets made on this reel. Incremented by DuetReelActivity. */
     public int     duetCount;
-    /** Layout mode used when this duet was recorded (0=side, 1=top-bottom, 2=pip). */
     public int     duetLayoutMode;
 
     // ── Stitch fields ────────────────────────────────────────────────────────
-    /**
-     * Granular stitch permission.
-     * Values: "everyone" (default) | "followers" | "off"
-     * Previously hardcoded to true in ReelPlayerFragment — now fully enforced.
-     */
     public String  allowStitchLevel = "everyone";
-    /** Legacy boolean — kept for backward compat; prefer allowStitchLevel. */
     public boolean allowStitch      = true;
-    /** If this reel is a stitch, the ID of the original reel it stitched. */
     public String  stitchOf;
-    /** UID of the original stitch reel's creator (for notifications). */
     public String  stitchOfOwnerUid;
-    /** Running count of stitches made on this reel. */
     public int     stitchCount;
 
-    
-      // ── Duet Series fields ───────────────────────────────────────────────────
-      /**
-       * ID of the DuetSeriesModel this reel belongs to.
-       * null = not part of any series.
-       */
-      public String seriesId;
-      /**
-       * Episode number within the series (1, 2, 3 …).
-       * 0 = not part of a series.
-       */
-      public int    seriesEpisodeNumber;
-      /**
-       * Cached series title — stored on the reel so feed can show
-       * "Part 3 of Cooking Adventures" without a extra fetch.
-       */
-      public String seriesTitle;
-  
+    // ── Duet Series fields ───────────────────────────────────────────────────
+    public String seriesId;
+    public int    seriesEpisodeNumber;
+    public String seriesTitle;
+
     public ReelModel() {}
 
     public ReelModel(String reelId, String uid, String ownerName, String ownerPhoto,
@@ -128,8 +105,14 @@ public class ReelModel {
         this.height       = height;
         this.repostCount  = 0;
         this.audienceType = "everyone";
+        this.mediaType    = "video";
         this.hashtags     = extractHashtags(caption);
         this.reactions    = new HashMap<>();
+    }
+
+    /** Convenience: returns true if this reel is a photo slideshow. */
+    public boolean isPhotoSlideshow() {
+        return "photo_slideshow".equals(mediaType) && photoUrls != null && !photoUrls.isEmpty();
     }
 
     public static List<String> extractHashtags(String text) {
@@ -140,19 +123,11 @@ public class ReelModel {
         return tags;
     }
 
-    /**
-     * Helper: resolve effective duet permission considering both legacy boolean
-     * and new granular string field.
-     * Backwards-compatible: old reel nodes only have allowDuet=true → returns "everyone".
-     */
     public String effectiveAllowDuetLevel() {
         if (allowDuetLevel != null && !allowDuetLevel.isEmpty()) return allowDuetLevel;
         return allowDuet ? "everyone" : "off";
     }
 
-    /**
-     * Helper: resolve effective stitch permission (same pattern as duet).
-     */
     public String effectiveAllowStitchLevel() {
         if (allowStitchLevel != null && !allowStitchLevel.isEmpty()) return allowStitchLevel;
         return allowStitch ? "everyone" : "off";

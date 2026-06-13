@@ -41,8 +41,15 @@ import com.callx.app.utils.VideoCompressor;
 
 import com.google.firebase.database.ServerValue;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import android.widget.ImageView;
+import com.bumptech.glide.Glide;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
 import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.utils.VideoUploader;
 import com.google.android.material.chip.Chip;
@@ -102,8 +109,11 @@ public class ReelUploadActivity extends AppCompatActivity {
       public static final String EXTRA_EPISODE_NUMBER = "upload_episode_number";
   
 
-    private static final int REQ_PICK_VIDEO  = 901;
-    private static final int REQ_PERMISSION  = 902;
+    private static final int REQ_PICK_VIDEO   = 901;
+    private static final int REQ_PERMISSION   = 902;
+    private static final int REQ_PICK_PHOTOS  = 903;
+    private static final int REQ_PERM_PHOTOS  = 904;
+    private static final int MAX_PHOTOS       = 10;
 
     private PlayerView        playerPreview;
     private ImageView         ivThumbPreview;
@@ -119,6 +129,16 @@ public class ReelUploadActivity extends AppCompatActivity {
     private android.widget.TextView tvSeriesPickerUpload;
     private TextView          tvTagSummary, tvLocationName, tvScheduleTime;
     private String            taggedUids = "", locationName = "", scheduleTime = "";
+
+    // ── Photo Slideshow fields ────────────────────────────────────────────────
+    private boolean               isPhotoMode              = false;
+    private final ArrayList<Uri>  selectedPhotoUris        = new ArrayList<>();
+    private View                  cardPhotos;
+    private Button                btnMediaTypeVideo;
+    private Button                btnMediaTypePhotos;
+    private Button                btnPickPhotos;
+    private LinearLayout          llPhotoPreviewContainer;
+    private TextView              tvPhotoCount;
 
     private Uri                    selectedUri;
     private String                 preSelectedSoundId    = "";
@@ -186,6 +206,11 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (btnProductTag      != null) btnProductTag.setOnClickListener(v      -> startActivityForResult(new Intent(this, ReelProductTagActivity.class), 505));
         if (tvSeriesPickerUpload != null) tvSeriesPickerUpload.setOnClickListener(v -> openSeriesPickerFromUpload());
 
+        // Media type toggle
+        if (btnMediaTypeVideo  != null) btnMediaTypeVideo.setOnClickListener(v  -> switchToVideoMode());
+        if (btnMediaTypePhotos != null) btnMediaTypePhotos.setOnClickListener(v -> switchToPhotoMode());
+        if (btnPickPhotos      != null) btnPickPhotos.setOnClickListener(v      -> checkPermissionAndPickPhotos());
+
         // If launched from ReelEditorActivity, pre-load the video + text overlay
         handleEditorExtras();
     }
@@ -216,10 +241,17 @@ public class ReelUploadActivity extends AppCompatActivity {
         btnSchedule          = findViewById(R.id.btn_schedule);
         btnSaveDraft         = findViewById(R.id.btn_save_draft);
         btnProductTag        = findViewById(R.id.btn_product_tag);
-        tvTagSummary         = findViewById(R.id.tv_tag_summary);
-        tvLocationName       = findViewById(R.id.tv_location_name);
-        tvScheduleTime       = findViewById(R.id.tv_schedule_time);
-        tvSeriesPickerUpload = findViewById(R.id.tv_series_picker);
+        tvTagSummary            = findViewById(R.id.tv_tag_summary);
+        tvLocationName          = findViewById(R.id.tv_location_name);
+        tvScheduleTime          = findViewById(R.id.tv_schedule_time);
+        tvSeriesPickerUpload    = findViewById(R.id.tv_series_picker);
+        // Photo slideshow views
+        cardPhotos              = findViewById(R.id.card_photos);
+        btnMediaTypeVideo       = findViewById(R.id.btn_media_type_video);
+        btnMediaTypePhotos      = findViewById(R.id.btn_media_type_photos);
+        btnPickPhotos           = findViewById(R.id.btn_pick_photos);
+        llPhotoPreviewContainer = findViewById(R.id.ll_photo_preview_container);
+        tvPhotoCount            = findViewById(R.id.tv_photo_count);
     }
 
     private void setupChipDefaults() {
@@ -346,6 +378,37 @@ public class ReelUploadActivity extends AppCompatActivity {
         }
     }
 
+    // ── Media Type Toggle ─────────────────────────────────────────────────
+
+    private void switchToVideoMode() {
+        isPhotoMode = false;
+        if (layoutPickVideo   != null) layoutPickVideo.setVisibility(View.VISIBLE);
+        if (cardPhotos        != null) cardPhotos.setVisibility(View.GONE);
+        if (btnMediaTypeVideo != null) {
+            btnMediaTypeVideo.setBackgroundResource(com.callx.app.reels.R.color.brand_primary);
+            btnMediaTypeVideo.setTextColor(android.graphics.Color.WHITE);
+        }
+        if (btnMediaTypePhotos != null) {
+            btnMediaTypePhotos.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            btnMediaTypePhotos.setTextColor(0xFF888888);
+        }
+    }
+
+    private void switchToPhotoMode() {
+        isPhotoMode = true;
+        if (layoutPickVideo    != null) layoutPickVideo.setVisibility(View.GONE);
+        if (cardPhotos         != null) cardPhotos.setVisibility(View.VISIBLE);
+        if (playerPreview      != null) playerPreview.setVisibility(View.GONE);
+        if (btnMediaTypePhotos != null) {
+            btnMediaTypePhotos.setBackgroundResource(com.callx.app.reels.R.color.brand_primary);
+            btnMediaTypePhotos.setTextColor(android.graphics.Color.WHITE);
+        }
+        if (btnMediaTypeVideo != null) {
+            btnMediaTypeVideo.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            btnMediaTypeVideo.setTextColor(0xFF888888);
+        }
+    }
+
     // ── Permission ────────────────────────────────────────────────────────
 
     private void checkPermissionAndPickVideo() {
@@ -378,7 +441,44 @@ public class ReelUploadActivity extends AppCompatActivity {
                 Toast.makeText(this, "Storage permission required to select video",
                     Toast.LENGTH_SHORT).show();
             }
+        } else if (requestCode == REQ_PERM_PHOTOS) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                pickPhotos();
+            } else {
+                Toast.makeText(this, "Storage permission required to select photos",
+                    Toast.LENGTH_SHORT).show();
+            }
         }
+    }
+
+    private void checkPermissionAndPickPhotos() {
+        if (selectedPhotoUris.size() >= MAX_PHOTOS) {
+            Toast.makeText(this, "Maximum " + MAX_PHOTOS + " photos allowed", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_MEDIA_IMAGES}, REQ_PERM_PHOTOS);
+                return;
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_PERM_PHOTOS);
+                return;
+            }
+        }
+        pickPhotos();
+    }
+
+    private void pickPhotos() {
+        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+        i.setType("image/*");
+        i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        startActivityForResult(Intent.createChooser(i, "Select Photos"), REQ_PICK_PHOTOS);
     }
 
     private void pickVideo() {
@@ -410,6 +510,73 @@ public class ReelUploadActivity extends AppCompatActivity {
             compressionInProgress = false;
             showVideoPreview(selectedUri);
             compressVideo(selectedUri);
+        } else if (requestCode == REQ_PICK_PHOTOS && resultCode == Activity.RESULT_OK && data != null) {
+            // Multi-select: data.getClipData() if multiple, data.getData() if single
+            int remaining = MAX_PHOTOS - selectedPhotoUris.size();
+            if (data.getClipData() != null) {
+                int count = Math.min(data.getClipData().getItemCount(), remaining);
+                for (int idx = 0; idx < count; idx++) {
+                    Uri uri = data.getClipData().getItemAt(idx).getUri();
+                    selectedPhotoUris.add(uri);
+                    addPhotoPreviewThumbnail(uri, selectedPhotoUris.size() - 1);
+                }
+            } else if (data.getData() != null && remaining > 0) {
+                Uri uri = data.getData();
+                selectedPhotoUris.add(uri);
+                addPhotoPreviewThumbnail(uri, selectedPhotoUris.size() - 1);
+            }
+            updatePhotoCountLabel();
+            btnPostReel.setEnabled(!selectedPhotoUris.isEmpty());
+        }
+    }
+
+    /** Adds a small thumbnail ImageView for the given photo URI into the preview row. */
+    private void addPhotoPreviewThumbnail(Uri uri, final int index) {
+        if (llPhotoPreviewContainer == null || !isPhotoMode) return;
+        int sizePx = (int)(80 * getResources().getDisplayMetrics().density);
+        int marginPx = (int)(6 * getResources().getDisplayMetrics().density);
+
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(sizePx, sizePx);
+        flp.setMargins(0, 0, marginPx, 0);
+        frame.setLayoutParams(flp);
+
+        ImageView thumb = new ImageView(this);
+        thumb.setLayoutParams(new android.widget.FrameLayout.LayoutParams(sizePx, sizePx));
+        thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        Glide.with(this).load(uri).centerCrop().into(thumb);
+
+        // Small remove button (×) in top-right corner
+        TextView btnRemove = new TextView(this);
+        android.widget.FrameLayout.LayoutParams blp =
+            new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
+        blp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        btnRemove.setLayoutParams(blp);
+        btnRemove.setText("×");
+        btnRemove.setTextColor(android.graphics.Color.WHITE);
+        btnRemove.setTextSize(14f);
+        btnRemove.setBackgroundColor(0xCC000000);
+        btnRemove.setPadding(4, 0, 4, 0);
+        btnRemove.setOnClickListener(v -> {
+            int pos = llPhotoPreviewContainer.indexOfChild(frame);
+            if (pos >= 0 && pos < selectedPhotoUris.size()) {
+                selectedPhotoUris.remove(pos);
+                llPhotoPreviewContainer.removeView(frame);
+                updatePhotoCountLabel();
+                if (selectedPhotoUris.isEmpty()) btnPostReel.setEnabled(false);
+            }
+        });
+
+        frame.addView(thumb);
+        frame.addView(btnRemove);
+        llPhotoPreviewContainer.addView(frame);
+    }
+
+    private void updatePhotoCountLabel() {
+        if (tvPhotoCount != null) {
+            tvPhotoCount.setText(selectedPhotoUris.size() + " / " + MAX_PHOTOS);
         }
     }
 
@@ -491,6 +658,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     // ── Upload logic ──────────────────────────────────────────────────────
 
     private void handlePostReel() {
+        // ── Photo slideshow branch ─────────────────────────────────────────
+        if (isPhotoMode) {
+            handlePostPhotoSlideshow();
+            return;
+        }
         if (selectedUri == null) {
             Toast.makeText(this, "Please select a video first", Toast.LENGTH_SHORT).show();
             return;
@@ -622,6 +794,214 @@ public class ReelUploadActivity extends AppCompatActivity {
                 Toast.makeText(a, "Upload failed: " + msg, Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    // ── Photo Slideshow Upload ────────────────────────────────────────────
+
+    private void handlePostPhotoSlideshow() {
+        if (selectedPhotoUris.isEmpty()) {
+            Toast.makeText(this, "Please select at least one photo", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String caption   = etCaption.getText() != null ? etCaption.getText().toString().trim() : "";
+        String musicName = etMusic.getText()   != null ? etMusic.getText().toString().trim()   : "";
+        uploadPhotoSlideshow(caption, musicName);
+    }
+
+    /**
+     * Uploads each selected photo to Firebase Storage at
+     * reel_photos/{uid}/{reelId}/{index}.jpg, collects all download URLs,
+     * then saves the photo reel to Firebase Realtime Database.
+     */
+    private void uploadPhotoSlideshow(String caption, String musicName) {
+        if (isFinishing() || isDestroyed()) return;
+
+        String myUid;
+        try {
+            myUid = FirebaseUtils.getCurrentUid();
+            if (myUid == null || myUid.isEmpty()) throw new IllegalStateException("uid null");
+        } catch (Exception e) {
+            Toast.makeText(this, "Session expired. Please log in again.", Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+
+        btnPostReel.setEnabled(false);
+        layoutUploadProgress.setVisibility(View.VISIBLE);
+        progressUpload.setProgress(0);
+        tvUploadStatus.setText("Uploading photos…");
+
+        String reelId = FirebaseUtils.getReelsRef().push().getKey();
+        if (reelId == null) reelId = UUID.randomUUID().toString();
+        final String finalReelId = reelId;
+        final String finalMyUid  = myUid;
+
+        List<String> uploadedUrls = new ArrayList<>();
+        int totalPhotos = selectedPhotoUris.size();
+        AtomicInteger uploadedCount = new AtomicInteger(0);
+        AtomicInteger failedCount   = new AtomicInteger(0);
+
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+        final String[] photoUrlsArr = new String[totalPhotos];
+
+        for (int i = 0; i < totalPhotos; i++) {
+            final int index = i;
+            Uri photoUri = selectedPhotoUris.get(i);
+
+            StorageReference storageRef = FirebaseStorage.getInstance()
+                .getReference("reel_photos")
+                .child(finalMyUid)
+                .child(finalReelId)
+                .child("photo_" + index + ".jpg");
+
+            storageRef.putFile(photoUri)
+                .addOnProgressListener(taskSnapshot -> {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    int done = a.uploadedCount_field;
+                    int pct  = (int)((done * 100f + taskSnapshot.getBytesTransferred() * 100f
+                        / Math.max(taskSnapshot.getTotalByteCount(), 1)) / totalPhotos);
+                    a.progressUpload.setProgress(Math.min(pct, 99));
+                    a.tvUploadStatus.setText("Uploading photo " + (done + 1) + " of " + totalPhotos + "…");
+                })
+                .addOnSuccessListener(taskSnapshot -> {
+                    storageRef.getDownloadUrl().addOnSuccessListener(downloadUri -> {
+                        ReelUploadActivity a = ref.get();
+                        if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                        photoUrlsArr[index] = downloadUri.toString();
+                        int done = uploadedCount.incrementAndGet();
+                        a.progressUpload.setProgress((int)(done * 100f / totalPhotos));
+                        if (done + failedCount.get() == totalPhotos) {
+                            // All photos processed — collect non-null URLs in order
+                            List<String> urls = new ArrayList<>();
+                            for (String url : photoUrlsArr) {
+                                if (url != null) urls.add(url);
+                            }
+                            a.progressUpload.setProgress(100);
+                            a.tvUploadStatus.setText("Saving reel…");
+                            a.savePhotoReelToFirebase(urls, caption, musicName, finalReelId, finalMyUid);
+                        }
+                    }).addOnFailureListener(e -> {
+                        ReelUploadActivity a = ref.get();
+                        if (a == null) return;
+                        int done = failedCount.incrementAndGet();
+                        if (uploadedCount.get() + done == totalPhotos) {
+                            List<String> urls = new ArrayList<>();
+                            for (String url : photoUrlsArr) {
+                                if (url != null) urls.add(url);
+                            }
+                            if (!urls.isEmpty()) {
+                                a.savePhotoReelToFirebase(urls, caption, musicName, finalReelId, finalMyUid);
+                            } else {
+                                a.btnPostReel.setEnabled(true);
+                                a.layoutUploadProgress.setVisibility(View.GONE);
+                                Toast.makeText(a, "Photo upload failed. Try again.", Toast.LENGTH_SHORT).show();
+                            }
+                        }
+                    });
+                })
+                .addOnFailureListener(e -> {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null) return;
+                    int done = failedCount.incrementAndGet();
+                    if (uploadedCount.get() + done == totalPhotos) {
+                        List<String> urls = new ArrayList<>();
+                        for (String url : photoUrlsArr) {
+                            if (url != null) urls.add(url);
+                        }
+                        if (!urls.isEmpty()) {
+                            a.savePhotoReelToFirebase(urls, caption, musicName, finalReelId, finalMyUid);
+                        } else {
+                            a.btnPostReel.setEnabled(true);
+                            a.layoutUploadProgress.setVisibility(View.GONE);
+                            Toast.makeText(a, "Photo upload failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    }
+                });
+        }
+    }
+
+    // Tracks how many photos have been confirmed uploaded (used in progress lambda)
+    private int uploadedCount_field = 0;
+
+    private void savePhotoReelToFirebase(List<String> photoUrls, String caption,
+                                          String musicName, String reelId, String myUid) {
+        if (isFinishing() || isDestroyed()) return;
+
+        String myName;
+        try {
+            myName = FirebaseUtils.getCurrentName();
+        } catch (Exception e) {
+            myName = "";
+        }
+        final String finalMyName = myName;
+
+        String audienceType = getAudienceType();
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot snap) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String safePhoto = (thumb != null && !thumb.isEmpty()) ? thumb : (photo != null ? photo : "");
+
+                    // Use first photo as thumbnail
+                    String thumbUrl = photoUrls.isEmpty() ? "" : photoUrls.get(0);
+
+                    ReelModel reel = new ReelModel(
+                        reelId, myUid, finalMyName, safePhoto,
+                        "", thumbUrl, caption, musicName,
+                        System.currentTimeMillis(), photoUrls.size() * 3000, 0, 0);
+
+                    reel.mediaType      = "photo_slideshow";
+                    reel.photoUrls      = photoUrls;
+                    reel.photoDurationMs = 3000;
+                    reel.audienceType   = audienceType;
+                    reel.thumbUrl       = thumbUrl;
+
+                    // Duet / Stitch permissions
+                    String duetLevel   = a.getDuetLevel();
+                    String stitchLevel = a.getStitchLevel();
+                    reel.allowDuetLevel   = duetLevel;
+                    reel.allowDuet        = !"off".equals(duetLevel);
+                    reel.allowStitchLevel = stitchLevel;
+                    reel.allowStitch      = !"off".equals(stitchLevel);
+
+                    if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
+                    if (!a.preSelectedSoundUrl.isEmpty()) reel.musicUrl = a.preSelectedSoundUrl;
+
+                    FirebaseUtils.getReelsRef().child(reelId).setValue(reel)
+                        .addOnSuccessListener(unused -> {
+                            ReelUploadActivity b = ref.get();
+                            if (b == null || b.isFinishing() || b.isDestroyed()) return;
+                            FirebaseUtils.getReelsByUserRef(myUid).child(reelId).setValue(true);
+                            Toast.makeText(b, "Photo reel posted! 🎉", Toast.LENGTH_SHORT).show();
+                            b.setResult(RESULT_OK);
+                            b.layoutUploadProgress.setVisibility(View.GONE);
+                            b.finish();
+                        })
+                        .addOnFailureListener(ex -> {
+                            ReelUploadActivity b = ref.get();
+                            if (b == null || b.isFinishing() || b.isDestroyed()) return;
+                            b.btnPostReel.setEnabled(true);
+                            b.layoutUploadProgress.setVisibility(View.GONE);
+                            Toast.makeText(b, "Failed to save reel: " + ex.getMessage(),
+                                Toast.LENGTH_LONG).show();
+                        });
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null) return;
+                    a.btnPostReel.setEnabled(true);
+                    a.layoutUploadProgress.setVisibility(View.GONE);
+                }
+            });
     }
 
     // ── Firebase save ─────────────────────────────────────────────────────

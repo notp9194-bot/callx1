@@ -75,8 +75,10 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
 import com.google.firebase.database.Transaction;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import androidx.viewpager2.widget.ViewPager2;
 
 /**
  * ReelPlayerFragment — Full-screen single-reel player.
@@ -172,6 +174,16 @@ public class ReelPlayerFragment extends Fragment
     private Runnable progressRunnable;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
+    // ── Photo Slideshow State ──────────────────────────────────────────────
+    private ViewPager2     vpPhotos;
+    private LinearLayout   llPhotoDots;
+    private boolean        isPhotoMode       = false;
+    private ArrayList<String> photoUrls;
+    private int            photoDurationMs   = 3000;
+    private int            currentPhotoIndex = 0;
+    private final Handler  photoHandler      = new Handler(Looper.getMainLooper());
+    private Runnable       photoAdvanceRunnable;
+
     // ── Factory ───────────────────────────────────────────────────────────
 
     public static ReelPlayerFragment newInstance(ReelModel reel) {
@@ -207,6 +219,12 @@ public class ReelPlayerFragment extends Fragment
         args.putString("series_id",           reel.seriesId            != null ? reel.seriesId            : "");
         args.putString("series_title",        reel.seriesTitle         != null ? reel.seriesTitle         : "");
         args.putInt   ("series_episode_num",  reel.seriesEpisodeNumber);
+        // ── Photo Slideshow args ──────────────────────────────────────────────
+        args.putString("media_type", reel.mediaType != null ? reel.mediaType : "video");
+        if (reel.photoUrls != null && !reel.photoUrls.isEmpty()) {
+            args.putStringArrayList("photo_urls", new ArrayList<>(reel.photoUrls));
+        }
+        args.putInt("photo_duration_ms", reel.photoDurationMs > 0 ? reel.photoDurationMs : 3000);
         f.setArguments(args);
         return f;
     }
@@ -248,6 +266,10 @@ public class ReelPlayerFragment extends Fragment
             reel.seriesId            = getArguments().getString("series_id",          "");
             reel.seriesTitle         = getArguments().getString("series_title",        "");
             reel.seriesEpisodeNumber = getArguments().getInt   ("series_episode_num",  0);
+            // ── Photo Slideshow fields ────────────────────────────────────────
+            reel.mediaType       = getArguments().getString("media_type",        "video");
+            reel.photoUrls       = getArguments().getStringArrayList("photo_urls");
+            reel.photoDurationMs = getArguments().getInt("photo_duration_ms",    3000);
         }
     }
 
@@ -382,6 +404,8 @@ public class ReelPlayerFragment extends Fragment
           tvSeriesChipLabel   = v.findViewById(R.id.tv_series_chip_label);
         progressVideo     = v.findViewById(R.id.progress_video);
         progressBuffering = v.findViewById(R.id.progress_buffering);
+        vpPhotos          = v.findViewById(R.id.vp_photos);
+        llPhotoDots       = v.findViewById(R.id.ll_photo_dots);
     }
 
     private void populateStaticData() {
@@ -583,6 +607,11 @@ public class ReelPlayerFragment extends Fragment
         }
 
         renderHashtags();
+
+        // Photo slideshow setup — must run after view binding
+        if (reel.isPhotoSlideshow()) {
+            setupPhotoMode();
+        }
 
         // Load likers avatars (Instagram-style) below owner name
         if (reel.reelId != null) fetchLikerAvatars();
@@ -948,10 +977,20 @@ public class ReelPlayerFragment extends Fragment
 
     private void startPlayback() {
         if (!isAdded() || getContext() == null) return;
-        if (reel == null || reel.videoUrl == null || reel.videoUrl.isEmpty()) return;
+        if (reel == null) return;
         // CRASH FIX: playerView is null if view hasn't been created yet
         // (setUserVisibleHint can fire before onCreateView in ViewPager2)
         if (playerView == null) return;
+
+        // ── Photo slideshow mode: skip ExoPlayer, run slideshow timer ─────────
+        if (isPhotoMode) {
+            ivThumb.setVisibility(View.GONE);
+            startPhotoSlideshow();
+            startDiscAnimation();
+            return;
+        }
+
+        if (reel.videoUrl == null || reel.videoUrl.isEmpty()) return;
 
         if (player == null) {
             player = new ExoPlayer.Builder(requireContext()).build();
@@ -1011,6 +1050,7 @@ public class ReelPlayerFragment extends Fragment
     }
 
     private void pausePlayback() {
+        if (isPhotoMode) stopPhotoSlideshow();
         if (player != null) player.pause();
         stopProgressTracking();
         stopDiscAnimation(); // Feature 11;
@@ -1054,10 +1094,153 @@ public class ReelPlayerFragment extends Fragment
 
     private void releasePlayer() {
         stopProgressTracking();
+        stopPhotoSlideshow();
         if (player != null) {
             try { player.stop(); } catch (Exception ignored) {}
             try { player.release(); } catch (Exception ignored) {}
             player = null;
+        }
+    }
+
+    // ── Photo Slideshow ───────────────────────────────────────────────────
+
+    /**
+     * Called from populateStaticData() when reel.isPhotoSlideshow() == true.
+     * Hides the PlayerView, shows the photo ViewPager2, builds dot indicators,
+     * and sets up manual-swipe callback.
+     */
+    private void setupPhotoMode() {
+        if (!isAdded() || getContext() == null || reel == null) return;
+        if (vpPhotos == null || llPhotoDots == null) return;
+
+        photoUrls = reel.photoUrls != null
+            ? new ArrayList<>(reel.photoUrls)
+            : new ArrayList<>();
+        if (photoUrls.isEmpty()) return;
+
+        photoDurationMs   = reel.photoDurationMs > 0 ? reel.photoDurationMs : 3000;
+        isPhotoMode       = true;
+        currentPhotoIndex = 0;
+
+        // Show photo ViewPager2, hide video PlayerView
+        playerView.setVisibility(View.GONE);
+        vpPhotos.setVisibility(View.VISIBLE);
+
+        // Hide mute button for photo reels without music
+        if (btnMute != null && (reel.musicUrl == null || reel.musicUrl.isEmpty())) {
+            btnMute.setVisibility(View.GONE);
+        }
+
+        // Wire up adapter
+        ReelPhotoSlideshowAdapter adapter = new ReelPhotoSlideshowAdapter(photoUrls);
+        vpPhotos.setAdapter(adapter);
+
+        // Sync dot indicator on manual swipe + restart auto-advance timer
+        vpPhotos.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+            @Override
+            public void onPageSelected(int position) {
+                currentPhotoIndex = position;
+                updatePhotoDots(position);
+                // Update progress bar proportionally
+                if (progressVideo != null && !photoUrls.isEmpty()) {
+                    int progress = (int)((float)(position + 1) / photoUrls.size() * 1000f);
+                    progressVideo.setProgress(progress);
+                }
+                // Restart auto-advance timer from this photo
+                stopPhotoSlideshow();
+                startPhotoSlideshow();
+            }
+        });
+
+        // Build and show dot indicators
+        buildPhotoDots(photoUrls.size());
+        llPhotoDots.setVisibility(View.VISIBLE);
+        updatePhotoDots(0);
+    }
+
+    /** Creates N dot views inside llPhotoDots (all inactive initially). */
+    private void buildPhotoDots(int count) {
+        if (llPhotoDots == null || !isAdded() || getContext() == null) return;
+        llPhotoDots.removeAllViews();
+        for (int i = 0; i < count; i++) {
+            View dot = new View(requireContext());
+            int sizePx = dpToPx(4);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(sizePx, sizePx);
+            lp.setMargins(dpToPx(3), 0, dpToPx(3), 0);
+            dot.setLayoutParams(lp);
+            android.graphics.drawable.GradientDrawable shape =
+                new android.graphics.drawable.GradientDrawable();
+            shape.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            shape.setColor(0x80FFFFFF);
+            dot.setBackground(shape);
+            llPhotoDots.addView(dot);
+        }
+    }
+
+    /** Highlights the active dot and shrinks the rest. */
+    private void updatePhotoDots(int activeIndex) {
+        if (llPhotoDots == null || !isAdded()) return;
+        int activeSizePx   = dpToPx(6);
+        int inactiveSizePx = dpToPx(4);
+        for (int i = 0; i < llPhotoDots.getChildCount(); i++) {
+            View dot = llPhotoDots.getChildAt(i);
+            if (dot == null) continue;
+            boolean active = (i == activeIndex);
+            int sz = active ? activeSizePx : inactiveSizePx;
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(sz, sz);
+            lp.setMargins(dpToPx(3), 0, dpToPx(3), 0);
+            dot.setLayoutParams(lp);
+            android.graphics.drawable.GradientDrawable shape =
+                new android.graphics.drawable.GradientDrawable();
+            shape.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            shape.setColor(active ? 0xFFFFFFFF : 0x80FFFFFF);
+            dot.setBackground(shape);
+        }
+    }
+
+    /**
+     * Schedules the next photo advance every photoDurationMs ms.
+     * When the last photo is reached, waits 400ms then calls autoAdvance()
+     * to move to the next reel (same as video reaching STATE_ENDED).
+     */
+    private void startPhotoSlideshow() {
+        if (!isPhotoMode || photoUrls == null || photoUrls.isEmpty()) return;
+        stopPhotoSlideshow();
+        photoAdvanceRunnable = new Runnable() {
+            @Override public void run() {
+                if (!isAdded() || vpPhotos == null || photoUrls == null) return;
+                if (currentPhotoIndex < photoUrls.size() - 1) {
+                    currentPhotoIndex++;
+                    vpPhotos.setCurrentItem(currentPhotoIndex, true);
+                    updatePhotoDots(currentPhotoIndex);
+                    if (progressVideo != null) {
+                        int progress = (int)((float)(currentPhotoIndex + 1)
+                            / photoUrls.size() * 1000f);
+                        progressVideo.setProgress(progress);
+                    }
+                    photoHandler.postDelayed(this, photoDurationMs);
+                } else {
+                    // End of slideshow → advance to next reel
+                    if (progressVideo != null) progressVideo.setProgress(1000);
+                    photoHandler.postDelayed(() -> {
+                        if (isAdded()) autoAdvance();
+                    }, 400);
+                }
+            }
+        };
+        // Set initial progress for the current photo
+        if (progressVideo != null && !photoUrls.isEmpty()) {
+            int progress = (int)((float)(currentPhotoIndex + 1) / photoUrls.size() * 1000f);
+            progressVideo.setProgress(progress);
+        }
+        photoHandler.postDelayed(photoAdvanceRunnable, photoDurationMs);
+    }
+
+    /** Cancels any pending photo-advance runnable. */
+    private void stopPhotoSlideshow() {
+        if (photoAdvanceRunnable != null) {
+            photoHandler.removeCallbacks(photoAdvanceRunnable);
+            photoAdvanceRunnable = null;
         }
     }
 

@@ -11,14 +11,6 @@ dependencyResolutionManagement {
             content { includeGroup "io.getstream" }
         }
         maven { url "https://jitpack.io" }
-        maven {
-            url "https://storage.zego.im/maven"
-            content { includeGroup "im.zego" }
-            metadataSources {
-                mavenPom()
-                artifact()
-            }
-        }
     }
 }
 rootProject.name = "CallX"
