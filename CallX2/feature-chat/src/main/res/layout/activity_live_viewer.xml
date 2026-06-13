@@ -89,7 +89,7 @@
                 android:layout_weight="1"
                 android:background="#44FFFFFF"
                 android:hint="Comment karo..."
-                android:hintTextColor="#AAFFFFFF"
+                
                 android:textColor="#FFFFFF"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"

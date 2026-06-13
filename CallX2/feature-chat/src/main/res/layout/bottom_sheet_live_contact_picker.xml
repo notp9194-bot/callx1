@@ -86,7 +86,7 @@
         android:paddingTop="4dp"/>
 
     <!-- Start Live button -->
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_start_live"
         android:layout_width="match_parent"
         android:layout_height="52dp"
@@ -98,5 +98,6 @@
         android:textStyle="bold"
         android:textColor="@color/white"
         android:backgroundTint="#E53935"
-        android:cornerRadius="26dp"/>
+        app:cornerRadius="26dp"
+        xmlns:app="http://schemas.android.com/apk/res-auto"/>
 </LinearLayout>
