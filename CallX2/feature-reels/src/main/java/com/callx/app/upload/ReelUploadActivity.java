@@ -223,38 +223,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (btnMediaTypePhotos != null) btnMediaTypePhotos.setOnClickListener(v -> switchToPhotoMode());
         if (btnPickPhotos      != null) btnPickPhotos.setOnClickListener(v      -> checkPermissionAndPickPhotos());
 
-        // Duration picker
-        if (rgPhotoDuration != null) {
-            rgPhotoDuration.setOnCheckedChangeListener((group, checkedId) -> {
-                if (checkedId == R.id.rb_dur_2)       selectedDurationMs = 2000;
-                else if (checkedId == R.id.rb_dur_5)  selectedDurationMs = 5000;
-                else if (checkedId == R.id.rb_dur_7)  selectedDurationMs = 7000;
-                else if (checkedId == R.id.rb_dur_10) selectedDurationMs = 10000;
-                else                                   selectedDurationMs = 3000;
-            });
-        }
-
-        // Transition picker
-        if (rgTransition != null) {
-            rgTransition.setOnCheckedChangeListener((group, checkedId) -> {
-                if (checkedId == R.id.rb_tr_slide)      selectedTransitionType = "slide";
-                else if (checkedId == R.id.rb_tr_zoom)  selectedTransitionType = "zoom";
-                else if (checkedId == R.id.rb_tr_none)  selectedTransitionType = "none";
-                else                                     selectedTransitionType = "fade";
-            });
-        }
-
-        // Filter picker
-        if (rgPhotoFilter != null) {
-            rgPhotoFilter.setOnCheckedChangeListener((group, checkedId) -> {
-                if (checkedId == R.id.rb_filter_warm)       selectedFilter = "warm";
-                else if (checkedId == R.id.rb_filter_cool)  selectedFilter = "cool";
-                else if (checkedId == R.id.rb_filter_vivid) selectedFilter = "vivid";
-                else if (checkedId == R.id.rb_filter_bw)    selectedFilter = "bw";
-                else                                         selectedFilter = "normal";
-            });
-        }
-
         // Add More Photos button — re-opens picker in append mode
         if (btnAddMorePhotos != null) {
             btnAddMorePhotos.setOnClickListener(v -> checkPermissionAndPickPhotos());
@@ -314,6 +282,77 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (chipStandard != null) chipStandard.setChecked(true);
         Chip chipEveryone = findViewById(R.id.chip_everyone);
         if (chipEveryone != null) chipEveryone.setChecked(true);
+
+        // ── Photo chip groups: programmatic highlight (guaranteed to work) ──
+        // Duration: default 3s
+        refreshPhotoChipGroup(rgPhotoDuration, R.id.rb_dur_3);
+        // Transition: default fade
+        refreshPhotoChipGroup(rgTransition, R.id.rb_tr_fade);
+        // Filter: default normal
+        refreshPhotoChipGroup(rgPhotoFilter, R.id.rb_filter_normal);
+
+        // Re-apply on every selection change
+        if (rgPhotoDuration != null) {
+            rgPhotoDuration.setOnCheckedChangeListener((group, checkedId) -> {
+                if (checkedId == R.id.rb_dur_2)       selectedDurationMs = 2000;
+                else if (checkedId == R.id.rb_dur_5)  selectedDurationMs = 5000;
+                else if (checkedId == R.id.rb_dur_7)  selectedDurationMs = 7000;
+                else if (checkedId == R.id.rb_dur_10) selectedDurationMs = 10000;
+                else                                   selectedDurationMs = 3000;
+                refreshPhotoChipGroup(group, checkedId);
+            });
+        }
+        if (rgTransition != null) {
+            rgTransition.setOnCheckedChangeListener((group, checkedId) -> {
+                if (checkedId == R.id.rb_tr_slide)      selectedTransitionType = "slide";
+                else if (checkedId == R.id.rb_tr_zoom)  selectedTransitionType = "zoom";
+                else if (checkedId == R.id.rb_tr_none)  selectedTransitionType = "none";
+                else                                     selectedTransitionType = "fade";
+                refreshPhotoChipGroup(group, checkedId);
+            });
+        }
+        if (rgPhotoFilter != null) {
+            rgPhotoFilter.setOnCheckedChangeListener((group, checkedId) -> {
+                if (checkedId == R.id.rb_filter_warm)       selectedFilter = "warm";
+                else if (checkedId == R.id.rb_filter_cool)  selectedFilter = "cool";
+                else if (checkedId == R.id.rb_filter_vivid) selectedFilter = "vivid";
+                else if (checkedId == R.id.rb_filter_bw)    selectedFilter = "bw";
+                else                                         selectedFilter = "normal";
+                refreshPhotoChipGroup(group, checkedId);
+            });
+        }
+    }
+
+    /**
+     * Programmatically updates background + text color of every RadioButton
+     * in a photo chip group so the selected one is visually highlighted.
+     * This is more reliable than XML drawable selectors on all API levels.
+     */
+    private void refreshPhotoChipGroup(android.widget.RadioGroup group, int checkedId) {
+        if (group == null) return;
+        int SELECTED_BG   = 0xFF5B5BF6; // brand_primary
+        int UNSELECTED_BG = 0x1A5B5BF6; // 10% brand_primary
+        int SELECTED_TEXT = android.graphics.Color.WHITE;
+        int UNSELECTED_TEXT = 0xFF0F172A;
+
+        for (int i = 0; i < group.getChildCount(); i++) {
+            android.view.View child = group.getChildAt(i);
+            if (!(child instanceof android.widget.RadioButton)) continue;
+            android.widget.RadioButton rb = (android.widget.RadioButton) child;
+            boolean selected = (rb.getId() == checkedId);
+
+            // Background
+            android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(60f); // pill
+            bg.setColor(selected ? SELECTED_BG : UNSELECTED_BG);
+            if (!selected) {
+                bg.setStroke(2, 0x405B5BF6);
+            }
+            rb.setBackground(bg);
+            rb.setTextColor(selected ? SELECTED_TEXT : UNSELECTED_TEXT);
+        }
     }
 
     private void openSeriesPickerFromUpload() {
