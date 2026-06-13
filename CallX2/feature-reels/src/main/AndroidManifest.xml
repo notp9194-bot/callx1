@@ -383,5 +383,12 @@
               android:exported="false"
               android:theme="@style/Theme.AppCompat.NoActionBar"
               android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ── Photo Editor v5 (per-photo filter/effect/caption/sticker/crop) ── -->
+        <activity android:name="com.callx.app.editor.ReelPhotoEditorActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:windowSoftInputMode="adjustResize"/>
     </application>
 </manifest>

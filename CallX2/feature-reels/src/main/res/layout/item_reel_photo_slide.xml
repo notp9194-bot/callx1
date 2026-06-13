@@ -1,14 +1,111 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    item_reel_photo_slide.xml  ── Ultra-Advanced Photo Slide v5
+    ─────────────────────────────────────────────────────────────
+    One page of the photo ViewPager2 in ReelPlayerFragment.
+
+    Layers (bottom → top):
+      1. iv_photo_slide          – main photo (centerCrop, Ken Burns target)
+      2. v_effect_overlay        – full-bleed shader overlay (vignette / grain / glitch / etc.)
+      3. v_color_filter_overlay  – semi-transparent colour tint for live filter preview
+      4. ll_sticker_layer        – FrameLayout for programmatically added emoji/text stickers
+      5. view_zoom_touch         – transparent hit-target for pinch-zoom & double-tap gestures
+      6. tv_photo_caption        – per-photo animated caption bar at the bottom
+      7. v_caption_gradient      – gradient scrim behind the caption
+      8. ll_spark_row            – subtle sparkle/particle strip above the caption (opt.)
+-->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="#000000"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
+    <!-- ── 1. Main photo ─────────────────────────────────────────────────── -->
     <ImageView
         android:id="@+id/iv_photo_slide"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:contentDescription="Reel photo"/>
+
+    <!-- ── 2. Effect overlay  (vignette / grain / glitch / neon_glow / etc.) -->
+    <!-- DrawingCache is updated by ReelPhotoSlideshowAdapter.applyEffect()   -->
+    <View
+        android:id="@+id/v_effect_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:clickable="false"/>
+
+    <!-- ── 3. Colour-filter tint overlay ─────────────────────────────────── -->
+    <View
+        android:id="@+id/v_color_filter_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:clickable="false"/>
+
+    <!-- ── 4. Sticker layer (emoji, drawn text, GIF stickers) ────────────── -->
+    <FrameLayout
+        android:id="@+id/ll_sticker_layer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"/>
+
+    <!-- ── 5. Zoom gesture hit-target (covers full slide, below caption UI) -->
+    <View
+        android:id="@+id/view_zoom_touch"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:clickable="true"
+        android:focusable="false"/>
+
+    <!-- ── 6. Caption gradient scrim ─────────────────────────────────────── -->
+    <View
+        android:id="@+id/v_caption_gradient"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/gradient_reel_bottom"
+        android:visibility="gone"
+        android:clickable="false"/>
+
+    <!-- ── 7. Per-photo caption overlay ──────────────────────────────────── -->
+    <!--     Animated in from below; alpha = 0 initially.                     -->
+    <TextView
+        android:id="@+id/tv_photo_caption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="18dp"
+        android:layout_marginStart="14dp"
+        android:layout_marginEnd="64dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="7dp"
+        android:paddingBottom="7dp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="13sp"
+        android:lineSpacingMultiplier="1.35"
+        android:background="#BB000000"
+        android:alpha="0"
+        android:translationY="24dp"
+        android:visibility="gone"
+        android:clickable="false"/>
+
+    <!-- ── 8. Sparkle / particle strip above caption ─────────────────────── -->
+    <LinearLayout
+        android:id="@+id/ll_spark_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="78dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:visibility="gone"
+        android:clickable="false"/>
 
 </FrameLayout>

@@ -1,0 +1,389 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    activity_reel_photo_editor.xml ── Per-Photo Editor v5
+    ══════════════════════════════════════════════════════
+    Full-screen dark editor: large photo preview at top,
+    tab bar for tools, scrollable panel below.
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#111111">
+
+    <!-- ── Top bar ────────────────────────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#1A1A1A"
+        android:paddingStart="4dp"
+        android:paddingEnd="8dp">
+
+        <TextView
+            android:id="@+id/btn_editor_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:text="✕"
+            android:textSize="18sp"
+            android:textColor="#FFFFFF"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        <TextView
+            android:id="@+id/tv_photo_editor_index"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Photo 1 of 1"
+            android:textColor="#CCFFFFFF"
+            android:textSize="15sp"
+            android:gravity="center"
+            android:fontFamily="sans-serif-medium"/>
+
+        <TextView
+            android:id="@+id/btn_editor_rotate"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:text="⟳"
+            android:textSize="20sp"
+            android:textColor="#AAFFFFFF"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginEnd="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        <TextView
+            android:id="@+id/btn_editor_done"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Done"
+            android:textColor="#000000"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:background="#A855F7"
+            android:clickable="true"
+            android:focusable="true"/>
+    </LinearLayout>
+
+    <!-- ── Photo preview area ─────────────────────────────────────── -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#000000">
+
+        <ImageView
+            android:id="@+id/iv_photo_editor_preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:contentDescription="Photo preview"/>
+
+        <!-- Effect overlay -->
+        <View
+            android:id="@+id/v_editor_effect_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:clickable="false"/>
+
+        <!-- Colour filter tint -->
+        <View
+            android:id="@+id/v_editor_color_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:clickable="false"/>
+
+        <!-- Sticker layer -->
+        <FrameLayout
+            android:id="@+id/fl_editor_sticker_layer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clickable="false"/>
+
+        <!-- Caption preview -->
+        <TextView
+            android:id="@+id/tv_photo_editor_caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="8dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:padding="8dp"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:background="#BB000000"
+            android:visibility="gone"
+            android:clickable="false"/>
+    </FrameLayout>
+
+    <!-- ── Apply to all checkbox ──────────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#1A1A1A"
+        android:paddingStart="16dp">
+
+        <CheckBox
+            android:id="@+id/cb_apply_all"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Apply filter &amp; effect to all photos"
+            android:textColor="#AAFFFFFF"
+            android:textSize="12sp"
+            android:buttonTint="#A855F7"/>
+    </LinearLayout>
+
+    <!-- ── Tab bar ────────────────────────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:background="#1A1A1A"
+        android:gravity="center_vertical">
+
+        <TextView android:id="@+id/tab_filters"
+            style="@style/EditorTab" android:text="Filter"/>
+        <TextView android:id="@+id/tab_effects"
+            style="@style/EditorTab" android:text="Effect"/>
+        <TextView android:id="@+id/tab_caption"
+            style="@style/EditorTab" android:text="Caption"/>
+        <TextView android:id="@+id/tab_stickers"
+            style="@style/EditorTab" android:text="Sticker"/>
+        <TextView android:id="@+id/tab_adjust"
+            style="@style/EditorTab" android:text="Adjust"/>
+    </LinearLayout>
+
+    <!-- ── Tool panels (only one visible at a time) ───────────────── -->
+
+    <!-- FILTERS panel -->
+    <HorizontalScrollView
+        android:id="@+id/panel_filters"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:background="#222222"
+        android:scrollbars="none"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:id="@+id/ll_filter_chips"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"/>
+    </HorizontalScrollView>
+
+    <!-- EFFECTS panel -->
+    <HorizontalScrollView
+        android:id="@+id/panel_effects"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:background="#222222"
+        android:scrollbars="none"
+        android:visibility="gone"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <LinearLayout
+            android:id="@+id/ll_effect_chips"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"/>
+    </HorizontalScrollView>
+
+    <!-- CAPTION panel -->
+    <LinearLayout
+        android:id="@+id/panel_caption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#222222"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/et_caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Caption for this photo…"
+            android:hintTextColor="#66FFFFFF"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:background="#33FFFFFF"
+            android:padding="10dp"
+            android:maxLines="3"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+
+            <ToggleButton android:id="@+id/toggle_bold"
+                android:layout_width="40dp" android:layout_height="36dp"
+                android:textOn="B" android:textOff="B"
+                android:textStyle="bold" android:textSize="14sp"
+                android:textColor="#FFFFFF" android:background="#44FFFFFF"/>
+
+            <ToggleButton android:id="@+id/toggle_italic"
+                android:layout_width="40dp" android:layout_height="36dp"
+                android:textOn="I" android:textOff="I"
+                android:textStyle="italic" android:textSize="14sp"
+                android:textColor="#FFFFFF" android:background="#44FFFFFF"
+                android:layout_marginStart="6dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Size"
+                android:textColor="#AAFFFFFF"
+                android:textSize="11sp"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="8dp"/>
+
+            <SeekBar
+                android:id="@+id/sb_caption_size"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="40"
+                android:progress="10"
+                android:progressTint="#A855F7"
+                android:thumbTint="#A855F7"/>
+        </LinearLayout>
+
+        <!-- Caption colour picker -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="6dp"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/ll_caption_color_picker"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"/>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+    <!-- STICKERS panel -->
+    <HorizontalScrollView
+        android:id="@+id/panel_stickers"
+        android:layout_width="match_parent"
+        android:layout_height="70dp"
+        android:background="#222222"
+        android:scrollbars="none"
+        android:visibility="gone"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:id="@+id/ll_emoji_row"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"/>
+    </HorizontalScrollView>
+
+    <!-- ADJUST panel -->
+    <LinearLayout
+        android:id="@+id/panel_adjust"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#222222"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <!-- Brightness -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="32dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="80dp" android:layout_height="wrap_content"
+                android:text="Brightness" android:textColor="#AAFFFFFF" android:textSize="11sp"/>
+            <SeekBar android:id="@+id/sb_brightness"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:progressTint="#FFD700" android:thumbTint="#FFD700"/>
+            <TextView android:id="@+id/tv_brightness_val"
+                android:layout_width="36dp" android:layout_height="wrap_content"
+                android:text="+0.0" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- Contrast -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="32dp"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+            <TextView android:layout_width="80dp" android:layout_height="wrap_content"
+                android:text="Contrast" android:textColor="#AAFFFFFF" android:textSize="11sp"/>
+            <SeekBar android:id="@+id/sb_contrast"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:progressTint="#00E5FF" android:thumbTint="#00E5FF"/>
+            <TextView android:id="@+id/tv_contrast_val"
+                android:layout_width="36dp" android:layout_height="wrap_content"
+                android:text="1.0x" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- Saturation -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="32dp"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+            <TextView android:layout_width="80dp" android:layout_height="wrap_content"
+                android:text="Saturation" android:textColor="#AAFFFFFF" android:textSize="11sp"/>
+            <SeekBar android:id="@+id/sb_saturation"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:progressTint="#FF416C" android:thumbTint="#FF416C"/>
+            <TextView android:id="@+id/tv_saturation_val"
+                android:layout_width="36dp" android:layout_height="wrap_content"
+                android:text="1.0x" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- Ken Burns direction -->
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Ken Burns Direction" android:textColor="#AAFFFFFF"
+            android:textSize="11sp" android:layout_marginTop="10dp"/>
+        <LinearLayout
+            android:id="@+id/ll_kb_direction"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp"/>
+
+        <!-- Duration -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="32dp"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:layout_marginTop="10dp">
+            <TextView android:layout_width="80dp" android:layout_height="wrap_content"
+                android:text="Duration" android:textColor="#AAFFFFFF" android:textSize="11sp"/>
+            <SeekBar android:id="@+id/sb_duration"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:progressTint="#00FF88" android:thumbTint="#00FF88"/>
+            <TextView android:id="@+id/tv_duration_label"
+                android:layout_width="52dp" android:layout_height="wrap_content"
+                android:text="3.0s" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:gravity="end"/>
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>
