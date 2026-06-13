@@ -992,7 +992,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                     ReelModel reel = new ReelModel(
                         reelId, myUid, finalMyName, safePhoto,
                         "", thumbUrl, caption, musicName,
-                        System.currentTimeMillis(), (long) photoUrls.size() * durMs, 0, 0);
+                        System.currentTimeMillis(), photoUrls.size() * durMs, 0, 0);
 
                     reel.mediaType       = "photo_slideshow";
                     reel.photoUrls       = photoUrls;
