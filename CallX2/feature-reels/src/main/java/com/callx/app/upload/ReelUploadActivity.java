@@ -202,8 +202,26 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (getSupportActionBar() != null) getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         toolbar.setNavigationOnClickListener(v -> finish());
 
+        // ══════ DIAGNOSTIC (fix-debug) ══════════════════════════════════════
+        android.util.Log.e("CALLX_DIAG", "ReelUploadActivity onCreate — class=" + this.getClass().getName()
+            + " pkg=" + this.getClass().getPackage().getName());
+        android.widget.Toast.makeText(this,
+            "DIAG: " + this.getClass().getSimpleName(), android.widget.Toast.LENGTH_LONG).show();
+        // ═════════════════════════════════════════════════════════════════════
+
         bindViews();
         setupChipDefaults();
+
+        // ══════ DIAGNOSTIC (fix-debug) ══════════════════════════════════════
+        android.util.Log.e("CALLX_DIAG", "btnMediaTypeVideo=" + btnMediaTypeVideo
+            + " btnMediaTypePhotos=" + btnMediaTypePhotos
+            + " cardPhotos=" + cardPhotos
+            + " layoutPickVideo=" + layoutPickVideo);
+        android.widget.Toast.makeText(this,
+            "DIAG: photosBtn=" + (btnMediaTypePhotos != null)
+                + " cardPhotos=" + (cardPhotos != null),
+            android.widget.Toast.LENGTH_LONG).show();
+        // ═════════════════════════════════════════════════════════════════════
 
         layoutPickVideo.setOnClickListener(v -> checkPermissionAndPickVideo());
         playerPreview.setOnClickListener(v -> checkPermissionAndPickVideo());
