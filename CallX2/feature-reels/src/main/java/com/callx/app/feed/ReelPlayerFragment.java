@@ -1145,9 +1145,8 @@ public class ReelPlayerFragment extends Fragment
         }
 
         // ── Adapter: Ken Burns + photo filter ────────────────────────────────
-        ReelPhotoSlideshowAdapter adapter = new ReelPhotoSlideshowAdapter(photoUrls);
-        adapter.setPhotoDurationMs(photoDurationMs);
-        adapter.setFilter(reel.photoFilter);
+        ReelPhotoSlideshowAdapter adapter = new ReelPhotoSlideshowAdapter(reel);
+        adapter.setGlobalFilter(reel.photoFilter != null ? reel.photoFilter : "normal");
         vpPhotos.setAdapter(adapter);
 
         // ── Transition PageTransformer ─────────────────────────────────────

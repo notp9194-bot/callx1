@@ -155,7 +155,6 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     private ToggleButton toggleBold, toggleItalic;
     private SeekBar sbCaptionSize;
     private LinearLayout llCaptionColorPicker;
-    private View vCaptionBg;
 
     // Sticker panel
     private HorizontalScrollView scrollStickers;
@@ -268,7 +267,6 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         toggleItalic     = findViewById(R.id.toggle_italic);
         sbCaptionSize    = findViewById(R.id.sb_caption_size);
         llCaptionColorPicker = findViewById(R.id.ll_caption_color_picker);
-        vCaptionBg       = findViewById(R.id.v_caption_bg_swatch);
 
         llEmojiRow       = findViewById(R.id.ll_emoji_row);
 
