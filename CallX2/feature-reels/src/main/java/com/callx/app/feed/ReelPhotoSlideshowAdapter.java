@@ -1126,6 +1126,90 @@ public class ReelPhotoSlideshowAdapter
         }
     }
 
+
+    /** Rubber-band warp: page stretches elastically in from the side. */
+    public static class WarpTransformer implements ViewPager2.PageTransformer {
+        @Override public void transformPage(@NonNull View page, float pos) {
+            float absPos = Math.abs(pos);
+            page.setAlpha(1f - absPos * 0.6f);
+            if (pos < 0f) {
+                page.setScaleX(1f + pos * 0.4f);
+                page.setTranslationX(0f);
+            } else {
+                page.setScaleX(1f + 0.15f * (float)Math.sin(pos * Math.PI));
+                page.setTranslationX(-pos * page.getWidth() * 0.85f);
+            }
+            page.setScaleY(1f - absPos * 0.08f);
+        }
+    }
+
+    /** Cross-dissolve with gentle counter-rotation. */
+    public static class MorphTransformer implements ViewPager2.PageTransformer {
+        @Override public void transformPage(@NonNull View page, float pos) {
+            float absPos = Math.abs(pos);
+            page.setAlpha(1f - absPos);
+            page.setRotation(pos * 8f);
+            page.setScaleX(1f - absPos * 0.12f);
+            page.setScaleY(1f - absPos * 0.12f);
+            page.setTranslationX(-pos * page.getWidth() * 0.4f);
+        }
+    }
+
+    /** Elastic bounce: incoming page overshoots and springs back. */
+    public static class BounceTransformer implements ViewPager2.PageTransformer {
+        @Override public void transformPage(@NonNull View page, float pos) {
+            if (pos <= 0f) {
+                page.setTranslationX(0f); page.setAlpha(1f);
+                page.setScaleX(1f); page.setScaleY(1f);
+            } else {
+                float elastic = (float)(1f + 0.22f * Math.sin(pos * Math.PI * 3f) * Math.exp(-pos * 3.5f));
+                page.setScaleX(elastic); page.setScaleY(elastic);
+                page.setAlpha(1f - pos * 0.6f);
+                page.setTranslationX(-pos * page.getWidth());
+            }
+        }
+    }
+
+    /** Clockwise Z-axis swirl swipe. */
+    public static class SwirlTransformer implements ViewPager2.PageTransformer {
+        @Override public void transformPage(@NonNull View page, float pos) {
+            float absPos = Math.abs(pos);
+            page.setRotation(pos * 35f);
+            page.setAlpha(1f - absPos * 0.8f);
+            page.setScaleX(1f - absPos * 0.3f);
+            page.setScaleY(1f - absPos * 0.3f);
+            page.setTranslationX(-pos * page.getWidth() * 0.5f);
+        }
+    }
+
+    /** Stage curtain: outgoing page collapses from center. */
+    public static class CurtainTransformer implements ViewPager2.PageTransformer {
+        @Override public void transformPage(@NonNull View page, float pos) {
+            if (pos < -1f || pos > 1f) { page.setAlpha(0f); return; }
+            if (pos <= 0f) {
+                float scale = 1f + pos * 0.5f;
+                page.setScaleX(Math.max(0.01f, scale));
+                page.setAlpha(Math.max(0f, 1f + pos * 1.5f));
+                page.setTranslationX(0f);
+            } else {
+                page.setAlpha(1f); page.setScaleX(1f); page.setScaleY(1f);
+                page.setTranslationX(-pos * page.getWidth());
+            }
+        }
+    }
+
+    /** Paper origami fold: pivot on leading corner. */
+    public static class OrigamiTransformer implements ViewPager2.PageTransformer {
+        @Override public void transformPage(@NonNull View page, float pos) {
+            page.setPivotX(pos < 0 ? page.getWidth() : 0f);
+            page.setPivotY(page.getHeight());
+            page.setRotation(pos * -45f);
+            float absPos = Math.abs(pos);
+            page.setAlpha(1f - absPos * 0.5f);
+            page.setScaleX(1f - absPos * 0.1f);
+        }
+    }
+
     // ── ViewHolder ────────────────────────────────────────────────────────────
 
     public static class PhotoVH extends RecyclerView.ViewHolder {

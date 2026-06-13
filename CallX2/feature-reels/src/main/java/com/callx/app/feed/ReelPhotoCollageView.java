@@ -131,38 +131,37 @@ public class ReelPhotoCollageView extends FrameLayout {
             case SPLIT_H: {
                 // [ Photo 0 | Photo 1 ]
                 LinearLayout row = hRow(MATCH_PARENT, MATCH_PARENT);
-                addTile(row, urls.get(0), 1f, MATCH_PARENT, filter, effect, gap/2, 0, gap/2, 0, 400);
-                addTile(row, urls.get(1), 1f, MATCH_PARENT, filter, effect, 0, 0, 0, 0, 600);
+                addTileH(row, urls.get(0), 1f, filter, effect, (int)(gap/2), 0, (int)(gap/2), 0, 400);
+                addTileH(row, urls.get(1), 1f, filter, effect, 0, 0, 0, 0, 600);
                 addView(row);
                 break;
             }
             case SPLIT_V: {
                 // [ Photo 0 top / Photo 1 bottom ]
                 LinearLayout col = vCol(MATCH_PARENT, MATCH_PARENT);
-                addTile(col, urls.get(0), MATCH_PARENT, 1f, filter, effect, 0, 0, 0, gap/2, 400);
-                addTile(col, urls.get(1), MATCH_PARENT, 1f, filter, effect, 0, 0, 0, 0, 600);
+                addTileV(col, urls.get(0), 1f, filter, effect, 0, 0, 0, (int)(gap/2), 400);
+                addTileV(col, urls.get(1), 1f, filter, effect, 0, 0, 0, 0, 600);
                 addView(col);
                 break;
             }
             case TRIPTYCH: {
                 // [ 0 | 1 | 2 ] equal thirds
                 LinearLayout row = hRow(MATCH_PARENT, MATCH_PARENT);
-                addTile(row, urls.get(0), 1f, MATCH_PARENT, filter, effect, 0, 0, gap/2, 0, 300);
-                addTile(row, urls.get(1), 1f, MATCH_PARENT, filter, effect, gap/2, 0, gap/2, 0, 500);
-                addTile(row, urls.get(2), 1f, MATCH_PARENT, filter, effect, gap/2, 0, 0, 0, 700);
+                addTileH(row, urls.get(0), 1f, filter, effect, 0, 0, (int)(gap/2), 0, 300);
+                addTileH(row, urls.get(1), 1f, filter, effect, (int)(gap/2), 0, (int)(gap/2), 0, 500);
+                addTileH(row, urls.get(2), 1f, filter, effect, (int)(gap/2), 0, 0, 0, 700);
                 addView(row);
                 break;
             }
             case GRID_2X2: {
-                // Row 0: [0 | 1]
-                // Row 1: [2 | 3]
+                // Row 0: [0 | 1] / Row 1: [2 | 3]
                 LinearLayout col = vCol(MATCH_PARENT, MATCH_PARENT);
                 LinearLayout r0  = hRow(MATCH_PARENT, 1f);
-                addTile(r0, urls.get(0), 1f, MATCH_PARENT, filter, effect, 0, 0, gap/2, gap/2, 200);
-                addTile(r0, urls.get(1), 1f, MATCH_PARENT, filter, effect, gap/2, 0, 0, gap/2, 400);
+                addTileH(r0, urls.get(0), 1f, filter, effect, 0, 0, (int)(gap/2), (int)(gap/2), 200);
+                addTileH(r0, urls.get(1), 1f, filter, effect, (int)(gap/2), 0, 0, (int)(gap/2), 400);
                 LinearLayout r1  = hRow(MATCH_PARENT, 1f);
-                addTile(r1, urls.get(2), 1f, MATCH_PARENT, filter, effect, 0, gap/2, gap/2, 0, 600);
-                addTile(r1, urls.get(3), 1f, MATCH_PARENT, filter, effect, gap/2, gap/2, 0, 0, 800);
+                addTileH(r1, urls.get(2), 1f, filter, effect, 0, (int)(gap/2), (int)(gap/2), 0, 600);
+                addTileH(r1, urls.get(3), 1f, filter, effect, (int)(gap/2), (int)(gap/2), 0, 0, 800);
                 col.addView(r0); col.addView(r1);
                 addView(col);
                 break;
@@ -170,12 +169,12 @@ public class ReelPhotoCollageView extends FrameLayout {
             case FEATURED_LEFT: {
                 // [ large (60%) | small top / small bottom (40%) ]
                 LinearLayout row = hRow(MATCH_PARENT, MATCH_PARENT);
-                addTileFraction(row, urls.get(0), 0.60f, MATCH_PARENT, filter, effect, 0, 0, gap/2, 0, 300);
-                LinearLayout rightCol = vCol(0, MATCH_PARENT);
-                ((LinearLayout.LayoutParams) rightCol.getLayoutParams()).weight = 0.40f;
-                ((LinearLayout.LayoutParams) rightCol.getLayoutParams()).width  = 0;
-                addTile(rightCol, urls.get(1), MATCH_PARENT, 1f, filter, effect, 0, 0, 0, gap/2, 550);
-                addTile(rightCol, urls.get(2), MATCH_PARENT, 1f, filter, effect, 0, gap/2, 0, 0, 750);
+                addTileH(row, urls.get(0), 0.60f, filter, effect, 0, 0, (int)(gap/2), 0, 300);
+                LinearLayout rightCol = new LinearLayout(getContext());
+                rightCol.setOrientation(LinearLayout.VERTICAL);
+                rightCol.setLayoutParams(new LinearLayout.LayoutParams(0, MATCH_PARENT, 0.40f));
+                addTileV(rightCol, urls.get(1), 1f, filter, effect, 0, 0, 0, (int)(gap/2), 550);
+                addTileV(rightCol, urls.get(2), 1f, filter, effect, 0, (int)(gap/2), 0, 0, 750);
                 row.addView(rightCol);
                 addView(row);
                 break;
@@ -183,34 +182,37 @@ public class ReelPhotoCollageView extends FrameLayout {
             case FEATURED_RIGHT: {
                 // [ small top / small bottom (40%) | large (60%) ]
                 LinearLayout row = hRow(MATCH_PARENT, MATCH_PARENT);
-                LinearLayout leftCol = vCol(0, MATCH_PARENT);
+                LinearLayout leftCol = new LinearLayout(getContext());
+                leftCol.setOrientation(LinearLayout.VERTICAL);
                 leftCol.setLayoutParams(new LinearLayout.LayoutParams(0, MATCH_PARENT, 0.40f));
-                addTile(leftCol, urls.get(0), MATCH_PARENT, 1f, filter, effect, 0, 0, gap/2, gap/2, 300);
-                addTile(leftCol, urls.get(1), MATCH_PARENT, 1f, filter, effect, 0, gap/2, gap/2, 0, 500);
+                addTileV(leftCol, urls.get(0), 1f, filter, effect, 0, 0, (int)(gap/2), (int)(gap/2), 300);
+                addTileV(leftCol, urls.get(1), 1f, filter, effect, 0, (int)(gap/2), (int)(gap/2), 0, 500);
                 row.addView(leftCol);
-                addTileFraction(row, urls.get(2), 0.60f, MATCH_PARENT, filter, effect, gap/2, 0, 0, 0, 700);
+                addTileH(row, urls.get(2), 0.60f, filter, effect, (int)(gap/2), 0, 0, 0, 700);
                 addView(row);
                 break;
             }
             case WIDE_TOP: {
-                // [ wide photo top (40% h) ]
-                // [ photo2 | photo3 (60% h) ]
+                // [ wide top (40% h) / [photo2 | photo3] (60% h) ]
                 LinearLayout col = vCol(MATCH_PARENT, MATCH_PARENT);
-                LinearLayout topRow = hRow(MATCH_PARENT, 0);
+                LinearLayout topRow = new LinearLayout(getContext());
+                topRow.setOrientation(LinearLayout.HORIZONTAL);
                 topRow.setLayoutParams(new LinearLayout.LayoutParams(MATCH_PARENT, 0, 0.40f));
-                addTile(topRow, urls.get(0), 1f, MATCH_PARENT, filter, effect, 0, 0, 0, gap/2, 300);
+                addTileH(topRow, urls.get(0), 1f, filter, effect, 0, 0, 0, (int)(gap/2), 300);
                 col.addView(topRow);
-                LinearLayout botRow = hRow(MATCH_PARENT, 0);
+                LinearLayout botRow = new LinearLayout(getContext());
+                botRow.setOrientation(LinearLayout.HORIZONTAL);
                 botRow.setLayoutParams(new LinearLayout.LayoutParams(MATCH_PARENT, 0, 0.60f));
-                addTile(botRow, urls.get(1), 1f, MATCH_PARENT, filter, effect, 0, gap/2, gap/2, 0, 600);
-                addTile(botRow, urls.get(2), 1f, MATCH_PARENT, filter, effect, gap/2, gap/2, 0, 0, 800);
+                addTileH(botRow, urls.get(1), 1f, filter, effect, 0, (int)(gap/2), (int)(gap/2), 0, 600);
+                addTileH(botRow, urls.get(2), 1f, filter, effect, (int)(gap/2), (int)(gap/2), 0, 0, 800);
                 col.addView(botRow);
                 addView(col);
                 break;
             }
             default: {
                 // SINGLE — full-screen
-                addTile(this, urls.get(0), 1f, MATCH_PARENT, filter, effect, 0, 0, 0, 0, 0);
+                FrameLayout tile = makeTile(urls.get(0), filter, effect, 0);
+                addView(tile, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
                 break;
             }
         }
@@ -221,28 +223,32 @@ public class ReelPhotoCollageView extends FrameLayout {
 
     // ── Tile helpers ──────────────────────────────────────────────────────────
 
-    /** Add a photo tile to a parent ViewGroup with weight-based sizing. */
-    private void addTile(ViewGroup parent, String url, float weightW, int heightOrWeight,
-                         String filter, String effect,
-                         float marginLeft, float marginTop, float marginRight, float marginBottom,
-                         long entryDelayMs) {
-        FrameLayout tile = makeTile(url, filter, effect, entryDelayMs);
-        LinearLayout.LayoutParams lp;
-        if (heightOrWeight == MATCH_PARENT) {
-            lp = new LinearLayout.LayoutParams(0, MATCH_PARENT, weightW);
-        } else {
-            lp = new LinearLayout.LayoutParams(0, 0, weightW);
-        }
-        lp.setMargins((int)marginLeft, (int)marginTop, (int)marginRight, (int)marginBottom);
+    /**
+     * Add a photo tile to a HORIZONTAL row.
+     * LayoutParams: width=0 (weight=weightW), height=MATCH_PARENT.
+     */
+    private void addTileH(ViewGroup parent, String url, float weightW,
+                          String filter, String effect,
+                          int mL, int mT, int mR, int mB, long delay) {
+        FrameLayout tile = makeTile(url, filter, effect, delay);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, MATCH_PARENT, weightW);
+        lp.setMargins(mL, mT, mR, mB);
         tile.setLayoutParams(lp);
         parent.addView(tile);
     }
 
-    /** Add a tile with explicit weight fraction in a horizontal row. */
-    private void addTileFraction(ViewGroup parent, String url, float weightW, int heightOrWeight,
-                                 String filter, String effect,
-                                 float mL, float mT, float mR, float mB, long delay) {
-        addTile(parent, url, weightW, heightOrWeight, filter, effect, mL, mT, mR, mB, delay);
+    /**
+     * Add a photo tile to a VERTICAL column.
+     * LayoutParams: width=MATCH_PARENT, height=0 (weight=weightH).
+     */
+    private void addTileV(ViewGroup parent, String url, float weightH,
+                          String filter, String effect,
+                          int mL, int mT, int mR, int mB, long delay) {
+        FrameLayout tile = makeTile(url, filter, effect, delay);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH_PARENT, 0, weightH);
+        lp.setMargins(mL, mT, mR, mB);
+        tile.setLayoutParams(lp);
+        parent.addView(tile);
     }
 
     private FrameLayout makeTile(String url, String filter, String effect, long entryDelayMs) {
