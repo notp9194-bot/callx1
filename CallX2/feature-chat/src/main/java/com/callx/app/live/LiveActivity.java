@@ -208,7 +208,7 @@ public class LiveActivity extends AppCompatActivity {
                 final String hostPhoto = photo != null ? photo : "";
 
                 for (String uid : invitedUids) {
-                    PushNotify.notifyUser(uid, myUid, hostName, "live_invite", liveId);
+                    PushNotify.notifyLive(uid, myUid, hostName, hostPhoto, liveId);
                 }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
