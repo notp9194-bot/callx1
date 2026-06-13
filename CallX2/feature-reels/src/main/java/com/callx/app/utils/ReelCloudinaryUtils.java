@@ -97,6 +97,37 @@ public class ReelCloudinaryUtils {
         }).start();
     }
 
+    // ── Reel Slideshow Photo Upload ───────────────────────────────────────────
+
+    /**
+     * Reels photo slideshow ke liye ek photo upload karta hai.
+     * Compressed to 1080px JPEG 85% → callx/reels/slideshows/
+     * Callback main thread pe fire hota hai.
+     */
+    public static void uploadReelSlideshowPhoto(Context ctx, Uri uri, int index,
+                                                 ImageUploadCallback cb) {
+        new Thread(() -> {
+            try {
+                byte[] bytes = MediaCompressor.compressImageWithQuality(ctx, uri, 1080, 85, false);
+                if (bytes == null || bytes.length == 0) {
+                    UI.post(() -> cb.onError("Compress failed for photo " + index));
+                    return;
+                }
+                String url = uploadBytes(bytes, "image/jpeg",
+                    "reel_slide_" + index + ".jpg",
+                    "callx/reels/slideshows", "image");
+                if (url == null) {
+                    UI.post(() -> cb.onError("Upload failed for photo " + index));
+                    return;
+                }
+                UI.post(() -> cb.onSuccess(url));
+            } catch (Exception e) {
+                Log.e(TAG, "uploadReelSlideshowPhoto error idx=" + index, e);
+                UI.post(() -> cb.onError(e.getMessage() != null ? e.getMessage() : "Upload error"));
+            }
+        }).start();
+    }
+
     // ── Banner Upload ─────────────────────────────────────────────────────────
 
     /**

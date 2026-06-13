@@ -48,8 +48,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import android.widget.ImageView;
 import com.bumptech.glide.Glide;
-import com.google.firebase.storage.FirebaseStorage;
-import com.google.firebase.storage.StorageReference;
+import com.callx.app.utils.ReelCloudinaryUtils;
 import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.utils.VideoUploader;
 import com.google.android.material.chip.Chip;
@@ -836,93 +835,50 @@ public class ReelUploadActivity extends AppCompatActivity {
         final String finalReelId = reelId;
         final String finalMyUid  = myUid;
 
-        List<String> uploadedUrls = new ArrayList<>();
         int totalPhotos = selectedPhotoUris.size();
-        AtomicInteger uploadedCount = new AtomicInteger(0);
-        AtomicInteger failedCount   = new AtomicInteger(0);
-
-        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
         final String[] photoUrlsArr = new String[totalPhotos];
+        final AtomicInteger doneCount = new AtomicInteger(0);
+        final WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
 
         for (int i = 0; i < totalPhotos; i++) {
             final int index = i;
-            Uri photoUri = selectedPhotoUris.get(i);
-
-            StorageReference storageRef = FirebaseStorage.getInstance()
-                .getReference("reel_photos")
-                .child(finalMyUid)
-                .child(finalReelId)
-                .child("photo_" + index + ".jpg");
-
-            storageRef.putFile(photoUri)
-                .addOnProgressListener(taskSnapshot -> {
-                    ReelUploadActivity a = ref.get();
-                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
-                    int done = a.uploadedCount_field;
-                    int pct  = (int)((done * 100f + taskSnapshot.getBytesTransferred() * 100f
-                        / Math.max(taskSnapshot.getTotalByteCount(), 1)) / totalPhotos);
-                    a.progressUpload.setProgress(Math.min(pct, 99));
-                    a.tvUploadStatus.setText("Uploading photo " + (done + 1) + " of " + totalPhotos + "…");
-                })
-                .addOnSuccessListener(taskSnapshot -> {
-                    storageRef.getDownloadUrl().addOnSuccessListener(downloadUri -> {
+            ReelCloudinaryUtils.uploadReelSlideshowPhoto(this, selectedPhotoUris.get(i), index,
+                new ReelCloudinaryUtils.ImageUploadCallback() {
+                    @Override
+                    public void onSuccess(String url) {
+                        photoUrlsArr[index] = url;
+                        int done = doneCount.incrementAndGet();
                         ReelUploadActivity a = ref.get();
                         if (a == null || a.isFinishing() || a.isDestroyed()) return;
-                        photoUrlsArr[index] = downloadUri.toString();
-                        int done = uploadedCount.incrementAndGet();
                         a.progressUpload.setProgress((int)(done * 100f / totalPhotos));
-                        if (done + failedCount.get() == totalPhotos) {
-                            // All photos processed — collect non-null URLs in order
+                        a.tvUploadStatus.setText("Uploaded " + done + " / " + totalPhotos + " photos");
+                        if (done == totalPhotos) {
                             List<String> urls = new ArrayList<>();
-                            for (String url : photoUrlsArr) {
-                                if (url != null) urls.add(url);
-                            }
+                            for (String u : photoUrlsArr) if (u != null) urls.add(u);
                             a.progressUpload.setProgress(100);
                             a.tvUploadStatus.setText("Saving reel…");
                             a.savePhotoReelToFirebase(urls, caption, musicName, finalReelId, finalMyUid);
                         }
-                    }).addOnFailureListener(e -> {
+                    }
+                    @Override
+                    public void onError(String message) {
+                        int done = doneCount.incrementAndGet();
                         ReelUploadActivity a = ref.get();
-                        if (a == null) return;
-                        int done = failedCount.incrementAndGet();
-                        if (uploadedCount.get() + done == totalPhotos) {
+                        if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                        if (done == totalPhotos) {
                             List<String> urls = new ArrayList<>();
-                            for (String url : photoUrlsArr) {
-                                if (url != null) urls.add(url);
-                            }
+                            for (String u : photoUrlsArr) if (u != null) urls.add(u);
                             if (!urls.isEmpty()) {
                                 a.savePhotoReelToFirebase(urls, caption, musicName, finalReelId, finalMyUid);
                             } else {
                                 a.btnPostReel.setEnabled(true);
                                 a.layoutUploadProgress.setVisibility(View.GONE);
-                                Toast.makeText(a, "Photo upload failed. Try again.", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(a, "Photo upload failed: " + message, Toast.LENGTH_LONG).show();
                             }
                         }
-                    });
-                })
-                .addOnFailureListener(e -> {
-                    ReelUploadActivity a = ref.get();
-                    if (a == null) return;
-                    int done = failedCount.incrementAndGet();
-                    if (uploadedCount.get() + done == totalPhotos) {
-                        List<String> urls = new ArrayList<>();
-                        for (String url : photoUrlsArr) {
-                            if (url != null) urls.add(url);
-                        }
-                        if (!urls.isEmpty()) {
-                            a.savePhotoReelToFirebase(urls, caption, musicName, finalReelId, finalMyUid);
-                        } else {
-                            a.btnPostReel.setEnabled(true);
-                            a.layoutUploadProgress.setVisibility(View.GONE);
-                            Toast.makeText(a, "Photo upload failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                        }
-                    }
                 });
         }
     }
-
-    // Tracks how many photos have been confirmed uploaded (used in progress lambda)
-    private int uploadedCount_field = 0;
 
     private void savePhotoReelToFirebase(List<String> photoUrls, String caption,
                                           String musicName, String reelId, String myUid) {
