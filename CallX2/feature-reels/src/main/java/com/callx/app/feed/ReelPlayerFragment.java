@@ -187,6 +187,10 @@ public class ReelPlayerFragment extends Fragment
     private Runnable          photoAdvanceRunnable;
     private android.animation.ObjectAnimator storySegmentAnimator;
     private TextView          tvPauseBadge;
+    private TextView          tvCaptionOverlay;
+    private LinearLayout      llDotIndicator;
+    private android.view.ScaleGestureDetector pinchDetector;
+    private float             photoScale = 1f;
 
     // ── Factory ───────────────────────────────────────────────────────────
 
@@ -412,6 +416,8 @@ public class ReelPlayerFragment extends Fragment
         llStoryProgress   = v.findViewById(R.id.ll_story_progress);
         tvPhotoCounter    = v.findViewById(R.id.tv_photo_counter);
         tvPauseBadge      = v.findViewById(R.id.tv_pause_badge);
+        tvCaptionOverlay  = v.findViewById(R.id.tv_caption_overlay);
+        llDotIndicator    = v.findViewById(R.id.ll_dot_indicator);
     }
 
     private void populateStaticData() {
@@ -1153,6 +1159,27 @@ public class ReelPlayerFragment extends Fragment
         buildStoryProgress(photoUrls.size());
         llStoryProgress.setVisibility(View.VISIBLE);
 
+        // ── Dot indicator ─────────────────────────────────────────────────
+        if (reel.showDotIndicator) {
+            buildDotIndicator(photoUrls.size());
+        }
+
+        // ── Caption for first photo ───────────────────────────────────────
+        showCaptionForPhoto(0);
+
+        // ── Pinch-to-zoom ─────────────────────────────────────────────────
+        photoScale = 1f;
+        pinchDetector = new android.view.ScaleGestureDetector(requireContext(),
+            new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override
+                public boolean onScale(android.view.ScaleGestureDetector det) {
+                    photoScale = Math.max(1f, Math.min(photoScale * det.getScaleFactor(), 3.5f));
+                    vpPhotos.setScaleX(photoScale);
+                    vpPhotos.setScaleY(photoScale);
+                    return true;
+                }
+            });
+
         // ── Photo counter badge ────────────────────────────────────────────
         if (tvPhotoCounter != null) {
             tvPhotoCounter.setVisibility(View.VISIBLE);
@@ -1164,11 +1191,19 @@ public class ReelPlayerFragment extends Fragment
             @Override
             public void onPageSelected(int position) {
                 currentPhotoIndex = position;
+                // Reset zoom on page change
+                if (photoScale != 1f) {
+                    photoScale = 1f;
+                    vpPhotos.setScaleX(1f);
+                    vpPhotos.setScaleY(1f);
+                }
                 stopStorySegmentAnimation();
                 animateStorySegment(position, photoDurationMs);
                 if (tvPhotoCounter != null) {
                     tvPhotoCounter.setText((position + 1) + " / " + photoUrls.size());
                 }
+                updateDotIndicator(position);
+                showCaptionForPhoto(position);
                 stopPhotoSlideshow();
                 startPhotoSlideshow();
             }
@@ -1226,6 +1261,17 @@ public class ReelPlayerFragment extends Fragment
             });
 
         vpPhotos.setOnTouchListener((v, event) -> {
+            // Feed pinch detector first
+            if (pinchDetector != null) pinchDetector.onTouchEvent(event);
+            // If currently zoomed in, consume the event (block VP2 paging + GD)
+            if (photoScale > 1.05f) {
+                if (event.getAction() == android.view.MotionEvent.ACTION_UP) {
+                    // Double-tap-like: single UP while zoomed → reset zoom
+                    vpPhotos.animate().scaleX(1f).scaleY(1f).setDuration(200).start();
+                    photoScale = 1f;
+                }
+                return true;
+            }
             gd.onTouchEvent(event);
             // ACTION_UP after long-press: resume slideshow + hide ⏸ badge
             if (event.getAction() == android.view.MotionEvent.ACTION_UP && photoSlideshowPaused) {
@@ -1239,6 +1285,75 @@ public class ReelPlayerFragment extends Fragment
             }
             return false;
         });
+    }
+
+    // ── Dot indicator ─────────────────────────────────────────────────────
+
+    /**
+     * Builds N circular dot Views inside llDotIndicator.
+     * Active dot is white+large; inactive dots are dim+small.
+     */
+    private void buildDotIndicator(int count) {
+        if (llDotIndicator == null || !isAdded() || getContext() == null) return;
+        llDotIndicator.removeAllViews();
+        if (count <= 1) { llDotIndicator.setVisibility(View.GONE); return; }
+        int dotPx   = dpToPx(7);
+        int marginPx = dpToPx(4);
+        for (int i = 0; i < count; i++) {
+            View dot = new View(requireContext());
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dotPx, dotPx);
+            lp.setMargins(marginPx, 0, marginPx, 0);
+            dot.setLayoutParams(lp);
+            android.graphics.drawable.GradientDrawable gd =
+                new android.graphics.drawable.GradientDrawable();
+            gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            gd.setColor(i == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+            dot.setBackground(gd);
+            dot.setScaleX(i == 0 ? 1.4f : 1f);
+            dot.setScaleY(i == 0 ? 1.4f : 1f);
+            llDotIndicator.addView(dot);
+        }
+        llDotIndicator.setVisibility(View.VISIBLE);
+    }
+
+    /** Animates dot at {@code active} to full white+large; others to dim+small. */
+    private void updateDotIndicator(int active) {
+        if (llDotIndicator == null) return;
+        for (int i = 0; i < llDotIndicator.getChildCount(); i++) {
+            View dot = llDotIndicator.getChildAt(i);
+            boolean sel = (i == active);
+            android.graphics.drawable.GradientDrawable gd =
+                new android.graphics.drawable.GradientDrawable();
+            gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            gd.setColor(sel ? 0xFFFFFFFF : 0x66FFFFFF);
+            dot.setBackground(gd);
+            dot.animate().scaleX(sel ? 1.4f : 1f).scaleY(sel ? 1.4f : 1f).setDuration(150).start();
+        }
+    }
+
+    // ── Per-photo caption overlay ─────────────────────────────────────────
+
+    /**
+     * Shows/hides the caption overlay for the given photo index.
+     * Animates in (slide-up + fade) if caption exists, fades out if not.
+     */
+    private void showCaptionForPhoto(int index) {
+        if (tvCaptionOverlay == null) return;
+        String caption = null;
+        if (reel != null && reel.photoCaptions != null && index < reel.photoCaptions.size()) {
+            caption = reel.photoCaptions.get(index);
+        }
+        if (caption == null || caption.trim().isEmpty()) {
+            tvCaptionOverlay.animate().alpha(0f).translationY(10f).setDuration(200)
+                .withEndAction(() -> tvCaptionOverlay.setVisibility(View.GONE)).start();
+        } else {
+            final String finalCaption = caption;
+            tvCaptionOverlay.setVisibility(View.VISIBLE);
+            tvCaptionOverlay.setText(finalCaption);
+            tvCaptionOverlay.setTranslationY(28f);
+            tvCaptionOverlay.setAlpha(0f);
+            tvCaptionOverlay.animate().alpha(1f).translationY(0f).setDuration(320).start();
+        }
     }
 
     // ── Story progress bar ────────────────────────────────────────────────
@@ -1334,14 +1449,31 @@ public class ReelPlayerFragment extends Fragment
                     if (tvPhotoCounter != null) {
                         tvPhotoCounter.setText((currentPhotoIndex + 1) + " / " + photoUrls.size());
                     }
+                    updateDotIndicator(currentPhotoIndex);
+                    showCaptionForPhoto(currentPhotoIndex);
                     photoHandler.postDelayed(this, photoDurationMs);
                 } else {
-                    // End of slideshow → mark last segment full, then advance reel
                     View lastFill = getStoryFill(photoUrls.size() - 1);
                     if (lastFill != null) lastFill.setScaleX(1f);
-                    photoHandler.postDelayed(() -> {
-                        if (isAdded()) autoAdvance();
-                    }, 400);
+                    if (reel != null && reel.autoLoop) {
+                        // ── Auto-loop: restart from photo 1 ────────────────
+                        photoHandler.postDelayed(() -> {
+                            if (!isAdded() || vpPhotos == null || photoUrls == null) return;
+                            currentPhotoIndex = 0;
+                            vpPhotos.setCurrentItem(0, false);
+                            buildStoryProgress(photoUrls.size());
+                            llStoryProgress.setVisibility(View.VISIBLE);
+                            if (tvPhotoCounter != null)
+                                tvPhotoCounter.setText("1 / " + photoUrls.size());
+                            updateDotIndicator(0);
+                            showCaptionForPhoto(0);
+                            startPhotoSlideshow();
+                        }, 500);
+                    } else {
+                        photoHandler.postDelayed(() -> {
+                            if (isAdded()) autoAdvance();
+                        }, 400);
+                    }
                 }
             }
         };

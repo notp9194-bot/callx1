@@ -146,6 +146,10 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String                selectedTransitionType   = "fade";
     private String                selectedFilter           = "normal";
     private int                   coverPhotoIndex          = 0;
+    /** Per-photo captions, index-matched with selectedPhotoUris. "" = no caption. */
+    private final java.util.ArrayList<String> photoCaptions = new java.util.ArrayList<>();
+    private androidx.appcompat.widget.SwitchCompat swAutoLoop;
+    private Button                btnAddMorePhotos;
 
     private Uri                    selectedUri;
     private String                 preSelectedSoundId    = "";
@@ -250,6 +254,11 @@ public class ReelUploadActivity extends AppCompatActivity {
             });
         }
 
+        // Add More Photos button — re-opens picker in append mode
+        if (btnAddMorePhotos != null) {
+            btnAddMorePhotos.setOnClickListener(v -> checkPermissionAndPickPhotos());
+        }
+
         // If launched from ReelEditorActivity, pre-load the video + text overlay
         handleEditorExtras();
     }
@@ -294,6 +303,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         rgPhotoDuration         = findViewById(R.id.rg_photo_duration);
         rgTransition            = findViewById(R.id.rg_transition);
         rgPhotoFilter           = findViewById(R.id.rg_photo_filter);
+        swAutoLoop              = findViewById(R.id.sw_auto_loop);
+        btnAddMorePhotos        = findViewById(R.id.btn_add_more_photos);
     }
 
     private void setupChipDefaults() {
@@ -605,6 +616,7 @@ public class ReelUploadActivity extends AppCompatActivity {
             int pos = llPhotoPreviewContainer.indexOfChild(frame);
             if (pos >= 0 && pos < selectedPhotoUris.size()) {
                 selectedPhotoUris.remove(pos);
+                if (pos < photoCaptions.size()) photoCaptions.remove(pos);
                 llPhotoPreviewContainer.removeView(frame);
                 if (coverPhotoIndex >= selectedPhotoUris.size()) coverPhotoIndex = 0;
                 refreshCoverIndicators();
@@ -636,6 +648,12 @@ public class ReelUploadActivity extends AppCompatActivity {
             }
         });
 
+        // Short-tap on the thumbnail → caption dialog
+        thumb.setOnClickListener(v -> {
+            int pos = llPhotoPreviewContainer.indexOfChild(frame);
+            if (pos >= 0) showCaptionDialog(pos);
+        });
+
         // Long-press popup: Move Left / Move Right / Set Cover / Remove
         frame.setOnLongClickListener(v -> {
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, v);
@@ -656,6 +674,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                         return true;
                     case 4:
                         selectedPhotoUris.remove(pos);
+                        if (pos < photoCaptions.size()) photoCaptions.remove(pos);
                         llPhotoPreviewContainer.removeView(v);
                         if (coverPhotoIndex >= selectedPhotoUris.size()) coverPhotoIndex = 0;
                         refreshCoverIndicators();
@@ -669,10 +688,78 @@ public class ReelUploadActivity extends AppCompatActivity {
             return true;
         });
 
+        // Caption badge (bottom-right): shows "T" if this photo has a caption
+        TextView tvCaptionBadge = new TextView(this);
+        android.widget.FrameLayout.LayoutParams cbp =
+            new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
+        cbp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+        tvCaptionBadge.setLayoutParams(cbp);
+        tvCaptionBadge.setText("T");
+        tvCaptionBadge.setTextColor(0xFFFFFFFF);
+        tvCaptionBadge.setTextSize(10f);
+        tvCaptionBadge.setBackgroundColor(0xCC1565C0);
+        tvCaptionBadge.setPadding(5, 1, 5, 1);
+        tvCaptionBadge.setTag("caption_badge");
+        // Show badge only if a caption already exists for this index
+        String existingCaption = (index < photoCaptions.size()) ? photoCaptions.get(index) : "";
+        tvCaptionBadge.setVisibility((existingCaption != null && !existingCaption.isEmpty())
+                                     ? View.VISIBLE : View.GONE);
+
+        // Ensure photoCaptions list stays in sync (grow if needed)
+        while (photoCaptions.size() <= index) photoCaptions.add("");
+
         frame.addView(thumb);
         frame.addView(btnRemove);
         frame.addView(btnCover);
+        frame.addView(tvCaptionBadge);
         llPhotoPreviewContainer.addView(frame);
+    }
+
+    /**
+     * Shows an AlertDialog for the user to enter/edit the caption for photo at {@code pos}.
+     * Saves the caption to photoCaptions and shows/hides the "T" badge.
+     */
+    private void showCaptionDialog(int pos) {
+        if (pos < 0 || pos >= selectedPhotoUris.size()) return;
+        while (photoCaptions.size() <= pos) photoCaptions.add("");
+        String current = photoCaptions.get(pos);
+
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("Caption for photo " + (pos + 1) + "…");
+        et.setText(current);
+        et.setSingleLine(false);
+        et.setMaxLines(3);
+        et.setSelection(et.getText().length());
+        et.setPadding(32, 24, 32, 8);
+
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Photo Caption")
+            .setView(et)
+            .setPositiveButton("Save", (d, w) -> {
+                String newCaption = et.getText().toString().trim();
+                photoCaptions.set(pos, newCaption);
+                // Update the badge visibility on this thumbnail
+                if (llPhotoPreviewContainer != null && pos < llPhotoPreviewContainer.getChildCount()) {
+                    android.widget.FrameLayout thumbFrame =
+                        (android.widget.FrameLayout) llPhotoPreviewContainer.getChildAt(pos);
+                    View badge = thumbFrame.findViewWithTag("caption_badge");
+                    if (badge != null) badge.setVisibility(newCaption.isEmpty() ? View.GONE : View.VISIBLE);
+                }
+                Toast.makeText(this, newCaption.isEmpty() ? "Caption cleared" : "Caption saved!", Toast.LENGTH_SHORT).show();
+            })
+            .setNeutralButton("Clear", (d, w) -> {
+                photoCaptions.set(pos, "");
+                if (llPhotoPreviewContainer != null && pos < llPhotoPreviewContainer.getChildCount()) {
+                    android.widget.FrameLayout thumbFrame =
+                        (android.widget.FrameLayout) llPhotoPreviewContainer.getChildAt(pos);
+                    View badge = thumbFrame.findViewWithTag("caption_badge");
+                    if (badge != null) badge.setVisibility(View.GONE);
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     /** Swaps photo at pos with the one before it, then rebuilds thumbnails. */
@@ -686,6 +773,11 @@ public class ReelUploadActivity extends AppCompatActivity {
         selectedPhotoUris.set(pos - 1, tmp);
         if (coverPhotoIndex == pos)       coverPhotoIndex = pos - 1;
         else if (coverPhotoIndex == pos - 1) coverPhotoIndex = pos;
+        // Swap captions in sync
+        while (photoCaptions.size() <= pos) photoCaptions.add("");
+        String tmpCap = photoCaptions.get(pos);
+        photoCaptions.set(pos, photoCaptions.get(pos - 1));
+        photoCaptions.set(pos - 1, tmpCap);
         rebuildPhotoThumbnails();
     }
 
@@ -700,6 +792,11 @@ public class ReelUploadActivity extends AppCompatActivity {
         selectedPhotoUris.set(pos + 1, tmp);
         if (coverPhotoIndex == pos)       coverPhotoIndex = pos + 1;
         else if (coverPhotoIndex == pos + 1) coverPhotoIndex = pos;
+        // Swap captions in sync
+        while (photoCaptions.size() <= pos + 1) photoCaptions.add("");
+        String tmpCap = photoCaptions.get(pos);
+        photoCaptions.set(pos, photoCaptions.get(pos + 1));
+        photoCaptions.set(pos + 1, tmpCap);
         rebuildPhotoThumbnails();
     }
 
@@ -1084,6 +1181,14 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.transitionType  = trType;
                     reel.coverPhotoIndex = safeCover;
                     reel.photoFilter     = (a.selectedFilter != null) ? a.selectedFilter : "normal";
+                    reel.autoLoop        = (a.swAutoLoop != null) && a.swAutoLoop.isChecked();
+                    reel.showDotIndicator = true;
+                    // Build photoCaptions list (null entries → empty string → omit if all blank)
+                    java.util.List<String> caps = new java.util.ArrayList<>(a.photoCaptions);
+                    while (caps.size() < photoUrls.size()) caps.add("");
+                    boolean hasAnyCap = false;
+                    for (String c : caps) if (c != null && !c.isEmpty()) { hasAnyCap = true; break; }
+                    reel.photoCaptions   = hasAnyCap ? caps : null;
                     reel.audienceType    = audienceType;
                     reel.thumbUrl        = thumbUrl;
 

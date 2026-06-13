@@ -473,15 +473,50 @@
                             android:paddingBottom="6dp"/>
                     </RadioGroup>
 
-                    <!-- Reorder hint -->
+                    <!-- Reorder/caption hint -->
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="💡 Long-press a photo to reorder or remove"
+                        android:text="💡 Tap photo = add caption  •  Long-press = reorder / remove"
                         android:textColor="@color/text_secondary"
                         android:textSize="11sp"
                         android:layout_marginTop="10dp"
-                        android:layout_marginBottom="2dp"/>
+                        android:layout_marginBottom="10dp"/>
+
+                    <!-- Auto-loop toggle row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="🔄 Auto-loop slideshow"
+                            android:textColor="@color/text_primary"
+                            android:textSize="12sp"/>
+
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/sw_auto_loop"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="false"/>
+                    </LinearLayout>
+
+                    <!-- Add More Photos button -->
+                    <Button
+                        android:id="@+id/btn_add_more_photos"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:text="+ Add More Photos"
+                        android:textSize="13sp"
+                        android:backgroundTint="#334D79FF"
+                        android:textColor="#FFFFFFFF"
+                        android:layout_marginBottom="4dp"
+                        style="?attr/materialButtonStyle"/>
 
                 </LinearLayout>
             </androidx.cardview.widget.CardView>

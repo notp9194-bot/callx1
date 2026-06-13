@@ -78,6 +78,15 @@ public class ReelModel {
      * Values: "normal" | "warm" | "cool" | "vivid" | "bw". Default: "normal".
      */
     public String photoFilter = "normal";
+    /**
+     * Optional per-photo captions (index-matched with photoUrls).
+     * A null list or a null/empty string at an index means no caption for that photo.
+     */
+    public java.util.List<String> photoCaptions;
+    /** When true the slideshow loops back to photo 1 after the last photo. Default: false. */
+    public boolean autoLoop = false;
+    /** Show Instagram-style dot indicator below photos. Default: true. */
+    public boolean showDotIndicator = true;
 
     // ── Duet fields ──────────────────────────────────────────────────────────
     public String  allowDuetLevel = "everyone";
