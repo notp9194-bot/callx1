@@ -177,6 +177,8 @@ public class ReelPlayerFragment extends Fragment
     // ── Photo Slideshow State ──────────────────────────────────────────────
     private ViewPager2        vpPhotos;
     private LinearLayout      llStoryProgress;
+    private TextView          btnPhotoStyle;
+    private TextView          tvBpmBadge;
     private TextView          tvPhotoCounter;
     private boolean           isPhotoMode            = false;
     private boolean           photoSlideshowPaused   = false;
@@ -415,6 +417,8 @@ public class ReelPlayerFragment extends Fragment
         vpPhotos          = v.findViewById(R.id.vp_photos);
         llStoryProgress   = v.findViewById(R.id.ll_story_progress);
         tvPhotoCounter    = v.findViewById(R.id.tv_photo_counter);
+        btnPhotoStyle     = v.findViewById(R.id.btn_photo_style);
+        tvBpmBadge        = v.findViewById(R.id.tv_bpm_badge);
         tvPauseBadge      = v.findViewById(R.id.tv_pause_badge);
         tvCaptionOverlay  = v.findViewById(R.id.tv_caption_overlay);
         llDotIndicator    = v.findViewById(R.id.ll_dot_indicator);
@@ -1150,13 +1154,32 @@ public class ReelPlayerFragment extends Fragment
         vpPhotos.setAdapter(adapter);
 
         // ── Transition PageTransformer ─────────────────────────────────────
-        String tt = reel.transitionType != null ? reel.transitionType : "fade";
+        // Default to "cube" if not set — immediately more cinematic than fade
+        if (reel.transitionType == null || reel.transitionType.isEmpty()) {
+            reel.transitionType = "cube";
+        }
+        if (reel.kenBurnsIntensity == null || reel.kenBurnsIntensity.isEmpty()) {
+            reel.kenBurnsIntensity = "cinematic";
+        }
+        String tt = reel.transitionType;
         ViewPager2.PageTransformer transformer = ReelPhotoSlideshowAdapter.getPageTransformer(tt);
         if (transformer != null) vpPhotos.setPageTransformer(transformer);
 
         // ── Story progress segments ────────────────────────────────────────
         buildStoryProgress(photoUrls.size());
         llStoryProgress.setVisibility(View.VISIBLE);
+
+        // ── ✨ Style picker button ──────────────────────────────────────────
+        if (btnPhotoStyle != null) {
+            btnPhotoStyle.setVisibility(View.VISIBLE);
+            btnPhotoStyle.setOnClickListener(ignored -> openTemplatePicker());
+        }
+
+        // ── 🎵 BPM badge ──────────────────────────────────────────────────
+        if (tvBpmBadge != null && reel.musicBpm > 0) {
+            tvBpmBadge.setVisibility(View.VISIBLE);
+            tvBpmBadge.setText(Math.round(reel.musicBpm) + " BPM");
+        }
 
         // ── Dot indicator ─────────────────────────────────────────────────
         if (reel.showDotIndicator) {
@@ -1353,6 +1376,50 @@ public class ReelPlayerFragment extends Fragment
             tvCaptionOverlay.setAlpha(0f);
             tvCaptionOverlay.animate().alpha(1f).translationY(0f).setDuration(320).start();
         }
+    }
+
+
+    // ── Template picker ───────────────────────────────────────────────────────
+
+    private void openTemplatePicker() {
+        if (reel == null || !isAdded()) return;
+        ReelPhotoTemplatePickerSheet sheet = ReelPhotoTemplatePickerSheet.newInstance(
+            reel,
+            new ReelPhotoTemplatePickerSheet.OnTemplateSelectedListener() {
+                @Override
+                public void onTemplateSelected(String templateId, com.callx.app.models.ReelModel updatedReel) {
+                    reel = updatedReel;
+                    refreshPhotoSlideshow();
+                    if (btnPhotoStyle != null) {
+                        com.callx.app.feed.ReelPhotoStoryTemplateManager.StoryTemplate t =
+                            com.callx.app.feed.ReelPhotoStoryTemplateManager.getById(templateId);
+                        if (t != null) btnPhotoStyle.setText(t.emoji + " " + t.displayName);
+                    }
+                }
+                @Override
+                public void onTemplateCleared(com.callx.app.models.ReelModel updatedReel) {
+                    reel = updatedReel;
+                    refreshPhotoSlideshow();
+                    if (btnPhotoStyle != null) btnPhotoStyle.setText("✨ Style");
+                }
+            });
+        sheet.show(getChildFragmentManager(), "template_picker");
+    }
+
+    /** Re-creates the adapter with current reel state (called after template change). */
+    private void refreshPhotoSlideshow() {
+        if (vpPhotos == null || reel == null) return;
+        com.callx.app.feed.ReelPhotoSlideshowAdapter adapter =
+            new com.callx.app.feed.ReelPhotoSlideshowAdapter(reel);
+        adapter.setGlobalFilter(reel.photoFilter != null ? reel.photoFilter : "normal");
+        vpPhotos.setAdapter(adapter);
+        String tt = reel.transitionType != null ? reel.transitionType : "cube";
+        android.view.ViewGroup.LayoutParams dummy = null; // suppress unused warning
+        androidx.viewpager2.widget.ViewPager2.PageTransformer transformer =
+            com.callx.app.feed.ReelPhotoSlideshowAdapter.getPageTransformer(tt);
+        if (transformer != null) vpPhotos.setPageTransformer(transformer);
+        int pos = vpPhotos.getCurrentItem();
+        vpPhotos.setCurrentItem(pos, false);
     }
 
     // ── Story progress bar ────────────────────────────────────────────────

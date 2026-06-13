@@ -340,7 +340,49 @@
                     android:gravity="center"
                     android:background="@color/brand_primary"
                     android:visibility="visible"/>
-            </FrameLayout>
+            
+    <!-- ✨ Photo Style picker — visible only for photo_slideshow reels -->
+    <TextView
+        android:id="@+id/btn_photo_style"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="186dp"
+        android:text="✨ Style"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="center"
+        android:background="@drawable/bg_reel_follow_btn"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"/>
+
+    <!-- 🎵 Beat-sync BPM indicator — shown when musicBpm > 0 -->
+    <TextView
+        android:id="@+id/tv_bpm_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="228dp"
+        android:text="120 BPM"
+        android:textColor="#00E5FF"
+        android:textSize="11sp"
+        android:fontFamily="sans-serif-medium"
+        android:background="#AA000000"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"/>
+
+</FrameLayout>
 
             <TextView
                 android:id="@+id/tv_owner_name"

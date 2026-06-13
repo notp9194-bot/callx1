@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    item_template_card.xml  ── Story Template Picker Card v6
+    One card in the ReelPhotoTemplatePickerSheet grid.
+    Shows: accent-colour background · emoji · name · active ring.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="5dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackgroundBorderless">
+
+    <!-- Card body -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="10dp"
+        android:background="@drawable/bg_template_card"
+        android:id="@+id/card_bg">
+
+        <!-- Emoji -->
+        <TextView
+            android:id="@+id/tv_template_emoji"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✨"
+            android:textSize="26sp"
+            android:gravity="center"/>
+
+        <!-- Name -->
+        <TextView
+            android:id="@+id/tv_template_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="Style"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+    </LinearLayout>
+
+    <!-- Active selection ring — shown when this template is active -->
+    <View
+        android:id="@+id/v_active_ring"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_template_active_ring"
+        android:visibility="gone"/>
+
+</FrameLayout>
