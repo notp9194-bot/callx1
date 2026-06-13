@@ -250,6 +250,52 @@ public class ReelModel {
     public String slideshowAspectRatio = "9:16";
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ── Photo Slideshow v6 extras ─────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Enable breathing/pulse animation on each photo (gentle 1.0↔1.025 scale loop).
+     * Default: false. Set to true by story templates that call for it.
+     */
+    public boolean photoPulseAnimation = false;
+
+    /**
+     * ID of the story template last applied to this slideshow (e.g. "travel", "hype").
+     * Null if no template has been applied.
+     * Stored so the UI can show which template is active.
+     */
+    public String slideshowTemplateName;
+
+    /**
+     * Estimated BPM of the background music track.
+     * Computed via tap-tempo (ReelPhotoBeatSyncController) or server-side audio analysis.
+     * 0 = not computed. Used together with photoBeatSync + beatIntervalMs.
+     */
+    public float musicBpm = 0f;
+
+    /**
+     * Per-slide collage layout override (index-matched with photoUrls when using
+     * multi-photo collage slides). Values from ReelPhotoCollageView.Layout:
+     * "single" | "split_h" | "split_v" | "triptych" | "grid_2x2"
+     * | "featured_left" | "featured_right" | "wide_top"
+     * A null entry means the global collageLayout applies.
+     */
+    public List<String> photoCollageLayoutList;
+
+    /**
+     * Global default collage layout for all slides. "single" = normal 1-photo slide.
+     * Default: "single".
+     */
+    public String collageLayout = "single";
+
+    /**
+     * When true, each collage slide shows multiple photos from photoUrls in a grid.
+     * The photos consumed per slide depends on the collageLayout (e.g. grid_2x2 = 4 photos).
+     * Default: false (normal 1-photo-per-slide slideshow).
+     */
+    public boolean collageModeEnabled = false;
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ── Duet fields ──────────────────────────────────────────────────────────
     // ══════════════════════════════════════════════════════════════════════════
     public String  allowDuetLevel = "everyone";

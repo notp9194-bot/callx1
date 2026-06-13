@@ -222,6 +222,10 @@ public class ReelPhotoSlideshowAdapter
         // Attach gesture handlers
         attachGestures(h, position);
 
+        // Breathing pulse (if enabled in model)
+        if (reelModel.photoPulseAnimation) startBreathingPulse(h);
+        else stopBreathingPulse(h);
+
         // Preload next 2 photos
         preloadNeighbours(h.ivPhoto.getContext(), position);
     }
@@ -236,6 +240,7 @@ public class ReelPhotoSlideshowAdapter
         h.vColorFilterOverlay.setVisibility(View.GONE);
         h.tvCaption.setVisibility(View.GONE);
         h.vCaptionGradient.setVisibility(View.GONE);
+        stopBreathingPulse(h);
         h.llStickerLayer.removeAllViews();
     }
 
@@ -655,6 +660,7 @@ public class ReelPhotoSlideshowAdapter
     // ── Sticker overlays ──────────────────────────────────────────────────────
 
     private void bindStickers(@NonNull PhotoVH h, @Nullable String stickerJson, int position) {
+        stopBreathingPulse(h);
         h.llStickerLayer.removeAllViews();
         if (stickerJson == null || stickerJson.isEmpty() || stickerJson.equals("[]")) return;
         // Parse minimal JSON array: [{"type":"emoji","value":"🔥","x":0.5,"y":0.3,"scale":1.2}, ...]
@@ -956,9 +962,41 @@ public class ReelPhotoSlideshowAdapter
             case "blur":       return new BlurFadeTransformer();
             case "glitch":     return new GlitchTransformer();
             case "reveal":     return new RevealTransformer();
+            case "warp":       return new WarpTransformer();
+            case "morph":      return new MorphTransformer();
+            case "bounce":     return new BounceTransformer();
+            case "swirl":      return new SwirlTransformer();
+            case "curtain":    return new CurtainTransformer();
+            case "origami":    return new OrigamiTransformer();
             case "none":       return null;
             default:           return new FadeTransformer();
         }
+    }
+
+
+    // ── Breathing pulse animation ─────────────────────────────────────────────
+
+    /** Starts a gentle breathing scale-pulse on the photo (1.0 ↔ 1.025). */
+    private void startBreathingPulse(@NonNull PhotoVH h) {
+        stopBreathingPulse(h);
+        ValueAnimator va = ValueAnimator.ofFloat(1.0f, 1.025f);
+        va.setDuration(1800L);
+        va.setRepeatCount(ValueAnimator.INFINITE);
+        va.setRepeatMode(ValueAnimator.REVERSE);
+        va.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        va.addUpdateListener(anim -> {
+            float v = (float) anim.getAnimatedValue();
+            // Only pulse if not user-zoomed
+            if (h.ivPhoto.getScaleX() < 1.05f) {
+                h.ivPhoto.setScaleX(v); h.ivPhoto.setScaleY(v);
+            }
+        });
+        va.start();
+        h.pulseAnimator = va;
+    }
+
+    private void stopBreathingPulse(@NonNull PhotoVH h) {
+        if (h.pulseAnimator != null) { h.pulseAnimator.cancel(); h.pulseAnimator = null; }
     }
 
     // ── Transitions ───────────────────────────────────────────────────────────
@@ -1098,6 +1136,7 @@ public class ReelPhotoSlideshowAdapter
         final View        viewZoomTouch;
         final TextView    tvCaption;
         final View        vCaptionGradient;
+        @Nullable ValueAnimator pulseAnimator;
 
         PhotoVH(@NonNull View itemView) {
             super(itemView);
