@@ -107,7 +107,7 @@ public class UserReelsActivity extends AppCompatActivity
     private SwipeRefreshLayout swipeRefresh;
     private View            layoutMultiSelectBar;
     private TextView        tvSelectedCount;
-    private ImageButton     btnShareSelected, btnDeleteSelected, btnCancelSelect;
+    private ImageButton     btnShareSelected, btnDeleteSelected, btnCancelSelect, btnDeleteAll;
     private View            layoutPrivateAccount;
     private View            layoutFollowersClick;
     private View            layoutFollowingClick;
@@ -222,6 +222,7 @@ public class UserReelsActivity extends AppCompatActivity
         layoutFollowingClick = findViewById(R.id.layout_following_click);
         btnDeleteSelected    = findViewById(R.id.btn_delete_selected);
         btnCancelSelect      = findViewById(R.id.btn_cancel_select);
+        btnDeleteAll         = findViewById(R.id.btn_delete_all);
         tvPhone          = findViewById(R.id.tv_phone);
         tvWhatsapp       = findViewById(R.id.tv_whatsapp);
         tvInstagram      = findViewById(R.id.tv_instagram);
@@ -1058,6 +1059,11 @@ public class UserReelsActivity extends AppCompatActivity
         if (btnCancelSelect  != null) btnCancelSelect.setOnClickListener(v -> exitMultiSelectMode());
         if (btnShareSelected != null) btnShareSelected.setOnClickListener(v -> shareSelectedReels());
         if (btnDeleteSelected != null) btnDeleteSelected.setOnClickListener(v -> deleteSelectedReels());
+        // Delete All — only visible for the profile owner
+        if (btnDeleteAll != null) {
+            btnDeleteAll.setVisibility(isSelf ? View.VISIBLE : View.GONE);
+            if (isSelf) btnDeleteAll.setOnClickListener(v -> deleteAllReels());
+        }
     }
 
     private void enterMultiSelectMode(int initialPos) {
@@ -1122,6 +1128,7 @@ public class UserReelsActivity extends AppCompatActivity
                 for (String id : new HashSet<>(selectedReelIds)) {
                     FirebaseUtils.getReelsRef().child(id).removeValue();
                     FirebaseUtils.getReelsByUserRef(myUid).child(id).removeValue();
+                    FirebaseUtils.db().getReference("userReels").child(myUid).child(id).removeValue();
                     if (pinnedReel != null && id.equals(pinnedReel.reelId)) unpinReel();
                 }
                 activeTabData().removeIf(r -> selectedReelIds.contains(r.reelId));
@@ -1129,6 +1136,35 @@ public class UserReelsActivity extends AppCompatActivity
                 adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted successfully", Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    private void deleteAllReels() {
+        String myUid = safeMyUid();
+        if (myUid == null || !targetUid.equals(myUid)) return;
+        List<ReelModel> data = activeTabData();
+        if (data.isEmpty()) {
+            Toast.makeText(this, "No reels to delete", Toast.LENGTH_SHORT).show();
+            exitMultiSelectMode();
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Delete All Reels")
+            .setMessage("Delete all " + data.size() + " reel(s)? This cannot be undone.")
+            .setPositiveButton("Delete All", (d, w) -> {
+                for (ReelModel r : new ArrayList<>(data)) {
+                    if (r.reelId == null) continue;
+                    FirebaseUtils.getReelsRef().child(r.reelId).removeValue();
+                    FirebaseUtils.getReelsByUserRef(myUid).child(r.reelId).removeValue();
+                    FirebaseUtils.db().getReference("userReels").child(myUid).child(r.reelId).removeValue();
+                }
+                if (pinnedReel != null) unpinReel();
+                data.clear();
+                exitMultiSelectMode();
+                adapter.notifyDataSetChanged();
+                refreshEmptyState();
+                Toast.makeText(this, "All reels deleted", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null).show();
     }

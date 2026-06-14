@@ -2287,7 +2287,21 @@ public class ReelPlayerFragment extends Fragment
 
     private void deleteReel() {
         if (reel == null || reel.reelId == null) return;
+        String myUid = safeMyUid();
+
+        // Guard: only owner can delete
+        if (myUid == null || !myUid.equals(reel.uid)) {
+            Toast.makeText(requireContext(), "You can only delete your own reels", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Remove from all Firebase paths where the reel is stored
         FirebaseUtils.getReelsRef().child(reel.reelId).removeValue();
+        FirebaseUtils.getReelsByUserRef(myUid).child(reel.reelId).removeValue();
+        // Also remove from feed index if present
+        FirebaseUtils.db().getReference("userReels").child(myUid).child(reel.reelId).removeValue();
+
+        Toast.makeText(requireContext(), "Reel deleted", Toast.LENGTH_SHORT).show();
         if (getActivity() != null) getActivity().onBackPressed();
     }
 
