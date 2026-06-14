@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#FF121212"
+    android:gravity="center_horizontal"
+    android:padding="24dp">
+
+    <ProgressBar
+        android:id="@+id/progress_invite"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Host avatar -->
+    <ImageView
+        android:id="@+id/iv_invite_host_avatar"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:src="@drawable/ic_person"
+        android:layout_marginTop="32dp"
+        android:layout_marginBottom="12dp"/>
+
+    <!-- Host name -->
+    <TextView
+        android:id="@+id/tv_invite_host_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="4dp"
+        android:text="Invited you to a Multi-Duet!"/>
+
+    <!-- Participant count -->
+    <TextView
+        android:id="@+id/tv_invite_participants"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFAAAAAA"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:layout_marginBottom="16dp"
+        android:text=""/>
+
+    <!-- Reel thumbnail -->
+    <ImageView
+        android:id="@+id/iv_invite_reel_thumb"
+        android:layout_width="200dp"
+        android:layout_height="280dp"
+        android:scaleType="centerCrop"
+        android:background="#FF1E1E1E"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Status -->
+    <TextView
+        android:id="@+id/tv_invite_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFCCCCCC"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:layout_marginBottom="32dp"
+        android:text=""/>
+
+    <!-- Accept -->
+    <Button
+        android:id="@+id/btn_invite_accept"
+        android:layout_width="240dp"
+        android:layout_height="52dp"
+        android:text="🎬 Accept &amp; Record"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:backgroundTint="#FF9C27B0"
+        android:textColor="#FFFFFFFF"
+        android:layout_marginBottom="12dp"/>
+
+    <!-- Decline -->
+    <Button
+        android:id="@+id/btn_invite_decline"
+        android:layout_width="240dp"
+        android:layout_height="52dp"
+        android:text="Decline"
+        android:textSize="15sp"
+        android:backgroundTint="#FF333333"
+        android:textColor="#FFAAAAAA"/>
+
+</LinearLayout>

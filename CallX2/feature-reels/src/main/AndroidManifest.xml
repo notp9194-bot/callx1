@@ -370,6 +370,13 @@
           <activity android:name="com.callx.app.social.DuetBattleActivity" android:screenOrientation="portrait" android:exported="false"/>
           <activity android:name="com.callx.app.social.DuetBattleCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
           <activity android:name="com.callx.app.social.MultiDuetActivity" android:screenOrientation="portrait" android:exported="false"/>
+          <activity android:name="com.callx.app.social.MultiDuetAcceptActivity" android:screenOrientation="portrait" android:exported="true">
+              <!-- FCM notification tap → deep-link se open hoga -->
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW"/>
+                  <category android:name="android.intent.category.DEFAULT"/>
+              </intent-filter>
+          </activity>
           <activity android:name="com.callx.app.social.DuetChallengeCreateActivity" android:screenOrientation="portrait" android:exported="false"/>
           <activity android:name="com.callx.app.social.DuetChallengeLeaderboardActivity" android:screenOrientation="portrait" android:exported="false"/>
           <activity android:name="com.callx.app.social.DuetTreeActivity" android:screenOrientation="portrait" android:exported="false"/>

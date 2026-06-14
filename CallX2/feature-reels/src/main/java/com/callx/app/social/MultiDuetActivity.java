@@ -137,7 +137,7 @@ public class MultiDuetActivity extends AppCompatActivity {
         FirebaseUtils.db().getReference("users").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot ds) {
-                    String name  = ds.child("displayName").getValue(String.class);
+                    String name  = ds.child("name").getValue(String.class);
                     String photo = ds.child("photoUrl").getValue(String.class);
                     if (!participants.isEmpty()) {
                         participants.get(0).name  = name != null ? "You (" + name + ")" : "You (Host)";
@@ -195,16 +195,23 @@ public class MultiDuetActivity extends AppCompatActivity {
         FirebaseUtils.db().getReference("users").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot ds) {
-                    String fromName  = ds.child("displayName").getValue(String.class);
+                    // FIX: field is "name" not "displayName"
+                    String fromName  = ds.child("name").getValue(String.class);
                     String fromPhoto = ds.child("photoUrl").getValue(String.class);
+                    String reelThumb = ds.child("thumbUrl").getValue(String.class);
                     if (fromName == null) fromName = "Someone";
 
+                    final String finalFromName  = fromName;
+                    final String finalFromPhoto = fromPhoto != null ? fromPhoto : "";
+                    final String finalReelThumb = reelThumb != null ? reelThumb : "";
+
+                    // Step 1: Write invite to Firebase (in-app)
                     Map<String, Object> invite = new HashMap<>();
                     invite.put("fromUid",    myUid);
-                    invite.put("fromName",   fromName);
-                    invite.put("fromPhoto",  fromPhoto != null ? fromPhoto : "");
-                    invite.put("reelId",     originalReelId);
-                    invite.put("videoUrl",   videoUrl != null ? videoUrl : "");
+                    invite.put("fromName",   finalFromName);
+                    invite.put("fromPhoto",  finalFromPhoto);
+                    invite.put("reelId",     originalReelId != null ? originalReelId : "");
+                    invite.put("videoUrl",   videoUrl   != null ? videoUrl   : "");
                     invite.put("sessionId",  sessionId);
                     invite.put("type",       "multi_duet");
                     invite.put("sentAt",     com.google.firebase.database.ServerValue.TIMESTAMP);
@@ -213,8 +220,22 @@ public class MultiDuetActivity extends AppCompatActivity {
                     String inviteKey = FirebaseUtils.db()
                         .getReference("duet_invites").child(targetUid).push().getKey();
                     if (inviteKey == null) return;
+
                     FirebaseUtils.db().getReference("duet_invites")
-                        .child(targetUid).child(inviteKey).setValue(invite);
+                        .child(targetUid).child(inviteKey)
+                        .setValue(invite)
+                        .addOnSuccessListener(v -> {
+                            // Step 2: FCM push notification — AFTER invite is written
+                            com.callx.app.utils.PushNotify.notifyMultiDuetInvite(
+                                targetUid,
+                                myUid,
+                                finalFromName,
+                                finalFromPhoto,
+                                originalReelId != null ? originalReelId : "",
+                                sessionId,
+                                finalReelThumb
+                            );
+                        });
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
@@ -257,9 +278,6 @@ public class MultiDuetActivity extends AppCompatActivity {
 
     // ── Session listener ──────────────────────────────────────────────────────
 
-    private ValueEventListener sessionListener;
-    private DatabaseReference  sessionRef;
-
     private void listenToSession() {
         if (sessionId == null) return;
         sessionRef = FirebaseUtils.db()
@@ -288,10 +306,135 @@ public class MultiDuetActivity extends AppCompatActivity {
                     tvSessionCode.setText("Session: " + sessionId.substring(0, 8).toUpperCase()
                         + " — " + finalRecorded + "/" + total + " recorded");
                 }
+
+                // ── ALL RECORDED → trigger composite ──────────────────────────
+                String sessionStatus = snap.child("status").getValue(String.class);
+                if (finalRecorded == total && total >= 2
+                        && !"compositing".equals(sessionStatus)
+                        && !"completed".equals(sessionStatus)) {
+                    triggerMultiDuetComposite(snap);
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         sessionRef.addValueEventListener(sessionListener);
+    }
+
+    /**
+     * Called once when every participant has status="recorded".
+     * Collects all participant reelIds, downloads their videos locally,
+     * then runs MultiDuetVideoCompositor on a background thread.
+     * On success, writes status="completed" + compositeReelId to Firebase.
+     */
+    private void triggerMultiDuetComposite(@NonNull com.google.firebase.database.DataSnapshot sessionSnap) {
+        if (sessionId == null || isFinishing() || isDestroyed()) return;
+
+        // Guard: set status=compositing so only one device triggers this
+        FirebaseUtils.db().getReference("multi_duet_sessions")
+            .child(sessionId).child("status").setValue("compositing");
+
+        // Gather reelIds for all participants in slot order
+        java.util.LinkedHashMap<String, String> slotReelIds = new java.util.LinkedHashMap<>();
+        // Host reelId first
+        String hostReelId = sessionSnap.child("hostReelId").getValue(String.class);
+        if (hostReelId != null) slotReelIds.put(myUid, hostReelId);
+
+        for (Participant p : participants) {
+            if (p.uid.equals(myUid)) continue; // host already added
+            com.google.firebase.database.DataSnapshot pds =
+                sessionSnap.child("participants").child(p.uid);
+            String rid = pds.child("reelId").getValue(String.class);
+            if (rid != null && !rid.isEmpty()) slotReelIds.put(p.uid, rid);
+        }
+
+        if (slotReelIds.size() < 2) {
+            android.util.Log.w("MultiDuetActivity", "Not enough reelIds for composite");
+            return;
+        }
+
+        Toast.makeText(this, "All done! Creating multi-duet video…", Toast.LENGTH_LONG).show();
+
+        // Download each reel's videoUrl and composite on background thread
+        java.util.concurrent.ExecutorService exec =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+        exec.execute(() -> {
+            try {
+                java.util.List<String> localPaths = new java.util.ArrayList<>();
+                for (java.util.Map.Entry<String, String> entry : slotReelIds.entrySet()) {
+                    String rid = entry.getValue();
+                    // Fetch videoUrl from Firebase reels
+                    com.google.firebase.database.DataSnapshot reelSnap =
+                        com.google.firebase.tasks.Tasks.await(
+                            FirebaseUtils.getReelsRef().child(rid).get());
+                    String vidUrl = reelSnap.child("videoUrl").getValue(String.class);
+                    if (vidUrl == null || vidUrl.isEmpty()) continue;
+
+                    // Download to cache
+                    java.io.File cacheFile = new java.io.File(
+                        getCacheDir(), "multiduet_" + rid + ".mp4");
+                    if (!cacheFile.exists()) {
+                        okhttp3.OkHttpClient client = new okhttp3.OkHttpClient();
+                        okhttp3.Request req = new okhttp3.Request.Builder().url(vidUrl).build();
+                        try (okhttp3.Response resp = client.newCall(req).execute()) {
+                            if (resp.isSuccessful() && resp.body() != null) {
+                                java.io.FileOutputStream fos = new java.io.FileOutputStream(cacheFile);
+                                fos.write(resp.body().bytes());
+                                fos.close();
+                            }
+                        }
+                    }
+                    if (cacheFile.exists()) localPaths.add(cacheFile.getAbsolutePath());
+                }
+
+                if (localPaths.size() < 2) {
+                    runOnUiThread(() -> Toast.makeText(MultiDuetActivity.this,
+                        "Could not download all videos for composite", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+
+                String outPath = new java.io.File(getCacheDir(),
+                    "multiduet_composite_" + sessionId + ".mp4").getAbsolutePath();
+
+                MultiDuetVideoCompositor compositor = new MultiDuetVideoCompositor();
+                boolean ok = compositor.composite(localPaths, outPath, pct ->
+                    runOnUiThread(() -> {
+                        if (progress != null) {
+                            progress.setVisibility(android.view.View.VISIBLE);
+                            if (android.os.Build.VERSION.SDK_INT >= 24)
+                                progress.setProgress(pct, true);
+                            else progress.setProgress(pct);
+                        }
+                    }));
+
+                if (ok) {
+                    // Launch ReelUploadActivity with the composited file
+                    runOnUiThread(() -> {
+                        if (progress != null) progress.setVisibility(android.view.View.GONE);
+                        Intent i = new Intent(MultiDuetActivity.this,
+                            com.callx.app.upload.ReelUploadActivity.class);
+                        i.putExtra("video_path",           outPath);
+                        i.putExtra("is_duet",              true);
+                        i.putExtra("duet_original_id",     originalReelId != null ? originalReelId : "");
+                        i.putExtra("duet_owner_uid",       ownerUid != null ? ownerUid : "");
+                        i.putExtra("multi_duet_session_id", sessionId);
+                        i.putExtra("multi_duet_slot",      0); // host uploading composite
+                        startActivity(i);
+                        FirebaseUtils.db().getReference("multi_duet_sessions")
+                            .child(sessionId).child("status").setValue("completed");
+                        finish();
+                    });
+                } else {
+                    runOnUiThread(() -> Toast.makeText(MultiDuetActivity.this,
+                        "Composite failed. Try again.", Toast.LENGTH_SHORT).show());
+                    FirebaseUtils.db().getReference("multi_duet_sessions")
+                        .child(sessionId).child("status").setValue("recording");
+                }
+            } catch (Exception e) {
+                android.util.Log.e("MultiDuetActivity", "composite error: " + e.getMessage(), e);
+                runOnUiThread(() -> Toast.makeText(MultiDuetActivity.this,
+                    "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        });
     }
 
     @Override

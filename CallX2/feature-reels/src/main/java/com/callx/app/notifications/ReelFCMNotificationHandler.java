@@ -91,6 +91,7 @@ public class ReelFCMNotificationHandler {
     // v4.2.9 — repost system
     public static final String TYPE_REPOST              = "repost";
     public static final String TYPE_QUOTE_REPOST        = "quote_repost";
+    public static final String TYPE_MULTI_DUET_INVITE   = "multi_duet_invite";
 
     /**
      * Main entry point — called from CallxMessagingService.onMessageReceived().
@@ -429,6 +430,63 @@ public class ReelFCMNotificationHandler {
                     ReelNotificationHelper.showWeeklyDigestNotification(
                             ctx, totalViews, newFollowers, totalLikes, totalComments));
                 break;
+
+            // ── Multi-Duet Invite ─────────────────────────────────────────────────
+            case TYPE_MULTI_DUET_INVITE: {
+                final String fFromName    = get(data, "sender_name");
+                final String fFromPhoto   = get(data, "sender_photo");
+                final String fFromUid     = get(data, "sender_uid");
+                final String fReelId      = get(data, "reel_id");
+                final String fReelThumb   = get(data, "reel_thumb");
+                final String fSessionId   = get(data, "session_id");
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    Bitmap avatar = ReelNotificationHelper.downloadCirclePublic(fFromPhoto, 100);
+                    Bitmap thumb  = ReelNotificationHelper.downloadBitmapPublic(fReelThumb, 400, 300);
+
+                    String title = fFromName.isEmpty()
+                            ? "Multi-Duet Invite"
+                            : fFromName + " invited you to a Multi-Duet!";
+                    String body  = "Tap to record your part";
+
+                    // Deep-link: opens DuetInviteActivity with sessionId so participant
+                    // can accept and launch DuetReelActivity in the correct slot.
+                    Intent deepLink = new Intent(ctx,
+                            com.callx.app.social.MultiDuetAcceptActivity.class);
+                    deepLink.putExtra("session_id", fSessionId);
+                    deepLink.putExtra("from_uid",   fFromUid);
+                    deepLink.putExtra("from_name",  fFromName);
+                    deepLink.putExtra("reel_id",    fReelId);
+                    deepLink.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+                    PendingIntent pi = PendingIntent.getActivity(
+                            ctx, fSessionId.hashCode(), deepLink,
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+                    NotificationCompat.Builder nb = new NotificationCompat.Builder(ctx,
+                            ReelNotificationChannelManager.CHANNEL_REEL_DUET)
+                            .setSmallIcon(R.drawable.ic_reels)
+                            .setContentTitle(title)
+                            .setContentText(body)
+                            .setColor(0xFF9C27B0)
+                            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                            .setAutoCancel(true)
+                            .setContentIntent(pi);
+
+                    if (avatar != null) nb.setLargeIcon(avatar);
+                    if (thumb  != null) nb.setStyle(new NotificationCompat.BigPictureStyle()
+                            .bigPicture(thumb).bigLargeIcon((android.graphics.Bitmap) null));
+
+                    // Action button: "Record Now" → same deep-link
+                    nb.addAction(R.drawable.ic_reels, "Record Now 🎬", pi);
+
+                    android.app.NotificationManager nm =
+                            (android.app.NotificationManager)
+                            ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) nm.notify(fSessionId.hashCode() + 9090, nb.build());
+                });
+                break;
+            }
         }
     }
 

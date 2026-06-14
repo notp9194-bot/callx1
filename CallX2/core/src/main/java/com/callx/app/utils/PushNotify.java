@@ -642,5 +642,39 @@ public class PushNotify {
           }
       }
 
-  
+
+    // ── Multi-Duet Invite Notification ────────────────────────────────────────
+    /**
+     * Notify a user that they have been invited to a Multi-Duet session.
+     *
+     * Server: POST /notify/reel  { type: "multi_duet_invite" }
+     * → CallxMessagingService → ReelFCMNotificationHandler → TYPE_MULTI_DUET_INVITE
+     *
+     * @param toUid      UID of the invited participant
+     * @param fromUid    UID of the host who sent the invite
+     * @param fromName   Display name of the host
+     * @param fromPhoto  Avatar URL of the host
+     * @param reelId     Original reel ID for this session
+     * @param sessionId  multi_duet_sessions/{sessionId} — used for deep-link
+     * @param reelThumb  Thumbnail URL of the original reel (shown in notification)
+     */
+    public static void notifyMultiDuetInvite(String toUid, String fromUid, String fromName,
+                                              String fromPhoto, String reelId,
+                                              String sessionId, String reelThumb) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",      toUid      != null ? toUid      : "")
+                .put("fromUid",    fromUid    != null ? fromUid    : "")
+                .put("fromName",   fromName   != null ? fromName   : "")
+                .put("fromPhoto",  fromPhoto  != null ? fromPhoto  : "")
+                .put("reelId",     reelId     != null ? reelId     : "")
+                .put("sessionId",  sessionId  != null ? sessionId  : "")
+                .put("reelThumb",  reelThumb  != null ? reelThumb  : "")
+                .put("type",       "multi_duet_invite");
+            postAsync(Constants.SERVER_URL + "/notify/reel", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyMultiDuetInvite err: " + e.getMessage());
+        }
+    }
+
 }
