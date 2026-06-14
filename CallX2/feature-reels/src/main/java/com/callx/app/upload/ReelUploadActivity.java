@@ -1394,7 +1394,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.photoEffectList      = nullIfAllDefault(a.photoEffectList,       photoUrls.size(), "");
                     reel.photoCaptionStyleList= nullIfAllDefault(a.photoCaptionStyleList, photoUrls.size(), "");
                     reel.photoStickerJsonList = nullIfAllDefault(a.photoStickerJsonList,  photoUrls.size(), "");
-                    reel.photoKbDirList       = nullIfAllDefault(a.photoKbDirList,        photoUrls.size(), "");
+                    reel.photoKenBurnsDirectionList = nullIfAllDefault(a.photoKbDirList,        photoUrls.size(), "");
                     // Per-photo duration overrides (0 = use global)
                     java.util.List<Integer> durOverrides = new java.util.ArrayList<>(a.photoDurationList);
                     while (durOverrides.size() < photoUrls.size()) durOverrides.add(0);
