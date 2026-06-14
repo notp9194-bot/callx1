@@ -99,6 +99,32 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     public static final String EXTRA_ROTATION       = "photo_editor_rotation";
     public static final String EXTRA_APPLY_ALL      = "photo_editor_apply_all";
 
+    /**
+     * Convenience launcher — builds the Intent and calls startActivityForResult.
+     * Pass "" or null for any optional metadata field to use defaults.
+     */
+    public static void start(android.app.Activity caller,
+                             String photoUriStr, int index, int total,
+                             String filter, String effect,
+                             String caption, String captionStyle,
+                             String stickers, String kbDir,
+                             int durationMs, float rotation,
+                             int requestCode) {
+        android.content.Intent i = new android.content.Intent(caller, ReelPhotoEditorActivity.class);
+        i.putExtra(EXTRA_PHOTO_URI,      photoUriStr);
+        i.putExtra(EXTRA_PHOTO_INDEX,    index);
+        i.putExtra(EXTRA_PHOTO_COUNT,    total);
+        if (filter      != null && !filter.isEmpty())      i.putExtra(EXTRA_FILTER,        filter);
+        if (effect      != null && !effect.isEmpty())      i.putExtra(EXTRA_EFFECT,        effect);
+        if (caption     != null && !caption.isEmpty())     i.putExtra(EXTRA_CAPTION,       caption);
+        if (captionStyle!= null && !captionStyle.isEmpty())i.putExtra(EXTRA_CAPTION_STYLE, captionStyle);
+        if (stickers    != null && !stickers.isEmpty())    i.putExtra(EXTRA_STICKERS,      stickers);
+        if (kbDir       != null && !kbDir.isEmpty())       i.putExtra(EXTRA_KB_DIRECTION,  kbDir);
+        if (durationMs  > 0)                               i.putExtra(EXTRA_DURATION_MS,   durationMs);
+        if (rotation    != 0f)                             i.putExtra(EXTRA_ROTATION,      rotation);
+        caller.startActivityForResult(i, requestCode);
+    }
+
     // ── Filter / effect options ────────────────────────────────────────────────
 
     private static final String[] FILTERS = {

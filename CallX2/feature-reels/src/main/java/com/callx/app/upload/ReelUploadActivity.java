@@ -112,6 +112,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     private static final int REQ_PERMISSION   = 902;
     private static final int REQ_PICK_PHOTOS  = 903;
     private static final int REQ_PERM_PHOTOS  = 904;
+    private static final int REQ_PHOTO_EDIT   = 905;
     private static final int MAX_PHOTOS       = 10;
 
     private PlayerView        playerPreview;
@@ -148,7 +149,23 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String                selectedFilter           = "normal";
     private int                   coverPhotoIndex          = 0;
     /** Per-photo captions, index-matched with selectedPhotoUris. "" = no caption. */
-    private final java.util.ArrayList<String> photoCaptions = new java.util.ArrayList<>();
+    private final java.util.ArrayList<String> photoCaptions        = new java.util.ArrayList<>();
+    /** Per-photo filter overrides (e.g. "warm", "cool"). null = use global selectedFilter. */
+    private final java.util.ArrayList<String> photoFilterList      = new java.util.ArrayList<>();
+    /** Per-photo effect overrides (e.g. "vignette"). null = "none". */
+    private final java.util.ArrayList<String> photoEffectList      = new java.util.ArrayList<>();
+    /** Per-photo caption style JSON. "" = default. */
+    private final java.util.ArrayList<String> photoCaptionStyleList = new java.util.ArrayList<>();
+    /** Per-photo sticker JSON array. "" = none. */
+    private final java.util.ArrayList<String> photoStickerJsonList  = new java.util.ArrayList<>();
+    /** Per-photo Ken Burns direction. null = "random". */
+    private final java.util.ArrayList<String> photoKbDirList        = new java.util.ArrayList<>();
+    /** Per-photo duration override in ms. 0 = use global selectedDurationMs. */
+    private final java.util.ArrayList<Integer> photoDurationList    = new java.util.ArrayList<>();
+    /** Per-photo rotation (0/90/180/270). 0 = no rotation. */
+    private final java.util.ArrayList<Float> photoRotationList      = new java.util.ArrayList<>();
+    /** Index of photo being edited, used in onActivityResult. */
+    private int photoEditIndex = -1;
     private androidx.appcompat.widget.SwitchCompat swAutoLoop;
     private Button                btnAddMorePhotos;
 
@@ -621,7 +638,35 @@ public class ReelUploadActivity extends AppCompatActivity {
             }
             updatePhotoCountLabel();
             btnPostReel.setEnabled(!selectedPhotoUris.isEmpty());
-        }
+        } else if (requestCode == REQ_PHOTO_EDIT && resultCode == Activity.RESULT_OK && data != null) {
+            int pos = photoEditIndex;
+            if (pos < 0 || pos >= selectedPhotoUris.size()) return;
+
+            // Read back all edited metadata from ReelPhotoEditorActivity
+            setPhotoMeta(pos, "filter",       data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_FILTER));
+            setPhotoMeta(pos, "effect",       data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_EFFECT));
+            setPhotoMeta(pos, "caption",      data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_CAPTION));
+            setPhotoMeta(pos, "captionStyle", data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_CAPTION_STYLE));
+            setPhotoMeta(pos, "stickers",     data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_STICKERS));
+            setPhotoMeta(pos, "kbDir",        data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_KB_DIRECTION));
+            int durMs = data.getIntExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_DURATION_MS, 0);
+            setPhotoDuration(pos, durMs);
+            float rot = data.getFloatExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_ROTATION, 0f);
+            setPhotoRotation(pos, rot);
+
+            // Apply-all: propagate filter+effect to every photo
+            if (data.getBooleanExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_APPLY_ALL, false)) {
+                String f = getPhotoMeta(pos, "filter");
+                String e = getPhotoMeta(pos, "effect");
+                for (int i = 0; i < selectedPhotoUris.size(); i++) {
+                    setPhotoMeta(i, "filter", f);
+                    setPhotoMeta(i, "effect", e);
+                }
+            }
+
+            // Refresh thumbnail (rotation may have changed visual)
+            rebuildPhotoPreview();
+            photoEditIndex = -1;
     }
 
     /** Adds a small thumbnail ImageView for the given photo URI into the preview row. */
@@ -657,7 +702,7 @@ public class ReelUploadActivity extends AppCompatActivity {
             int pos = llPhotoPreviewContainer.indexOfChild(frame);
             if (pos >= 0 && pos < selectedPhotoUris.size()) {
                 selectedPhotoUris.remove(pos);
-                if (pos < photoCaptions.size()) photoCaptions.remove(pos);
+                removePhotoMetaAt(pos);
                 llPhotoPreviewContainer.removeView(frame);
                 if (coverPhotoIndex >= selectedPhotoUris.size()) coverPhotoIndex = 0;
                 refreshCoverIndicators();
@@ -689,10 +734,23 @@ public class ReelUploadActivity extends AppCompatActivity {
             }
         });
 
-        // Short-tap on the thumbnail → caption dialog
+        // Short-tap on the thumbnail → open per-photo editor
         thumb.setOnClickListener(v -> {
             int pos = llPhotoPreviewContainer.indexOfChild(frame);
-            if (pos >= 0) showCaptionDialog(pos);
+            if (pos < 0 || pos >= selectedPhotoUris.size()) return;
+            photoEditIndex = pos;
+            com.callx.app.editor.ReelPhotoEditorActivity.start(
+                    this, selectedPhotoUris.get(pos).toString(), pos,
+                    selectedPhotoUris.size(),
+                    getPhotoMeta(pos, "filter"),
+                    getPhotoMeta(pos, "effect"),
+                    getPhotoMeta(pos, "caption"),
+                    getPhotoMeta(pos, "captionStyle"),
+                    getPhotoMeta(pos, "stickers"),
+                    getPhotoMeta(pos, "kbDir"),
+                    getPhotoDuration(pos),
+                    getPhotoRotation(pos),
+                    REQ_PHOTO_EDIT);
         });
 
         // Long-press popup: Move Left / Move Right / Set Cover / Remove
@@ -715,7 +773,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                         return true;
                     case 4:
                         selectedPhotoUris.remove(pos);
-                        if (pos < photoCaptions.size()) photoCaptions.remove(pos);
+                        removePhotoMetaAt(pos);
                         llPhotoPreviewContainer.removeView(v);
                         if (coverPhotoIndex >= selectedPhotoUris.size()) coverPhotoIndex = 0;
                         refreshCoverIndicators();
@@ -729,7 +787,7 @@ public class ReelUploadActivity extends AppCompatActivity {
             return true;
         });
 
-        // Caption badge (bottom-right): shows "T" if this photo has a caption
+        // Edit badge (bottom-right): shows "✎" if this photo has any editor changes
         TextView tvCaptionBadge = new TextView(this);
         android.widget.FrameLayout.LayoutParams cbp =
             new android.widget.FrameLayout.LayoutParams(
@@ -737,16 +795,18 @@ public class ReelUploadActivity extends AppCompatActivity {
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
         cbp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
         tvCaptionBadge.setLayoutParams(cbp);
-        tvCaptionBadge.setText("T");
+        tvCaptionBadge.setText("✎");
         tvCaptionBadge.setTextColor(0xFFFFFFFF);
         tvCaptionBadge.setTextSize(10f);
-        tvCaptionBadge.setBackgroundColor(0xCC1565C0);
+        tvCaptionBadge.setBackgroundColor(0xCC5B5BF6);
         tvCaptionBadge.setPadding(5, 1, 5, 1);
         tvCaptionBadge.setTag("caption_badge");
-        // Show badge only if a caption already exists for this index
-        String existingCaption = (index < photoCaptions.size()) ? photoCaptions.get(index) : "";
-        tvCaptionBadge.setVisibility((existingCaption != null && !existingCaption.isEmpty())
-                                     ? View.VISIBLE : View.GONE);
+        // Show badge if any editor metadata exists for this photo
+        boolean hasEdits = !getPhotoMeta(index, "caption").isEmpty()
+                || !getPhotoMeta(index, "filter").isEmpty()
+                || !getPhotoMeta(index, "effect").isEmpty()
+                || !getPhotoMeta(index, "stickers").isEmpty();
+        tvCaptionBadge.setVisibility(hasEdits ? View.VISIBLE : View.GONE);
 
         // Ensure photoCaptions list stays in sync (grow if needed)
         while (photoCaptions.size() <= index) photoCaptions.add("");
@@ -803,6 +863,79 @@ public class ReelUploadActivity extends AppCompatActivity {
             .show();
     }
 
+    // ── Per-photo metadata helpers ────────────────────────────────────────────
+
+    /** Grows the list to at least size {@code index+1}, filling gaps with {@code def}. */
+    private static <T> void ensureSize(java.util.ArrayList<T> list, int index, T def) {
+        while (list.size() <= index) list.add(def);
+    }
+
+    private String getPhotoMeta(int pos, String key) {
+        java.util.ArrayList<String> list = metaList(key);
+        if (list == null || pos >= list.size()) return "";
+        String v = list.get(pos);
+        return v != null ? v : "";
+    }
+
+    private void setPhotoMeta(int pos, String key, String value) {
+        java.util.ArrayList<String> list = metaList(key);
+        if (list == null) return;
+        ensureSize(list, pos, "");
+        list.set(pos, value != null ? value : "");
+        // Keep photoCaptions in sync when caption changes
+        if ("caption".equals(key)) {
+            ensureSize(photoCaptions, pos, "");
+            photoCaptions.set(pos, value != null ? value : "");
+        }
+    }
+
+    private java.util.ArrayList<String> metaList(String key) {
+        switch (key) {
+            case "filter":       return photoFilterList;
+            case "effect":       return photoEffectList;
+            case "caption":      return photoCaptions;
+            case "captionStyle": return photoCaptionStyleList;
+            case "stickers":     return photoStickerJsonList;
+            case "kbDir":        return photoKbDirList;
+            default:             return null;
+        }
+    }
+
+    private int getPhotoDuration(int pos) {
+        if (pos >= photoDurationList.size()) return 0;
+        Integer v = photoDurationList.get(pos);
+        return (v != null) ? v : 0;
+    }
+
+    private void setPhotoDuration(int pos, int ms) {
+        ensureSize(photoDurationList, pos, 0);
+        photoDurationList.set(pos, ms);
+    }
+
+    private float getPhotoRotation(int pos) {
+        if (pos >= photoRotationList.size()) return 0f;
+        Float v = photoRotationList.get(pos);
+        return (v != null) ? v : 0f;
+    }
+
+    private void setPhotoRotation(int pos, float deg) {
+        ensureSize(photoRotationList, pos, 0f);
+        photoRotationList.set(pos, deg);
+    }
+
+    /**
+     * Rebuilds the thumbnail strip from scratch (called after editor returns,
+     * so rotation changes are reflected in the preview).
+     */
+    private void rebuildPhotoPreview() {
+        if (llPhotoPreviewContainer == null) return;
+        llPhotoPreviewContainer.removeAllViews();
+        for (int i = 0; i < selectedPhotoUris.size(); i++) {
+            addPhotoPreviewThumbnail(selectedPhotoUris.get(i), i);
+        }
+        updatePhotoCountLabel();
+    }
+
     /** Swaps photo at pos with the one before it, then rebuilds thumbnails. */
     private void movePhotoLeft(int pos) {
         if (pos <= 0) {
@@ -814,11 +947,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         selectedPhotoUris.set(pos - 1, tmp);
         if (coverPhotoIndex == pos)       coverPhotoIndex = pos - 1;
         else if (coverPhotoIndex == pos - 1) coverPhotoIndex = pos;
-        // Swap captions in sync
-        while (photoCaptions.size() <= pos) photoCaptions.add("");
-        String tmpCap = photoCaptions.get(pos);
-        photoCaptions.set(pos, photoCaptions.get(pos - 1));
-        photoCaptions.set(pos - 1, tmpCap);
+        swapPhotoMeta(pos, pos - 1);
         rebuildPhotoThumbnails();
     }
 
@@ -833,21 +962,44 @@ public class ReelUploadActivity extends AppCompatActivity {
         selectedPhotoUris.set(pos + 1, tmp);
         if (coverPhotoIndex == pos)       coverPhotoIndex = pos + 1;
         else if (coverPhotoIndex == pos + 1) coverPhotoIndex = pos;
-        // Swap captions in sync
-        while (photoCaptions.size() <= pos + 1) photoCaptions.add("");
-        String tmpCap = photoCaptions.get(pos);
-        photoCaptions.set(pos, photoCaptions.get(pos + 1));
-        photoCaptions.set(pos + 1, tmpCap);
+        swapPhotoMeta(pos, pos + 1);
         rebuildPhotoThumbnails();
+    }
+
+    /** Swaps ALL per-photo metadata between two indices. */
+    private void swapPhotoMeta(int a, int b) {
+        swapInList(photoCaptions, a, b, "");
+        swapInList(photoFilterList, a, b, "");
+        swapInList(photoEffectList, a, b, "");
+        swapInList(photoCaptionStyleList, a, b, "");
+        swapInList(photoStickerJsonList, a, b, "");
+        swapInList(photoKbDirList, a, b, "");
+        swapInList(photoDurationList, a, b, 0);
+        swapInList(photoRotationList, a, b, 0f);
+    }
+
+    private static <T> void swapInList(java.util.ArrayList<T> list, int a, int b, T def) {
+        ensureSize(list, Math.max(a, b), def);
+        T tmp = list.get(a);
+        list.set(a, list.get(b));
+        list.set(b, tmp);
+    }
+
+    /** Removes index {@code pos} from ALL per-photo metadata lists. */
+    private void removePhotoMetaAt(int pos) {
+        if (pos < photoCaptions.size())         photoCaptions.remove(pos);
+        if (pos < photoFilterList.size())        photoFilterList.remove(pos);
+        if (pos < photoEffectList.size())        photoEffectList.remove(pos);
+        if (pos < photoCaptionStyleList.size())  photoCaptionStyleList.remove(pos);
+        if (pos < photoStickerJsonList.size())   photoStickerJsonList.remove(pos);
+        if (pos < photoKbDirList.size())         photoKbDirList.remove(pos);
+        if (pos < photoDurationList.size())      photoDurationList.remove(pos);
+        if (pos < photoRotationList.size())      photoRotationList.remove(pos);
     }
 
     /** Clears the thumbnail strip and rebuilds it from selectedPhotoUris. */
     private void rebuildPhotoThumbnails() {
-        if (llPhotoPreviewContainer == null) return;
-        llPhotoPreviewContainer.removeAllViews();
-        for (int i = 0; i < selectedPhotoUris.size(); i++) {
-            addPhotoPreviewThumbnail(selectedPhotoUris.get(i), i);
-        }
+        rebuildPhotoPreview();
     }
 
     private void updatePhotoCountLabel() {
@@ -1235,6 +1387,19 @@ public class ReelUploadActivity extends AppCompatActivity {
                     boolean hasAnyCap = false;
                     for (String c : caps) if (c != null && !c.isEmpty()) { hasAnyCap = true; break; }
                     reel.photoCaptions   = hasAnyCap ? caps : null;
+
+                    // ── Per-photo editor metadata ──────────────────────────
+                    reel.photoFilterList      = nullIfAllDefault(a.photoFilterList,       photoUrls.size(), "");
+                    reel.photoEffectList      = nullIfAllDefault(a.photoEffectList,       photoUrls.size(), "");
+                    reel.photoCaptionStyleList= nullIfAllDefault(a.photoCaptionStyleList, photoUrls.size(), "");
+                    reel.photoStickerJsonList = nullIfAllDefault(a.photoStickerJsonList,  photoUrls.size(), "");
+                    reel.photoKbDirList       = nullIfAllDefault(a.photoKbDirList,        photoUrls.size(), "");
+                    // Per-photo duration overrides (0 = use global)
+                    java.util.List<Integer> durOverrides = new java.util.ArrayList<>(a.photoDurationList);
+                    while (durOverrides.size() < photoUrls.size()) durOverrides.add(0);
+                    boolean hasAnyDurOverride = false;
+                    for (Integer d : durOverrides) if (d != null && d > 0) { hasAnyDurOverride = true; break; }
+                    reel.photoDurationList = hasAnyDurOverride ? durOverrides : null;
                     reel.audienceType    = audienceType;
                     reel.thumbUrl        = thumbUrl;
 
@@ -1490,6 +1655,18 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (id == R.id.chip_hd)     return VideoQualityPreferences.Quality.HD;
         if (id == R.id.chip_fullhd) return VideoQualityPreferences.Quality.FULL_HD;
         return VideoQualityPreferences.Quality.STANDARD;
+    }
+
+    /**
+     * Returns null if all entries equal {@code def} (saves Firebase bandwidth),
+     * otherwise returns a padded copy of the list.
+     */
+    private static <T> java.util.List<T> nullIfAllDefault(
+            java.util.ArrayList<T> src, int size, T def) {
+        java.util.List<T> out = new java.util.ArrayList<>(src);
+        while (out.size() < size) out.add(def);
+        for (T v : out) if (v != null && !v.equals(def)) return out;
+        return null;
     }
 
     private String getAudienceType() {
