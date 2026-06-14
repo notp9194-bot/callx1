@@ -26,12 +26,9 @@ import java.util.*;
  *   - Loads followers, sends duet_invite to target user's node
  *
  * Mode 2 (Multi-duet participant picker — EXTRA_MULTI_DUET_MODE = true):
- *   - Searches ALL users by name/username (client-side filter on full scan)
- *   - On pick: sets RESULT_OK with selected user data → MultiDuetActivity handles add
- *
- * FIX: Firebase orderByChild case-sensitive issue fixed.
- *      Now uses full scan + client-side lowercase filter for multi-duet mode.
- *      Also attempts displayNameLower/usernameLower indexed fields if present.
+ *   - Preloads ALL users once from Firebase
+ *   - Client-side filter: searches by "name", "nameLower", "callxId"
+ *   - Same fields as SearchActivity (name / nameLower / callxId / photoUrl / thumbUrl)
  */
 public class DuetInviteActivity extends AppCompatActivity {
 
@@ -53,14 +50,15 @@ public class DuetInviteActivity extends AppCompatActivity {
     private ProgressBar  progress;
     private TextView     tvTitle, tvEmpty, tvSearchHint;
 
-    private String  myUid, myName, myPhoto;
+    private String  myUid;
     private String  reelId, reelThumb, ownerName, videoUrl, ownerUid;
     private boolean isMultiDuetMode;
 
-    // All users cache (loaded once in multi-duet mode)
+    // Cache for multi-duet mode
     private final List<UserItem> allUsersCache = new ArrayList<>();
     private boolean allUsersLoaded = false;
 
+    // Normal mode list
     private final List<UserItem> allUsers     = new ArrayList<>();
     private final List<UserItem> filteredList = new ArrayList<>();
     private UserAdapter adapter;
@@ -77,18 +75,19 @@ public class DuetInviteActivity extends AppCompatActivity {
         ownerUid        = getIntent().getStringExtra(EXTRA_OWNER_UID);
         isMultiDuetMode = getIntent().getBooleanExtra(EXTRA_MULTI_DUET_MODE, false);
 
-        myUid    = FirebaseAuth.getInstance().getUid();
-        tvTitle  = findViewById(R.id.tv_invite_title);
-        etSearch = findViewById(R.id.et_invite_search);
-        rvUsers  = findViewById(R.id.rv_invite_users);
-        progress = findViewById(R.id.progress_invite);
-        tvEmpty  = findViewById(R.id.tv_invite_empty);
+        myUid = FirebaseAuth.getInstance().getUid();
+
+        tvTitle      = findViewById(R.id.tv_invite_title);
+        etSearch     = findViewById(R.id.et_invite_search);
+        rvUsers      = findViewById(R.id.rv_invite_users);
+        progress     = findViewById(R.id.progress_invite);
+        tvEmpty      = findViewById(R.id.tv_invite_empty);
         tvSearchHint = findViewById(R.id.tv_search_hint);
 
         tvTitle.setText(isMultiDuetMode ? "Add Participant" : "Invite to Duet");
         if (tvSearchHint != null) {
             tvSearchHint.setVisibility(isMultiDuetMode ? View.VISIBLE : View.GONE);
-            tvSearchHint.setText("Type a name or username to search");
+            tvSearchHint.setText("Type a name or CallX ID to search");
         }
 
         rvUsers.setLayoutManager(new LinearLayoutManager(this));
@@ -111,15 +110,14 @@ public class DuetInviteActivity extends AppCompatActivity {
 
         if (isMultiDuetMode) {
             showEmpty(true);
-            tvEmpty.setText("Type a name or username to search");
-            // Pre-load all users in background so search is instant
+            tvEmpty.setText("Type a name or CallX ID to search");
             preloadAllUsers();
         } else {
             loadFollowers();
         }
     }
 
-    // ── Multi-duet mode: preload all users once ───────────────────────────────
+    // ── Multi-duet: preload all users once ───────────────────────────────────
 
     private void preloadAllUsers() {
         progress.setVisibility(View.VISIBLE);
@@ -131,27 +129,28 @@ public class DuetInviteActivity extends AppCompatActivity {
                         String uid = ds.getKey();
                         if (uid == null || uid.equals(myUid)) continue;
 
-                        String name  = ds.child("displayName").getValue(String.class);
-                        String photo = ds.child("photoUrl").getValue(String.class);
-                        String uname = ds.child("username").getValue(String.class);
+                        // Same field names as SearchActivity
+                        String name    = ds.child("name").getValue(String.class);
+                        String photo   = ds.child("photoUrl").getValue(String.class);
+                        String thumb   = ds.child("thumbUrl").getValue(String.class);
+                        String callxId = ds.child("callxId").getValue(String.class);
 
                         if (name != null && !name.isEmpty()) {
                             allUsersCache.add(new UserItem(
                                 uid,
                                 name,
-                                uname != null ? uname : "",
-                                photo != null ? photo : ""
+                                callxId != null ? callxId : "",
+                                photo   != null ? photo   : "",
+                                thumb   != null ? thumb   : ""
                             ));
                         }
                     }
                     allUsersLoaded = true;
                     progress.setVisibility(View.GONE);
 
-                    // If user already typed something while loading
-                    String currentQuery = etSearch.getText().toString().trim();
-                    if (!currentQuery.isEmpty()) {
-                        filterCachedUsers(currentQuery);
-                    }
+                    // User might have already typed while loading
+                    String q = etSearch.getText().toString().trim();
+                    if (!q.isEmpty()) filterCachedUsers(q);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     progress.setVisibility(View.GONE);
@@ -161,22 +160,16 @@ public class DuetInviteActivity extends AppCompatActivity {
             });
     }
 
-    /**
-     * Client-side filter on preloaded cache.
-     * Case-insensitive match on name OR username.
-     */
     private void filterCachedUsers(String query) {
         if (!allUsersLoaded) {
-            // Still loading — show hint
             tvEmpty.setText("Loading users...");
             showEmpty(true);
             return;
         }
-
-        if (query.length() < 1) {
+        if (query.isEmpty()) {
             filteredList.clear();
             adapter.notifyDataSetChanged();
-            tvEmpty.setText("Type a name or username to search");
+            tvEmpty.setText("Type a name or CallX ID to search");
             showEmpty(true);
             return;
         }
@@ -185,19 +178,19 @@ public class DuetInviteActivity extends AppCompatActivity {
         filteredList.clear();
 
         for (UserItem u : allUsersCache) {
-            boolean nameMatch     = u.name.toLowerCase(Locale.getDefault()).contains(q);
-            boolean usernameMatch = u.username.toLowerCase(Locale.getDefault()).contains(q);
-            if (nameMatch || usernameMatch) {
+            boolean nameMatch   = u.name.toLowerCase(Locale.getDefault()).contains(q);
+            boolean callxMatch  = u.callxId.toLowerCase(Locale.getDefault()).contains(q);
+            if (nameMatch || callxMatch) {
                 filteredList.add(u);
             }
         }
 
-        // Sort: exact-start matches first, then contains
+        // Sort: starts-with first, then contains
         filteredList.sort((a, b) -> {
             boolean aStart = a.name.toLowerCase(Locale.getDefault()).startsWith(q)
-                || a.username.toLowerCase(Locale.getDefault()).startsWith(q);
+                    || a.callxId.toLowerCase(Locale.getDefault()).startsWith(q);
             boolean bStart = b.name.toLowerCase(Locale.getDefault()).startsWith(q)
-                || b.username.toLowerCase(Locale.getDefault()).startsWith(q);
+                    || b.callxId.toLowerCase(Locale.getDefault()).startsWith(q);
             if (aStart && !bStart) return -1;
             if (!aStart && bStart) return 1;
             return a.name.compareToIgnoreCase(b.name);
@@ -238,13 +231,18 @@ public class DuetInviteActivity extends AppCompatActivity {
             FirebaseUtils.db().getReference("users").child(uid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot ds) {
-                        String name  = ds.child("displayName").getValue(String.class);
-                        String photo = ds.child("photoUrl").getValue(String.class);
-                        String uname = ds.child("username").getValue(String.class);
+                        String name    = ds.child("name").getValue(String.class);
+                        String photo   = ds.child("photoUrl").getValue(String.class);
+                        String thumb   = ds.child("thumbUrl").getValue(String.class);
+                        String callxId = ds.child("callxId").getValue(String.class);
                         if (name != null) {
-                            allUsers.add(new UserItem(uid, name,
-                                uname != null ? uname : "",
-                                photo != null ? photo : ""));
+                            allUsers.add(new UserItem(
+                                uid,
+                                name,
+                                callxId != null ? callxId : "",
+                                photo   != null ? photo   : "",
+                                thumb   != null ? thumb   : ""
+                            ));
                         }
                         loaded[0]++;
                         if (loaded[0] == uids.size()) {
@@ -269,7 +267,7 @@ public class DuetInviteActivity extends AppCompatActivity {
         for (UserItem u : allUsers) {
             if (q.isEmpty()
                     || u.name.toLowerCase(Locale.getDefault()).contains(q)
-                    || u.username.toLowerCase(Locale.getDefault()).contains(q)) {
+                    || u.callxId.toLowerCase(Locale.getDefault()).contains(q)) {
                 filteredList.add(u);
             }
         }
@@ -285,7 +283,7 @@ public class DuetInviteActivity extends AppCompatActivity {
             result.putExtra(RESULT_USER_UID,      user.uid);
             result.putExtra(RESULT_USER_NAME,     user.name);
             result.putExtra(RESULT_USER_PHOTO,    user.photoUrl);
-            result.putExtra(RESULT_USER_USERNAME, user.username);
+            result.putExtra(RESULT_USER_USERNAME, user.callxId); // callxId as username
             setResult(RESULT_OK, result);
             finish();
         } else {
@@ -295,11 +293,10 @@ public class DuetInviteActivity extends AppCompatActivity {
 
     private void sendInvite(UserItem user) {
         if (reelId == null || myUid == null) return;
-
         FirebaseUtils.db().getReference("users").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot ds) {
-                    String fromName  = ds.child("displayName").getValue(String.class);
+                    String fromName  = ds.child("name").getValue(String.class);
                     String fromPhoto = ds.child("photoUrl").getValue(String.class);
                     if (fromName == null) fromName = "Someone";
 
@@ -341,10 +338,10 @@ public class DuetInviteActivity extends AppCompatActivity {
 
     // ── Data model ────────────────────────────────────────────────────────────
     static class UserItem {
-        String uid, name, username, photoUrl;
-        UserItem(String uid, String name, String username, String photoUrl) {
-            this.uid = uid; this.name = name;
-            this.username = username; this.photoUrl = photoUrl;
+        String uid, name, callxId, photoUrl, thumbUrl;
+        UserItem(String uid, String name, String callxId, String photoUrl, String thumbUrl) {
+            this.uid = uid; this.name = name; this.callxId = callxId;
+            this.photoUrl = photoUrl; this.thumbUrl = thumbUrl;
         }
     }
 
@@ -365,9 +362,10 @@ public class DuetInviteActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             UserItem u = items.get(pos);
             h.tvName.setText(u.name);
-            h.tvUsername.setText(u.username.isEmpty() ? "" : "@" + u.username);
-            if (!u.photoUrl.isEmpty()) {
-                Glide.with(h.ivAvatar).load(u.photoUrl).circleCrop().into(h.ivAvatar);
+            h.tvUsername.setText(u.callxId.isEmpty() ? "" : "@" + u.callxId);
+            String avatar = (!u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+            if (!avatar.isEmpty()) {
+                Glide.with(h.ivAvatar).load(avatar).circleCrop().into(h.ivAvatar);
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
