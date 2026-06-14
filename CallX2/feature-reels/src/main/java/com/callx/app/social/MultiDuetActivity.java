@@ -284,24 +284,6 @@ public class MultiDuetActivity extends AppCompatActivity {
             sessionRef.removeEventListener(sessionListener);
         }
     }
-        if (participants.size() < 2) {
-            Toast.makeText(this, "Add at least one more participant", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (sessionId == null) return;
-        FirebaseUtils.db().getReference("multi_duet_sessions")
-            .child(sessionId).child("status").setValue("recording");
-
-        Intent i = new Intent(this, DuetReelActivity.class);
-        i.putExtra(DuetReelActivity.EXTRA_REEL_ID,    originalReelId);
-        i.putExtra(DuetReelActivity.EXTRA_VIDEO_URL,  videoUrl);
-        i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME, ownerName);
-        i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,  ownerUid);
-        i.putExtra("multi_duet_session_id", sessionId);
-        i.putExtra("multi_duet_slot",       0);
-        i.putExtra("multi_duet_total",      participants.size());
-        startActivity(i);
-    }
 
     private void startSession() {
         if (participants.size() < 2) {
@@ -323,7 +305,8 @@ public class MultiDuetActivity extends AppCompatActivity {
         startActivity(i);
     }
 
-    private void updateUI() {        int count = participants.size();
+    private void updateUI() {
+        int count = participants.size();
         int slots = MAX_SLOTS - count;
         btnStartSession.setText("Start Multi-Duet (" + count + "/" + MAX_SLOTS + ")");
         btnStartSession.setEnabled(count >= 1);
