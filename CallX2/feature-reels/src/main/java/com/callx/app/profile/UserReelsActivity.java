@@ -108,6 +108,8 @@ public class UserReelsActivity extends AppCompatActivity
     private View            layoutMultiSelectBar;
     private TextView        tvSelectedCount;
     private ImageButton     btnShareSelected, btnDeleteSelected, btnCancelSelect, btnDeleteAll;
+    private View            layoutProfileHeaderBar; // top nav bar — theme gradient applied here
+    private int             profileTheme = 0;       // loaded from Firebase reels/users/{uid}/profileTheme
     private View            layoutPrivateAccount;
     private View            layoutFollowersClick;
     private View            layoutFollowingClick;
@@ -173,6 +175,7 @@ public class UserReelsActivity extends AppCompatActivity
         loadAccountPrivacy();
         setupStatsClicks();
         loadAvatarAndStartAnimation();
+        loadProfileTheme(); // Load & apply profile header theme
     }
 
     // ── Bind views ────────────────────────────────────────────────────────
@@ -223,6 +226,7 @@ public class UserReelsActivity extends AppCompatActivity
         btnDeleteSelected    = findViewById(R.id.btn_delete_selected);
         btnCancelSelect      = findViewById(R.id.btn_cancel_select);
         btnDeleteAll         = findViewById(R.id.btn_delete_all);
+        layoutProfileHeaderBar = findViewById(R.id.layout_profile_header_bar);
         tvPhone          = findViewById(R.id.tv_phone);
         tvWhatsapp       = findViewById(R.id.tv_whatsapp);
         tvInstagram      = findViewById(R.id.tv_instagram);
@@ -1655,6 +1659,7 @@ public class UserReelsActivity extends AppCompatActivity
             if (isSelf)  menu.getMenu().add(0, 5, 0, "Creator Dashboard");
             if (isSelf && pinnedReel != null) menu.getMenu().add(0, 4, 0, "Remove Pinned Reel");
             if (isSelf)  menu.getMenu().add(0, 6, 0, "🗑️ Delete All Reels");
+            if (isSelf)  menu.getMenu().add(0, 7, 0, "🎨 Edit Profile Theme");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             menu.setOnMenuItemClickListener(item -> {
                 switch (item.getItemId()) {
@@ -1668,11 +1673,92 @@ public class UserReelsActivity extends AppCompatActivity
                     case 4: unpinReel(); break;
                     case 5: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
                     case 6: deleteAllReels(); break;
+                    case 7: openProfileThemePicker(); break;
                 }
                 return true;
             });
             menu.show();
         });
+    }
+
+    // ── Profile Theme ─────────────────────────────────────────────────────
+
+    /**
+     * Loads profileTheme integer from reels/users/{targetUid}/profileTheme
+     * and applies the gradient to the top nav bar header.
+     * Called for both owner and viewer — everyone sees the theme.
+     */
+    private void loadProfileTheme() {
+        if (targetUid == null) return;
+        com.google.firebase.database.FirebaseDatabase
+                .getInstance(com.callx.app.utils.Constants.DB_URL)
+                .getReference("reels/users").child(targetUid).child("profileTheme")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override
+                    public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                        Integer theme = snap.getValue(Integer.class);
+                        if (theme != null) {
+                            profileTheme = theme;
+                            applyProfileTheme(profileTheme);
+                        }
+                        // If no theme set → keep default colorSurface background
+                    }
+                    @Override
+                    public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
+                });
+    }
+
+    /**
+     * Applies a gradient to the top nav bar using the theme's primary+secondary colors
+     * read directly — does NOT touch ChatThemeManager's saved state.
+     */
+    private void applyProfileTheme(int themeIndex) {
+        if (layoutProfileHeaderBar == null) return;
+        int[] colors = getThemeColors(themeIndex);
+        android.graphics.drawable.GradientDrawable gd =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                        colors);
+        layoutProfileHeaderBar.setBackground(gd);
+    }
+
+    /** Returns [primaryColor, secondaryColor] for a theme index without touching ChatThemeManager state. */
+    private int[] getThemeColors(int idx) {
+        switch (idx) {
+            case 1:  return new int[]{0xFF0EA5E9, 0xFF6366F1};
+            case 2:  return new int[]{0xFF16A34A, 0xFF0D9488};
+            case 3:  return new int[]{0xFFF97316, 0xFFEF4444};
+            case 4:  return new int[]{0xFF7C3AED, 0xFFDB2777};
+            case 5:  return new int[]{0xFF1E293B, 0xFF0F172A};
+            case 6:  return new int[]{0xFF25D366, 0xFF128C7E};
+            case 7:  return new int[]{0xFF374151, 0xFF6B7280};
+            case 8:  return new int[]{0xFFE11D48, 0xFFFF6B9D};
+            case 9:  return new int[]{0xFF0D9488, 0xFF7C3AED};
+            case 10: return new int[]{0xFF6F3F1F, 0xFFD97706};
+            case 11: return new int[]{0xFF00C853, 0xFFFF0088};
+            case 12: return new int[]{0xFFB8860B, 0xFF7B1C3C};
+            case 13: return new int[]{0xFF7B2FBE, 0xFF4361EE};
+            case 14: return new int[]{0xFFFF6EB4, 0xFFFF9FD8};
+            case 15: return new int[]{0xFFFF3A00, 0xFFFFA500};
+            case 16: return new int[]{0xFF48CAE4, 0xFF48CAE4};
+            case 17: return new int[]{0xFF2D6A4F, 0xFF40916C};
+            default: return new int[]{0xFFFF0080, 0xFFFF6B00}; // Hybrid
+        }
+    }
+
+    /**
+     * Opens the theme picker sheet. Only callable by profile owner.
+     */
+    private void openProfileThemePicker() {
+        if (!isSelf) return;
+        ReelProfileThemeSheet sheet = ReelProfileThemeSheet.newInstance(profileTheme);
+        sheet.setOnThemeAppliedListener(themeIndex -> {
+            profileTheme = themeIndex;
+            applyProfileTheme(themeIndex);
+        });
+        try {
+            sheet.show(getSupportFragmentManager(), ReelProfileThemeSheet.TAG);
+        } catch (Exception ignored) {}
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
