@@ -319,6 +319,12 @@ public class ReelModel {
     public int    seriesEpisodeNumber;
     public String seriesTitle;
 
+    // ── Multi-Duet fields ─────────────────────────────────────────────────────
+    /** Firebase key of the multi_duet_sessions node this reel belongs to. */
+    public String multiDuetSessionId;
+    /** Slot index (0 = host, 1-3 = participants) in the multi-duet grid. */
+    public int    multiDuetSlot;
+
     public ReelModel() {}
 
     public ReelModel(String reelId, String uid, String ownerName, String ownerPhoto,

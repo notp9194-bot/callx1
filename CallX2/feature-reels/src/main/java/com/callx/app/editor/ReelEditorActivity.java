@@ -124,6 +124,9 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String  duetOwnerUid    = "";
     private String  duetLabel       = "";
     private String  duetOriginalUrl = "";
+    private String  multiDuetSessionId = "";
+    private int     multiDuetSlot      = -1;
+    private int     multiDuetTotal     = 0;
 
     // ── Pre-selected sound ───────────────────────────────────────────────
     private String preSelectedSoundId    = "";
@@ -176,6 +179,14 @@ public class ReelEditorActivity extends AppCompatActivity {
         duetLabel      = nvl(getIntent().getStringExtra(EXTRA_DUET_LABEL));
         String dUrl    = getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_URL);
         if (dUrl != null) duetOriginalUrl = dUrl;
+
+        // Multi-duet session passthrough
+        String mdsId = getIntent().getStringExtra("multi_duet_session_id");
+        if (mdsId != null && !mdsId.isEmpty()) {
+            multiDuetSessionId = mdsId;
+            multiDuetSlot      = getIntent().getIntExtra("multi_duet_slot", -1);
+            multiDuetTotal     = getIntent().getIntExtra("multi_duet_total", 0);
+        }
 
         String si = getIntent().getStringExtra("selected_sound_id");
         String st = getIntent().getStringExtra("selected_sound_title");
@@ -928,6 +939,12 @@ public class ReelEditorActivity extends AppCompatActivity {
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_ORIGINAL_URL, duetOriginalUrl);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_OWNER_UID,    duetOwnerUid);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_LABEL,        duetLabel);
+            // Multi-duet session
+            if (!multiDuetSessionId.isEmpty()) {
+                intent.putExtra("multi_duet_session_id", multiDuetSessionId);
+                intent.putExtra("multi_duet_slot",       multiDuetSlot);
+                intent.putExtra("multi_duet_total",      multiDuetTotal);
+            }
         }
 
         startActivity(intent);

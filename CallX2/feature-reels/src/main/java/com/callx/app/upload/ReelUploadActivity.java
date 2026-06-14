@@ -195,6 +195,8 @@ public class ReelUploadActivity extends AppCompatActivity {
     private String  duetOriginalUrl = "";
     private int     duetLayoutMode  = 0;  // ✅ FIX GAP #6: save layout mode to Firebase
     private String  duetRootId     = null; // ✅ FIX v9 (CHAIN DUET): root reel of the chain
+    private String  multiDuetSessionId = ""; // ✅ Multi-duet session
+    private int     multiDuetSlot      = -1;
 
     // ✅ FIX GAP #2: stitch metadata
     private boolean isStitch           = false;
@@ -467,6 +469,12 @@ public class ReelUploadActivity extends AppCompatActivity {
           // ✅ FIX (CHAIN DUET): read duetRootId so it can be persisted to Firebase
           String dRootId = i.getStringExtra("duet_root_id");
           if (dRootId != null && !dRootId.isEmpty()) duetRootId = dRootId;
+        // ✅ Multi-duet session
+        String mdsId = i.getStringExtra("multi_duet_session_id");
+        if (mdsId != null && !mdsId.isEmpty()) {
+            multiDuetSessionId = mdsId;
+            multiDuetSlot      = i.getIntExtra("multi_duet_slot", -1);
+        }
 
         // ✅ FIX GAP #2: read stitch metadata
         isStitch = i.getBooleanExtra("is_stitch", false);
@@ -1515,6 +1523,11 @@ public class ReelUploadActivity extends AppCompatActivity {
             reel.duetRootId    = duetRootId;    // ✅ FIX (CHAIN DUET): persist root ID
                     reel.caption       = a.duetLabel.isEmpty() ? reel.caption
                                          : (a.duetLabel + (reel.caption.isEmpty() ? "" : " – " + reel.caption));
+                    // ✅ Multi-duet: tag reel with session ID + slot
+                    if (!a.multiDuetSessionId.isEmpty()) {
+                        reel.multiDuetSessionId = a.multiDuetSessionId;
+                        reel.multiDuetSlot      = a.multiDuetSlot;
+                    }
                 }
 
                 // ✅ FIX GAP #2: stitch fields on the new reel (field names match ReelModel)
@@ -1556,6 +1569,23 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                         Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
                         b.setResult(RESULT_OK);
+
+                        // ✅ Multi-duet: mark this participant as "recorded" in the session
+                        if (!b.multiDuetSessionId.isEmpty()) {
+                            String participantUid = myUid;
+                            com.google.firebase.database.DatabaseReference sessionRef =
+                                FirebaseUtils.db().getReference("multi_duet_sessions")
+                                    .child(b.multiDuetSessionId);
+                            // Mark participant status = recorded + store their reelId
+                            sessionRef.child("participants").child(participantUid)
+                                .child("status").setValue("recorded");
+                            sessionRef.child("participants").child(participantUid)
+                                .child("reelId").setValue(finalReelId);
+                            // If host (slot 0), also store host reel ID at session level
+                            if (b.multiDuetSlot == 0) {
+                                sessionRef.child("hostReelId").setValue(finalReelId);
+                            }
+                        }
 
                         // Fix 6: increment duetCount on original reel
                         if (b.isDuet && !b.duetOriginalId.isEmpty()) {

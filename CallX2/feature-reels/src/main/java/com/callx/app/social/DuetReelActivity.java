@@ -1834,6 +1834,16 @@ public class DuetReelActivity extends AppCompatActivity {
         i.putExtra("duet_filter_index",  currentFilterIndex);
         i.putExtra("duet_overlays_json", overlaysToJson());
 
+        // ── Multi-duet session passthrough ───────────────────────────────────
+        String sessionId = getIntent().getStringExtra("multi_duet_session_id");
+        int    slot      = getIntent().getIntExtra("multi_duet_slot", -1);
+        int    total     = getIntent().getIntExtra("multi_duet_total", 0);
+        if (sessionId != null && !sessionId.isEmpty()) {
+            i.putExtra("multi_duet_session_id", sessionId);
+            i.putExtra("multi_duet_slot",       slot);
+            i.putExtra("multi_duet_total",      total);
+        }
+
         startActivity(i);
     }
 
