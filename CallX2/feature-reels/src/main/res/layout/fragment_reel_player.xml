@@ -183,7 +183,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_heart"
             android:tint="#FF416C"
-            android:background="@drawable/bg_glow_like"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Like"/>
         <TextView
             android:id="@+id/tv_likes_count"
@@ -209,7 +209,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_comment_reel"
             android:tint="#00C6FF"
-            android:background="@drawable/bg_glow_comment"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Comment"/>
         <TextView
             android:id="@+id/tv_comments_count"
@@ -235,7 +235,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_share_reel"
             android:tint="#00F260"
-            android:background="@drawable/bg_glow_share"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Share"/>
         <TextView
             android:id="@+id/tv_shares_count"
@@ -261,7 +261,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_repost"
             android:tint="#A855F7"
-            android:background="@drawable/bg_glow_repost"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Repost"/>
         <TextView
             android:id="@+id/tv_repost_count"
@@ -280,7 +280,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_more_vert"
             android:tint="#FFA500"
-            android:background="@drawable/bg_glow_more"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="More"/>
     </LinearLayout>
 

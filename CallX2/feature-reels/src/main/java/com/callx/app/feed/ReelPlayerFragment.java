@@ -71,6 +71,13 @@ import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.workers.ReelRepostWorker;
 import com.google.firebase.database.*;
+import android.graphics.BlendMode;
+import android.graphics.BlendModeColorFilter;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.drawable.Drawable;
+import android.os.Build;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
 import com.google.firebase.database.Transaction;
@@ -457,6 +464,71 @@ public class ReelPlayerFragment extends Fragment
         tvPauseBadge      = v.findViewById(R.id.tv_pause_badge);
         tvCaptionOverlay  = v.findViewById(R.id.tv_caption_overlay);
         llDotIndicator    = v.findViewById(R.id.ll_dot_indicator);
+
+        applyIconGlows();
+    }
+
+    /**
+     * Applies a coloured glow that traces the exact silhouette of each action icon.
+     * Uses setShadowLayer on the drawable's Paint — no circle/shape background at all.
+     * Hardware layer is required for shadow to render on ImageButton.
+     */
+    private void applyIconGlows() {
+        applyGlow(btnLike,    0xFFFF416C, 18f); // pink  — Like
+        applyGlow(btnComment, 0xFF00C6FF, 18f); // cyan  — Comment
+        applyGlow(btnShare,   0xFF00F260, 18f); // green — Share
+        applyGlow(btnRepost,  0xFFA855F7, 18f); // purple— Repost
+        applyGlow(btnMore,    0xFFFFA500, 18f); // orange— More
+    }
+
+    /**
+     * Wraps the icon drawable in a custom drawable that paints with shadowLayer,
+     * making the glow follow the icon's pixel edges exactly.
+     */
+    private void applyGlow(ImageButton btn, int color, float radius) {
+        if (btn == null) return;
+        // Hardware layer needed so Android renders the shadow layer
+        btn.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null);
+        Drawable d = btn.getDrawable();
+        if (d == null) return;
+        // Wrap in a GlowDrawable that applies shadowLayer paint
+        btn.setImageDrawable(new GlowDrawable(d, color, radius));
+    }
+
+    /** Drawable wrapper that adds a coloured glow tracing the icon silhouette. */
+    private static class GlowDrawable extends android.graphics.drawable.Drawable
+            implements android.graphics.drawable.Drawable.Callback {
+        private final Drawable src;
+        private final android.graphics.Paint glowPaint;
+
+        GlowDrawable(Drawable src, int glowColor, float radius) {
+            this.src = src.mutate();
+            this.src.setCallback(this);
+            glowPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            glowPaint.setShadowLayer(radius, 0f, 0f, glowColor);
+        }
+
+        @Override
+        public void draw(@NonNull android.graphics.Canvas canvas) {
+            // Save layer so shadowLayer applies around the drawn pixels
+            canvas.saveLayer(null, glowPaint);
+            src.draw(canvas);
+            canvas.restore();
+        }
+
+        @Override public void setBounds(int l, int t, int r, int b) {
+            super.setBounds(l, t, r, b);
+            src.setBounds(l, t, r, b);
+        }
+        @Override public void setAlpha(int alpha) { src.setAlpha(alpha); }
+        @Override public void setColorFilter(android.graphics.ColorFilter cf) { src.setColorFilter(cf); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+        @Override public int getIntrinsicWidth()  { return src.getIntrinsicWidth(); }
+        @Override public int getIntrinsicHeight() { return src.getIntrinsicHeight(); }
+        // Drawable.Callback
+        @Override public void invalidateDrawable(@NonNull Drawable who) { invalidateSelf(); }
+        @Override public void scheduleDrawable(@NonNull Drawable who, @NonNull Runnable what, long when) { scheduleSelf(what, when); }
+        @Override public void unscheduleDrawable(@NonNull Drawable who, @NonNull Runnable what) { unscheduleSelf(what); }
     }
 
     private void populateStaticData() {
