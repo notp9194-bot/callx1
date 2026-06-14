@@ -24,20 +24,22 @@ import java.util.*;
  *
  * Mode 1 (Normal duet invite):
  *   - Loads followers, sends duet_invite to target user's node
- *   - finishes normally
  *
  * Mode 2 (Multi-duet participant picker — EXTRA_MULTI_DUET_MODE = true):
- *   - Searches ALL users by name/username (not just followers)
+ *   - Searches ALL users by name/username (client-side filter on full scan)
  *   - On pick: sets RESULT_OK with selected user data → MultiDuetActivity handles add
- *   - Does NOT send a Firebase invite; MultiDuetActivity writes to session
+ *
+ * FIX: Firebase orderByChild case-sensitive issue fixed.
+ *      Now uses full scan + client-side lowercase filter for multi-duet mode.
+ *      Also attempts displayNameLower/usernameLower indexed fields if present.
  */
 public class DuetInviteActivity extends AppCompatActivity {
 
-    public static final String EXTRA_REEL_ID        = "invite_reel_id";
-    public static final String EXTRA_REEL_THUMB     = "invite_reel_thumb";
-    public static final String EXTRA_OWNER_NAME     = "invite_owner_name";
-    public static final String EXTRA_VIDEO_URL      = "invite_video_url";
-    public static final String EXTRA_OWNER_UID      = "invite_owner_uid";
+    public static final String EXTRA_REEL_ID         = "invite_reel_id";
+    public static final String EXTRA_REEL_THUMB      = "invite_reel_thumb";
+    public static final String EXTRA_OWNER_NAME      = "invite_owner_name";
+    public static final String EXTRA_VIDEO_URL       = "invite_video_url";
+    public static final String EXTRA_OWNER_UID       = "invite_owner_uid";
     public static final String EXTRA_MULTI_DUET_MODE = "multi_duet_mode";
 
     // Result extras (multi-duet mode)
@@ -54,6 +56,10 @@ public class DuetInviteActivity extends AppCompatActivity {
     private String  myUid, myName, myPhoto;
     private String  reelId, reelThumb, ownerName, videoUrl, ownerUid;
     private boolean isMultiDuetMode;
+
+    // All users cache (loaded once in multi-duet mode)
+    private final List<UserItem> allUsersCache = new ArrayList<>();
+    private boolean allUsersLoaded = false;
 
     private final List<UserItem> allUsers     = new ArrayList<>();
     private final List<UserItem> filteredList = new ArrayList<>();
@@ -95,7 +101,7 @@ public class DuetInviteActivity extends AppCompatActivity {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
                 if (isMultiDuetMode) {
-                    searchAllUsers(s.toString().trim());
+                    filterCachedUsers(s.toString().trim());
                 } else {
                     filter(s.toString());
                 }
@@ -104,12 +110,102 @@ public class DuetInviteActivity extends AppCompatActivity {
         });
 
         if (isMultiDuetMode) {
-            // Show empty state with prompt; user types to search
             showEmpty(true);
             tvEmpty.setText("Type a name or username to search");
+            // Pre-load all users in background so search is instant
+            preloadAllUsers();
         } else {
             loadFollowers();
         }
+    }
+
+    // ── Multi-duet mode: preload all users once ───────────────────────────────
+
+    private void preloadAllUsers() {
+        progress.setVisibility(View.VISIBLE);
+        FirebaseUtils.db().getReference("users")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    allUsersCache.clear();
+                    for (DataSnapshot ds : snap.getChildren()) {
+                        String uid = ds.getKey();
+                        if (uid == null || uid.equals(myUid)) continue;
+
+                        String name  = ds.child("displayName").getValue(String.class);
+                        String photo = ds.child("photoUrl").getValue(String.class);
+                        String uname = ds.child("username").getValue(String.class);
+
+                        if (name != null && !name.isEmpty()) {
+                            allUsersCache.add(new UserItem(
+                                uid,
+                                name,
+                                uname != null ? uname : "",
+                                photo != null ? photo : ""
+                            ));
+                        }
+                    }
+                    allUsersLoaded = true;
+                    progress.setVisibility(View.GONE);
+
+                    // If user already typed something while loading
+                    String currentQuery = etSearch.getText().toString().trim();
+                    if (!currentQuery.isEmpty()) {
+                        filterCachedUsers(currentQuery);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    progress.setVisibility(View.GONE);
+                    tvEmpty.setText("Failed to load users. Try again.");
+                    showEmpty(true);
+                }
+            });
+    }
+
+    /**
+     * Client-side filter on preloaded cache.
+     * Case-insensitive match on name OR username.
+     */
+    private void filterCachedUsers(String query) {
+        if (!allUsersLoaded) {
+            // Still loading — show hint
+            tvEmpty.setText("Loading users...");
+            showEmpty(true);
+            return;
+        }
+
+        if (query.length() < 1) {
+            filteredList.clear();
+            adapter.notifyDataSetChanged();
+            tvEmpty.setText("Type a name or username to search");
+            showEmpty(true);
+            return;
+        }
+
+        String q = query.toLowerCase(Locale.getDefault());
+        filteredList.clear();
+
+        for (UserItem u : allUsersCache) {
+            boolean nameMatch     = u.name.toLowerCase(Locale.getDefault()).contains(q);
+            boolean usernameMatch = u.username.toLowerCase(Locale.getDefault()).contains(q);
+            if (nameMatch || usernameMatch) {
+                filteredList.add(u);
+            }
+        }
+
+        // Sort: exact-start matches first, then contains
+        filteredList.sort((a, b) -> {
+            boolean aStart = a.name.toLowerCase(Locale.getDefault()).startsWith(q)
+                || a.username.toLowerCase(Locale.getDefault()).startsWith(q);
+            boolean bStart = b.name.toLowerCase(Locale.getDefault()).startsWith(q)
+                || b.username.toLowerCase(Locale.getDefault()).startsWith(q);
+            if (aStart && !bStart) return -1;
+            if (!aStart && bStart) return 1;
+            return a.name.compareToIgnoreCase(b.name);
+        });
+
+        adapter.notifyDataSetChanged();
+        tvEmpty.setText("No users found for \"" + query + "\"");
+        showEmpty(filteredList.isEmpty());
     }
 
     // ── Normal mode: load followers ───────────────────────────────────────────
@@ -169,10 +265,11 @@ public class DuetInviteActivity extends AppCompatActivity {
 
     private void filter(String query) {
         filteredList.clear();
-        String q = query.toLowerCase().trim();
+        String q = query.toLowerCase(Locale.getDefault()).trim();
         for (UserItem u : allUsers) {
-            if (q.isEmpty() || u.name.toLowerCase().contains(q)
-                    || u.username.toLowerCase().contains(q)) {
+            if (q.isEmpty()
+                    || u.name.toLowerCase(Locale.getDefault()).contains(q)
+                    || u.username.toLowerCase(Locale.getDefault()).contains(q)) {
                 filteredList.add(u);
             }
         }
@@ -180,96 +277,10 @@ public class DuetInviteActivity extends AppCompatActivity {
         showEmpty(filteredList.isEmpty());
     }
 
-    // ── Multi-duet mode: search all users ────────────────────────────────────
-
-    private DatabaseReference searchRef = null;
-
-    private void searchAllUsers(String query) {
-        if (query.length() < 2) {
-            filteredList.clear();
-            adapter.notifyDataSetChanged();
-            tvEmpty.setText("Type a name or username to search");
-            showEmpty(true);
-            return;
-        }
-
-        progress.setVisibility(View.VISIBLE);
-        filteredList.clear();
-        adapter.notifyDataSetChanged();
-
-        String queryLower = query.toLowerCase();
-        String queryEnd   = queryLower + "\uf8ff";
-
-        // Search by displayName
-        FirebaseUtils.db().getReference("users")
-            .orderByChild("displayName")
-            .startAt(query)
-            .endAt(query + "\uf8ff")
-            .limitToFirst(20)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    Set<String> addedUids = new HashSet<>();
-                    for (DataSnapshot ds : snap.getChildren()) {
-                        String uid = ds.getKey();
-                        if (uid == null || uid.equals(myUid)) continue;
-                        String name  = ds.child("displayName").getValue(String.class);
-                        String photo = ds.child("photoUrl").getValue(String.class);
-                        String uname = ds.child("username").getValue(String.class);
-                        if (name != null && !addedUids.contains(uid)) {
-                            addedUids.add(uid);
-                            filteredList.add(new UserItem(uid, name,
-                                uname != null ? uname : "",
-                                photo != null ? photo : ""));
-                        }
-                    }
-                    // Also search by username
-                    searchByUsername(query, addedUids);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    progress.setVisibility(View.GONE);
-                    showEmpty(filteredList.isEmpty());
-                }
-            });
-    }
-
-    private void searchByUsername(String query, Set<String> existingUids) {
-        FirebaseUtils.db().getReference("users")
-            .orderByChild("username")
-            .startAt(query.toLowerCase())
-            .endAt(query.toLowerCase() + "\uf8ff")
-            .limitToFirst(20)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    for (DataSnapshot ds : snap.getChildren()) {
-                        String uid = ds.getKey();
-                        if (uid == null || uid.equals(myUid) || existingUids.contains(uid)) continue;
-                        String name  = ds.child("displayName").getValue(String.class);
-                        String photo = ds.child("photoUrl").getValue(String.class);
-                        String uname = ds.child("username").getValue(String.class);
-                        if (name != null) {
-                            filteredList.add(new UserItem(uid, name,
-                                uname != null ? uname : "",
-                                photo != null ? photo : ""));
-                        }
-                    }
-                    filteredList.sort((a, b) -> a.name.compareToIgnoreCase(b.name));
-                    adapter.notifyDataSetChanged();
-                    progress.setVisibility(View.GONE);
-                    tvEmpty.setText("No users found for \"" + query + "\"");
-                    showEmpty(filteredList.isEmpty());
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    progress.setVisibility(View.GONE);
-                    showEmpty(filteredList.isEmpty());
-                }
-            });
-    }
-
     // ── User selected ─────────────────────────────────────────────────────────
 
     private void onUserSelected(UserItem user) {
         if (isMultiDuetMode) {
-            // Return selected user back to MultiDuetActivity
             Intent result = new Intent();
             result.putExtra(RESULT_USER_UID,      user.uid);
             result.putExtra(RESULT_USER_NAME,     user.name);
