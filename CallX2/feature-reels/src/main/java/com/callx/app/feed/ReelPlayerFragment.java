@@ -235,6 +235,25 @@ public class ReelPlayerFragment extends Fragment
             args.putStringArrayList("photo_urls", new ArrayList<>(reel.photoUrls));
         }
         args.putInt("photo_duration_ms", reel.photoDurationMs > 0 ? reel.photoDurationMs : 3000);
+        args.putString("photo_filter",        reel.photoFilter        != null ? reel.photoFilter        : "normal");
+        args.putString("transition_type",     reel.transitionType     != null ? reel.transitionType     : "fade");
+        args.putString("ken_burns_intensity", reel.kenBurnsIntensity  != null ? reel.kenBurnsIntensity  : "normal");
+        args.putBoolean("auto_loop",          reel.autoLoop);
+        args.putBoolean("photo_beat_sync",    reel.photoBeatSync);
+        args.putInt("beat_interval_ms",       reel.beatIntervalMs);
+        // Per-photo editor metadata lists
+        if (reel.photoCaptions != null)
+            args.putStringArrayList("photo_captions",           new ArrayList<>(reel.photoCaptions));
+        if (reel.photoFilterList != null)
+            args.putStringArrayList("photo_filter_list",        new ArrayList<>(reel.photoFilterList));
+        if (reel.photoEffectList != null)
+            args.putStringArrayList("photo_effect_list",        new ArrayList<>(reel.photoEffectList));
+        if (reel.photoCaptionStyleList != null)
+            args.putStringArrayList("photo_caption_style_list", new ArrayList<>(reel.photoCaptionStyleList));
+        if (reel.photoStickerJsonList != null)
+            args.putStringArrayList("photo_sticker_json_list",  new ArrayList<>(reel.photoStickerJsonList));
+        if (reel.photoKenBurnsDirectionList != null)
+            args.putStringArrayList("photo_kb_dir_list",        new ArrayList<>(reel.photoKenBurnsDirectionList));
         f.setArguments(args);
         return f;
     }
@@ -280,6 +299,19 @@ public class ReelPlayerFragment extends Fragment
             reel.mediaType       = getArguments().getString("media_type",        "video");
             reel.photoUrls       = getArguments().getStringArrayList("photo_urls");
             reel.photoDurationMs = getArguments().getInt("photo_duration_ms",    3000);
+            reel.photoFilter         = getArguments().getString("photo_filter",         "normal");
+            reel.transitionType      = getArguments().getString("transition_type",      "fade");
+            reel.kenBurnsIntensity   = getArguments().getString("ken_burns_intensity",  "normal");
+            reel.autoLoop            = getArguments().getBoolean("auto_loop",           false);
+            reel.photoBeatSync       = getArguments().getBoolean("photo_beat_sync",     false);
+            reel.beatIntervalMs      = getArguments().getInt("beat_interval_ms",        0);
+            // Per-photo editor metadata
+            reel.photoCaptions           = getArguments().getStringArrayList("photo_captions");
+            reel.photoFilterList         = getArguments().getStringArrayList("photo_filter_list");
+            reel.photoEffectList         = getArguments().getStringArrayList("photo_effect_list");
+            reel.photoCaptionStyleList   = getArguments().getStringArrayList("photo_caption_style_list");
+            reel.photoStickerJsonList    = getArguments().getStringArrayList("photo_sticker_json_list");
+            reel.photoKenBurnsDirectionList = getArguments().getStringArrayList("photo_kb_dir_list");
         }
     }
 
