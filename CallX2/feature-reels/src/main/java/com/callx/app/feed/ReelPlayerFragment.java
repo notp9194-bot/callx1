@@ -970,45 +970,15 @@ public class ReelPlayerFragment extends Fragment
     // ── Click listeners ───────────────────────────────────────────────────
 
     private void setupClickListeners(View root) {
-        // Single tap = play/pause, Double tap = like
-        // NOTE: root.setOnClickListener() CANNOT be used here — it marks root as
-        // clickable=true which causes the root FrameLayout to consume ALL touch events,
-        // blocking ViewPager2 vertical swipe (next/prev reel scroll).
-        // Solution: merge single-tap and double-tap into one OnTouchListener that
-        // always returns FALSE so ViewPager2 still receives swipe events.
-        root.setOnTouchListener(new View.OnTouchListener() {
-            private static final long DOUBLE_TAP_TIMEOUT = 280;
-            private int tapCount = 0;
-            private final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
-
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                if (event.getAction() == MotionEvent.ACTION_UP) {
-                    tapCount++;
-                    if (tapCount == 1) {
-                        h.postDelayed(() -> {
-                            if (tapCount == 1) {
-                                // Single tap — play/pause
-                                if (reactionsVisible) hideReactions();
-                                else togglePlayPause();
-                            }
-                            tapCount = 0;
-                        }, DOUBLE_TAP_TIMEOUT);
-                    } else if (tapCount >= 2) {
-                        tapCount = 0;
-                        h.removeCallbacksAndMessages(null);
-                        // Double tap — like
-                        if (!isLiked) toggleLike();
-                        showLikeAnimation();
-                    }
-                }
-                // Always return false — let ViewPager2 handle vertical swipe
-                return false;
-            }
+        root.setOnClickListener(v -> {
+            if (reactionsVisible) { hideReactions(); return; }
+            togglePlayPause();
         });
-        // Remove clickable flag so root doesn't intercept touch events
-        root.setClickable(false);
-        root.setFocusable(false);
+
+        root.setOnTouchListener(new DoubleTapListener(() -> {
+            if (!isLiked) toggleLike();
+            showLikeAnimation();
+        }));
 
         btnLike.setOnClickListener(v -> { hideReactions(); toggleLike(); });
         btnLike.setOnLongClickListener(v -> { toggleReactionPanel(); return true; });

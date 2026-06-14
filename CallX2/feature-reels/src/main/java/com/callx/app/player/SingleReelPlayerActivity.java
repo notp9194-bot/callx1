@@ -71,7 +71,7 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
 
         vpReels     = findViewById(R.id.vp_reels);
         progressBar = findViewById(R.id.progress_bar);
-        findViewById(R.id.btn_back).setOnClickListener(v -> finishWithSlideDown());
+        findViewById(R.id.btn_back).setOnClickListener(v -> finish());
 
         startPosition = getIntent().getIntExtra(EXTRA_START_POSITION, 0);
         String uid      = getIntent().getStringExtra(EXTRA_UID);
@@ -221,16 +221,5 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
     protected void onDestroy() {
         if (reelsListener != null) FirebaseUtils.getReelsRef().removeEventListener(reelsListener);
         super.onDestroy();
-    }
-
-    @Override
-    public void onBackPressed() {
-        finishWithSlideDown();
-    }
-
-    /** Back pe screen neeche slide karke dismiss ho — Instagram style */
-    private void finishWithSlideDown() {
-        finish();
-        overridePendingTransition(R.anim.no_anim, R.anim.slide_down);
     }
 }

@@ -958,8 +958,6 @@ public class UserReelsActivity extends AppCompatActivity
         intent.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
             targetName != null ? targetName + "'s Reels" : "Reels");
         startActivity(intent);
-        // Neeche se upar slide-in animation
-        overridePendingTransition(R.anim.slide_up, R.anim.no_anim);
     }
 
     // ── Long press ────────────────────────────────────────────────────────
