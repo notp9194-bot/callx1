@@ -164,21 +164,17 @@
     <!-- Right action bar: Avatar · Like · Comment · Share · More
          paddingBottom is set in code to bottomNavHeight + navBarHeight so actions
          stay above the bottom navigation bar on edge-to-edge screens.
-         bg_reel_action_glow = dark semi-transparent gradient behind the column
-         so icons are readable on any reel colour.
     -->
     <LinearLayout
         android:id="@+id/right_actions"
-        android:layout_width="76dp"
+        android:layout_width="68dp"
         android:layout_height="wrap_content"
         android:layout_gravity="end|bottom"
         android:orientation="vertical"
         android:gravity="center_horizontal"
         android:paddingBottom="8dp"
         android:paddingEnd="8dp"
-        android:paddingStart="4dp"
-        android:paddingTop="16dp"
-        android:background="@drawable/bg_reel_action_glow">
+        android:paddingStart="4dp">
 
         <!-- Like -->
         <ImageButton
@@ -187,8 +183,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_heart"
             android:tint="#FF416C"
-            android:background="@drawable/bg_reel_action_btn_glow"
-            android:elevation="2dp"
+            android:background="@drawable/bg_glow_like"
             android:contentDescription="Like"/>
         <TextView
             android:id="@+id/tv_likes_count"
@@ -214,8 +209,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_comment_reel"
             android:tint="#00C6FF"
-            android:background="@drawable/bg_reel_action_btn_glow"
-            android:elevation="2dp"
+            android:background="@drawable/bg_glow_comment"
             android:contentDescription="Comment"/>
         <TextView
             android:id="@+id/tv_comments_count"
@@ -241,8 +235,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_share_reel"
             android:tint="#00F260"
-            android:background="@drawable/bg_reel_action_btn_glow"
-            android:elevation="2dp"
+            android:background="@drawable/bg_glow_share"
             android:contentDescription="Share"/>
         <TextView
             android:id="@+id/tv_shares_count"
@@ -268,8 +261,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_repost"
             android:tint="#A855F7"
-            android:background="@drawable/bg_reel_action_btn_glow"
-            android:elevation="2dp"
+            android:background="@drawable/bg_glow_repost"
             android:contentDescription="Repost"/>
         <TextView
             android:id="@+id/tv_repost_count"
@@ -288,8 +280,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_more_vert"
             android:tint="#FFA500"
-            android:background="@drawable/bg_reel_action_btn_glow"
-            android:elevation="2dp"
+            android:background="@drawable/bg_glow_more"
             android:contentDescription="More"/>
     </LinearLayout>
 
