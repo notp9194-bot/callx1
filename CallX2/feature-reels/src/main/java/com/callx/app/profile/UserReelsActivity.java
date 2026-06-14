@@ -1654,6 +1654,7 @@ public class UserReelsActivity extends AppCompatActivity
             menu.getMenu().add(0, 2, 0, "Copy Profile Link");
             if (isSelf)  menu.getMenu().add(0, 5, 0, "Creator Dashboard");
             if (isSelf && pinnedReel != null) menu.getMenu().add(0, 4, 0, "Remove Pinned Reel");
+            if (isSelf)  menu.getMenu().add(0, 6, 0, "🗑️ Delete All Reels");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             menu.setOnMenuItemClickListener(item -> {
                 switch (item.getItemId()) {
@@ -1666,6 +1667,7 @@ public class UserReelsActivity extends AppCompatActivity
                     case 3: Toast.makeText(this, "Report submitted. Thank you.", Toast.LENGTH_SHORT).show(); break;
                     case 4: unpinReel(); break;
                     case 5: startActivity(new Intent(this, ReelCreatorDashboardActivity.class)); break;
+                    case 6: deleteAllReels(); break;
                 }
                 return true;
             });
