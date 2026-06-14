@@ -71,7 +71,6 @@
 
     <!-- ── Top navigation bar ── -->
     <LinearLayout
-        android:id="@+id/layout_profile_header_bar"
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:orientation="horizontal"
@@ -574,12 +573,77 @@
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/divider"/>
 
-    <!-- ── Tabs: Reels | Liked | Saved | Reposts ── -->
+    <!-- ── Repost + Series buttons row ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:paddingTop="8dp" android:paddingBottom="8dp"
+        android:gravity="center">
+
+        <!-- Repost button -->
+        <LinearLayout android:id="@+id/btn_repost_section"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical" android:gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true" android:focusable="true"
+            android:paddingTop="8dp" android:paddingBottom="8dp">
+
+            <ImageView
+                android:layout_width="28dp" android:layout_height="28dp"
+                android:src="@drawable/ic_repost"
+                android:tint="#FF6B35"
+                android:contentDescription="Reposts"/>
+
+            <TextView
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Reposted"
+                android:textSize="12sp"
+                android:textColor="#FF6B35"
+                android:layout_marginTop="4dp"
+                android:fontFamily="sans-serif-medium"/>
+        </LinearLayout>
+
+        <!-- Divider -->
+        <View android:layout_width="1dp" android:layout_height="36dp"
+            android:background="@color/divider" android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+
+        <!-- Series button -->
+        <LinearLayout android:id="@+id/btn_series_section"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical" android:gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true" android:focusable="true"
+            android:paddingTop="8dp" android:paddingBottom="8dp">
+
+            <ImageView
+                android:layout_width="28dp" android:layout_height="28dp"
+                android:src="@drawable/ic_duet_series"
+                android:tint="#A855F7"
+                android:contentDescription="Series"/>
+
+            <TextView
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Series"
+                android:textSize="12sp"
+                android:textColor="#A855F7"
+                android:layout_marginTop="4dp"
+                android:fontFamily="sans-serif-medium"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="@color/divider"/>
+
+    <!-- ── Tabs: Reels | Liked | Saved (3 tabs only) ── -->
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/tab_layout"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        app:tabMode="scrollable"
+        app:tabMode="fixed"
         app:tabGravity="fill"
         app:tabSelectedTextColor="@color/brand_primary"
         app:tabTextColor="?attr/colorOnSurfaceVariant"
@@ -599,14 +663,7 @@
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Saved" android:icon="@drawable/ic_bookmark"/>
 
-          <com.google.android.material.tabs.TabItem
-              android:layout_width="wrap_content" android:layout_height="wrap_content"
-              android:text="Reposted" android:icon="@drawable/ic_repost"/>
-
-          <com.google.android.material.tabs.TabItem
-              android:layout_width="wrap_content" android:layout_height="wrap_content"
-              android:text="Series" android:icon="@drawable/ic_duet_series"/>
-      </com.google.android.material.tabs.TabLayout>
+    </com.google.android.material.tabs.TabLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/divider"/>

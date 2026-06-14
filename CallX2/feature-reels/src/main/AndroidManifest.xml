@@ -307,6 +307,8 @@
         <activity android:name="com.callx.app.profile.ReelEditProfileActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.profile.UserSeriesListActivity"
+            android:exported="false"/>
 
         <!-- Services -->
         <service android:name="com.callx.app.services.ReelNotificationService"
