@@ -667,6 +667,7 @@ public class ReelUploadActivity extends AppCompatActivity {
             // Refresh thumbnail (rotation may have changed visual)
             rebuildPhotoPreview();
             photoEditIndex = -1;
+        }
     }
 
     /** Adds a small thumbnail ImageView for the given photo URI into the preview row. */
