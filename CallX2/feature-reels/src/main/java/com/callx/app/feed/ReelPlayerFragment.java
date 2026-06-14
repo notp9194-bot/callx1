@@ -254,6 +254,8 @@ public class ReelPlayerFragment extends Fragment
             args.putStringArrayList("photo_sticker_json_list",  new ArrayList<>(reel.photoStickerJsonList));
         if (reel.photoKenBurnsDirectionList != null)
             args.putStringArrayList("photo_kb_dir_list",        new ArrayList<>(reel.photoKenBurnsDirectionList));
+        if (reel.photoDurationList != null)
+            args.putIntegerArrayList("photo_duration_list",     new ArrayList<>(reel.photoDurationList));
         f.setArguments(args);
         return f;
     }
@@ -312,6 +314,7 @@ public class ReelPlayerFragment extends Fragment
             reel.photoCaptionStyleList   = getArguments().getStringArrayList("photo_caption_style_list");
             reel.photoStickerJsonList    = getArguments().getStringArrayList("photo_sticker_json_list");
             reel.photoKenBurnsDirectionList = getArguments().getStringArrayList("photo_kb_dir_list");
+            reel.photoDurationList       = getArguments().getIntegerArrayList("photo_duration_list");
         }
     }
 
