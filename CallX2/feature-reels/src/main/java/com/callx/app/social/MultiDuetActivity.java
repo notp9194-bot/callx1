@@ -55,6 +55,9 @@ public class MultiDuetActivity extends AppCompatActivity {
     private final List<Participant> participants = new ArrayList<>();
     private ParticipantAdapter adapter;
 
+    private ValueEventListener sessionListener;
+    private DatabaseReference  sessionRef;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -354,47 +357,33 @@ public class MultiDuetActivity extends AppCompatActivity {
 
         Toast.makeText(this, "All done! Creating multi-duet video…", Toast.LENGTH_LONG).show();
 
-        // Download each reel's videoUrl and composite on background thread
-        java.util.concurrent.ExecutorService exec =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
-        exec.execute(() -> {
-            try {
-                java.util.List<String> localPaths = new java.util.ArrayList<>();
-                for (java.util.Map.Entry<String, String> entry : slotReelIds.entrySet()) {
-                    String rid = entry.getValue();
-                    // Fetch videoUrl from Firebase reels
-                    com.google.firebase.database.DataSnapshot reelSnap =
-                        com.google.firebase.tasks.Tasks.await(
-                            FirebaseUtils.getReelsRef().child(rid).get());
-                    String vidUrl = reelSnap.child("videoUrl").getValue(String.class);
-                    if (vidUrl == null || vidUrl.isEmpty()) continue;
+        // Collect reelIds as ordered list for sequential Firebase fetch
+        java.util.List<String> orderedReelIds = new java.util.ArrayList<>(slotReelIds.values());
+        java.util.List<String> localPaths = new java.util.ArrayList<>();
 
-                    // Download to cache
-                    java.io.File cacheFile = new java.io.File(
-                        getCacheDir(), "multiduet_" + rid + ".mp4");
-                    if (!cacheFile.exists()) {
-                        okhttp3.OkHttpClient client = new okhttp3.OkHttpClient();
-                        okhttp3.Request req = new okhttp3.Request.Builder().url(vidUrl).build();
-                        try (okhttp3.Response resp = client.newCall(req).execute()) {
-                            if (resp.isSuccessful() && resp.body() != null) {
-                                java.io.FileOutputStream fos = new java.io.FileOutputStream(cacheFile);
-                                fos.write(resp.body().bytes());
-                                fos.close();
-                            }
-                        }
-                    }
-                    if (cacheFile.exists()) localPaths.add(cacheFile.getAbsolutePath());
-                }
+        // Fetch all videoUrls from Firebase then download+composite
+        fetchVideoUrlsAndComposite(orderedReelIds, localPaths, 0);
+    }
 
-                if (localPaths.size() < 2) {
-                    runOnUiThread(() -> Toast.makeText(MultiDuetActivity.this,
-                        "Could not download all videos for composite", Toast.LENGTH_SHORT).show());
-                    return;
-                }
-
-                String outPath = new java.io.File(getCacheDir(),
-                    "multiduet_composite_" + sessionId + ".mp4").getAbsolutePath();
-
+    /**
+     * Recursively fetches videoUrl for each reelId from Firebase (index by index),
+     * downloads each to cache, then triggers composite once all are ready.
+     * Avoids Tasks.await — pure callback style.
+     */
+    private void fetchVideoUrlsAndComposite(java.util.List<String> reelIds,
+                                            java.util.List<String> localPaths,
+                                            int index) {
+        if (index >= reelIds.size()) {
+            // All fetched — run composite on background thread
+            if (localPaths.size() < 2) {
+                Toast.makeText(this, "Could not fetch all videos", Toast.LENGTH_SHORT).show();
+                FirebaseUtils.db().getReference("multi_duet_sessions")
+                    .child(sessionId).child("status").setValue("recording");
+                return;
+            }
+            String outPath = new java.io.File(getCacheDir(),
+                "multiduet_composite_" + sessionId + ".mp4").getAbsolutePath();
+            java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
                 MultiDuetVideoCompositor compositor = new MultiDuetVideoCompositor();
                 boolean ok = compositor.composite(localPaths, outPath, pct ->
                     runOnUiThread(() -> {
@@ -405,19 +394,17 @@ public class MultiDuetActivity extends AppCompatActivity {
                             else progress.setProgress(pct);
                         }
                     }));
-
                 if (ok) {
-                    // Launch ReelUploadActivity with the composited file
                     runOnUiThread(() -> {
                         if (progress != null) progress.setVisibility(android.view.View.GONE);
                         Intent i = new Intent(MultiDuetActivity.this,
                             com.callx.app.upload.ReelUploadActivity.class);
-                        i.putExtra("video_path",           outPath);
-                        i.putExtra("is_duet",              true);
-                        i.putExtra("duet_original_id",     originalReelId != null ? originalReelId : "");
-                        i.putExtra("duet_owner_uid",       ownerUid != null ? ownerUid : "");
+                        i.putExtra("video_path",            outPath);
+                        i.putExtra("is_duet",               true);
+                        i.putExtra("duet_original_id",      originalReelId != null ? originalReelId : "");
+                        i.putExtra("duet_owner_uid",        ownerUid != null ? ownerUid : "");
                         i.putExtra("multi_duet_session_id", sessionId);
-                        i.putExtra("multi_duet_slot",      0); // host uploading composite
+                        i.putExtra("multi_duet_slot",       0);
                         startActivity(i);
                         FirebaseUtils.db().getReference("multi_duet_sessions")
                             .child(sessionId).child("status").setValue("completed");
@@ -429,12 +416,58 @@ public class MultiDuetActivity extends AppCompatActivity {
                     FirebaseUtils.db().getReference("multi_duet_sessions")
                         .child(sessionId).child("status").setValue("recording");
                 }
-            } catch (Exception e) {
-                android.util.Log.e("MultiDuetActivity", "composite error: " + e.getMessage(), e);
-                runOnUiThread(() -> Toast.makeText(MultiDuetActivity.this,
-                    "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-            }
-        });
+            });
+            return;
+        }
+
+        // Fetch videoUrl for reelIds[index]
+        String rid = reelIds.get(index);
+        FirebaseUtils.getReelsRef().child(rid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String vidUrl = snap.child("videoUrl").getValue(String.class);
+                    if (vidUrl != null && !vidUrl.isEmpty()) {
+                        java.io.File cacheFile = new java.io.File(
+                            getCacheDir(), "multiduet_" + rid + ".mp4");
+                        if (cacheFile.exists()) {
+                            localPaths.add(cacheFile.getAbsolutePath());
+                            fetchVideoUrlsAndComposite(reelIds, localPaths, index + 1);
+                        } else {
+                            // Download on background thread
+                            final String url = vidUrl;
+                            java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+                                try {
+                                    java.net.URL u = new java.net.URL(url);
+                                    java.net.HttpURLConnection conn =
+                                        (java.net.HttpURLConnection) u.openConnection();
+                                    conn.setConnectTimeout(15_000);
+                                    conn.setReadTimeout(60_000);
+                                    conn.connect();
+                                    java.io.InputStream is = conn.getInputStream();
+                                    java.io.FileOutputStream fos =
+                                        new java.io.FileOutputStream(cacheFile);
+                                    byte[] buf = new byte[8192];
+                                    int len;
+                                    while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
+                                    fos.close(); is.close(); conn.disconnect();
+                                    localPaths.add(cacheFile.getAbsolutePath());
+                                } catch (Exception e) {
+                                    android.util.Log.w("MultiDuetActivity",
+                                        "Download failed for " + rid + ": " + e.getMessage());
+                                }
+                                runOnUiThread(() ->
+                                    fetchVideoUrlsAndComposite(reelIds, localPaths, index + 1));
+                            });
+                        }
+                    } else {
+                        // Skip this reel and continue
+                        fetchVideoUrlsAndComposite(reelIds, localPaths, index + 1);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    fetchVideoUrlsAndComposite(reelIds, localPaths, index + 1);
+                }
+            });
     }
 
     @Override
