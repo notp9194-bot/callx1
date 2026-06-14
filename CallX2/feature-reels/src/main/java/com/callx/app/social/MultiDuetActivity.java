@@ -80,12 +80,14 @@ public class MultiDuetActivity extends AppCompatActivity {
         btnAddParticipant.setOnClickListener(v -> openUserPicker());
         btnStartSession.setOnClickListener(v -> startSession());
 
-        loadMyProfile(() -> {
-            Participant host = new Participant(myUid, "You (Host)", "", "accepted");
-            participants.add(host);
-            setupAdapter();
-            createSession();
-        });
+        // Add host placeholder first, then load real name/photo
+        Participant host = new Participant(myUid != null ? myUid : "", "You (Host)", "", "accepted");
+        participants.add(host);
+        setupAdapter();
+        createSession();
+
+        // Load real profile in background — updates slot 0
+        loadMyProfile();
     }
 
     // ── Activity Result ───────────────────────────────────────────────────────
@@ -130,8 +132,8 @@ public class MultiDuetActivity extends AppCompatActivity {
 
     // ── Firebase helpers ──────────────────────────────────────────────────────
 
-    private void loadMyProfile(Runnable onDone) {
-        if (myUid == null) { onDone.run(); return; }
+    private void loadMyProfile() {
+        if (myUid == null) return;
         FirebaseUtils.db().getReference("users").child(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot ds) {
@@ -140,10 +142,20 @@ public class MultiDuetActivity extends AppCompatActivity {
                     if (!participants.isEmpty()) {
                         participants.get(0).name  = name != null ? "You (" + name + ")" : "You (Host)";
                         participants.get(0).photo = photo != null ? photo : "";
+                        if (adapter != null) adapter.notifyItemChanged(0);
+                        // Update host data in Firebase session
+                        if (sessionId != null) {
+                            Map<String, Object> hostData = new HashMap<>();
+                            hostData.put("name",   participants.get(0).name);
+                            hostData.put("photo",  participants.get(0).photo);
+                            hostData.put("status", "accepted");
+                            FirebaseUtils.db().getReference("multi_duet_sessions")
+                                .child(sessionId).child("participants").child(myUid)
+                                .setValue(hostData);
+                        }
                     }
-                    onDone.run();
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) { onDone.run(); }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
     }
 
@@ -154,6 +166,9 @@ public class MultiDuetActivity extends AppCompatActivity {
         sessionId = key;
         tvSessionCode.setText("Session: " + sessionId.substring(0, 8).toUpperCase());
 
+        DatabaseReference sessionRef2 = FirebaseUtils.db()
+            .getReference("multi_duet_sessions").child(sessionId);
+
         Map<String, Object> session = new HashMap<>();
         session.put("hostUid",        myUid);
         session.put("originalReelId", originalReelId);
@@ -161,15 +176,17 @@ public class MultiDuetActivity extends AppCompatActivity {
         session.put("maxSlots",       MAX_SLOTS);
         session.put("status",         "waiting");
         session.put("createdAt",      com.google.firebase.database.ServerValue.TIMESTAMP);
+        sessionRef2.setValue(session);
 
-        // Add host as first participant
+        // Write host participant separately (avoid slash-in-key crash)
+        String hostName  = participants.isEmpty() ? "Host" : participants.get(0).name;
+        String hostPhoto = participants.isEmpty() ? ""     : participants.get(0).photo;
         Map<String, Object> hostData = new HashMap<>();
-        hostData.put("name",   participants.isEmpty() ? "" : participants.get(0).name);
-        hostData.put("photo",  participants.isEmpty() ? "" : participants.get(0).photo);
+        hostData.put("name",   hostName);
+        hostData.put("photo",  hostPhoto);
         hostData.put("status", "accepted");
-        session.put("participants/" + myUid, hostData);
+        sessionRef2.child("participants").child(myUid).setValue(hostData);
 
-        FirebaseUtils.db().getReference("multi_duet_sessions").child(sessionId).setValue(session);
         listenToSession();
     }
 
