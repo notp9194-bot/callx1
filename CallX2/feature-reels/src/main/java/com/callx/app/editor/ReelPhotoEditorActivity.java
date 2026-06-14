@@ -111,6 +111,8 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                              int durationMs, float rotation,
                              int requestCode) {
         android.content.Intent i = new android.content.Intent(caller, ReelPhotoEditorActivity.class);
+        // Grant read permission for content:// URIs coming from the photo picker
+        i.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
         i.putExtra(EXTRA_PHOTO_URI,      photoUriStr);
         i.putExtra(EXTRA_PHOTO_INDEX,    index);
         i.putExtra(EXTRA_PHOTO_COUNT,    total);
@@ -316,7 +318,8 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     private void loadPreviewImage() {
         if (photoUri == null || photoUri.isEmpty() || ivPreview == null) return;
-        Glide.with(this).load(photoUri).centerCrop().into(ivPreview);
+        Uri uri = Uri.parse(photoUri);
+        Glide.with(this).load(uri).centerCrop().into(ivPreview);
         if (rotation != 0f) ivPreview.setRotation(rotation);
     }
 
@@ -350,16 +353,8 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     private void applyFilterPreview() {
         if (ivPreview == null) return;
-        ColorMatrixColorFilter cmcf = ReelPhotoSlideshowAdapter.buildColorFilter(selectedFilter);
-        ivPreview.setColorFilter(cmcf);
-
-        Integer tint = buildTint(selectedFilter);
-        if (tint != null) {
-            vColorFilterOverlay.setBackgroundColor(tint);
-            vColorFilterOverlay.setVisibility(View.VISIBLE);
-        } else {
-            vColorFilterOverlay.setVisibility(View.GONE);
-        }
+        // Re-apply combined filter + current adjust values
+        applyAdjustPreview();
     }
 
     // ── Effect chips ──────────────────────────────────────────────────────────
@@ -661,20 +656,116 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     private void applyAdjustPreview() {
         if (ivPreview == null) return;
+        // Build combined matrix: filter base + saturation + brightness + contrast
         ColorMatrix cm = new ColorMatrix();
-        cm.setSaturation(saturation);
-        // Brightness (translate)
+
+        // 1. Apply the selected colour filter as base
+        ColorMatrixColorFilter filterCmcf = ReelPhotoSlideshowAdapter.buildColorFilter(selectedFilter);
+        if (filterCmcf != null) {
+            // Extract the filter matrix by applying it to a known matrix
+            ColorMatrix filterCm = extractColorMatrix(selectedFilter);
+            if (filterCm != null) cm.postConcat(filterCm);
+        }
+
+        // 2. Saturation on top
+        ColorMatrix satCm = new ColorMatrix();
+        satCm.setSaturation(saturation);
+        cm.postConcat(satCm);
+
+        // 3. Brightness (translate channels)
         float b = brightness * 128f;
         ColorMatrix bright = new ColorMatrix(new float[]{
             1f,0f,0f,0f,b, 0f,1f,0f,0f,b, 0f,0f,1f,0f,b, 0f,0f,0f,1f,0f});
         cm.postConcat(bright);
-        // Contrast (scale around 128)
+
+        // 4. Contrast (scale around 128)
         float c = contrast;
         float t = 128f * (1f - c);
         ColorMatrix cont = new ColorMatrix(new float[]{
             c,0f,0f,0f,t, 0f,c,0f,0f,t, 0f,0f,c,0f,t, 0f,0f,0f,1f,0f});
         cm.postConcat(cont);
+
         ivPreview.setColorFilter(new ColorMatrixColorFilter(cm));
+
+        // Keep tint overlay in sync with the filter selection
+        Integer tint = buildTint(selectedFilter);
+        if (tint != null) {
+            vColorFilterOverlay.setBackgroundColor(tint);
+            vColorFilterOverlay.setVisibility(View.VISIBLE);
+        } else {
+            vColorFilterOverlay.setVisibility(View.GONE);
+        }
+    }
+
+    /** Returns a ColorMatrix for the named filter, or null for "normal". */
+    private ColorMatrix extractColorMatrix(String filter) {
+        if (filter == null || "normal".equals(filter)) return null;
+        // Rebuild the same matrices as ReelPhotoSlideshowAdapter.buildColorFilter
+        ColorMatrix cm = new ColorMatrix();
+        switch (filter) {
+            case "warm":
+                cm.set(new float[]{
+                    1.20f,0f,0f,0f,18f, 0f,1.05f,0f,0f,8f, 0f,0f,0.85f,0f,-20f, 0f,0f,0f,1f,0f});
+                break;
+            case "cool":
+                cm.set(new float[]{
+                    0.82f,0f,0f,0f,-18f, 0f,1f,0f,0f,0f, 0f,0f,1.22f,0f,22f, 0f,0f,0f,1f,0f});
+                break;
+            case "vivid":
+                cm.setSaturation(1.9f); break;
+            case "bw":
+                cm.setSaturation(0f); break;
+            case "golden_hour":
+                cm.set(new float[]{
+                    1.25f,0f,0f,0f,30f, 0f,1.10f,0f,0f,10f, 0f,0f,0.70f,0f,-40f, 0f,0f,0f,1f,0f});
+                break;
+            case "rose":
+                cm.set(new float[]{
+                    1.15f,0f,0.15f,0f,10f, 0f,0.90f,0f,0f,-5f, 0f,0f,0.80f,0f,0f, 0f,0f,0f,1f,0f});
+                break;
+            case "sunset":
+                cm.set(new float[]{
+                    1.30f,0f,0f,0f,40f, 0f,0.95f,0f,0f,5f, 0f,0f,0.60f,0f,-50f, 0f,0f,0f,1f,0f});
+                break;
+            case "neon_pop":
+                cm.setSaturation(2.2f);
+                cm.postConcat(new ColorMatrix(new float[]{
+                    0.9f,0f,0.1f,0f,-5f, 0f,1.0f,0f,0f,0f, 0.1f,0f,1.15f,0f,15f, 0f,0f,0f,1f,0f}));
+                break;
+            case "matrix":
+                cm.set(new float[]{
+                    0f,0.20f,0f,0f,0f, 0f,1.10f,0f,0f,20f, 0f,0.10f,0.15f,0f,0f, 0f,0f,0f,1f,0f});
+                break;
+            case "dream":
+                cm.setSaturation(0.7f);
+                cm.postConcat(new ColorMatrix(new float[]{
+                    1f,0f,0f,0f,30f, 0f,1f,0f,0f,30f, 0f,0f,1f,0f,30f, 0f,0f,0f,1f,-15f}));
+                break;
+            case "chrome":
+                cm.set(new float[]{
+                    1.30f,0f,0f,0f,-20f, 0f,1.30f,0f,0f,-20f, 0f,0f,1.30f,0f,-20f, 0f,0f,0f,1f,0f});
+                break;
+            case "matte":
+                cm.set(new float[]{
+                    0.90f,0f,0f,0f,15f, 0f,0.90f,0f,0f,15f, 0f,0f,0.90f,0f,15f, 0f,0f,0f,1f,0f});
+                break;
+            case "vintage":
+                cm.set(new float[]{
+                    1.10f,0f,0f,0f,10f, 0f,0.95f,0f,0f,5f, 0f,0f,0.75f,0f,-10f, 0f,0f,0f,1f,0f});
+                break;
+            case "fade_film":
+                cm.set(new float[]{
+                    0.85f,0f,0f,0f,30f, 0f,0.85f,0f,0f,25f, 0f,0f,0.85f,0f,20f, 0f,0f,0f,1f,0f});
+                break;
+            case "noir":
+                cm.setSaturation(0f);
+                cm.postConcat(new ColorMatrix(new float[]{
+                    1.2f,0f,0f,0f,-30f, 0f,1.2f,0f,0f,-30f, 0f,0f,1.2f,0f,-30f, 0f,0f,0f,1f,0f}));
+                break;
+            default:
+                return null;
+        }
+        return cm;
     }
 
     // ── Duration slider ───────────────────────────────────────────────────────
