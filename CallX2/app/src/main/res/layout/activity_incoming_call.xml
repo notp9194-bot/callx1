@@ -171,8 +171,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="28dp"
-        app:layout_constraintBottom_toTopOf="@id/tv_swipe_hint_up"
+        android:layout_marginBottom="20dp"
+        app:layout_constraintBottom_toTopOf="@id/layout_reject_note_row"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -216,6 +216,72 @@
             android:paddingVertical="8dp"
             android:clickable="true"
             android:focusable="true"/>
+    </LinearLayout>
+
+    <!-- ── Reject with Note row ── -->
+    <LinearLayout
+        android:id="@+id/layout_reject_note_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="14dp"
+        app:layout_constraintBottom_toTopOf="@id/tv_swipe_hint_up"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Reject with Voice Note -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginEnd="20dp">
+
+            <ImageButton
+                android:id="@+id/btn_reject_voice_note"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:src="@drawable/ic_mic"
+                android:background="@drawable/bg_quick_reply_chip"
+                android:tint="#FF9EFF"
+                android:elevation="4dp"
+                android:contentDescription="Reject with Voice Note"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Voice Note"
+                android:textColor="#CC9EFF"
+                android:textSize="10sp"
+                android:layout_marginTop="5dp"/>
+        </LinearLayout>
+
+        <!-- Reject with Video Note -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btn_reject_video_note"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:src="@drawable/ic_video"
+                android:background="@drawable/bg_quick_reply_chip"
+                android:tint="#FFB347"
+                android:elevation="4dp"
+                android:contentDescription="Reject with Video Note"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Video Note"
+                android:textColor="#CCFFB347"
+                android:textSize="10sp"
+                android:layout_marginTop="5dp"/>
+        </LinearLayout>
     </LinearLayout>
 
     <!-- ── Swipe hint UP label ── -->
