@@ -290,6 +290,62 @@ public class NotificationActionReceiver extends BroadcastReceiver {
               pendingResult.finish();
               return;
           }
+
+          // ── NEW: Reject with Voice Note — background/killed state ──────────────
+          // Receiver incoming call notification se voice note record karke caller ko bhej sakta hai
+          if (Constants.ACTION_REJECT_WITH_VOICE_NOTE.equals(action) ||
+              Constants.ACTION_REJECT_WITH_VIDEO_NOTE.equals(action)) {
+              final boolean noteIsVideo = Constants.ACTION_REJECT_WITH_VIDEO_NOTE.equals(action);
+              if (nm != null) nm.cancel(Constants.CALL_RING_NOTIF_ID);
+              context.stopService(new android.content.Intent(context,
+                  com.callx.app.services.IncomingRingService.class));
+              // Firebase pe call reject karo
+              if (callId != null && !callId.isEmpty()) {
+                  com.callx.app.utils.FirebaseUtils.db()
+                      .getReference("activeCalls").child(callId)
+                      .child("status").setValue("rejected");
+              }
+              // Caller ko missed call notification bhejo
+              if (partnerUid != null && !partnerUid.isEmpty()) {
+                  PushNotify.notifyMissedCall(
+                      partnerUid,  // caller ko bhejo
+                      myUid,       // hum receiver hain
+                      myName != null ? myName : "",
+                      callId != null ? callId : "",
+                      isVid,
+                      partnerPhoto != null ? partnerPhoto : ""
+                  );
+              }
+              // AddNoteActivity kholo — receiver yahan mic/camera se note record karega
+              if (partnerUid != null && !partnerUid.isEmpty()) {
+                  String noteReceiverChatId = myUid.compareTo(partnerUid) < 0
+                      ? myUid + "_" + partnerUid
+                      : partnerUid + "_" + myUid;
+                  try {
+                      android.content.Intent noteIntent = new android.content.Intent(context,
+                          com.callx.app.notes.AddNoteActivity.class);
+                      noteIntent.putExtra(com.callx.app.notes.AddNoteActivity.EXTRA_PARTNER_UID,
+                          partnerUid);
+                      noteIntent.putExtra(com.callx.app.notes.AddNoteActivity.EXTRA_PARTNER_NAME,
+                          partnerName != null ? partnerName : "");
+                      noteIntent.putExtra(com.callx.app.notes.AddNoteActivity.EXTRA_PARTNER_PHOTO,
+                          partnerPhoto != null ? partnerPhoto : "");
+                      noteIntent.putExtra(com.callx.app.notes.AddNoteActivity.EXTRA_CHAT_ID,
+                          noteReceiverChatId);
+                      noteIntent.putExtra(com.callx.app.notes.AddNoteActivity.EXTRA_IS_VIDEO,
+                          noteIsVideo);
+                      noteIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                          | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                      context.startActivity(noteIntent);
+                  } catch (Exception noteEx) {
+                      android.util.Log.w("NotificationActionReceiver",
+                          "AddNoteActivity launch failed from notification", noteEx);
+                  }
+              }
+              pendingResult.finish();
+              return;
+          }
+
           // Accept call — dismiss ring notification, open IncomingCallActivity
           if (Constants.ACTION_ACCEPT_CALL.equals(action)) {
               if (nm != null) nm.cancel(Constants.CALL_RING_NOTIF_ID);

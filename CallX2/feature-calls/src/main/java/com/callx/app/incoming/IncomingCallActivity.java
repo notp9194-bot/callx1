@@ -38,9 +38,11 @@ import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.calls.databinding.ActivityIncomingCallBinding;
 import com.callx.app.call.CallActivity;
+import com.callx.app.notes.AddNoteActivity;
 import com.callx.app.services.IncomingRingService;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.PushNotify;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
@@ -70,7 +72,6 @@ public class IncomingCallActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // ── Edge-to-edge ─────────────────────────────────────────────────
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
@@ -83,7 +84,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         binding = ActivityIncomingCallBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        // Show on lock screen
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
@@ -97,7 +97,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // Read extras
         callId   = getIntent().getStringExtra(Constants.EXTRA_CALL_ID);
         fromUid  = getIntent().getStringExtra(Constants.EXTRA_PARTNER_UID);
         fromName = getIntent().getStringExtra(Constants.EXTRA_PARTNER_NAME);
@@ -119,14 +118,10 @@ public class IncomingCallActivity extends AppCompatActivity {
                 : com.callx.app.calls.R.drawable.ic_phone);
         }
 
-        // ── Load avatar + blurred background simultaneously ───────────────
-        // Avatar: prefer full-res photo URL for sharp circle display
         String avatarUrl = (fromPhoto != null && !fromPhoto.isEmpty()) ? fromPhoto : fromThumb;
-        // Background: always use full-res photo for visible background blur
-        String bgUrl = (fromPhoto != null && !fromPhoto.isEmpty()) ? fromPhoto : fromThumb;
+        String bgUrl     = (fromPhoto != null && !fromPhoto.isEmpty()) ? fromPhoto : fromThumb;
 
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
-            // Sharp avatar — full photo URL, no downscaling
             Glide.with(this)
                 .load(avatarUrl)
                 .placeholder(com.callx.app.calls.R.drawable.ic_person)
@@ -136,7 +131,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         }
 
         if (bgUrl != null && !bgUrl.isEmpty()) {
-            // Blurred background — light blur (12f) so photo stays visible
             binding.ivBgBlur.setAlpha(0f);
             Glide.with(this)
                 .asBitmap()
@@ -161,7 +155,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         checkBlockAndProceed();
     }
 
-    // ── Blur helper using RenderScript ────────────────────────────────────
     private Bitmap blurBitmap(Bitmap src, float radius) {
         try {
             Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), src.getConfig());
@@ -180,7 +173,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         }
     }
 
-    // ── Block check ──────────────────────────────────────────────────────
     private void checkBlockAndProceed() {
         String myUid = FirebaseUtils.getCurrentUid();
         if (myUid == null || myUid.isEmpty() || fromUid == null || fromUid.isEmpty()) {
@@ -216,7 +208,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         startCallUI();
     }
 
-    // ── Main call UI ─────────────────────────────────────────────────────
     private void startCallUI() {
         startVibration();
         startLoopingRingtone();
@@ -228,12 +219,22 @@ public class IncomingCallActivity extends AppCompatActivity {
         binding.btnAccept.setOnClickListener(v -> accept());
         binding.btnReject.setOnClickListener(v -> reject());
 
-        // ── Message button — shows quick reply options ─────────────────
         if (binding.btnMessage != null) {
             binding.btnMessage.setOnClickListener(v -> showQuickReplySheet());
         }
 
-        // ── Swipe gesture on rail ──────────────────────────────────────
+        // ── NEW: Reject with Voice Note ────────────────────────────────────
+        // Receiver call decline karte waqt voice note bhej sakta hai caller ko
+        if (binding.btnRejectVoiceNote != null) {
+            binding.btnRejectVoiceNote.setOnClickListener(v -> rejectWithNote(false));
+        }
+
+        // ── NEW: Reject with Video Note ────────────────────────────────────
+        // Receiver call decline karte waqt video note bhej sakta hai caller ko
+        if (binding.btnRejectVideoNote != null) {
+            binding.btnRejectVideoNote.setOnClickListener(v -> rejectWithNote(true));
+        }
+
         if (binding.swipeRail != null) {
             binding.swipeRail.setOnTouchListener((v, event) -> {
                 switch (event.getAction()) {
@@ -283,7 +284,6 @@ public class IncomingCallActivity extends AppCompatActivity {
     }
 
     private void showQuickReplySheet() {
-        // Animate quick replies into view briefly to hint interaction
         if (binding.layoutQuickReplies != null) {
             binding.layoutQuickReplies.animate()
                 .scaleX(1.05f).scaleY(1.05f).setDuration(150)
@@ -294,14 +294,76 @@ public class IncomingCallActivity extends AppCompatActivity {
         Toast.makeText(this, "Choose a quick reply above", Toast.LENGTH_SHORT).show();
     }
 
+    // ── NEW: Reject with Note ──────────────────────────────────────────────
+    /**
+     * Receiver incoming call decline karta hai aur voice/video note bhejta hai caller ko.
+     *
+     * Flow:
+     *  1. Call reject hoti hai (Firebase status = "rejected")
+     *  2. Caller ko missed call notification jaati hai
+     *  3. AddNoteActivity khulti hai — receiver yahan mic/camera se note record karta hai
+     *  4. Note caller ko chat mein jaata hai (jaise outgoing call ka note receiver ko jaata hai)
+     *
+     * @param isVideoNote true = video note, false = voice note
+     */
+    private void rejectWithNote(boolean isVideoNote) {
+        if (acted) return;
+        acted = true;
+        autoRejectHandler.removeCallbacksAndMessages(null);
+        stopAll();
+
+        // Firebase pe call reject karo
+        if (callId != null && !callId.isEmpty()) {
+            FirebaseUtils.db().getReference("activeCalls").child(callId)
+                .child("status").setValue("rejected");
+        }
+
+        // Caller ko missed call notification bhejo
+        String myUid  = FirebaseUtils.getCurrentUid();
+        String myName = FirebaseUtils.getCurrentName();
+        if (myUid != null && fromUid != null && !fromUid.isEmpty()) {
+            PushNotify.notifyMissedCall(
+                fromUid,   // caller ko bhejo
+                myUid,     // hum receiver hain
+                myName != null ? myName : "",
+                callId != null ? callId : "",
+                isVideo,
+                fromPhoto != null ? fromPhoto : ""
+            );
+        }
+
+        // Call log karo
+        logMissedCall();
+
+        // ── AddNoteActivity launch karo ──────────────────────────────────
+        // partnerUid = caller (jisko note jaayega)
+        // chatId = receiver aur caller ke UIDs se bana
+        if (myUid != null && fromUid != null && !fromUid.isEmpty()) {
+            String chatId = myUid.compareTo(fromUid) < 0
+                ? myUid + "_" + fromUid
+                : fromUid + "_" + myUid;
+            try {
+                Intent noteIntent = new Intent(this, AddNoteActivity.class);
+                noteIntent.putExtra(AddNoteActivity.EXTRA_PARTNER_UID,   fromUid);
+                noteIntent.putExtra(AddNoteActivity.EXTRA_PARTNER_NAME,  fromName != null ? fromName : "");
+                noteIntent.putExtra(AddNoteActivity.EXTRA_PARTNER_PHOTO, fromPhoto != null ? fromPhoto : "");
+                noteIntent.putExtra(AddNoteActivity.EXTRA_CHAT_ID,       chatId);
+                noteIntent.putExtra(AddNoteActivity.EXTRA_IS_VIDEO,      isVideoNote);
+                startActivity(noteIntent);
+            } catch (Exception ex) {
+                android.util.Log.w("IncomingCallActivity", "AddNoteActivity launch failed", ex);
+            }
+        }
+
+        finish();
+    }
+
     private void startSwipeHintPulse() {
         try {
             if (binding.tvSwipeHintUp == null || binding.tvSwipeHintDown == null) return;
-            // Up hint bounces
             ObjectAnimator upPulse = ObjectAnimator.ofFloat(binding.tvSwipeHintUp, "translationY", 0f, -6f, 0f);
             upPulse.setDuration(1400); upPulse.setRepeatCount(ObjectAnimator.INFINITE);
             upPulse.setRepeatMode(ObjectAnimator.RESTART); upPulse.start();
-            // Down hint bounces
             ObjectAnimator downPulse = ObjectAnimator.ofFloat(binding.tvSwipeHintDown, "translationY", 0f, 6f, 0f);
             downPulse.setDuration(1400); downPulse.setRepeatCount(ObjectAnimator.INFINITE);
             downPulse.setRepeatMode(ObjectAnimator.RESTART); downPulse.setStartDelay(700); downPulse.start();

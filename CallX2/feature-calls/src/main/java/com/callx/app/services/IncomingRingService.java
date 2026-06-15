@@ -724,6 +724,32 @@ public class IncomingRingService extends Service {
             Constants.CALL_RING_NOTIF_ID + 1, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        // ── NEW: Reject with Voice Note action (background/killed) ───────────
+        Intent rejectVoiceNoteIntent = new Intent(this, NotificationActionReceiver.class);
+        rejectVoiceNoteIntent.setAction(Constants.ACTION_REJECT_WITH_VOICE_NOTE);
+        rejectVoiceNoteIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
+        rejectVoiceNoteIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
+        rejectVoiceNoteIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
+        rejectVoiceNoteIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto);
+        rejectVoiceNoteIntent.putExtra(Constants.EXTRA_IS_VIDEO,      isVideo);
+        rejectVoiceNoteIntent.putExtra(Constants.EXTRA_NOTIF_ID,      Constants.CALL_RING_NOTIF_ID);
+        PendingIntent rejectVoiceNotePi = PendingIntent.getBroadcast(this,
+            Constants.CALL_RING_NOTIF_ID + 2, rejectVoiceNoteIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // ── NEW: Reject with Video Note action (background/killed) ───────────
+        Intent rejectVideoNoteIntent = new Intent(this, NotificationActionReceiver.class);
+        rejectVideoNoteIntent.setAction(Constants.ACTION_REJECT_WITH_VIDEO_NOTE);
+        rejectVideoNoteIntent.putExtra(Constants.EXTRA_CALL_ID,       callId);
+        rejectVideoNoteIntent.putExtra(Constants.EXTRA_PARTNER_UID,   fromUid);
+        rejectVideoNoteIntent.putExtra(Constants.EXTRA_PARTNER_NAME,  fromName);
+        rejectVideoNoteIntent.putExtra(Constants.EXTRA_PARTNER_PHOTO, fromPhoto);
+        rejectVideoNoteIntent.putExtra(Constants.EXTRA_IS_VIDEO,      isVideo);
+        rejectVideoNoteIntent.putExtra(Constants.EXTRA_NOTIF_ID,      Constants.CALL_RING_NOTIF_ID);
+        PendingIntent rejectVideoNotePi = PendingIntent.getBroadcast(this,
+            Constants.CALL_RING_NOTIF_ID + 3, rejectVideoNoteIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
         String text = isVideo ? "Incoming video call" : "Incoming voice call";
         int icon = isVideo ? R.drawable.ic_video_call : R.drawable.ic_call_notification;
 
@@ -740,6 +766,8 @@ public class IncomingRingService extends Service {
             .setContentIntent(fullPi)
             .setFullScreenIntent(fullPi, true)
             .addAction(R.drawable.ic_phone_off, "Decline", declinePi)
+            .addAction(R.drawable.ic_mic, "🎤 Voice Note", rejectVoiceNotePi)
+            .addAction(R.drawable.ic_video, "📹 Video Note", rejectVideoNotePi)
             .addAction(R.drawable.ic_phone, "Answer", fullPi)
             .build();
     }
