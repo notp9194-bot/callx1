@@ -180,7 +180,7 @@ public class IncomingCallActivity extends AppCompatActivity {
         FirebaseUtils.db().getReference("statuses").child(fromUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
-                public void onDataChange(@android.annotation.NonNull DataSnapshot snap) {
+                public void onDataChange(@NonNull DataSnapshot snap) {
                     java.util.ArrayList<StatusItem> items = new java.util.ArrayList<>();
                     long now = System.currentTimeMillis();
                     long expiry24h = 24L * 60 * 60 * 1000;
@@ -201,7 +201,7 @@ public class IncomingCallActivity extends AppCompatActivity {
                     }
                 }
                 @Override
-                public void onCancelled(@android.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
             });
     }
 
