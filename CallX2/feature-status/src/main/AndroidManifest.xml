@@ -13,6 +13,18 @@
         </activity>
         <activity android:name="com.callx.app.compose.NewStatusActivity"
             android:exported="false"/>
+        <!-- FIX v27: These activities were missing from manifest — could not be launched -->
+        <activity android:name="com.callx.app.highlights.StatusHighlightsActivity"
+            android:exported="false"
+            android:label="Highlights"/>
+        <activity android:name="com.callx.app.archive.StatusArchiveActivity"
+            android:exported="false"
+            android:label="Status Archive"/>
+        <!-- NEW v27: Close Friends manager screen -->
+        <activity android:name="com.callx.app.closefriends.CloseFriendsManagerActivity"
+            android:exported="false"
+            android:label="Close Friends"
+            android:windowSoftInputMode="adjustResize"/>
 
         <service android:name="com.callx.app.services.StatusBackgroundService"
             android:exported="false"

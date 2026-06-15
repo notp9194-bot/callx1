@@ -47,9 +47,18 @@ public class StatusPrivacyBottomSheet {
             boolean selected  = mode.equals(current);
             LinearLayout row  = buildRow(ctx, labels[i], descs[i], selected);
             row.setOnClickListener(v -> {
-                if (mode.equals(StatusPrivacyManager.PRIVACY_EXCEPT)
-                        || mode.equals(StatusPrivacyManager.PRIVACY_ONLY)
-                        || mode.equals("close_friends")) {
+                if (mode.equals("close_friends")) {
+                        sheet.dismiss();
+                        // NEW v27: Open Close Friends Manager for easy add/remove
+                        if (ctx instanceof android.app.Activity) {
+                            android.content.Intent intent = new android.content.Intent(ctx,
+                                    com.callx.app.closefriends.CloseFriendsManagerActivity.class);
+                            ((android.app.Activity) ctx).startActivity(intent);
+                        }
+                        StatusPrivacyManager.setPrivacyMode(ctx, mode);
+                        if (cb != null) cb.onSelected(mode, StatusCloseFriendsManager.getLocalList(ctx));
+                    } else if (mode.equals(StatusPrivacyManager.PRIVACY_EXCEPT)
+                        || mode.equals(StatusPrivacyManager.PRIVACY_ONLY)) {
                     sheet.dismiss();
                     showContactPicker(ctx, myUid, mode, cb);
                 } else {
