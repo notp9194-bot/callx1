@@ -165,8 +165,8 @@ public class IncomingCallActivity extends AppCompatActivity {
      * No interaction — sirf info.
      */
     private void checkCallerStatusStrip() {
+        try {
         if (fromUid == null || fromUid.isEmpty()) return;
-        if (binding.tvCallerStatusStrip == null) return;
 
         // 1. StatusCacheManager se pehle try karo (in-memory, no extra Firebase read)
         StatusCacheManager cache = StatusCacheManager.getInstance(getApplicationContext());
@@ -181,6 +181,7 @@ public class IncomingCallActivity extends AppCompatActivity {
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot snap) {
+                    try {
                     java.util.ArrayList<StatusItem> items = new java.util.ArrayList<>();
                     long now = System.currentTimeMillis();
                     long expiry24h = 24L * 60 * 60 * 1000;
@@ -197,16 +198,19 @@ public class IncomingCallActivity extends AppCompatActivity {
                         } catch (Exception ignored) {}
                     }
                     if (!items.isEmpty()) {
-                        runOnUiThread(() -> showStatusStrip(items));
+                        runOnUiThread(() -> { try { showStatusStrip(items); } catch (Exception ignored) {} });
                     }
+                    } catch (Exception ignored) {}
                 }
                 @Override
                 public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
             });
+        } catch (Exception ignored) {}
     }
 
     private void showStatusStrip(List<StatusItem> items) {
-        if (binding.tvCallerStatusStrip == null || items == null || items.isEmpty()) return;
+        try {
+        if (items == null || items.isEmpty()) return;
 
         // Latest status (highest timestamp)
         long latestTs = 0;
@@ -223,6 +227,7 @@ public class IncomingCallActivity extends AppCompatActivity {
         // Gentle fade-in
         binding.tvCallerStatusStrip.setAlpha(0f);
         binding.tvCallerStatusStrip.animate().alpha(1f).setDuration(400).start();
+        } catch (Exception ignored) {}
     }
 
     private String formatStatusAgo(long timestampMs) {
@@ -296,7 +301,10 @@ public class IncomingCallActivity extends AppCompatActivity {
         watchCallStatus();
         autoRejectHandler.postDelayed(() -> { if (!acted) reject(); }, AUTO_REJECT_MS);
 
-        checkCallerStatusStrip();
+        // Status strip — delayed + guarded so it never crashes call screen
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try { checkCallerStatusStrip(); } catch (Exception ignored) {}
+        }, 300);
 
         binding.btnAccept.setOnClickListener(v -> accept());
         binding.btnReject.setOnClickListener(v -> reject());
