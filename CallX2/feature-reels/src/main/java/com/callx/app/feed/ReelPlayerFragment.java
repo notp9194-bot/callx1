@@ -71,13 +71,6 @@ import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.workers.ReelRepostWorker;
 import com.google.firebase.database.*;
-import android.graphics.BlendMode;
-import android.graphics.BlendModeColorFilter;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.drawable.Drawable;
-import android.os.Build;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
 import com.google.firebase.database.Transaction;
@@ -465,116 +458,6 @@ public class ReelPlayerFragment extends Fragment
         tvCaptionOverlay  = v.findViewById(R.id.tv_caption_overlay);
         llDotIndicator    = v.findViewById(R.id.ll_dot_indicator);
 
-        applyIconGlows();
-    }
-
-    /**
-     * Applies a coloured glow that traces the exact silhouette of each action icon.
-     * Uses setShadowLayer on the drawable's Paint — no circle/shape background at all.
-     * Hardware layer is required for shadow to render on ImageButton.
-     */
-    private void applyIconGlows() {
-        applyGlow(btnLike,    0xFFFF416C, 18f); // pink  — Like
-        applyGlow(btnComment, 0xFF00C6FF, 18f); // cyan  — Comment
-        applyGlow(btnShare,   0xFF00F260, 18f); // green — Share
-        applyGlow(btnRepost,  0xFFA855F7, 18f); // purple— Repost
-        applyGlow(btnMore,    0xFFFFA500, 18f); // orange— More
-    }
-
-    /**
-     * Wraps the icon drawable in a custom drawable that paints with shadowLayer,
-     * making the glow follow the icon's pixel edges exactly.
-     */
-    private void applyGlow(ImageButton btn, int color, float radius) {
-        if (btn == null) return;
-        // Hardware layer needed so Android renders the shadow layer
-        btn.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null);
-        Drawable d = btn.getDrawable();
-        if (d == null) return;
-        // Wrap in a GlowDrawable that applies shadowLayer paint
-        btn.setImageDrawable(new GlowDrawable(d, color, radius));
-    }
-
-    /** Drawable wrapper that adds a coloured glow tracing the icon silhouette. */
-    private static class GlowDrawable extends android.graphics.drawable.Drawable
-            implements android.graphics.drawable.Drawable.Callback {
-        private final Drawable src;
-        private final android.graphics.Paint glowPaint;
-        private final android.graphics.Paint whitePaint;
-        private final android.graphics.Paint clearPaint;
-
-        GlowDrawable(Drawable src, int glowColor, float radius) {
-            this.src = src.mutate();
-            this.src.setCallback(this);
-
-            // Outer coloured glow — BlurMaskFilter traces exact icon pixel edges
-            // Works on all Android versions; setShadowLayer does NOT work in saveLayer
-            glowPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            glowPaint.setMaskFilter(
-                new android.graphics.BlurMaskFilter(radius, android.graphics.BlurMaskFilter.Blur.OUTER));
-            glowPaint.setColorFilter(
-                new android.graphics.PorterDuffColorFilter(glowColor, android.graphics.PorterDuff.Mode.SRC_IN));
-
-            // Thin white ring — tiny blur radius so it stays tight/patli line
-            whitePaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            whitePaint.setMaskFilter(
-                new android.graphics.BlurMaskFilter(3f, android.graphics.BlurMaskFilter.Blur.OUTER));
-            whitePaint.setColorFilter(
-                new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
-
-            // Clean paint — icon itself on top, no filter
-            clearPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        }
-
-        @Override
-        public void draw(@NonNull android.graphics.Canvas canvas) {
-            android.graphics.Rect b = getBounds();
-            int w = b.width();
-            int h = b.height();
-            if (w <= 0 || h <= 0) { src.draw(canvas); return; }
-
-            // Draw icon into a bitmap
-            android.graphics.Bitmap srcBmp = android.graphics.Bitmap.createBitmap(
-                w, h, android.graphics.Bitmap.Config.ARGB_8888);
-            src.draw(new android.graphics.Canvas(srcBmp));
-
-            // extractAlpha returns a grayscale alpha-only bitmap.
-            // offset[0/1] tells us how many pixels the blur expanded the bitmap.
-            int[] offset = new int[2];
-
-            // Step 1: coloured outer glow — draw expanded alpha bitmap tinted with glow colour
-            android.graphics.Bitmap glowAlpha = srcBmp.extractAlpha(glowPaint, offset);
-            android.graphics.Paint colorPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            colorPaint.setColorFilter(glowPaint.getColorFilter());
-            canvas.drawBitmap(glowAlpha, b.left + offset[0], b.top + offset[1], colorPaint);
-            glowAlpha.recycle();
-
-            // Step 2: thin white ring — same approach, smaller blur
-            android.graphics.Bitmap whiteAlpha = srcBmp.extractAlpha(whitePaint, offset);
-            android.graphics.Paint whiteDraw = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            whiteDraw.setColorFilter(new android.graphics.PorterDuffColorFilter(
-                0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
-            canvas.drawBitmap(whiteAlpha, b.left + offset[0], b.top + offset[1], whiteDraw);
-            whiteAlpha.recycle();
-
-            // Step 3: original icon on top — no filter, no blur
-            canvas.drawBitmap(srcBmp, b.left, b.top, clearPaint);
-            srcBmp.recycle();
-        }
-
-        @Override public void setBounds(int l, int t, int r, int b) {
-            super.setBounds(l, t, r, b);
-            src.setBounds(l, t, r, b);
-        }
-        @Override public void setAlpha(int alpha) { src.setAlpha(alpha); }
-        @Override public void setColorFilter(android.graphics.ColorFilter cf) { src.setColorFilter(cf); }
-        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
-        @Override public int getIntrinsicWidth()  { return src.getIntrinsicWidth(); }
-        @Override public int getIntrinsicHeight() { return src.getIntrinsicHeight(); }
-        // Drawable.Callback
-        @Override public void invalidateDrawable(@NonNull Drawable who) { invalidateSelf(); }
-        @Override public void scheduleDrawable(@NonNull Drawable who, @NonNull Runnable what, long when) { scheduleSelf(what, when); }
-        @Override public void unscheduleDrawable(@NonNull Drawable who, @NonNull Runnable what) { unscheduleSelf(what); }
     }
 
     private void populateStaticData() {
