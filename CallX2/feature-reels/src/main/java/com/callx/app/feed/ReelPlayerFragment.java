@@ -528,48 +528,38 @@ public class ReelPlayerFragment extends Fragment
 
         @Override
         public void draw(@NonNull android.graphics.Canvas canvas) {
-            android.graphics.Bitmap bmp = drawableToBitmap(src);
-            if (bmp == null) {
-                src.draw(canvas);
-                return;
-            }
+            android.graphics.Rect b = getBounds();
+            int w = b.width();
+            int h = b.height();
+            if (w <= 0 || h <= 0) { src.draw(canvas); return; }
 
-            // Step 1: coloured outer glow
-            android.graphics.Bitmap glowBmp = glowPaint.getMaskFilter() != null
-                ? bmp.extractAlpha(glowPaint, null)
-                : null;
-            if (glowBmp != null) {
-                android.graphics.Paint colorPaint = new android.graphics.Paint();
-                colorPaint.setColorFilter(glowPaint.getColorFilter());
-                canvas.drawBitmap(glowBmp, getBounds().left, getBounds().top, colorPaint);
-                glowBmp.recycle();
-            }
-
-            // Step 2: thin white ring between glow and icon
-            android.graphics.Bitmap whiteBmp = whitePaint.getMaskFilter() != null
-                ? bmp.extractAlpha(whitePaint, null)
-                : null;
-            if (whiteBmp != null) {
-                android.graphics.Paint wp = new android.graphics.Paint();
-                wp.setColorFilter(new android.graphics.PorterDuffColorFilter(
-                    0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
-                canvas.drawBitmap(whiteBmp, getBounds().left, getBounds().top, wp);
-                whiteBmp.recycle();
-            }
-
-            // Step 3: icon itself clean on top
-            canvas.drawBitmap(bmp, getBounds().left, getBounds().top, clearPaint);
-        }
-
-        private android.graphics.Bitmap drawableToBitmap(Drawable d) {
-            int w = d.getBounds().width();
-            int h = d.getBounds().height();
-            if (w <= 0 || h <= 0) return null;
-            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
+            // Draw icon into a bitmap
+            android.graphics.Bitmap srcBmp = android.graphics.Bitmap.createBitmap(
                 w, h, android.graphics.Bitmap.Config.ARGB_8888);
-            android.graphics.Canvas c = new android.graphics.Canvas(bmp);
-            d.draw(c);
-            return bmp;
+            src.draw(new android.graphics.Canvas(srcBmp));
+
+            // extractAlpha returns a grayscale alpha-only bitmap.
+            // offset[0/1] tells us how many pixels the blur expanded the bitmap.
+            int[] offset = new int[2];
+
+            // Step 1: coloured outer glow — draw expanded alpha bitmap tinted with glow colour
+            android.graphics.Bitmap glowAlpha = srcBmp.extractAlpha(glowPaint, offset);
+            android.graphics.Paint colorPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            colorPaint.setColorFilter(glowPaint.getColorFilter());
+            canvas.drawBitmap(glowAlpha, b.left + offset[0], b.top + offset[1], colorPaint);
+            glowAlpha.recycle();
+
+            // Step 2: thin white ring — same approach, smaller blur
+            android.graphics.Bitmap whiteAlpha = srcBmp.extractAlpha(whitePaint, offset);
+            android.graphics.Paint whiteDraw = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            whiteDraw.setColorFilter(new android.graphics.PorterDuffColorFilter(
+                0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
+            canvas.drawBitmap(whiteAlpha, b.left + offset[0], b.top + offset[1], whiteDraw);
+            whiteAlpha.recycle();
+
+            // Step 3: original icon on top — no filter, no blur
+            canvas.drawBitmap(srcBmp, b.left, b.top, clearPaint);
+            srcBmp.recycle();
         }
 
         @Override public void setBounds(int l, int t, int r, int b) {
