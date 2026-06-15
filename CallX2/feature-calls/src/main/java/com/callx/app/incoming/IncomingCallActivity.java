@@ -46,6 +46,8 @@ import com.callx.app.utils.PushNotify;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
+import com.callx.app.cache.StatusCacheManager;
+import com.callx.app.models.StatusItem;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
 import java.util.HashMap;
@@ -281,6 +283,7 @@ public class IncomingCallActivity extends AppCompatActivity {
         binding.btnQuickReply3.setOnClickListener(v -> sendQuickReply("On my way!"));
 
         startSwipeHintPulse();
+        loadCallerStatusStrip();
     }
 
     private void showQuickReplySheet() {
@@ -358,8 +361,92 @@ public class IncomingCallActivity extends AppCompatActivity {
         finish();
     }
 
-    private void startSwipeHintPulse() {
-        try {
+    /**
+     * Caller ka latest status fetch karke avatar ke niche strip show karo.
+     * StatusCacheManager se instant result milta hai (no Firebase call needed).
+     * Agar cache miss ho to Firebase se ek baar fetch karo.
+     */
+    private void loadCallerStatusStrip() {
+        if (fromUid == null || fromUid.isEmpty()) return;
+        if (binding.layoutCallerStatusStrip == null
+                || binding.tvCallerStatusText == null
+                || binding.tvCallerStatusIcon == null) return;
+
+        // Try cache first (zero latency)
+        StatusCacheManager cache = StatusCacheManager.getInstance(getApplicationContext());
+        if (cache.hasStatus(fromUid)) {
+            showStatusStrip(cache.getStatuses(fromUid));
+            return;
+        }
+
+        // Cache miss → Firebase se fetch (single read, light)
+        FirebaseUtils.db().getReference("statuses").child(fromUid)
+            .orderByChild("expiresAt")
+            .startAt((double) System.currentTimeMillis())
+            .limitToLast(1)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
+                    java.util.List<StatusItem> items = new java.util.ArrayList<>();
+                    for (DataSnapshot child : snapshot.getChildren()) {
+                        StatusItem item = child.getValue(StatusItem.class);
+                        if (item != null
+                                && !Boolean.TRUE.equals(item.deleted)
+                                && item.timestamp != null) {
+                            items.add(item);
+                        }
+                    }
+                    if (!items.isEmpty()) runOnUiThread(() -> showStatusStrip(items));
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    private void showStatusStrip(java.util.List<StatusItem> items) {
+        // Most recent status lo
+        StatusItem latest = items.get(0);
+        for (StatusItem s : items) {
+            if (s.timestamp != null && latest.timestamp != null
+                    && s.timestamp > latest.timestamp) latest = s;
+        }
+
+        // Relative time string
+        String timeAgo = getRelativeTimeAgo(latest.timestamp != null ? latest.timestamp : 0);
+
+        // Icon + label based on type
+        String icon;
+        String label;
+        String type = latest.type != null ? latest.type : "";
+        switch (type) {
+            case "video":
+                icon = "🎥"; label = "Posted a video status " + timeAgo; break;
+            case "text":
+                icon = "✏️"; label = "Posted a text status " + timeAgo; break;
+            case "link":
+                icon = "🔗"; label = "Shared a link " + timeAgo; break;
+            case "gif":
+                icon = "🎞️"; label = "Posted a GIF " + timeAgo; break;
+            default:
+                icon = "📷"; label = "Posted a status " + timeAgo; break;
+        }
+
+        binding.tvCallerStatusIcon.setText(icon);
+        binding.tvCallerStatusText.setText(label);
+        binding.layoutCallerStatusStrip.setVisibility(android.view.View.VISIBLE);
+
+        // Soft fade-in
+        binding.layoutCallerStatusStrip.setAlpha(0f);
+        binding.layoutCallerStatusStrip.animate().alpha(1f).setDuration(400).start();
+    }
+
+    private String getRelativeTimeAgo(long timestampMs) {
+        long diff = System.currentTimeMillis() - timestampMs;
+        if (diff < 60_000L)      return "just now";
+        if (diff < 3_600_000L)  return (diff / 60_000L) + "m ago";
+        if (diff < 86_400_000L) return (diff / 3_600_000L) + "h ago";
+        return (diff / 86_400_000L) + "d ago";
+    }
+
+    private void startSwipeHintPulse() {        try {
             if (binding.tvSwipeHintUp == null || binding.tvSwipeHintDown == null) return;
             ObjectAnimator upPulse = ObjectAnimator.ofFloat(binding.tvSwipeHintUp, "translationY", 0f, -6f, 0f);
             upPulse.setDuration(1400); upPulse.setRepeatCount(ObjectAnimator.INFINITE);
