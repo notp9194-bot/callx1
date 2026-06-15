@@ -127,7 +127,7 @@
             android:layout_height="40dp"
             android:src="@drawable/ic_video_call"
             android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@null"
             android:padding="8dp"
             android:contentDescription="Video call"/>
 
@@ -138,7 +138,7 @@
             android:layout_height="40dp"
             android:src="@drawable/ic_phone"
             android:tint="@color/white"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@null"
             android:padding="9dp"
             android:contentDescription="Voice call"/>
 
