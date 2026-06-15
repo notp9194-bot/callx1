@@ -48,10 +48,7 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
-import com.callx.app.cache.StatusCacheManager;
-import com.callx.app.models.StatusItem;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
@@ -158,88 +155,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         checkBlockAndProceed();
     }
 
-    // ── Status strip: caller ka latest status dikhao ──────────────────────
-    /**
-     * Agar caller ka koi active status hai toh avatar ke niche ek small strip dikhao:
-     * "📷 Posted a status 2h ago"
-     * No interaction — sirf info.
-     */
-    private void checkCallerStatusStrip() {
-        try {
-        if (fromUid == null || fromUid.isEmpty()) return;
-
-        // 1. StatusCacheManager se pehle try karo (in-memory, no extra Firebase read)
-        StatusCacheManager cache = StatusCacheManager.getInstance(getApplicationContext());
-        List<StatusItem> cached = cache.getStatuses(fromUid);
-        if (cached != null && !cached.isEmpty()) {
-            showStatusStrip(cached);
-            return;
-        }
-
-        // 2. Cache miss → direct Firebase se latest status fetch karo
-        FirebaseUtils.db().getReference("statuses").child(fromUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override
-                public void onDataChange(@NonNull DataSnapshot snap) {
-                    try {
-                    java.util.ArrayList<StatusItem> items = new java.util.ArrayList<>();
-                    long now = System.currentTimeMillis();
-                    long expiry24h = 24L * 60 * 60 * 1000;
-                    for (DataSnapshot child : snap.getChildren()) {
-                        try {
-                            StatusItem item = child.getValue(StatusItem.class);
-                            if (item == null) continue;
-                            Long ts = item.timestamp;
-                            if (ts == null) continue;
-                            Boolean deleted = child.child("deleted").getValue(Boolean.class);
-                            if (Boolean.TRUE.equals(deleted)) continue;
-                            if ((now - ts) > expiry24h) continue;
-                            items.add(item);
-                        } catch (Exception ignored) {}
-                    }
-                    if (!items.isEmpty()) {
-                        runOnUiThread(() -> { try { showStatusStrip(items); } catch (Exception ignored) {} });
-                    }
-                    } catch (Exception ignored) {}
-                }
-                @Override
-                public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
-            });
-        } catch (Exception ignored) {}
-    }
-
-    private void showStatusStrip(List<StatusItem> items) {
-        try {
-        if (items == null || items.isEmpty()) return;
-
-        // Latest status (highest timestamp)
-        long latestTs = 0;
-        for (StatusItem item : items) {
-            if (item.timestamp != null && item.timestamp > latestTs) {
-                latestTs = item.timestamp;
-            }
-        }
-        if (latestTs == 0) return;
-
-        String ago = formatStatusAgo(latestTs);
-        binding.tvCallerStatusStrip.setText("📷 Posted a status " + ago);
-        binding.tvCallerStatusStrip.setVisibility(android.view.View.VISIBLE);
-        // Gentle fade-in
-        binding.tvCallerStatusStrip.setAlpha(0f);
-        binding.tvCallerStatusStrip.animate().alpha(1f).setDuration(400).start();
-        } catch (Exception ignored) {}
-    }
-
-    private String formatStatusAgo(long timestampMs) {
-        long diff = System.currentTimeMillis() - timestampMs;
-        long minutes = diff / 60_000;
-        if (minutes < 1)  return "just now";
-        if (minutes < 60) return minutes + "m ago";
-        long hours = minutes / 60;
-        if (hours < 24)   return hours + "h ago";
-        return "today";
-    }
-
     private Bitmap blurBitmap(Bitmap src, float radius) {
         try {
             Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), src.getConfig());
@@ -300,11 +215,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         startRingingDotsAnimation();
         watchCallStatus();
         autoRejectHandler.postDelayed(() -> { if (!acted) reject(); }, AUTO_REJECT_MS);
-
-        // Status strip — delayed + guarded so it never crashes call screen
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            try { checkCallerStatusStrip(); } catch (Exception ignored) {}
-        }, 300);
 
         binding.btnAccept.setOnClickListener(v -> accept());
         binding.btnReject.setOnClickListener(v -> reject());

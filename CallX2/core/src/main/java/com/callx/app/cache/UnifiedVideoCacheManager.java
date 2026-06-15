@@ -26,54 +26,54 @@ import java.util.concurrent.Future;
 /**
  * UnifiedVideoCacheManager — Smart weighted cache for ALL video modules.
  *
- * Replaces:
- *   ReelCacheManager       (500MB)
- *   XTweetCacheManager     (300MB)
- *   StatusVideoCacheManager(200MB)
- *   ExoPlayerManager cache (150MB)
- *   Total old: 1150MB → Now: 500MB shared intelligently
+ * Cache budget:
+ *   Reels  : 500MB dedicated (user requirement — only reels get 500MB)
+ *   X      : 150MB
+ *   Status : 100MB
+ *   Chat   :  50MB
+ *   Total  : 800MB (low-end: 500MB reels only, rest 100MB shared)
  *
- * Features:
- *  ✅ Single SimpleCache — no duplicate video downloads across modules
- *  ✅ Weighted soft quotas — Reels 50%, X 25%, Status 15%, Chat 10%
- *  ✅ Partial caching — sirf pehle 12 seconds cache (3-4MB per reel)
- *     → 500MB mein ~125 reels fit hongi (pehle ~20-33 hoti thi)
- *  ✅ Adaptive total size — low-end: 300MB, normal: 500MB
- *  ✅ trimMemory() — OS signal par 50% release
- *  ✅ Module-aware eviction — ek module dusre ka quota nahi khata
+ * Key changes v29:
+ *  ✅ Reels get their own 500MB SimpleCache — totally isolated, no quota sharing
+ *  ✅ X / Status / Chat share a separate 300MB pool
+ *  ✅ Reels cache NEVER evicted for other modules
+ *  ✅ Partial caching: Reels 6MB (longer buffer → smoother playback)
+ *  ✅ Duet originals get full-video preload (up to 50MB) via dedicated method
  */
 @OptIn(markerClass = UnstableApi.class)
 public class UnifiedVideoCacheManager {
 
     private static final String TAG = "UnifiedVideoCache";
 
-    // Total cache size
-    private static final long TOTAL_CACHE_LOW  = 300L * 1024 * 1024; // 300MB low-end
-    private static final long TOTAL_CACHE_NORM = 500L * 1024 * 1024; // 500MB normal
+    // ── Reels: dedicated 500MB cache ─────────────────────────────────────────
+    private static final long REELS_CACHE_NORM = 500L * 1024 * 1024; // 500MB
+    private static final long REELS_CACHE_LOW  = 300L * 1024 * 1024; // 300MB low-end
+    private static final String REELS_CACHE_DIR = "reel_video_cache_v2";
 
-    // Partial cache: sirf pehle ~12 seconds
-    // 2Mbps stream pe 12sec = ~3MB. 4MB rakha buffer ke liye.
-    // 500MB / 4MB = ~125 reels cache hongi (pehle 500/20MB = ~25 thi)
-    private static final long PARTIAL_BYTES_REELS  = 4L * 1024 * 1024; //  4MB
+    // ── Other modules: shared 300MB cache ────────────────────────────────────
+    private static final long OTHER_CACHE_NORM = 300L * 1024 * 1024; // 300MB
+    private static final long OTHER_CACHE_LOW  = 100L * 1024 * 1024; // 100MB low-end
+    private static final String OTHER_CACHE_DIR = "other_video_cache";
+
+    // Partial cache bytes per module
+    private static final long PARTIAL_BYTES_REELS  = 6L * 1024 * 1024; //  6MB per reel (smooth)
     private static final long PARTIAL_BYTES_X      = 5L * 1024 * 1024; //  5MB
     private static final long PARTIAL_BYTES_STATUS = 3L * 1024 * 1024; //  3MB
     private static final long PARTIAL_BYTES_CHAT   = 8L * 1024 * 1024; //  8MB
+    /** Duet originals — full video preload (compositor needs full file) */
+    public  static final long PARTIAL_BYTES_DUET   = 50L * 1024 * 1024; // 50MB
 
-    // Soft quotas
-    private static final double QUOTA_REELS  = 0.50;
-    private static final double QUOTA_X      = 0.25;
-    private static final double QUOTA_STATUS = 0.15;
-    private static final double QUOTA_CHAT   = 0.10;
+    // ── Two separate SimpleCache instances ───────────────────────────────────
+    private static SimpleCache             sReelsCache;   // 500MB — reels only
+    private static SimpleCache             sOtherCache;   // 300MB — X, Status, Chat
 
-    private static final String CACHE_DIR = "unified_video_cache";
-
-    private static SimpleCache             sCache;
     private static CacheDataSource.Factory sReelsFactory;
     private static CacheDataSource.Factory sXFactory;
     private static CacheDataSource.Factory sStatusFactory;
     private static CacheDataSource.Factory sChatFactory;
     private static boolean                 sInitialized = false;
-    private static long                    sTotalCacheSize;
+    private static long                    sReelsCacheSize;
+    private static long                    sOtherCacheSize;
 
     private static ExecutorService sPreloadExecutor;
     private static final ConcurrentHashMap<String, Future<?>> sActiveTasks = new ConcurrentHashMap<>();
@@ -87,12 +87,22 @@ public class UnifiedVideoCacheManager {
         if (sInitialized) return;
         try {
             Context app = context.getApplicationContext();
-            sTotalCacheSize = isLowMemory(app) ? TOTAL_CACHE_LOW : TOTAL_CACHE_NORM;
+            boolean lowMem = isLowMemory(app);
 
-            File cacheDir = new File(app.getCacheDir(), CACHE_DIR);
-            if (!cacheDir.exists()) cacheDir.mkdirs();
+            sReelsCacheSize = lowMem ? REELS_CACHE_LOW : REELS_CACHE_NORM;
+            sOtherCacheSize = lowMem ? OTHER_CACHE_LOW : OTHER_CACHE_NORM;
 
-            sCache = new SimpleCache(cacheDir, new LeastRecentlyUsedCacheEvictor(sTotalCacheSize));
+            // Reels: dedicated cache
+            File reelsCacheDir = new File(app.getCacheDir(), REELS_CACHE_DIR);
+            if (!reelsCacheDir.exists()) reelsCacheDir.mkdirs();
+            sReelsCache = new SimpleCache(reelsCacheDir,
+                    new LeastRecentlyUsedCacheEvictor(sReelsCacheSize));
+
+            // X / Status / Chat: shared cache
+            File otherCacheDir = new File(app.getCacheDir(), OTHER_CACHE_DIR);
+            if (!otherCacheDir.exists()) otherCacheDir.mkdirs();
+            sOtherCache = new SimpleCache(otherCacheDir,
+                    new LeastRecentlyUsedCacheEvictor(sOtherCacheSize));
 
             DefaultHttpDataSource.Factory httpFactory =
                 new DefaultHttpDataSource.Factory()
@@ -100,30 +110,33 @@ public class UnifiedVideoCacheManager {
                     .setReadTimeoutMs(15_000)
                     .setAllowCrossProtocolRedirects(true);
 
-            sReelsFactory  = buildFactory(httpFactory, PARTIAL_BYTES_REELS);
-            sXFactory      = buildFactory(httpFactory, PARTIAL_BYTES_X);
-            sStatusFactory = buildFactory(httpFactory, PARTIAL_BYTES_STATUS);
-            sChatFactory   = buildFactory(httpFactory, PARTIAL_BYTES_CHAT);
+            sReelsFactory  = buildFactory(httpFactory, sReelsCache,  PARTIAL_BYTES_REELS);
+            sXFactory      = buildFactory(httpFactory, sOtherCache,  PARTIAL_BYTES_X);
+            sStatusFactory = buildFactory(httpFactory, sOtherCache,  PARTIAL_BYTES_STATUS);
+            sChatFactory   = buildFactory(httpFactory, sOtherCache,  PARTIAL_BYTES_CHAT);
 
-            sPreloadExecutor = Executors.newFixedThreadPool(2);
+            sPreloadExecutor = Executors.newFixedThreadPool(3); // 3 threads: 2 reels + 1 other
             sInitialized = true;
 
-            Log.i(TAG, "UnifiedVideoCacheManager init — "
-                + sTotalCacheSize / (1024 * 1024) + "MB | " + cacheDir);
+            Log.i(TAG, "UnifiedVideoCacheManager init:"
+                + " Reels=" + sReelsCacheSize / (1024 * 1024) + "MB"
+                + " Other=" + sOtherCacheSize / (1024 * 1024) + "MB");
         } catch (Exception e) {
             Log.e(TAG, "Init failed", e);
         }
     }
 
     private static CacheDataSource.Factory buildFactory(
-            DefaultHttpDataSource.Factory httpFactory, long fragmentSize) {
+            DefaultHttpDataSource.Factory httpFactory,
+            SimpleCache cache,
+            long fragmentSize) {
         return new CacheDataSource.Factory()
-            .setCache(sCache)
+            .setCache(cache)
             .setUpstreamDataSourceFactory(httpFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
             .setCacheWriteDataSinkFactory(
                 new CacheDataSink.Factory()
-                    .setCache(sCache)
+                    .setCache(cache)
                     .setFragmentSize(fragmentSize)
             );
     }
@@ -139,32 +152,52 @@ public class UnifiedVideoCacheManager {
         }
     }
 
+    /** Returns the Reels-dedicated SimpleCache. Used by ReelCacheManager. */
     @NonNull
     public static SimpleCache getSimpleCache() {
         ensureInit();
-        return sCache;
+        return sReelsCache;
+    }
+
+    /** Returns the Other-modules SimpleCache (X, Status, Chat). */
+    @NonNull
+    public static SimpleCache getOtherSimpleCache() {
+        ensureInit();
+        return sOtherCache;
+    }
+
+    /**
+     * Preload partial bytes for a reel video.
+     * Normal reels: 6MB. Duet originals: pass isDuetOriginal=true → 50MB.
+     */
+    public static void preloadPartial(@NonNull Context ctx,
+                                      @Nullable String videoUrl,
+                                      @NonNull Module module) {
+        preloadPartial(ctx, videoUrl, module, false);
     }
 
     public static void preloadPartial(@NonNull Context ctx,
                                       @Nullable String videoUrl,
-                                      @NonNull Module module) {
+                                      @NonNull Module module,
+                                      boolean isDuetOriginal) {
         if (videoUrl == null || videoUrl.isEmpty()) return;
         if (!sInitialized) init(ctx);
         if (sPreloading.contains(videoUrl)) return;
-        if (isModuleOverQuota(module)) return;
 
         sPreloading.add(videoUrl);
+        final long bytes = isDuetOriginal ? PARTIAL_BYTES_DUET : partialBytes(module);
+
         Future<?> task = sPreloadExecutor.submit(() -> {
             try {
                 CacheDataSource cds = getFactory(module).createDataSource();
-                long bytes = partialBytes(module);
                 DataSpec spec = new DataSpec.Builder()
                     .setUri(Uri.parse(videoUrl))
                     .setPosition(0)
                     .setLength(bytes)
                     .build();
                 new CacheWriter(cds, spec, null, null).cache();
-                Log.d(TAG, "[" + module + "] preloaded " + bytes/(1024*1024) + "MB: " + shortUrl(videoUrl));
+                Log.d(TAG, "[" + module + (isDuetOriginal ? "/duet" : "") + "] preloaded "
+                    + bytes / (1024 * 1024) + "MB: " + shortUrl(videoUrl));
             } catch (Exception e) {
                 Log.w(TAG, "[" + module + "] preload failed: " + e.getMessage());
                 sPreloading.remove(videoUrl);
@@ -181,15 +214,6 @@ public class UnifiedVideoCacheManager {
         sPreloading.clear();
     }
 
-    private static boolean isModuleOverQuota(@NonNull Module module) {
-        if (sCache == null) return false;
-        long used = sCache.getCacheSpace();
-        if (used > sTotalCacheSize * 0.8) {
-            return module == Module.CHAT || module == Module.STATUS;
-        }
-        return false;
-    }
-
     private static long partialBytes(@NonNull Module module) {
         switch (module) {
             case X:      return PARTIAL_BYTES_X;
@@ -200,16 +224,25 @@ public class UnifiedVideoCacheManager {
     }
 
     public static synchronized void trimMemory() {
-        if (sCache == null) return;
         try {
-            long before = sCache.getCacheSpace();
-            long target = before / 2;
-            for (String key : sCache.getKeys()) {
-                if (sCache.getCacheSpace() <= target) break;
-                sCache.removeResource(key);
+            if (sReelsCache != null) {
+                long before = sReelsCache.getCacheSpace();
+                long target = before / 2;
+                for (String key : sReelsCache.getKeys()) {
+                    if (sReelsCache.getCacheSpace() <= target) break;
+                    sReelsCache.removeResource(key);
+                }
+                Log.d(TAG, "trimMemory reels: " + before/(1024*1024) + "MB → "
+                    + sReelsCache.getCacheSpace()/(1024*1024) + "MB");
             }
-            Log.d(TAG, "trimMemory: " + before/(1024*1024) + "MB → "
-                + sCache.getCacheSpace()/(1024*1024) + "MB");
+            if (sOtherCache != null) {
+                long before = sOtherCache.getCacheSpace();
+                long target = before / 2;
+                for (String key : sOtherCache.getKeys()) {
+                    if (sOtherCache.getCacheSpace() <= target) break;
+                    sOtherCache.removeResource(key);
+                }
+            }
         } catch (Exception e) {
             Log.w(TAG, "trimMemory: " + e.getMessage());
         }
@@ -218,18 +251,21 @@ public class UnifiedVideoCacheManager {
     public static synchronized void release() {
         cancelAllPreloads();
         if (sPreloadExecutor != null) { sPreloadExecutor.shutdownNow(); sPreloadExecutor = null; }
-        if (sCache != null) {
-            try { sCache.release(); Log.d(TAG, "released."); }
-            catch (Exception e) { Log.e(TAG, "Release error", e); }
-            finally {
-                sCache = null; sReelsFactory = null; sXFactory = null;
-                sStatusFactory = null; sChatFactory = null; sInitialized = false;
-            }
-        }
+        try { if (sReelsCache != null) { sReelsCache.release(); sReelsCache = null; } }
+        catch (Exception e) { Log.e(TAG, "Release reels cache error", e); }
+        try { if (sOtherCache != null) { sOtherCache.release(); sOtherCache = null; } }
+        catch (Exception e) { Log.e(TAG, "Release other cache error", e); }
+        sReelsFactory = null; sXFactory = null;
+        sStatusFactory = null; sChatFactory = null;
+        sInitialized = false;
+        Log.d(TAG, "released.");
     }
 
-    public static long getTotalCacheBytes()      { return sCache != null ? sCache.getCacheSpace() : 0; }
-    public static long getTotalCacheLimitBytes() { return sTotalCacheSize; }
+    public static long getReelsCacheBytes()      { return sReelsCache != null ? sReelsCache.getCacheSpace() : 0; }
+    public static long getReelsCacheLimitBytes() { return sReelsCacheSize; }
+    public static long getOtherCacheBytes()      { return sOtherCache != null ? sOtherCache.getCacheSpace() : 0; }
+    public static long getTotalCacheBytes()      { return getReelsCacheBytes() + getOtherCacheBytes(); }
+    public static long getTotalCacheLimitBytes() { return sReelsCacheSize + sOtherCacheSize; }
     public static boolean isInitialized()        { return sInitialized; }
 
     private static void ensureInit() {

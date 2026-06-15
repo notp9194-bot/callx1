@@ -58,7 +58,9 @@ public class ReelVideoPreloader {
 
     private static final String TAG           = "ReelVideoPreloader";
     private static final int    PRELOAD_COUNT = 3;           // Agle 3 reels preload karo
-    private static final long   PRELOAD_BYTES = 3 * 1024 * 1024L; // Pehle 3MB preload
+    private static final long   PRELOAD_BYTES = 6 * 1024 * 1024L; // Pehle 6MB preload (smooth playback)
+    /** Duet originals: 50MB — compositor needs the full video for rendering */
+    private static final long   PRELOAD_BYTES_DUET = UnifiedVideoCacheManager.PARTIAL_BYTES_DUET;
 
     private final Context     mContext;
     private final ExecutorService mExecutor;
@@ -89,14 +91,14 @@ public class ReelVideoPreloader {
 
             // Main reel video
             if (reel.videoUrl != null && !reel.videoUrl.isEmpty()) {
-                preloadSingle(reel.videoUrl);
+                preloadSingle(reel.videoUrl, PRELOAD_BYTES);
             }
 
-            // Duet original — agar yeh reel ek duet hai toh partner ka video bhi preload karo
-            // Bina iske duet play hone par partner video fresh download hoti thi
+            // Duet original — compositor needs large chunk for rendering
+            // Use 50MB preload so DuetVideoCompositor can use cached file directly
             if (reel.duetOriginalUrl != null && !reel.duetOriginalUrl.isEmpty()) {
-                preloadSingle(reel.duetOriginalUrl);
-                Log.d(TAG, "Duet original preloading: " + shortUrl(reel.duetOriginalUrl));
+                preloadSingle(reel.duetOriginalUrl, PRELOAD_BYTES_DUET);
+                Log.d(TAG, "Duet original preloading (50MB): " + shortUrl(reel.duetOriginalUrl));
             }
         }
     }
@@ -106,6 +108,10 @@ public class ReelVideoPreloader {
      * Already preloading ya cached hai to skip karta hai.
      */
     private void preloadSingle(String videoUrl) {
+        preloadSingle(videoUrl, PRELOAD_BYTES);
+    }
+
+    private void preloadSingle(String videoUrl, long bytesToPreload) {
         // Already preload ho raha hai ya ho chuka hai — skip
         if (mPreloading.contains(videoUrl)) {
             Log.d(TAG, "Already preloading/preloaded: " + shortUrl(videoUrl));
@@ -119,12 +125,11 @@ public class ReelVideoPreloader {
                 CacheDataSource.Factory factory = ReelCacheManager.getCacheDataSourceFactory();
                 CacheDataSource cacheDataSource = factory.createDataSource();
 
-                // Sirf pehle PRELOAD_BYTES bytes download karo (3MB)
-                // Yeh kafi hai instant play ke liye
+                // Sirf pehle bytesToPreload bytes download karo
                 DataSpec dataSpec = new DataSpec.Builder()
                     .setUri(Uri.parse(videoUrl))
                     .setPosition(0)
-                    .setLength(PRELOAD_BYTES)
+                    .setLength(bytesToPreload)
                     .build();
 
                 CacheWriter cacheWriter = new CacheWriter(

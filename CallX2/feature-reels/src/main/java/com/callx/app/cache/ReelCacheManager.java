@@ -20,24 +20,20 @@ import java.io.File;
 /**
  * ReelCacheManager — Singleton SimpleCache specifically for Reels.
  *
- * Instagram-like caching:
- *  ✅ Adaptive disk cache — 200MB (low-end) / 350MB (normal) [FIX #MEM-3A]
+ * v29 update:
+ *  ✅ Dedicated 500MB cache — ONLY reels, not shared with X/Status/Chat
+ *  ✅ Backed by UnifiedVideoCacheManager's separate reels SimpleCache
+ *  ✅ Low-end devices: 300MB
  *  ✅ LRU eviction — purane reels automatically remove hote hain
- *  ✅ CacheDataSource.Factory — ExoPlayer is connect karta hai cache se
- *  ✅ Ek hi instance puri app mein (singleton)
- *  ✅ trimMemory() — OS low-memory signal par 50% cache release [FIX #MEM-3B]
+ *  ✅ extractCachedVideoToFile() — duet compositor ke liye cached video file extract
+ *  ✅ trimMemory() — OS low-memory signal par 50% cache release
  *
  * Usage:
- *   // Application.onCreate() ya ReelPlayerFragment mein:
  *   ReelCacheManager.init(context);
- *
- *   // ExoPlayer source banana:
  *   CacheDataSource.Factory factory = ReelCacheManager.getCacheDataSourceFactory();
  *   ProgressiveMediaSource source = new ProgressiveMediaSource.Factory(factory)
  *       .createMediaSource(MediaItem.fromUri(videoUrl));
- *
- *   // App band hone par (Application.onTerminate ya similar):
- *   ReelCacheManager.release();
+ *   ReelCacheManager.release(); // App close hone par
  */
 @OptIn(markerClass = UnstableApi.class)
 public class ReelCacheManager {
@@ -176,7 +172,7 @@ public class ReelCacheManager {
             for (androidx.media3.datasource.cache.CacheSpan span : spans) {
                 totalCached += span.length;
             }
-            if (totalCached < 10_000) {
+            if (totalCached < 500_000) { // require at least 500KB
                 Log.d(TAG, "extractCachedVideoToFile: too little cached (" + totalCached + ")");
                 return null;
             }
@@ -207,7 +203,7 @@ public class ReelCacheManager {
             fos.flush();
             fos.close();
 
-            if (written < 10_000) {
+            if (written < 500_000) {
                 outFile.delete();
                 Log.w(TAG, "extractCachedVideoToFile: wrote too little (" + written + ")");
                 return null;

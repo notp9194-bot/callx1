@@ -35,6 +35,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -345,10 +346,10 @@ public class DuetReelActivity extends AppCompatActivity {
             finish(); return;
         }
 
-        // Duet screen khulte hi original reel video preload karo background mein
-        // Bina iske setupOriginalPlayer() mein ExoPlayer buffer karta tha
+        // Duet screen khulte hi original reel video aggressively preload karo (50MB)
+        // Bina iske compositor fresh network download karta tha
         UnifiedVideoCacheManager.preloadPartial(this, videoUrl,
-            UnifiedVideoCacheManager.Module.REELS);
+            UnifiedVideoCacheManager.Module.REELS, true);
 
         cameraExecutor = Executors.newSingleThreadExecutor();
         bindViews();
@@ -1465,7 +1466,15 @@ public class DuetReelActivity extends AppCompatActivity {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private void setupOriginalPlayer() {
-        exoPlayer = new ExoPlayer.Builder(this).build();
+        // Use cache factory so ExoPlayer reads from 500MB reel cache
+        // instead of always hitting the network
+        ProgressiveMediaSource.Factory mediaSourceFactory =
+            new ProgressiveMediaSource.Factory(
+                com.callx.app.cache.ReelCacheManager.getCacheDataSourceFactory());
+
+        exoPlayer = new ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build();
         playerViewOriginal.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         playerViewOriginal.setUseArtwork(false);
         playerViewOriginal.setPlayer(exoPlayer);
