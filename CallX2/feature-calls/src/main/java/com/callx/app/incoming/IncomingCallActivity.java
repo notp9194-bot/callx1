@@ -9,7 +9,6 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,8 +19,10 @@ import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
-import android.graphics.RenderEffect;
-import android.graphics.Shader;
+import android.renderscript.Allocation;
+import android.renderscript.Element;
+import android.renderscript.RenderScript;
+import android.renderscript.ScriptIntrinsicBlur;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -45,11 +46,12 @@ import com.callx.app.utils.PushNotify;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
-import com.callx.app.cache.StatusCacheManager;
-import com.callx.app.models.StatusItem;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
+import com.callx.app.cache.StatusCacheManager;
+import com.callx.app.models.StatusItem;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
@@ -142,18 +144,11 @@ public class IncomingCallActivity extends AppCompatActivity {
                     @Override
                     public void onResourceReady(@NonNull Bitmap resource,
                                                 Transition<? super Bitmap> transition) {
-                        if (binding.ivBgBlur == null) return;
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            // API 31+: GPU blur via RenderEffect, no bitmap copy needed
-                            binding.ivBgBlur.setImageBitmap(resource);
-                            binding.ivBgBlur.setRenderEffect(
-                                RenderEffect.createBlurEffect(18f, 18f, Shader.TileMode.CLAMP));
-                        } else {
-                            // API 23-30: software Stack Blur fallback
-                            Bitmap blurred = stackBlur(resource, 12);
-                            if (blurred != null) binding.ivBgBlur.setImageBitmap(blurred);
+                        Bitmap blurred = blurBitmap(resource, 12f);
+                        if (blurred != null && binding.ivBgBlur != null) {
+                            binding.ivBgBlur.setImageBitmap(blurred);
+                            binding.ivBgBlur.animate().alpha(0.80f).setDuration(600).start();
                         }
-                        binding.ivBgBlur.animate().alpha(0.80f).setDuration(600).start();
                     }
                     @Override public void onLoadCleared(android.graphics.drawable.Drawable p) {}
                 });
@@ -163,88 +158,95 @@ public class IncomingCallActivity extends AppCompatActivity {
         checkBlockAndProceed();
     }
 
-    /** Pure-Java Stack Blur — no RenderScript, works API 23+. radius 1-20. */
-    private Bitmap stackBlur(Bitmap src, int radius) {
-        if (src == null || radius < 1) return src;
+    // ── Status strip: caller ka latest status dikhao ──────────────────────
+    /**
+     * Agar caller ka koi active status hai toh avatar ke niche ek small strip dikhao:
+     * "📷 Posted a status 2h ago"
+     * No interaction — sirf info.
+     */
+    private void checkCallerStatusStrip() {
+        if (fromUid == null || fromUid.isEmpty()) return;
+        if (binding.tvCallerStatusStrip == null) return;
+
+        // 1. StatusCacheManager se pehle try karo (in-memory, no extra Firebase read)
+        StatusCacheManager cache = StatusCacheManager.getInstance(getApplicationContext());
+        List<StatusItem> cached = cache.getStatuses(fromUid);
+        if (cached != null && !cached.isEmpty()) {
+            showStatusStrip(cached);
+            return;
+        }
+
+        // 2. Cache miss → direct Firebase se latest status fetch karo
+        FirebaseUtils.db().getReference("statuses").child(fromUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@android.annotation.NonNull DataSnapshot snap) {
+                    java.util.ArrayList<StatusItem> items = new java.util.ArrayList<>();
+                    long now = System.currentTimeMillis();
+                    long expiry24h = 24L * 60 * 60 * 1000;
+                    for (DataSnapshot child : snap.getChildren()) {
+                        try {
+                            StatusItem item = child.getValue(StatusItem.class);
+                            if (item == null) continue;
+                            Long ts = item.timestamp;
+                            if (ts == null) continue;
+                            Boolean deleted = child.child("deleted").getValue(Boolean.class);
+                            if (Boolean.TRUE.equals(deleted)) continue;
+                            if ((now - ts) > expiry24h) continue;
+                            items.add(item);
+                        } catch (Exception ignored) {}
+                    }
+                    if (!items.isEmpty()) {
+                        runOnUiThread(() -> showStatusStrip(items));
+                    }
+                }
+                @Override
+                public void onCancelled(@android.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+            });
+    }
+
+    private void showStatusStrip(List<StatusItem> items) {
+        if (binding.tvCallerStatusStrip == null || items == null || items.isEmpty()) return;
+
+        // Latest status (highest timestamp)
+        long latestTs = 0;
+        for (StatusItem item : items) {
+            if (item.timestamp != null && item.timestamp > latestTs) {
+                latestTs = item.timestamp;
+            }
+        }
+        if (latestTs == 0) return;
+
+        String ago = formatStatusAgo(latestTs);
+        binding.tvCallerStatusStrip.setText("📷 Posted a status " + ago);
+        binding.tvCallerStatusStrip.setVisibility(android.view.View.VISIBLE);
+        // Gentle fade-in
+        binding.tvCallerStatusStrip.setAlpha(0f);
+        binding.tvCallerStatusStrip.animate().alpha(1f).setDuration(400).start();
+    }
+
+    private String formatStatusAgo(long timestampMs) {
+        long diff = System.currentTimeMillis() - timestampMs;
+        long minutes = diff / 60_000;
+        if (minutes < 1)  return "just now";
+        if (minutes < 60) return minutes + "m ago";
+        long hours = minutes / 60;
+        if (hours < 24)   return hours + "h ago";
+        return "today";
+    }
+
+    private Bitmap blurBitmap(Bitmap src, float radius) {
         try {
-            Bitmap out = src.copy(Bitmap.Config.ARGB_8888, true);
-            int w = out.getWidth(), h = out.getHeight();
-            int[] pix = new int[w * h];
-            out.getPixels(pix, 0, w, 0, 0, w, h);
-            int wm = w - 1, hm = h - 1, wh = w * h;
-            int div = radius + radius + 1;
-            int[] r = new int[wh], g = new int[wh], b = new int[wh];
-            int rsum, gsum, bsum, x, y, i, p, yp, yi, yw;
-            int[] vmin = new int[Math.max(w, h)];
-            int divsum = (div + 1) >> 1; divsum *= divsum;
-            int[] dv = new int[256 * divsum];
-            for (i = 0; i < 256 * divsum; i++) dv[i] = i / divsum;
-            yw = yi = 0;
-            int[][] stack = new int[div][3];
-            int stackpointer, stackstart, sir[], rbs, r1 = radius + 1;
-            int routsum, goutsum, boutsum, rinsum, ginsum, binsum;
-            for (y = 0; y < h; y++) {
-                rinsum = ginsum = binsum = routsum = goutsum = boutsum = rsum = gsum = bsum = 0;
-                for (i = -radius; i <= radius; i++) {
-                    p = pix[yi + Math.min(wm, Math.max(i, 0))];
-                    sir = stack[i + radius];
-                    sir[0] = (p & 0xff0000) >> 16; sir[1] = (p & 0x00ff00) >> 8; sir[2] = p & 0x0000ff;
-                    rbs = r1 - Math.abs(i);
-                    rsum += sir[0] * rbs; gsum += sir[1] * rbs; bsum += sir[2] * rbs;
-                    if (i > 0) { rinsum += sir[0]; ginsum += sir[1]; binsum += sir[2]; }
-                    else { routsum += sir[0]; goutsum += sir[1]; boutsum += sir[2]; }
-                }
-                stackpointer = radius;
-                for (x = 0; x < w; x++) {
-                    r[yi] = dv[rsum]; g[yi] = dv[gsum]; b[yi] = dv[bsum];
-                    rsum -= routsum; gsum -= goutsum; bsum -= boutsum;
-                    stackstart = stackpointer - radius + div;
-                    sir = stack[stackstart % div];
-                    routsum -= sir[0]; goutsum -= sir[1]; boutsum -= sir[2];
-                    if (y == 0) vmin[x] = Math.min(x + radius + 1, wm);
-                    p = pix[yw + vmin[x]];
-                    sir[0] = (p & 0xff0000) >> 16; sir[1] = (p & 0x00ff00) >> 8; sir[2] = p & 0x0000ff;
-                    rinsum += sir[0]; ginsum += sir[1]; binsum += sir[2];
-                    rsum += rinsum; gsum += ginsum; bsum += binsum;
-                    stackpointer = (stackpointer + 1) % div; sir = stack[stackpointer];
-                    routsum += sir[0]; goutsum += sir[1]; boutsum += sir[2];
-                    rinsum -= sir[0]; ginsum -= sir[1]; binsum -= sir[2];
-                    yi++;
-                }
-                yw += w;
-            }
-            for (x = 0; x < w; x++) {
-                rinsum = ginsum = binsum = routsum = goutsum = boutsum = rsum = gsum = bsum = 0;
-                yp = -radius * w;
-                for (i = -radius; i <= radius; i++) {
-                    yi = Math.max(0, yp) + x;
-                    sir = stack[i + radius];
-                    sir[0] = r[yi]; sir[1] = g[yi]; sir[2] = b[yi];
-                    rbs = r1 - Math.abs(i);
-                    rsum += r[yi] * rbs; gsum += g[yi] * rbs; bsum += b[yi] * rbs;
-                    if (i > 0) { rinsum += sir[0]; ginsum += sir[1]; binsum += sir[2]; }
-                    else { routsum += sir[0]; goutsum += sir[1]; boutsum += sir[2]; }
-                    if (i < hm) yp += w;
-                }
-                yi = x; stackpointer = radius;
-                for (y = 0; y < h; y++) {
-                    pix[yi] = (0xff000000 & pix[yi]) | (dv[rsum] << 16) | (dv[gsum] << 8) | dv[bsum];
-                    rsum -= routsum; gsum -= goutsum; bsum -= boutsum;
-                    stackstart = stackpointer - radius + div;
-                    sir = stack[stackstart % div];
-                    routsum -= sir[0]; goutsum -= sir[1]; boutsum -= sir[2];
-                    if (x == 0) vmin[y] = Math.min(y + r1, hm) * w;
-                    p = x + vmin[y];
-                    sir[0] = r[p]; sir[1] = g[p]; sir[2] = b[p];
-                    rinsum += sir[0]; ginsum += sir[1]; binsum += sir[2];
-                    rsum += rinsum; gsum += ginsum; bsum += binsum;
-                    stackpointer = (stackpointer + 1) % div; sir = stack[stackpointer];
-                    routsum += sir[0]; goutsum += sir[1]; boutsum += sir[2];
-                    rinsum -= sir[0]; ginsum -= sir[1]; binsum -= sir[2];
-                    yi += w;
-                }
-            }
-            out.setPixels(pix, 0, w, 0, 0, w, h);
+            Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), src.getConfig());
+            RenderScript rs = RenderScript.create(this);
+            Allocation inAlloc  = Allocation.createFromBitmap(rs, src);
+            Allocation outAlloc = Allocation.createTyped(rs, inAlloc.getType());
+            ScriptIntrinsicBlur blur = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs));
+            blur.setRadius(radius);
+            blur.setInput(inAlloc);
+            blur.forEach(outAlloc);
+            outAlloc.copyTo(out);
+            rs.destroy();
             return out;
         } catch (Exception e) {
             return null;
@@ -293,6 +295,8 @@ public class IncomingCallActivity extends AppCompatActivity {
         startRingingDotsAnimation();
         watchCallStatus();
         autoRejectHandler.postDelayed(() -> { if (!acted) reject(); }, AUTO_REJECT_MS);
+
+        checkCallerStatusStrip();
 
         binding.btnAccept.setOnClickListener(v -> accept());
         binding.btnReject.setOnClickListener(v -> reject());
@@ -359,7 +363,6 @@ public class IncomingCallActivity extends AppCompatActivity {
         binding.btnQuickReply3.setOnClickListener(v -> sendQuickReply("On my way!"));
 
         startSwipeHintPulse();
-        loadCallerStatusStrip();
     }
 
     private void showQuickReplySheet() {
@@ -437,92 +440,8 @@ public class IncomingCallActivity extends AppCompatActivity {
         finish();
     }
 
-    /**
-     * Caller ka latest status fetch karke avatar ke niche strip show karo.
-     * StatusCacheManager se instant result milta hai (no Firebase call needed).
-     * Agar cache miss ho to Firebase se ek baar fetch karo.
-     */
-    private void loadCallerStatusStrip() {
-        if (fromUid == null || fromUid.isEmpty()) return;
-        if (binding.layoutCallerStatusStrip == null
-                || binding.tvCallerStatusText == null
-                || binding.tvCallerStatusIcon == null) return;
-
-        // Try cache first (zero latency)
-        StatusCacheManager cache = StatusCacheManager.getInstance(getApplicationContext());
-        if (cache.hasStatus(fromUid)) {
-            showStatusStrip(cache.getStatuses(fromUid));
-            return;
-        }
-
-        // Cache miss → Firebase se fetch (single read, light)
-        FirebaseUtils.db().getReference("statuses").child(fromUid)
-            .orderByChild("expiresAt")
-            .startAt((double) System.currentTimeMillis())
-            .limitToLast(1)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
-                    java.util.List<StatusItem> items = new java.util.ArrayList<>();
-                    for (DataSnapshot child : snapshot.getChildren()) {
-                        StatusItem item = child.getValue(StatusItem.class);
-                        if (item != null
-                                && !Boolean.TRUE.equals(item.deleted)
-                                && item.timestamp != null) {
-                            items.add(item);
-                        }
-                    }
-                    if (!items.isEmpty()) runOnUiThread(() -> showStatusStrip(items));
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-    }
-
-    private void showStatusStrip(java.util.List<StatusItem> items) {
-        // Most recent status lo
-        StatusItem latest = items.get(0);
-        for (StatusItem s : items) {
-            if (s.timestamp != null && latest.timestamp != null
-                    && s.timestamp > latest.timestamp) latest = s;
-        }
-
-        // Relative time string
-        String timeAgo = getRelativeTimeAgo(latest.timestamp != null ? latest.timestamp : 0);
-
-        // Icon + label based on type
-        String icon;
-        String label;
-        String type = latest.type != null ? latest.type : "";
-        switch (type) {
-            case "video":
-                icon = "🎥"; label = "Posted a video status " + timeAgo; break;
-            case "text":
-                icon = "✏️"; label = "Posted a text status " + timeAgo; break;
-            case "link":
-                icon = "🔗"; label = "Shared a link " + timeAgo; break;
-            case "gif":
-                icon = "🎞️"; label = "Posted a GIF " + timeAgo; break;
-            default:
-                icon = "📷"; label = "Posted a status " + timeAgo; break;
-        }
-
-        binding.tvCallerStatusIcon.setText(icon);
-        binding.tvCallerStatusText.setText(label);
-        binding.layoutCallerStatusStrip.setVisibility(android.view.View.VISIBLE);
-
-        // Soft fade-in
-        binding.layoutCallerStatusStrip.setAlpha(0f);
-        binding.layoutCallerStatusStrip.animate().alpha(1f).setDuration(400).start();
-    }
-
-    private String getRelativeTimeAgo(long timestampMs) {
-        long diff = System.currentTimeMillis() - timestampMs;
-        if (diff < 60_000L)      return "just now";
-        if (diff < 3_600_000L)  return (diff / 60_000L) + "m ago";
-        if (diff < 86_400_000L) return (diff / 3_600_000L) + "h ago";
-        return (diff / 86_400_000L) + "d ago";
-    }
-
-    private void startSwipeHintPulse() {        try {
+    private void startSwipeHintPulse() {
+        try {
             if (binding.tvSwipeHintUp == null || binding.tvSwipeHintDown == null) return;
             ObjectAnimator upPulse = ObjectAnimator.ofFloat(binding.tvSwipeHintUp, "translationY", 0f, -6f, 0f);
             upPulse.setDuration(1400); upPulse.setRepeatCount(ObjectAnimator.INFINITE);
