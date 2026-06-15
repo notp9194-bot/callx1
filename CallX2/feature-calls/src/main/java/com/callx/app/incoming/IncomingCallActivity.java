@@ -19,10 +19,8 @@ import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
-import android.renderscript.Allocation;
-import android.renderscript.Element;
-import android.renderscript.RenderScript;
-import android.renderscript.ScriptIntrinsicBlur;
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -143,11 +141,18 @@ public class IncomingCallActivity extends AppCompatActivity {
                     @Override
                     public void onResourceReady(@NonNull Bitmap resource,
                                                 Transition<? super Bitmap> transition) {
-                        Bitmap blurred = blurBitmap(resource, 12f);
-                        if (blurred != null && binding.ivBgBlur != null) {
-                            binding.ivBgBlur.setImageBitmap(blurred);
-                            binding.ivBgBlur.animate().alpha(0.80f).setDuration(600).start();
+                        if (binding.ivBgBlur == null) return;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            // API 31+: GPU blur via RenderEffect, no bitmap copy needed
+                            binding.ivBgBlur.setImageBitmap(resource);
+                            binding.ivBgBlur.setRenderEffect(
+                                RenderEffect.createBlurEffect(18f, 18f, Shader.TileMode.CLAMP));
+                        } else {
+                            // API 23-30: software Stack Blur fallback
+                            Bitmap blurred = stackBlur(resource, 12);
+                            if (blurred != null) binding.ivBgBlur.setImageBitmap(blurred);
                         }
+                        binding.ivBgBlur.animate().alpha(0.80f).setDuration(600).start();
                     }
                     @Override public void onLoadCleared(android.graphics.drawable.Drawable p) {}
                 });
@@ -157,18 +162,88 @@ public class IncomingCallActivity extends AppCompatActivity {
         checkBlockAndProceed();
     }
 
-    private Bitmap blurBitmap(Bitmap src, float radius) {
+    /** Pure-Java Stack Blur — no RenderScript, works API 23+. radius 1-20. */
+    private Bitmap stackBlur(Bitmap src, int radius) {
+        if (src == null || radius < 1) return src;
         try {
-            Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), src.getConfig());
-            RenderScript rs = RenderScript.create(this);
-            Allocation inAlloc  = Allocation.createFromBitmap(rs, src);
-            Allocation outAlloc = Allocation.createTyped(rs, inAlloc.getType());
-            ScriptIntrinsicBlur blur = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs));
-            blur.setRadius(radius);
-            blur.setInput(inAlloc);
-            blur.forEach(outAlloc);
-            outAlloc.copyTo(out);
-            rs.destroy();
+            Bitmap out = src.copy(Bitmap.Config.ARGB_8888, true);
+            int w = out.getWidth(), h = out.getHeight();
+            int[] pix = new int[w * h];
+            out.getPixels(pix, 0, w, 0, 0, w, h);
+            int wm = w - 1, hm = h - 1, wh = w * h;
+            int div = radius + radius + 1;
+            int[] r = new int[wh], g = new int[wh], b = new int[wh];
+            int rsum, gsum, bsum, x, y, i, p, yp, yi, yw;
+            int[] vmin = new int[Math.max(w, h)];
+            int divsum = (div + 1) >> 1; divsum *= divsum;
+            int[] dv = new int[256 * divsum];
+            for (i = 0; i < 256 * divsum; i++) dv[i] = i / divsum;
+            yw = yi = 0;
+            int[][] stack = new int[div][3];
+            int stackpointer, stackstart, sir[], rbs, r1 = radius + 1;
+            int routsum, goutsum, boutsum, rinsum, ginsum, binsum;
+            for (y = 0; y < h; y++) {
+                rinsum = ginsum = binsum = routsum = goutsum = boutsum = rsum = gsum = bsum = 0;
+                for (i = -radius; i <= radius; i++) {
+                    p = pix[yi + Math.min(wm, Math.max(i, 0))];
+                    sir = stack[i + radius];
+                    sir[0] = (p & 0xff0000) >> 16; sir[1] = (p & 0x00ff00) >> 8; sir[2] = p & 0x0000ff;
+                    rbs = r1 - Math.abs(i);
+                    rsum += sir[0] * rbs; gsum += sir[1] * rbs; bsum += sir[2] * rbs;
+                    if (i > 0) { rinsum += sir[0]; ginsum += sir[1]; binsum += sir[2]; }
+                    else { routsum += sir[0]; goutsum += sir[1]; boutsum += sir[2]; }
+                }
+                stackpointer = radius;
+                for (x = 0; x < w; x++) {
+                    r[yi] = dv[rsum]; g[yi] = dv[gsum]; b[yi] = dv[bsum];
+                    rsum -= routsum; gsum -= goutsum; bsum -= boutsum;
+                    stackstart = stackpointer - radius + div;
+                    sir = stack[stackstart % div];
+                    routsum -= sir[0]; goutsum -= sir[1]; boutsum -= sir[2];
+                    if (y == 0) vmin[x] = Math.min(x + radius + 1, wm);
+                    p = pix[yw + vmin[x]];
+                    sir[0] = (p & 0xff0000) >> 16; sir[1] = (p & 0x00ff00) >> 8; sir[2] = p & 0x0000ff;
+                    rinsum += sir[0]; ginsum += sir[1]; binsum += sir[2];
+                    rsum += rinsum; gsum += ginsum; bsum += binsum;
+                    stackpointer = (stackpointer + 1) % div; sir = stack[stackpointer];
+                    routsum += sir[0]; goutsum += sir[1]; boutsum += sir[2];
+                    rinsum -= sir[0]; ginsum -= sir[1]; binsum -= sir[2];
+                    yi++;
+                }
+                yw += w;
+            }
+            for (x = 0; x < w; x++) {
+                rinsum = ginsum = binsum = routsum = goutsum = boutsum = rsum = gsum = bsum = 0;
+                yp = -radius * w;
+                for (i = -radius; i <= radius; i++) {
+                    yi = Math.max(0, yp) + x;
+                    sir = stack[i + radius];
+                    sir[0] = r[yi]; sir[1] = g[yi]; sir[2] = b[yi];
+                    rbs = r1 - Math.abs(i);
+                    rsum += r[yi] * rbs; gsum += g[yi] * rbs; bsum += b[yi] * rbs;
+                    if (i > 0) { rinsum += sir[0]; ginsum += sir[1]; binsum += sir[2]; }
+                    else { routsum += sir[0]; goutsum += sir[1]; boutsum += sir[2]; }
+                    if (i < hm) yp += w;
+                }
+                yi = x; stackpointer = radius;
+                for (y = 0; y < h; y++) {
+                    pix[yi] = (0xff000000 & pix[yi]) | (dv[rsum] << 16) | (dv[gsum] << 8) | dv[bsum];
+                    rsum -= routsum; gsum -= goutsum; bsum -= boutsum;
+                    stackstart = stackpointer - radius + div;
+                    sir = stack[stackstart % div];
+                    routsum -= sir[0]; goutsum -= sir[1]; boutsum -= sir[2];
+                    if (x == 0) vmin[y] = Math.min(y + r1, hm) * w;
+                    p = x + vmin[y];
+                    sir[0] = r[p]; sir[1] = g[p]; sir[2] = b[p];
+                    rinsum += sir[0]; ginsum += sir[1]; binsum += sir[2];
+                    rsum += rinsum; gsum += ginsum; bsum += binsum;
+                    stackpointer = (stackpointer + 1) % div; sir = stack[stackpointer];
+                    routsum += sir[0]; goutsum += sir[1]; boutsum += sir[2];
+                    rinsum -= sir[0]; ginsum -= sir[1]; binsum -= sir[2];
+                    yi += w;
+                }
+            }
+            out.setPixels(pix, 0, w, 0, 0, w, h);
             return out;
         } catch (Exception e) {
             return null;

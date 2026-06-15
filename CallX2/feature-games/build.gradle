@@ -8,8 +8,6 @@ android {
 
     defaultConfig {
         minSdk 23
-        renderscriptTargetApi 21
-        renderscriptSupportModeEnabled true
     }
 
     compileOptions {
