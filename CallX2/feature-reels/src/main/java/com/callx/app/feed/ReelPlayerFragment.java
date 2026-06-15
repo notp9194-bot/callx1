@@ -507,34 +507,69 @@ public class ReelPlayerFragment extends Fragment
             this.src = src.mutate();
             this.src.setCallback(this);
 
-            // Outer coloured glow — traces icon silhouette
+            // Outer coloured glow — BlurMaskFilter traces exact icon pixel edges
+            // Works on all Android versions; setShadowLayer does NOT work in saveLayer
             glowPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            glowPaint.setShadowLayer(radius, 0f, 0f, glowColor);
+            glowPaint.setMaskFilter(
+                new android.graphics.BlurMaskFilter(radius, android.graphics.BlurMaskFilter.Blur.OUTER));
+            glowPaint.setColorFilter(
+                new android.graphics.PorterDuffColorFilter(glowColor, android.graphics.PorterDuff.Mode.SRC_IN));
 
-            // Thin white ring — sits just between the coloured glow and the icon fill
+            // Thin white ring — tiny blur radius so it stays tight/patli line
             whitePaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            whitePaint.setShadowLayer(2.5f, 0f, 0f, 0xFFFFFFFF);
+            whitePaint.setMaskFilter(
+                new android.graphics.BlurMaskFilter(3f, android.graphics.BlurMaskFilter.Blur.OUTER));
+            whitePaint.setColorFilter(
+                new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
 
-            // Clean paint — draws the icon pixels on top with no extra effect
+            // Clean paint — icon itself on top, no filter
             clearPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         }
 
         @Override
         public void draw(@NonNull android.graphics.Canvas canvas) {
-            // Step 1: coloured outer glow around icon silhouette
-            canvas.saveLayer(null, glowPaint);
-            src.draw(canvas);
-            canvas.restore();
+            android.graphics.Bitmap bmp = drawableToBitmap(src);
+            if (bmp == null) {
+                src.draw(canvas);
+                return;
+            }
 
-            // Step 2: thin white ring just outside icon edges
-            canvas.saveLayer(null, whitePaint);
-            src.draw(canvas);
-            canvas.restore();
+            // Step 1: coloured outer glow
+            android.graphics.Bitmap glowBmp = glowPaint.getMaskFilter() != null
+                ? bmp.extractAlpha(glowPaint, null)
+                : null;
+            if (glowBmp != null) {
+                android.graphics.Paint colorPaint = new android.graphics.Paint();
+                colorPaint.setColorFilter(glowPaint.getColorFilter());
+                canvas.drawBitmap(glowBmp, getBounds().left, getBounds().top, colorPaint);
+                glowBmp.recycle();
+            }
 
-            // Step 3: icon itself on top — clean tinted pixels
-            canvas.saveLayer(null, clearPaint);
-            src.draw(canvas);
-            canvas.restore();
+            // Step 2: thin white ring between glow and icon
+            android.graphics.Bitmap whiteBmp = whitePaint.getMaskFilter() != null
+                ? bmp.extractAlpha(whitePaint, null)
+                : null;
+            if (whiteBmp != null) {
+                android.graphics.Paint wp = new android.graphics.Paint();
+                wp.setColorFilter(new android.graphics.PorterDuffColorFilter(
+                    0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
+                canvas.drawBitmap(whiteBmp, getBounds().left, getBounds().top, wp);
+                whiteBmp.recycle();
+            }
+
+            // Step 3: icon itself clean on top
+            canvas.drawBitmap(bmp, getBounds().left, getBounds().top, clearPaint);
+        }
+
+        private android.graphics.Bitmap drawableToBitmap(Drawable d) {
+            int w = d.getBounds().width();
+            int h = d.getBounds().height();
+            if (w <= 0 || h <= 0) return null;
+            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
+                w, h, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas c = new android.graphics.Canvas(bmp);
+            d.draw(c);
+            return bmp;
         }
 
         @Override public void setBounds(int l, int t, int r, int b) {
