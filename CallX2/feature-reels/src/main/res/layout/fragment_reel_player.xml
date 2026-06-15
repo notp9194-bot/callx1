@@ -179,8 +179,8 @@
         <!-- Like -->
         <ImageButton
             android:id="@+id/btn_like"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:src="@drawable/ic_heart"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -205,8 +205,8 @@
         <!-- Comment -->
         <ImageButton
             android:id="@+id/btn_comment"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:src="@drawable/ic_comment_reel"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -231,8 +231,8 @@
         <!-- Share -->
         <ImageButton
             android:id="@+id/btn_share"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:src="@drawable/ic_share_reel"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -257,8 +257,8 @@
         <!-- Repost -->
         <ImageButton
             android:id="@+id/btn_repost"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:src="@drawable/ic_repost"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -276,8 +276,8 @@
         <!-- 3-dot More -->
         <ImageButton
             android:id="@+id/btn_more"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_more_vert"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"

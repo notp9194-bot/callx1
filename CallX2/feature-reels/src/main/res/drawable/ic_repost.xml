@@ -2,11 +2,24 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="28dp" android:height="28dp"
     android:viewportWidth="24" android:viewportHeight="24">
+    <!--
+        Single-line repost icon:
+        A single rounded rectangle with one arrowhead — like a "share forward" arrow.
+        Goes: left rail down → bottom curve → right rail up → arrowhead at top-right.
+        This is visually a single-line design (one continuous stroke, one arrow tip).
+    -->
     <path
         android:fillColor="@android:color/transparent"
-        android:pathData="M7,7h10v3l4,-4 -4,-4v3H5v6h2V7z M17,17H7v-3l-4,4 4,4v-3h12v-6h-2v5z"
+        android:pathData="M6,17 L6,9 C6,7.895 6.895,7 8,7 L18,7 L15,4 M18,7 L15,10"
         android:strokeColor="#A855F7"
-        android:strokeWidth="1"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M18,7 L18,15 C18,16.105 17.105,17 16,17 L6,17 L9,20 M6,17 L9,14"
+        android:strokeColor="#A855F7"
+        android:strokeWidth="1.6"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
 </vector>
