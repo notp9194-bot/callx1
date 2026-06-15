@@ -38,8 +38,6 @@ package com.callx.app.viewer;
   import com.callx.app.interactions.StatusReactionBottomSheet;
   import com.callx.app.interactions.StatusReplyBottomSheet;
   import com.callx.app.interactions.StatusSeenByBottomSheet;
-import com.callx.app.interactions.StatusPollResultsBottomSheet;
-import com.callx.app.interactions.StatusQuestionAnswersBottomSheet;
   import com.callx.app.utils.StatusCloseFriendsManager;
   import com.callx.app.utils.StatusDownloadHelper;
   import com.callx.app.utils.StatusHighlightManager;
@@ -387,15 +385,6 @@ import com.callx.app.interactions.StatusQuestionAnswersBottomSheet;
               binding.llPollOptions.addView(row);
           }
           binding.tvPollTotal.setText(totalVotes + " vote" + (totalVotes != 1 ? "s" : ""));
-          // NEW v27: Owner taps "See Results" → full poll results sheet
-          if (isOwner) {
-              binding.tvPollTotal.setTextColor(android.graphics.Color.parseColor("#6200EE"));
-              binding.tvPollTotal.setText(totalVotes + " vote" + (totalVotes != 1 ? "s" : "") + "  — See Results ▶");
-              binding.tvPollTotal.setOnClickListener(v -> {
-                  pauseProgress();
-                  StatusPollResultsBottomSheet.show(this, s, myUid);
-              });
-          }
           startProgress(hasVoted ? 6_000L : 30_000L);
       }
 

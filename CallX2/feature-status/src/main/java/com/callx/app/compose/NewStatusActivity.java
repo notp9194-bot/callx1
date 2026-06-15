@@ -22,7 +22,6 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import java.util.*;
 import com.callx.app.privacy.StatusPrivacyBottomSheet;
-import com.callx.app.interactions.StatusMusicPickerBottomSheet;
 import com.callx.app.utils.StatusCustomExpiryHelper;
 import com.callx.app.utils.StatusLinkPreviewHelper;
 import com.callx.app.utils.StatusMentionHelper;
@@ -75,10 +74,6 @@ public class NewStatusActivity extends AppCompatActivity {
     private Set<String> privacyUids   = new HashSet<>();
     private int    selectedExpiryHours = 24;
     private boolean isCloseFriends    = false;
-    // Music fields (NEW v27)
-    private String  selectedMusicTitle  = null;
-    private String  selectedMusicArtist = null;
-    private String  selectedMusicUrl    = null;
     private String  selectedTextAlign  = "center";
     // Link preview state
     private String detectedLinkUrl;
@@ -100,7 +95,6 @@ public class NewStatusActivity extends AppCompatActivity {
         setupPrivacyButton();
         setupExpiryButton();
         setupCloseFriendsToggle();
-        setupMusicButton();
         setupTextAlignButtons();
         setupTextInput();
         restoreDraft();
@@ -108,10 +102,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.btnPickVideo.setOnClickListener(v -> showMediaSourceDialog("video"));
         binding.btnPost.setOnClickListener(v -> post());
         binding.btnDiscardMedia.setOnClickListener(v -> discardMedia());
-        // Music button (NEW v27)
-        View btnMusic = binding.getRoot().findViewWithTag("btn_music");
-        if (btnMusic != null) btnMusic.setOnClickListener(v -> showMusicPicker());
-
         // GIF / Sticker button
         View btnGif = binding.getRoot().findViewWithTag("btn_gif");
         if (btnGif != null) btnGif.setOnClickListener(v -> showGifInputDialog());
@@ -226,36 +216,6 @@ public class NewStatusActivity extends AppCompatActivity {
             .show();
     }
     // ── Privacy button (NEW bottom sheet) ────────────────────────────────
-    // ── Music picker (NEW v27) ─────────────────────────────────────────────
-    private void setupMusicButton() {
-        // Music button wired via tag in activity layout: btn_music
-        // Layout can add a TextView/Button with tag="btn_music"
-    }
-
-    private void showMusicPicker() {
-        StatusMusicPickerBottomSheet.show(this, selectedMusicTitle, sel -> {
-            if (sel == null) {
-                // Remove music
-                selectedMusicTitle  = null;
-                selectedMusicArtist = null;
-                selectedMusicUrl    = null;
-                android.widget.Toast.makeText(this, "Music removed", android.widget.Toast.LENGTH_SHORT).show();
-            } else {
-                selectedMusicTitle  = sel.title;
-                selectedMusicArtist = sel.artist;
-                selectedMusicUrl    = sel.audioUrl;
-                android.widget.Toast.makeText(this,
-                        "266b " + sel.title + " selected", android.widget.Toast.LENGTH_SHORT).show();
-            }
-            // Update music button label if view available
-            android.view.View btn = binding.getRoot().findViewWithTag("btn_music");
-            if (btn instanceof android.widget.TextView) {
-                ((android.widget.TextView) btn).setText(
-                        selectedMusicTitle != null ? "266b " + selectedMusicTitle : "266b Add Music");
-            }
-        });
-    }
-
     private void setupPrivacyButton() {
         selectedPrivacy = StatusPrivacyManager.getPrivacyMode(this);
         updatePrivacyLabel();
@@ -655,12 +615,6 @@ public class NewStatusActivity extends AppCompatActivity {
                 item.mentionNames = new HashMap<>();
                 for (String n : mentions.mentionedNames) item.mentionNames.put(n, "@" + n);
             }
-        }
-        // Music metadata (NEW v27)
-        if (selectedMusicTitle != null && !selectedMusicTitle.isEmpty()) {
-            item.musicTitle  = selectedMusicTitle;
-            item.musicArtist = selectedMusicArtist != null ? selectedMusicArtist : "";
-            item.musicUrl    = selectedMusicUrl    != null ? selectedMusicUrl    : "";
         }
         // Link metadata
         if ("link".equals(type) && fetchedPreview != null) {

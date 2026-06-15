@@ -408,7 +408,6 @@ public class CallxApp extends Application {
             NotificationManager.IMPORTANCE_DEFAULT, true, false, null,
             android.app.Notification.VISIBILITY_PRIVATE, true);
 
-        com.callx.app.utils.StatusNotificationHelper.createChannel(this);
         makeChannel(nm, Constants.CHANNEL_STATUS_BG_SERVICE, "Status Sync Service",
             NotificationManager.IMPORTANCE_MIN, false, false, null,
             android.app.Notification.VISIBILITY_SECRET, false);
