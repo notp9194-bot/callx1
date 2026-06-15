@@ -5,7 +5,7 @@
       android:layout_height="match_parent"
       android:background="@color/black">
 
-      <!-- ── Full-screen content layers ── -->
+      <!-- Full-screen content layers -->
       <ImageView
           android:id="@+id/iv_status"
           android:layout_width="match_parent"
@@ -19,13 +19,12 @@
           android:layout_height="match_parent"
           android:visibility="gone"/>
 
-      <!-- Text / Poll / Question status background -->
+      <!-- Text status -->
       <FrameLayout
           android:id="@+id/fl_text_status"
           android:layout_width="match_parent"
           android:layout_height="match_parent"
           android:visibility="gone">
-
           <TextView
               android:id="@+id/tv_text_status"
               android:layout_width="wrap_content"
@@ -37,168 +36,20 @@
               android:textStyle="bold"
               android:gravity="center"
               android:lineSpacingMultiplier="1.2"/>
-
-          <!-- NEW: Poll container (shown inside fl_text_status when type=poll) -->
-          <LinearLayout
-              android:id="@+id/ll_poll_container"
-              android:layout_width="match_parent"
-              android:layout_height="wrap_content"
-              android:layout_gravity="center"
-              android:orientation="vertical"
-              android:paddingStart="24dp"
-              android:paddingEnd="24dp"
-              android:visibility="gone">
-
-              <TextView
-                  android:id="@+id/tv_poll_question"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:textColor="@color/white"
-                  android:textSize="22sp"
-                  android:textStyle="bold"
-                  android:gravity="center"
-                  android:paddingBottom="20dp"/>
-
-              <!-- Poll options injected here dynamically -->
-              <LinearLayout
-                  android:id="@+id/ll_poll_options"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:orientation="vertical"/>
-
-              <TextView
-                  android:id="@+id/tv_poll_total"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:textColor="#AAFFFFFF"
-                  android:textSize="12sp"
-                  android:gravity="center"
-                  android:paddingTop="8dp"/>
-
-          </LinearLayout>
-
-          <!-- NEW: Question Box container (shown when type=question_box) -->
-          <LinearLayout
-              android:id="@+id/ll_question_box"
-              android:layout_width="match_parent"
-              android:layout_height="wrap_content"
-              android:layout_gravity="center"
-              android:orientation="vertical"
-              android:paddingStart="24dp"
-              android:paddingEnd="24dp"
-              android:gravity="center"
-              android:visibility="gone">
-
-              <TextView
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:text="&#x2753;"
-                  android:textSize="40sp"
-                  android:paddingBottom="8dp"/>
-
-              <TextView
-                  android:id="@+id/tv_question_prompt"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:textColor="@color/white"
-                  android:textSize="22sp"
-                  android:textStyle="bold"
-                  android:gravity="center"
-                  android:paddingBottom="20dp"/>
-
-              <com.google.android.material.textfield.TextInputLayout
-                  style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:hint="Type your answer…"
-                  app:boxCornerRadiusTopEnd="24dp"
-                  app:boxCornerRadiusTopStart="24dp"
-                  app:boxCornerRadiusBottomEnd="24dp"
-                  app:boxCornerRadiusBottomStart="24dp"
-                  app:hintTextColor="@color/white"
-                  app:boxStrokeColor="@color/white">
-
-                  <com.google.android.material.textfield.TextInputEditText
-                      android:id="@+id/et_question_answer"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:textColor="@color/white"
-                      android:maxLines="3"
-                      android:inputType="textCapSentences"/>
-
-              </com.google.android.material.textfield.TextInputLayout>
-
-              <Button
-                  android:id="@+id/btn_submit_answer"
-                  android:layout_width="match_parent"
-                  android:layout_height="48dp"
-                  android:layout_marginTop="12dp"
-                  android:text="Send Answer"
-                  android:backgroundTint="#CC6200EE"/>
-
-          </LinearLayout>
-
       </FrameLayout>
 
-      <!-- ── Touch capture layer ── -->
+      <!-- Touch capture layer -->
       <View
           android:id="@+id/touch_layer"
           android:layout_width="match_parent"
           android:layout_height="match_parent"/>
 
-      <!-- ── NEW: Floating emoji overlay (for double-tap ❤️ and reaction animation) ── -->
-      <FrameLayout
-          android:id="@+id/fl_emoji_overlay"
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:importantForAccessibility="no"/>
-
-      <!-- ── Top chrome ── -->
+      <!-- Top chrome -->
       <LinearLayout
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
           android:orientation="vertical"
           android:paddingTop="8dp">
-
-          <!-- NEW: Music strip -->
-          <LinearLayout
-              android:id="@+id/ll_music_strip"
-              android:layout_width="wrap_content"
-              android:layout_height="32dp"
-              android:layout_gravity="center_horizontal"
-              android:layout_marginTop="4dp"
-              android:layout_marginBottom="4dp"
-              android:background="@drawable/bg_music_strip"
-              android:paddingStart="12dp"
-              android:paddingEnd="14dp"
-              android:orientation="horizontal"
-              android:gravity="center_vertical"
-              android:visibility="gone">
-
-              <TextView
-                  android:layout_width="12dp"
-                  android:layout_height="wrap_content"
-                  android:text="&#x266B;"
-                  android:textColor="@color/white"
-                  android:textSize="14sp"/>
-
-              <TextView
-                  android:id="@+id/tv_music_label"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:layout_marginStart="6dp"
-                  android:textColor="@color/white"
-                  android:textSize="12sp"
-                  android:maxWidth="160dp"
-                  android:maxLines="1"
-                  android:ellipsize="marquee"
-                  android:singleLine="true"
-                  android:marqueeRepeatLimit="marquee_forever"
-                  android:focusable="true"
-                  android:focusableInTouchMode="true"
-                  android:scrollHorizontally="true"/>
-
-          </LinearLayout>
 
           <!-- Progress bars -->
           <LinearLayout
@@ -212,7 +63,7 @@
               android:paddingBottom="4dp"
               android:gravity="center_vertical"/>
 
-          <!-- Header row -->
+          <!-- Header row: avatar + name + expiry + more + close -->
           <LinearLayout
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
@@ -261,6 +112,7 @@
                           android:textColor="#CCFFFFFF"
                           android:textSize="12sp"/>
 
+                      <!-- FIX: expiry label — was findViewWithTag, now proper ID -->
                       <TextView
                           android:id="@+id/tv_expiry_label"
                           android:layout_width="wrap_content"
@@ -270,20 +122,11 @@
                           android:textSize="11sp"
                           android:visibility="gone"/>
 
-                      <!-- NEW: Privacy badge -->
-                      <TextView
-                          android:id="@+id/tv_privacy_viewer"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:layout_marginStart="6dp"
-                          android:textSize="11sp"
-                          android:textColor="#AAFFFFFF"
-                          android:visibility="gone"/>
-
                   </LinearLayout>
 
               </LinearLayout>
 
+              <!-- More options -->
               <ImageButton
                   android:id="@+id/btn_more"
                   android:layout_width="40dp"
@@ -292,6 +135,7 @@
                   android:tint="@color/white"
                   android:background="?attr/selectableItemBackgroundBorderless"/>
 
+              <!-- Close -->
               <ImageButton
                   android:id="@+id/btn_close_status"
                   android:layout_width="40dp"
@@ -304,7 +148,7 @@
 
       </LinearLayout>
 
-      <!-- Mute button -->
+      <!-- Mute button (video only) -->
       <ImageButton
           android:id="@+id/btn_mute"
           android:layout_width="44dp"
@@ -319,7 +163,7 @@
           android:visibility="gone"
           android:contentDescription="Mute"/>
 
-      <!-- Download + Forward -->
+      <!-- FIX: Download + Forward action row (was findViewWithTag, now proper IDs) -->
       <LinearLayout
           android:layout_width="wrap_content"
           android:layout_height="wrap_content"
@@ -353,7 +197,7 @@
 
       </LinearLayout>
 
-      <!-- ── Bottom chrome ── -->
+      <!-- Bottom chrome -->
       <LinearLayout
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
@@ -365,7 +209,7 @@
           android:paddingStart="12dp"
           android:paddingEnd="12dp">
 
-          <!-- Location tag -->
+          <!-- FIX: Location tag — was findViewWithTag("tv_location_tag"), now proper ID -->
           <TextView
               android:id="@+id/tv_location_tag"
               android:layout_width="wrap_content"
@@ -373,35 +217,8 @@
               android:textColor="#EEFFFFFF"
               android:textSize="13sp"
               android:paddingBottom="4dp"
+              android:drawablePadding="4dp"
               android:visibility="gone"/>
-
-          <!-- NEW: Swipe-up link indicator -->
-          <LinearLayout
-              android:id="@+id/ll_swipe_up"
-              android:layout_width="match_parent"
-              android:layout_height="wrap_content"
-              android:orientation="vertical"
-              android:gravity="center_horizontal"
-              android:paddingBottom="6dp"
-              android:visibility="gone">
-
-              <TextView
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:text="&#x2B06;"
-                  android:textColor="@color/white"
-                  android:textSize="18sp"
-                  android:id="@+id/tv_swipe_up_arrow"/>
-
-              <TextView
-                  android:id="@+id/tv_swipe_up_label"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:textColor="@color/white"
-                  android:textSize="13sp"
-                  android:text="Swipe up"/>
-
-          </LinearLayout>
 
           <!-- Caption -->
           <TextView
@@ -417,7 +234,7 @@
               android:shadowDy="1"
               android:visibility="gone"/>
 
-          <!-- Seen-by (owner only) -->
+          <!-- Seen-by info (owner only) -->
           <TextView
               android:id="@+id/tv_seen_by"
               android:layout_width="wrap_content"
@@ -425,12 +242,13 @@
               android:textColor="#CCFFFFFF"
               android:textSize="13sp"
               android:paddingBottom="8dp"
+              android:drawablePadding="4dp"
               android:clickable="true"
               android:focusable="true"
               android:background="?attr/selectableItemBackground"
               android:visibility="gone"/>
 
-          <!-- Reply + react row -->
+          <!-- Reaction + reply row -->
           <LinearLayout
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
