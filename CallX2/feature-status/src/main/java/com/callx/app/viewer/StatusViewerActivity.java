@@ -628,8 +628,8 @@ package com.callx.app.viewer;
           }
       }
       private void sendReplyToChat(String toUid, String msg) {
-          FirebaseUtils.db().getReference("chats")
-              .child(FirebaseUtils.chatKey(myUid, toUid))
+          String chatId = FirebaseUtils.getChatId(myUid, toUid);
+          FirebaseUtils.getMessagesRef(chatId)
               .push().setValue(new java.util.HashMap<String, Object>() {{
                   put("sender", myUid); put("text", msg);
                   put("timestamp", System.currentTimeMillis()); put("type", "text");
