@@ -107,9 +107,9 @@ public class StatusQuestionAnswersBottomSheet {
                     progress.setVisibility(View.GONE);
                     answersContainer.removeAllViews();
 
-                    // Also check in-model questionBoxVotes
+                    // Also check in-model questionBoxAnswers
                     Map<String, Object> votes = new HashMap<>();
-                    if (item.questionBoxVotes != null) votes.putAll(item.questionBoxVotes);
+                    if (item.questionBoxAnswers != null) votes.putAll(item.questionBoxAnswers);
                     for (DataSnapshot child : snap.getChildren()) {
                         String viewerUid = child.getKey();
                         Object answer = child.child("answer").getValue();
