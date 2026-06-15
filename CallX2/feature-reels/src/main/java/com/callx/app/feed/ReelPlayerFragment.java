@@ -500,18 +500,39 @@ public class ReelPlayerFragment extends Fragment
             implements android.graphics.drawable.Drawable.Callback {
         private final Drawable src;
         private final android.graphics.Paint glowPaint;
+        private final android.graphics.Paint whitePaint;
+        private final android.graphics.Paint clearPaint;
 
         GlowDrawable(Drawable src, int glowColor, float radius) {
             this.src = src.mutate();
             this.src.setCallback(this);
+
+            // Outer coloured glow — traces icon silhouette
             glowPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             glowPaint.setShadowLayer(radius, 0f, 0f, glowColor);
+
+            // Thin white ring — sits just between the coloured glow and the icon fill
+            whitePaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            whitePaint.setShadowLayer(2.5f, 0f, 0f, 0xFFFFFFFF);
+
+            // Clean paint — draws the icon pixels on top with no extra effect
+            clearPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         }
 
         @Override
         public void draw(@NonNull android.graphics.Canvas canvas) {
-            // Save layer so shadowLayer applies around the drawn pixels
+            // Step 1: coloured outer glow around icon silhouette
             canvas.saveLayer(null, glowPaint);
+            src.draw(canvas);
+            canvas.restore();
+
+            // Step 2: thin white ring just outside icon edges
+            canvas.saveLayer(null, whitePaint);
+            src.draw(canvas);
+            canvas.restore();
+
+            // Step 3: icon itself on top — clean tinted pixels
+            canvas.saveLayer(null, clearPaint);
             src.draw(canvas);
             canvas.restore();
         }
