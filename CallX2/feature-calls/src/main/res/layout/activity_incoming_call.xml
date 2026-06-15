@@ -15,7 +15,7 @@
         android:src="@drawable/ic_person"
         android:scaleType="centerCrop"
         android:contentDescription=""
-        android:alpha="0.35"
+        android:alpha="0.0"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"

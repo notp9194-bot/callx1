@@ -120,34 +120,41 @@ public class IncomingCallActivity extends AppCompatActivity {
         }
 
         // ── Load avatar + blurred background simultaneously ───────────────
-        String avatarUrl = (fromThumb != null && !fromThumb.isEmpty()) ? fromThumb : fromPhoto;
+        // Avatar: prefer full-res photo URL for sharp circle display
+        String avatarUrl = (fromPhoto != null && !fromPhoto.isEmpty()) ? fromPhoto : fromThumb;
+        // Background: always use full-res photo for visible background blur
+        String bgUrl = (fromPhoto != null && !fromPhoto.isEmpty()) ? fromPhoto : fromThumb;
+
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
-            // Sharp avatar
+            // Sharp avatar — full photo URL, no downscaling
             Glide.with(this)
                 .load(avatarUrl)
                 .placeholder(com.callx.app.calls.R.drawable.ic_person)
+                .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .circleCrop()
                 .into(binding.ivCallerAvatar);
+        }
 
-            // Blurred background from same photo
+        if (bgUrl != null && !bgUrl.isEmpty()) {
+            // Blurred background — light blur (12f) so photo stays visible
+            binding.ivBgBlur.setAlpha(0f);
             Glide.with(this)
                 .asBitmap()
-                .load(avatarUrl)
+                .load(bgUrl)
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                .override(400, 800)
+                .override(600, 1000)
                 .into(new CustomTarget<Bitmap>() {
                     @Override
                     public void onResourceReady(@NonNull Bitmap resource,
                                                 Transition<? super Bitmap> transition) {
-                        Bitmap blurred = blurBitmap(resource, 22f);
+                        Bitmap blurred = blurBitmap(resource, 12f);
                         if (blurred != null && binding.ivBgBlur != null) {
                             binding.ivBgBlur.setImageBitmap(blurred);
-                            binding.ivBgBlur.animate().alpha(1f).setDuration(500).start();
+                            binding.ivBgBlur.animate().alpha(0.80f).setDuration(600).start();
                         }
                     }
                     @Override public void onLoadCleared(android.graphics.drawable.Drawable p) {}
                 });
-            binding.ivBgBlur.setAlpha(0f);
         }
 
         acquireWakeLock();
