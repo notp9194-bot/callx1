@@ -254,6 +254,25 @@
             android:paddingTop="4dp"
             android:paddingBottom="4dp"/>
 
+        <!-- Save -->
+        <ImageButton
+            android:id="@+id/btn_save"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_bookmark"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Save"/>
+        <TextView
+            android:id="@+id/tv_save_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Save"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:layout_marginBottom="16dp"/>
+
         <!-- Repost -->
         <ImageButton
             android:id="@+id/btn_repost"

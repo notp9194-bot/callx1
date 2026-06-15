@@ -277,11 +277,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     // ─── Viewer menu items ────────────────────────────────────────────────────
 
     private List<MenuItem> buildViewerItems() {
-        String saveLabel = isSaved ? "Unsave" : "Save";
-        int    saveIcon  = isSaved ? R.drawable.ic_close : R.drawable.ic_bookmark;
-
         List<MenuItem> list = new ArrayList<>();
-        list.add(new MenuItem(ACTION_SAVE,                 saveLabel,              saveIcon,                    CLR_PINK,   false, false));
         list.add(new MenuItem(ACTION_BOOKMARK_COLLECTIONS, "Bookmark Collections", R.drawable.ic_bookmark,      CLR_CYAN,   true,  false));
         list.add(new MenuItem(ACTION_SPEED,                speedLabel,             R.drawable.ic_speed,         CLR_YELLOW, false, false));
         list.add(new MenuItem(ACTION_DOWNLOAD,             "Download",             R.drawable.ic_download_reel, CLR_GREEN,  true,  false));

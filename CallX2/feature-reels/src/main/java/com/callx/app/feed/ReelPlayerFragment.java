@@ -5,6 +5,7 @@ import com.callx.app.comments.ReelCommentsBottomSheet;
 import com.callx.app.comments.ReelLikesBottomSheet;
 import com.callx.app.social.ReelMoreBottomSheet;
 import com.callx.app.social.ReelSharesBottomSheet;
+import com.callx.app.feed.ReelCinemaSheet;
 import com.callx.app.notifications.ReelRepostNotificationHelper;
 import com.callx.app.utils.ReelSeenTracker;
 
@@ -161,6 +162,9 @@ public class ReelPlayerFragment extends Fragment
     private boolean   followCheckLoaded = false; // true once first Firebase follow-check completes
     private boolean   isReposted       = false;  // FIX #5
     private final java.util.Set<String> blockedUids = new java.util.HashSet<>();
+    // Cinema mode: reelIds where UI is hidden. Static so it survives ViewPager2 recycling.
+    private static final java.util.Set<String> cinemaHiddenReels = new java.util.HashSet<>();
+    private boolean   isUiHidden    = false;
     private boolean   isVisible    = false;
     private boolean   reactionsVisible = false;
 
@@ -328,6 +332,8 @@ public class ReelPlayerFragment extends Fragment
         populateStaticData();
         setupClickListeners(v);
         startFirebaseListeners();
+        // Restore cinema mode state for this reel
+        applyCinemaState(v);
         return v;
     }
 
@@ -436,6 +442,7 @@ public class ReelPlayerFragment extends Fragment
         btnMute           = v.findViewById(R.id.btn_mute);
         btnMore           = v.findViewById(R.id.btn_more);
         btnRepost         = v.findViewById(R.id.btn_repost);
+        btnSave           = v.findViewById(R.id.btn_save);
         tvRepostCount     = v.findViewById(R.id.tv_repost_count);
         tvRepostAttribution = v.findViewWithTag("tv_repost_attribution");
 
@@ -974,6 +981,12 @@ public class ReelPlayerFragment extends Fragment
         root.setOnClickListener(v -> {
             if (reactionsVisible) { hideReactions(); return; }
             togglePlayPause();
+        });
+
+        // Long press on video → open Cinema Mode sheet
+        root.setOnLongClickListener(v -> {
+            openCinemaSheet();
+            return true;
         });
 
         root.setOnTouchListener(new DoubleTapListener(() -> {
@@ -2065,6 +2078,61 @@ public class ReelPlayerFragment extends Fragment
                                                               reel.seriesId);
         sheet.show(getChildFragmentManager(), com.callx.app.social.ReelMoreBottomSheet.TAG);
     }
+
+    // ── Cinema Mode ───────────────────────────────────────────────────────────
+
+    /** Opens the cinema bottom sheet on long-press. */
+    private void openCinemaSheet() {
+        if (!isAdded() || getContext() == null || reel == null) return;
+        boolean currentlyHidden = reel.reelId != null && cinemaHiddenReels.contains(reel.reelId);
+        ReelCinemaSheet sheet = ReelCinemaSheet.newInstance(currentlyHidden);
+        sheet.setListener(() -> toggleCinemaMode());
+        sheet.show(getChildFragmentManager(), ReelCinemaSheet.TAG);
+    }
+
+    /** Toggle hidden state for this reel and apply visibility. */
+    private void toggleCinemaMode() {
+        if (reel == null || reel.reelId == null || getView() == null) return;
+        if (cinemaHiddenReels.contains(reel.reelId)) {
+            cinemaHiddenReels.remove(reel.reelId);
+        } else {
+            cinemaHiddenReels.add(reel.reelId);
+        }
+        applyCinemaState(getView());
+    }
+
+    /** Show or hide all UI overlays based on cinema state for this reel. */
+    private void applyCinemaState(View root) {
+        if (root == null || reel == null || reel.reelId == null) return;
+        isUiHidden = cinemaHiddenReels.contains(reel.reelId);
+        int vis = isUiHidden ? android.view.View.INVISIBLE : android.view.View.VISIBLE;
+
+        View rightActions = root.findViewById(R.id.right_actions);
+        View bottomInfo   = root.findViewById(R.id.bottom_info);
+        View topControls  = root.findViewById(R.id.top_controls);
+        View progressVid  = root.findViewById(R.id.progress_video);
+        View repostAttr   = root.findViewById(R.id.ll_repost_attribution);
+        View repostChip   = root.findViewById(R.id.ll_repost_count_chip);
+        View seriesChip   = root.findViewById(R.id.ll_series_chip);
+        View likers       = root.findViewById(R.id.ll_likers_avatar_row);
+
+        if (rightActions != null) rightActions.setVisibility(vis);
+        if (bottomInfo   != null) bottomInfo.setVisibility(vis);
+        if (topControls  != null) topControls.setVisibility(vis);
+        if (progressVid  != null) progressVid.setVisibility(vis);
+        // These are conditionally visible; only restore them if they were already visible
+        // (use INVISIBLE so layout doesn't shift when restoring)
+        if (repostAttr != null && repostAttr.getVisibility() != android.view.View.GONE)
+            repostAttr.setVisibility(vis);
+        if (repostChip != null && repostChip.getVisibility() != android.view.View.GONE)
+            repostChip.setVisibility(vis);
+        if (seriesChip != null && seriesChip.getVisibility() != android.view.View.GONE)
+            seriesChip.setVisibility(vis);
+        if (likers != null && likers.getVisibility() != android.view.View.GONE)
+            likers.setVisibility(vis);
+    }
+
+
 
     @Override
     public void onMoreItemClick(String action) {
