@@ -1,11 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-  <!--
-      activity_all_reels_full.xml — Full Instagram-style All Reels screen
-      ====================================================================
-      Simple toolbar + 3 tabs (Reels / Liked / Saved) + 3-column RecyclerView
-      with infinite scroll and SwipeRefreshLayout.
-      No profile header — clean grid-only experience.
-  -->
   <androidx.coordinatorlayout.widget.CoordinatorLayout
       xmlns:android="http://schemas.android.com/apk/res/android"
       xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -13,7 +6,6 @@
       android:layout_height="match_parent"
       android:background="?attr/colorSurface">
 
-      <!-- AppBarLayout: toolbar + tabs pinned at top -->
       <com.google.android.material.appbar.AppBarLayout
           android:id="@+id/app_bar"
           android:layout_width="match_parent"
@@ -21,7 +13,6 @@
           android:background="?attr/colorSurface"
           android:elevation="4dp">
 
-          <!-- Toolbar row -->
           <LinearLayout
               android:layout_width="match_parent"
               android:layout_height="56dp"
@@ -65,7 +56,6 @@
 
           </LinearLayout>
 
-          <!-- Tab row: Reels | Liked | Saved -->
           <com.google.android.material.tabs.TabLayout
               android:id="@+id/tab_layout"
               android:layout_width="match_parent"
@@ -90,7 +80,7 @@
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
                   android:text="Liked"
-                  android:icon="@drawable/ic_star_outline"/>
+                  android:icon="@drawable/ic_heart"/>
 
               <com.google.android.material.tabs.TabItem
                   android:layout_width="wrap_content"
@@ -102,7 +92,6 @@
 
       </com.google.android.material.appbar.AppBarLayout>
 
-      <!-- Content area: SwipeRefresh + RecyclerView -->
       <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
           android:id="@+id/swipe_refresh"
           android:layout_width="match_parent"
@@ -113,7 +102,6 @@
               android:layout_width="match_parent"
               android:layout_height="match_parent">
 
-              <!-- Main 3-column reel grid — owns all scrolling -->
               <androidx.recyclerview.widget.RecyclerView
                   android:id="@+id/rv_reels"
                   android:layout_width="match_parent"
@@ -121,16 +109,24 @@
                   android:clipToPadding="false"
                   android:overScrollMode="never"/>
 
-              <!-- Loading spinner -->
+              <ProgressBar
+                  android:id="@+id/progress_bar_bottom"
+                  style="?android:attr/progressBarStyleHorizontal"
+                  android:layout_width="match_parent"
+                  android:layout_height="3dp"
+                  android:layout_gravity="bottom"
+                  android:indeterminate="true"
+                  android:indeterminateTint="?attr/colorPrimary"
+                  android:visibility="gone"/>
+
               <ProgressBar
                   android:id="@+id/progress_bar"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
+                  android:layout_width="48dp"
+                  android:layout_height="48dp"
                   android:layout_gravity="center"
                   android:indeterminateTint="?attr/colorPrimary"
                   android:visibility="gone"/>
 
-              <!-- Empty state -->
               <LinearLayout
                   android:id="@+id/layout_empty"
                   android:layout_width="match_parent"
@@ -149,6 +145,7 @@
                       android:contentDescription="No reels"/>
 
                   <TextView
+                      android:id="@+id/tv_empty_title"
                       android:layout_width="wrap_content"
                       android:layout_height="wrap_content"
                       android:layout_marginTop="12dp"
@@ -158,6 +155,7 @@
                       android:textColor="?attr/colorOnSurface"/>
 
                   <TextView
+                      android:id="@+id/tv_empty_sub"
                       android:layout_width="wrap_content"
                       android:layout_height="wrap_content"
                       android:layout_marginTop="6dp"
@@ -173,4 +171,3 @@
       </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
   </androidx.coordinatorlayout.widget.CoordinatorLayout>
-  

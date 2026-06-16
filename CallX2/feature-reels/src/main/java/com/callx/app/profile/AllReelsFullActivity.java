@@ -22,14 +22,12 @@ package com.callx.app.profile;
   import java.util.*;
 
   /**
-   * AllReelsFullActivity — Instagram-style full reels grid screen.
+   * AllReelsFullActivity - Instagram-style full reels grid.
+   * 3 tabs: Reels / Liked / Saved with infinite scroll (18 per page).
    *
-   * Shows ALL reels of a user / contact with infinite scroll.
-   * Has 3 tabs: Reels | Liked | Saved.
-   * Launched from UserReelsActivity "View All Reels" button.
-   *
-   * Pattern: adapter holds a reference to 'currentData'. On tab switch,
-   * currentData is cleared + refilled from the correct cache list.
+   * ROOT CAUSE FIX: activity_all_reels_full.xml referenced ic_star_outline
+   * (non-existent drawable) causing an immediate crash on launch.
+   * Replaced with ic_heart in the layout.
    */
   public class AllReelsFullActivity extends AppCompatActivity {
 
@@ -38,10 +36,10 @@ package com.callx.app.profile;
       public static final String EXTRA_PHOTO = "photo";
       public static final String EXTRA_TAB   = "tab";
 
-      private static final int PAGE_SIZE  = 18;
-      private static final int TAB_REELS  = 0;
-      private static final int TAB_LIKED  = 1;
-      private static final int TAB_SAVED  = 2;
+      private static final int PAGE_SIZE = 18;
+      private static final int TAB_REELS = 0;
+      private static final int TAB_LIKED = 1;
+      private static final int TAB_SAVED = 2;
 
       // Views
       private ImageButton        btnBack;
@@ -50,7 +48,10 @@ package com.callx.app.profile;
       private TabLayout          tabLayout;
       private RecyclerView       rvReels;
       private ProgressBar        progressBar;
+      private ProgressBar        progressBarBottom;
       private View               layoutEmpty;
+      private TextView           tvEmptyTitle;
+      private TextView           tvEmptySub;
       private SwipeRefreshLayout swipeRefresh;
 
       // State
@@ -58,19 +59,18 @@ package com.callx.app.profile;
       private int     activeTab     = TAB_REELS;
       private boolean isLoadingMore = false;
 
-      // Cached data per tab
+      // Per-tab caches
       private final List<ReelModel> reelsCache = new ArrayList<>();
       private final List<ReelModel> likedCache = new ArrayList<>();
       private final List<ReelModel> savedCache = new ArrayList<>();
-
-      // Adapter's live list — always synced to the active tab cache
       private final List<ReelModel> currentData = new ArrayList<>();
 
+      // Pagination cursors
       private String  reelsLastKey = null, likedLastKey = null, savedLastKey = null;
-      private boolean reelsHasMore = true, likedHasMore = true, savedHasMore = true;
+      private boolean reelsHasMore = true,  likedHasMore = true,  savedHasMore = true;
 
       private ReelGridAdapter   adapter;
-      private GridLayoutManager gridLayoutManager;
+      private GridLayoutManager layoutManager;
       private ReelModel         pinnedReel = null;
 
       @Override
@@ -82,6 +82,7 @@ package com.callx.app.profile;
           targetName  = getIntent().getStringExtra(EXTRA_NAME);
           targetPhoto = getIntent().getStringExtra(EXTRA_PHOTO);
           activeTab   = getIntent().getIntExtra(EXTRA_TAB, TAB_REELS);
+
           if (targetUid == null || targetUid.isEmpty()) { finish(); return; }
 
           bindViews();
@@ -94,81 +95,64 @@ package com.callx.app.profile;
           loadCurrentTab(true);
       }
 
-      // ── Bind ──────────────────────────────────────────────────────────────
-
+      // Bind views
       private void bindViews() {
-          btnBack     = findViewById(R.id.btn_back);
-          tvTitle     = findViewById(R.id.tv_title);
-          ivAvatar    = findViewById(R.id.iv_avatar);
-          tabLayout   = findViewById(R.id.tab_layout);
-          rvReels     = findViewById(R.id.rv_reels);
-          progressBar = findViewById(R.id.progress_bar);
-          layoutEmpty = findViewById(R.id.layout_empty);
-          swipeRefresh= findViewById(R.id.swipe_refresh);
+          btnBack           = findViewById(R.id.btn_back);
+          tvTitle           = findViewById(R.id.tv_title);
+          ivAvatar          = findViewById(R.id.iv_avatar);
+          tabLayout         = findViewById(R.id.tab_layout);
+          rvReels           = findViewById(R.id.rv_reels);
+          progressBar       = findViewById(R.id.progress_bar);
+          progressBarBottom = findViewById(R.id.progress_bar_bottom);
+          layoutEmpty       = findViewById(R.id.layout_empty);
+          tvEmptyTitle      = findViewById(R.id.tv_empty_title);
+          tvEmptySub        = findViewById(R.id.tv_empty_sub);
+          swipeRefresh      = findViewById(R.id.swipe_refresh);
       }
 
-      // ── Toolbar ───────────────────────────────────────────────────────────
-
+      // Toolbar
       private void setupToolbar() {
           if (btnBack != null) btnBack.setOnClickListener(v -> finish());
           if (tvTitle != null)
-              tvTitle.setText(targetName != null && !targetName.isEmpty()
+              tvTitle.setText((targetName != null && !targetName.isEmpty())
                   ? targetName + "'s Reels" : "All Reels");
-          if (ivAvatar != null && targetPhoto != null && !targetPhoto.isEmpty()) {
-              Glide.with(this)
-                  .load(targetPhoto)
-                  .circleCrop()
-                  .placeholder(R.drawable.ic_person)
-                  .into(ivAvatar);
-          }
+          if (ivAvatar != null && targetPhoto != null && !targetPhoto.isEmpty())
+              Glide.with(this).load(targetPhoto).circleCrop()
+                  .placeholder(R.drawable.ic_person).error(R.drawable.ic_person).into(ivAvatar);
       }
 
-      // ── Grid setup ────────────────────────────────────────────────────────
-
+      // Grid
       private void setupGrid() {
-          // adapter always references 'currentData' — we swap contents on tab switch
-          adapter = new ReelGridAdapter(
-              this, currentData,
-              pos -> openPlayerAt(pos)
-          );
-
+          adapter = new ReelGridAdapter(this, currentData, pos -> openPlayerAt(pos));
           String myUid;
           try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
           adapter.setShowViewsOverlay(targetUid.equals(myUid));
 
-          gridLayoutManager = new GridLayoutManager(this, 3);
-          gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
-              @Override public int getSpanSize(int pos) {
-                  return adapter.getItemViewType(pos) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
+          layoutManager = new GridLayoutManager(this, 3);
+          layoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+              @Override public int getSpanSize(int p) {
+                  return adapter.getItemViewType(p) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
               }
           });
-          rvReels.setLayoutManager(gridLayoutManager);
+          rvReels.setLayoutManager(layoutManager);
           rvReels.setAdapter(adapter);
-          rvReels.setNestedScrollingEnabled(true);
           rvReels.setHasFixedSize(false);
       }
 
-      // ── Tabs ──────────────────────────────────────────────────────────────
-
+      // Tabs
       private void setupTabs() {
           if (tabLayout == null) return;
-
-          // Select initial tab from intent
-          if (activeTab > 0 && tabLayout.getTabCount() > activeTab) {
+          if (activeTab > 0 && activeTab < tabLayout.getTabCount()) {
               TabLayout.Tab t = tabLayout.getTabAt(activeTab);
               if (t != null) t.select();
           }
-
           tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
               @Override public void onTabSelected(TabLayout.Tab tab) {
                   activeTab = tab.getPosition();
-                  // Sync pinned reel visibility
-                  if (activeTab != TAB_REELS && adapter != null) adapter.setPinnedReel(null);
-                  else if (activeTab == TAB_REELS && pinnedReel != null && adapter != null)
-                      adapter.setPinnedReel(pinnedReel);
-                  // Show cached data or load
+                  if (adapter != null)
+                      adapter.setPinnedReel(activeTab == TAB_REELS ? pinnedReel : null);
                   syncCurrentData();
-                  adapter.notifyDataSetChanged();
+                  if (adapter != null) adapter.notifyDataSetChanged();
                   if (activeTabCache().isEmpty()) loadCurrentTab(true);
                   else refreshEmptyState();
               }
@@ -179,70 +163,55 @@ package com.callx.app.profile;
           });
       }
 
-      /** Clear currentData and fill from the active tab's cache. */
       private void syncCurrentData() {
           currentData.clear();
           currentData.addAll(activeTabCache());
       }
 
-      // ── Swipe Refresh ─────────────────────────────────────────────────────
-
+      // Swipe refresh
       private void setupSwipeRefresh() {
           if (swipeRefresh == null) return;
-          swipeRefresh.setColorSchemeResources(R.color.brand_primary);
+          swipeRefresh.setColorSchemeResources(android.R.color.holo_blue_bright);
           swipeRefresh.setOnRefreshListener(() -> {
               loadCurrentTab(true);
               if (activeTab == TAB_REELS) loadPinnedReel();
           });
       }
 
-      // ── Scroll Pagination ─────────────────────────────────────────────────
-
+      // Infinite scroll
       private void setupScrollPagination() {
+          if (rvReels == null) return;
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
-              @Override
-              public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                  if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+              @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                  if (swipeRefresh != null && !swipeRefresh.isRefreshing())
                       swipeRefresh.setEnabled(!rv.canScrollVertically(-1));
-                  }
-                  if (isLoadingMore || !getCurrentTabHasMore()) return;
-                  int total       = gridLayoutManager.getItemCount();
-                  int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-                  if (total > 0 && lastVisible >= total - 6) loadCurrentTab(false);
+                  if (isLoadingMore || !currentTabHasMore()) return;
+                  int total = layoutManager.getItemCount();
+                  int last  = layoutManager.findLastVisibleItemPosition();
+                  if (total > 0 && last >= total - 6) loadCurrentTab(false);
               }
           });
       }
 
-      private boolean getCurrentTabHasMore() {
-          switch (activeTab) {
-              case TAB_LIKED: return likedHasMore;
-              case TAB_SAVED: return savedHasMore;
-              default:        return reelsHasMore;
-          }
+      private boolean currentTabHasMore() {
+          if (activeTab == TAB_LIKED) return likedHasMore;
+          if (activeTab == TAB_SAVED) return savedHasMore;
+          return reelsHasMore;
       }
-
-      // ── Active tab cache ──────────────────────────────────────────────────
 
       private List<ReelModel> activeTabCache() {
-          switch (activeTab) {
-              case TAB_LIKED: return likedCache;
-              case TAB_SAVED: return savedCache;
-              default:        return reelsCache;
-          }
+          if (activeTab == TAB_LIKED) return likedCache;
+          if (activeTab == TAB_SAVED) return savedCache;
+          return reelsCache;
       }
-
-      // ── Data loading ──────────────────────────────────────────────────────
 
       private void loadCurrentTab(boolean refresh) {
-          switch (activeTab) {
-              case TAB_LIKED: loadLikedReels(refresh);  break;
-              case TAB_SAVED: loadSavedReels(refresh);  break;
-              default:        loadUserReels(refresh);   break;
-          }
+          if (activeTab == TAB_LIKED)      loadLikedReels(refresh);
+          else if (activeTab == TAB_SAVED) loadSavedReels(refresh);
+          else                             loadUserReels(refresh);
       }
 
-      // ── Pinned Reel ───────────────────────────────────────────────────────
-
+      // Pinned reel
       private void loadPinnedReel() {
           FirebaseDatabase.getInstance().getReference("reelPinned").child(targetUid)
               .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -265,86 +234,77 @@ package com.callx.app.profile;
               });
       }
 
-      // ── Load: User's Reels ────────────────────────────────────────────────
-
+      // Load user reels
       private void loadUserReels(boolean refresh) {
           if (isLoadingMore && !refresh) return;
           isLoadingMore = true;
-          if (refresh) {
-              reelsLastKey = null; reelsHasMore = true;
-              reelsCache.clear(); showSkeleton();
-          }
-          Query q = buildQuery(FirebaseUtils.getReelsByUserRef(targetUid), reelsLastKey);
-          q.addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                  if (isFinishing() || isDestroyed()) return;
-                  if (snap.getChildrenCount() < PAGE_SIZE) reelsHasMore = false;
-                  if (snap.getChildrenCount() == 0) { finishLoad(refresh, TAB_REELS); return; }
-                  List<String> ids = extractIds(snap);
-                  if (!ids.isEmpty()) reelsLastKey = ids.get(ids.size() - 1);
-                  fetchAndAppend(ids, reelsCache, refresh, TAB_REELS);
-              }
-              @Override public void onCancelled(@NonNull DatabaseError e) {
-                  isLoadingMore = false; finishLoad(refresh, TAB_REELS);
-              }
-          });
+          if (refresh) { reelsLastKey = null; reelsHasMore = true; reelsCache.clear(); showLoader(true); }
+          else showBottomLoader(true);
+          buildQuery(FirebaseUtils.getReelsByUserRef(targetUid), reelsLastKey)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                      if (isFinishing() || isDestroyed()) return;
+                      if (snap.getChildrenCount() < PAGE_SIZE) reelsHasMore = false;
+                      if (snap.getChildrenCount() == 0) { finishLoad(refresh, TAB_REELS); return; }
+                      List<String> ids = extractIds(snap);
+                      if (!ids.isEmpty()) reelsLastKey = ids.get(ids.size() - 1);
+                      fetchAndAppend(ids, reelsCache, refresh, TAB_REELS);
+                  }
+                  @Override public void onCancelled(@NonNull DatabaseError e) {
+                      isLoadingMore = false; finishLoad(refresh, TAB_REELS);
+                  }
+              });
       }
 
-      // ── Load: Liked Reels ─────────────────────────────────────────────────
-
+      // Load liked reels
       private void loadLikedReels(boolean refresh) {
           if (isLoadingMore && !refresh) return;
           isLoadingMore = true;
           String myUid;
-          try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { isLoadingMore = false; return; }
-          if (refresh) {
-              likedLastKey = null; likedHasMore = true;
-              likedCache.clear(); showSkeleton();
-          }
-          Query q = buildQuery(FirebaseUtils.getReelLikedByUserRef(myUid), likedLastKey);
-          q.addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                  if (isFinishing() || isDestroyed()) return;
-                  if (snap.getChildrenCount() < PAGE_SIZE) likedHasMore = false;
-                  if (snap.getChildrenCount() == 0) { finishLoad(refresh, TAB_LIKED); return; }
-                  List<String> ids = extractIds(snap);
-                  if (!ids.isEmpty()) likedLastKey = ids.get(ids.size() - 1);
-                  fetchAndAppend(ids, likedCache, refresh, TAB_LIKED);
-              }
-              @Override public void onCancelled(@NonNull DatabaseError e) {
-                  isLoadingMore = false; finishLoad(refresh, TAB_LIKED);
-              }
-          });
+          try { myUid = FirebaseUtils.getCurrentUid(); }
+          catch (Exception e) { isLoadingMore = false; return; }
+          if (refresh) { likedLastKey = null; likedHasMore = true; likedCache.clear(); showLoader(true); }
+          else showBottomLoader(true);
+          buildQuery(FirebaseUtils.getReelLikedByUserRef(myUid), likedLastKey)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                      if (isFinishing() || isDestroyed()) return;
+                      if (snap.getChildrenCount() < PAGE_SIZE) likedHasMore = false;
+                      if (snap.getChildrenCount() == 0) { finishLoad(refresh, TAB_LIKED); return; }
+                      List<String> ids = extractIds(snap);
+                      if (!ids.isEmpty()) likedLastKey = ids.get(ids.size() - 1);
+                      fetchAndAppend(ids, likedCache, refresh, TAB_LIKED);
+                  }
+                  @Override public void onCancelled(@NonNull DatabaseError e) {
+                      isLoadingMore = false; finishLoad(refresh, TAB_LIKED);
+                  }
+              });
       }
 
-      // ── Load: Saved Reels ─────────────────────────────────────────────────
-
+      // Load saved reels
       private void loadSavedReels(boolean refresh) {
           if (isLoadingMore && !refresh) return;
           isLoadingMore = true;
           String myUid;
-          try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { isLoadingMore = false; return; }
-          if (refresh) {
-              savedLastKey = null; savedHasMore = true;
-              savedCache.clear(); showSkeleton();
-          }
-          Query q = buildQuery(FirebaseUtils.getReelSavesRef(myUid), savedLastKey);
-          q.addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                  if (isFinishing() || isDestroyed()) return;
-                  if (snap.getChildrenCount() < PAGE_SIZE) savedHasMore = false;
-                  if (snap.getChildrenCount() == 0) { finishLoad(refresh, TAB_SAVED); return; }
-                  List<String> ids = extractIds(snap);
-                  if (!ids.isEmpty()) savedLastKey = ids.get(ids.size() - 1);
-                  fetchAndAppend(ids, savedCache, refresh, TAB_SAVED);
-              }
-              @Override public void onCancelled(@NonNull DatabaseError e) {
-                  isLoadingMore = false; finishLoad(refresh, TAB_SAVED);
-              }
-          });
+          try { myUid = FirebaseUtils.getCurrentUid(); }
+          catch (Exception e) { isLoadingMore = false; return; }
+          if (refresh) { savedLastKey = null; savedHasMore = true; savedCache.clear(); showLoader(true); }
+          else showBottomLoader(true);
+          buildQuery(FirebaseUtils.getReelSavesRef(myUid), savedLastKey)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                      if (isFinishing() || isDestroyed()) return;
+                      if (snap.getChildrenCount() < PAGE_SIZE) savedHasMore = false;
+                      if (snap.getChildrenCount() == 0) { finishLoad(refresh, TAB_SAVED); return; }
+                      List<String> ids = extractIds(snap);
+                      if (!ids.isEmpty()) savedLastKey = ids.get(ids.size() - 1);
+                      fetchAndAppend(ids, savedCache, refresh, TAB_SAVED);
+                  }
+                  @Override public void onCancelled(@NonNull DatabaseError e) {
+                      isLoadingMore = false; finishLoad(refresh, TAB_SAVED);
+                  }
+              });
       }
-
-      // ── Helpers ───────────────────────────────────────────────────────────
 
       private List<String> extractIds(DataSnapshot snap) {
           List<String> ids = new ArrayList<>();
@@ -353,13 +313,15 @@ package com.callx.app.profile;
       }
 
       private Query buildQuery(DatabaseReference ref, String lastKey) {
-          if (lastKey != null) return ref.orderByKey().startAfter(lastKey).limitToFirst(PAGE_SIZE);
-          return ref.orderByKey().limitToFirst(PAGE_SIZE);
+          return lastKey != null
+              ? ref.orderByKey().startAfter(lastKey).limitToFirst(PAGE_SIZE)
+              : ref.orderByKey().limitToFirst(PAGE_SIZE);
       }
 
-      private void fetchAndAppend(List<String> ids, List<ReelModel> cache, boolean refresh, int tab) {
+      private void fetchAndAppend(List<String> ids, List<ReelModel> cache,
+                                  boolean refresh, int tab) {
           if (ids.isEmpty()) { finishLoad(refresh, tab); return; }
-          final int[]           done    = {0};
+          final int[] done = {0};
           final List<ReelModel> fetched = new ArrayList<>();
           for (String id : ids) {
               FirebaseUtils.getReelsRef().child(id)
@@ -367,7 +329,10 @@ package com.callx.app.profile;
                       @Override public void onDataChange(@NonNull DataSnapshot s) {
                           if (s.exists()) {
                               ReelModel r = s.getValue(ReelModel.class);
-                              if (r != null) { if (r.reelId == null) r.reelId = s.getKey(); fetched.add(r); }
+                              if (r != null) {
+                                  if (r.reelId == null) r.reelId = s.getKey();
+                                  fetched.add(r);
+                              }
                           }
                           done[0]++;
                           if (done[0] == ids.size()) { cache.addAll(fetched); finishLoad(refresh, tab); }
@@ -383,49 +348,59 @@ package com.callx.app.profile;
       private void finishLoad(boolean refresh, int tab) {
           if (isFinishing() || isDestroyed()) return;
           isLoadingMore = false;
-          if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+          showBottomLoader(false);
           if (progressBar  != null) progressBar.setVisibility(View.GONE);
+          if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
           if (tab == activeTab) {
-              // Sync currentData from the active cache and notify adapter
               syncCurrentData();
-              adapter.notifyDataSetChanged();
+              if (adapter != null) adapter.notifyDataSetChanged();
               refreshEmptyState();
           }
       }
 
-      private void showSkeleton() {
-          if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
-          if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
-          currentData.clear();
-          adapter.notifyDataSetChanged();
+      private void showLoader(boolean show) {
+          if (progressBar != null) progressBar.setVisibility(show ? View.VISIBLE : View.GONE);
+          if (layoutEmpty  != null) layoutEmpty.setVisibility(View.GONE);
+          if (show) { currentData.clear(); if (adapter != null) adapter.notifyDataSetChanged(); }
+      }
+
+      private void showBottomLoader(boolean show) {
+          if (progressBarBottom != null)
+              progressBarBottom.setVisibility(show ? View.VISIBLE : View.GONE);
       }
 
       private void refreshEmptyState() {
           boolean empty = currentData.isEmpty();
           if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
           if (rvReels     != null) rvReels.setVisibility(empty ? View.GONE : View.VISIBLE);
+          if (empty && tvEmptyTitle != null && tvEmptySub != null) {
+              if (activeTab == TAB_LIKED) {
+                  tvEmptyTitle.setText("No Liked Reels");
+                  tvEmptySub.setText("Reels you like will appear here");
+              } else if (activeTab == TAB_SAVED) {
+                  tvEmptyTitle.setText("No Saved Reels");
+                  tvEmptySub.setText("Reels you save will appear here");
+              } else {
+                  tvEmptyTitle.setText("No Reels Yet");
+                  tvEmptySub.setText("This user has no reels");
+              }
+          }
       }
 
-      // ── Player ────────────────────────────────────────────────────────────
-
+      // Open reel player
       private void openPlayerAt(int pos) {
-          // Pinned reel adapter position 0 hoti hai — real index calculate karo
           int reelIdx = (adapter != null && adapter.hasPinned()) ? pos - 1 : pos;
           if (reelIdx < 0) reelIdx = 0;
           if (currentData.isEmpty()) return;
           int safeIdx = Math.min(reelIdx, currentData.size() - 1);
-
           ArrayList<String> ids = new ArrayList<>();
-          for (ReelModel r : currentData)
-              if (r != null && r.reelId != null) ids.add(r.reelId);
+          for (ReelModel r : currentData) if (r != null && r.reelId != null) ids.add(r.reelId);
           if (ids.isEmpty()) return;
-
           Intent i = new Intent(this, SingleReelPlayerActivity.class);
           i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
           i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, safeIdx);
           i.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
-              targetName != null ? targetName + "'s Reels" : "Reels");
+              (targetName != null && !targetName.isEmpty()) ? targetName + "'s Reels" : "Reels");
           startActivity(i);
       }
   }
-  
