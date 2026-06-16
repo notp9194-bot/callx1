@@ -11,11 +11,11 @@
       app:shimmer_duration="1200"
       app:shimmer_auto_start="true">
 
-      <!-- Dark placeholder rectangle matching the reel thumbnail square -->
+      <!-- Dark 9:16 placeholder -->
       <View
           android:layout_width="match_parent"
           android:layout_height="match_parent"
-          android:minHeight="120dp"
+          android:minHeight="160dp"
           android:background="#1A1A1A"/>
 
   </com.facebook.shimmer.ShimmerFrameLayout>

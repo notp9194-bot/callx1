@@ -259,12 +259,12 @@ package com.callx.app.profile;
       public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
           super.onViewAttachedToWindow(holder);
           if (!(holder instanceof PinnedVH)) {
-              // Enforce square cells: height = width
+              // Enforce 9:16 portrait ratio — height = width * 16 / 9
               holder.itemView.post(() -> {
                   int w = holder.itemView.getWidth();
                   if (w > 0) {
                       ViewGroup.LayoutParams lp = holder.itemView.getLayoutParams();
-                      lp.height = w;
+                      lp.height = (int)(w * 16f / 9f); // 9:16 portrait ratio
                       holder.itemView.setLayoutParams(lp);
                   }
               });
