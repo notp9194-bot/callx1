@@ -402,7 +402,6 @@
             <!-- ── All Reels Full Screen (launched from "View All Reels" button) ── -->
           <activity android:name="com.callx.app.profile.AllReelsFullActivity"
               android:exported="false"
-              android:theme="@style/Theme.AppCompat.NoActionBar"
               android:windowSoftInputMode="adjustResize"/>
       </application>
 </manifest>
