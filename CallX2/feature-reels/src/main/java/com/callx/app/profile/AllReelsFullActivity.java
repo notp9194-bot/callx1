@@ -409,10 +409,22 @@ package com.callx.app.profile;
       // ── Player ────────────────────────────────────────────────────────────
 
       private void openPlayerAt(int pos) {
-          if (pos < 0 || pos >= currentData.size()) return;
-          ReelModel reel = currentData.get(pos);
+          // Pinned reel adapter position 0 hoti hai — real index calculate karo
+          int reelIdx = (adapter != null && adapter.hasPinned()) ? pos - 1 : pos;
+          if (reelIdx < 0) reelIdx = 0;
+          if (currentData.isEmpty()) return;
+          int safeIdx = Math.min(reelIdx, currentData.size() - 1);
+
+          ArrayList<String> ids = new ArrayList<>();
+          for (ReelModel r : currentData)
+              if (r != null && r.reelId != null) ids.add(r.reelId);
+          if (ids.isEmpty()) return;
+
           Intent i = new Intent(this, SingleReelPlayerActivity.class);
-          i.putExtra("reel_id", reel.reelId != null ? reel.reelId : "");
+          i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+          i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, safeIdx);
+          i.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
+              targetName != null ? targetName + "'s Reels" : "Reels");
           startActivity(i);
       }
   }
