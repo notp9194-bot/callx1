@@ -1,31 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    activity_user_reels.xml — SCROLLING FIX v2
-    ============================================
-    OLD (BROKEN): LinearLayout > NestedScrollView > LinearLayout > SwipeRefreshLayout > RecyclerView
-      Problem: NestedScrollView + RecyclerView(nestedScrollingEnabled=false) fight over scroll events.
-               fillViewport miscalculates height → RecyclerView gets 0 or wrong height → no scroll.
+    activity_user_reels.xml — Instagram-Style Profile v3
+    =====================================================
+    CoordinatorLayout + AppBarLayout scroll behavior:
 
-    NEW (FIXED):  LinearLayout (vertical)
-                    ├── MultiSelect bar (fixed top)
-                    ├── Top nav bar (fixed top)
-                    ├── Profile header section (fixed — avatar, stats, bio, actions)
-                    ├── TabLayout (fixed — sticky tabs)
-                    └── SwipeRefreshLayout > RecyclerView (takes all remaining height via layout_weight=1)
+      Top nav bar (noScroll)         — always pinned at top
+      Profile header section (scroll|exitUntilCollapsed)
+                                     — collapses as user scrolls, disappears up
+      TabLayout (noScroll)           — stays pinned just below top nav once collapsed
+      SwipeRefreshLayout             — fills remaining height, scrolls with AppBarLayout
 
-    RecyclerView owns ALL scrolling.
-    Pagination via RecyclerView.OnScrollListener (not NestedScrollView listener).
-    SwipeRefreshLayout enabled/disabled by canScrollVertically(-1).
+    Result: avatar/stats/bio/actions scroll up and collapse; tabs pin; grid is
+    the single scroll container — exactly like Instagram.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="?attr/colorSurface"
     android:fitsSystemWindows="false">
 
-    <!-- ── Multi-select action bar (hidden by default) ── -->
+    <!-- ── Multi-select action bar (floating overlay at top) ── -->
     <LinearLayout
         android:id="@+id/layout_multi_select_bar"
         android:layout_width="match_parent"
@@ -35,7 +31,8 @@
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
         android:background="@color/brand_primary"
-        android:elevation="6dp"
+        android:elevation="12dp"
+        android:layout_gravity="top"
         android:visibility="gone">
 
         <ImageButton android:id="@+id/btn_cancel_select"
@@ -69,37 +66,52 @@
             android:tint="#FF4444" android:contentDescription="Delete All"/>
     </LinearLayout>
 
-    <!-- ── Top navigation bar ── -->
-    <LinearLayout
+    <!-- ════════════════════════════════════════════════════════════
+         AppBarLayout:
+           Child 1 — Top nav bar          (noScroll — always visible)
+           Child 2 — Profile header       (scroll|exitUntilCollapsed)
+           Child 3 — TabLayout            (noScroll — pins below nav)
+         ════════════════════════════════════════════════════════════ -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/app_bar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp"
-        android:background="?attr/colorSurface">
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:elevation="0dp"
+        app:liftOnScroll="false">
 
-        <ImageButton android:id="@+id/btn_back"
-            android:layout_width="48dp" android:layout_height="48dp"
-            android:src="@drawable/ic_arrow_back"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="#00C6FF"
-            android:contentDescription="Back"/>
-
+        <!-- ── CHILD 1: Top nav bar — always pinned ── -->
         <LinearLayout
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical"
-            android:layout_marginStart="4dp">
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:background="?attr/colorSurface"
+            app:layout_scrollFlags="noScroll">
 
+            <ImageButton android:id="@+id/btn_back"
+                android:layout_width="48dp" android:layout_height="48dp"
+                android:src="@drawable/ic_arrow_back"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="?attr/colorOnSurface"
+                android:contentDescription="Back"/>
+
+            <!-- Username + verified badge -->
             <LinearLayout
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:gravity="center_vertical">
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginStart="4dp">
 
                 <TextView android:id="@+id/tv_name"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="User" android:textSize="17sp"
+                    android:text="username"
+                    android:textSize="17sp"
                     android:fontFamily="sans-serif-bold"
-                    android:textColor="#FFFFFF"
+                    android:textColor="?attr/colorOnSurface"
                     android:maxLines="1" android:ellipsize="end"/>
 
                 <ImageView android:id="@+id/iv_verified"
@@ -111,579 +123,594 @@
                     android:visibility="gone"/>
             </LinearLayout>
 
+            <!-- Top-right icons -->
+            <ImageButton android:id="@+id/btn_share_profile"
+                android:layout_width="44dp" android:layout_height="44dp"
+                android:src="@drawable/ic_send"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="?attr/colorOnSurface"
+                android:contentDescription="Share" android:padding="11dp"/>
 
+            <ImageButton android:id="@+id/btn_creator_hub"
+                android:layout_width="40dp" android:layout_height="40dp"
+                android:src="@drawable/ic_reel_creator"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="#A855F7"
+                android:contentDescription="Creator Hub"
+                android:padding="9dp" android:visibility="gone"/>
+
+            <ImageButton android:id="@+id/btn_settings"
+                android:layout_width="40dp" android:layout_height="40dp"
+                android:src="@drawable/ic_settings"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="?attr/colorOnSurface"
+                android:contentDescription="Settings"
+                android:padding="9dp" android:visibility="gone"/>
+
+            <ImageButton android:id="@+id/btn_more"
+                android:layout_width="40dp" android:layout_height="40dp"
+                android:src="@drawable/ic_more_vert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:tint="?attr/colorOnSurface"
+                android:contentDescription="More options"
+                android:padding="9dp"/>
         </LinearLayout>
 
-        <ImageButton android:id="@+id/btn_share_profile"
-            android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_send"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="#00F260"
-            android:contentDescription="Send" android:padding="10dp"/>
+        <!-- ── CHILD 2: Collapsible profile header (scrolls up and disappears) ── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/colorSurface"
+            app:layout_scrollFlags="scroll|exitUntilCollapsed">
 
-        <Button android:id="@+id/btn_follow"
-            android:layout_width="wrap_content" android:layout_height="36dp"
-            android:text="Follow" android:textSize="13sp"
-            app:textAllCaps="false"
-            android:paddingStart="20dp" android:paddingEnd="20dp"
-            android:background="@color/brand_primary"
-            android:textColor="#FFFFFF"
-            android:layout_marginStart="4dp" android:layout_marginEnd="4dp"/>
+            <!-- Avatar + Stats row — Instagram style: avatar LEFT, stats RIGHT -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="12dp" android:paddingBottom="8dp">
 
-        <ImageButton android:id="@+id/btn_creator_hub"
-            android:layout_width="40dp" android:layout_height="40dp"
-            android:src="@drawable/ic_reel_creator"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="#A855F7"
-            android:contentDescription="Creator Hub"
-            android:padding="8dp" android:visibility="gone"/>
+                <!-- Avatar with story ring + online indicator -->
+                <FrameLayout android:layout_width="90dp" android:layout_height="90dp">
 
-        <ImageButton android:id="@+id/btn_settings"
-            android:layout_width="40dp" android:layout_height="40dp"
-            android:src="@drawable/ic_settings"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="#FFA500"
-            android:contentDescription="Settings"
-            android:padding="8dp" android:visibility="gone"/>
+                    <View android:id="@+id/view_story_ring"
+                        android:layout_width="90dp" android:layout_height="90dp"
+                        android:background="@drawable/bg_story_ring"
+                        android:visibility="gone"/>
 
-        <ImageButton android:id="@+id/btn_more"
-            android:layout_width="40dp" android:layout_height="40dp"
-            android:src="@drawable/ic_more_vert"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="#FF416C"
-            android:contentDescription="More options"/>
-    </LinearLayout>
+                    <de.hdodenhof.circleimageview.CircleImageView
+                        android:id="@+id/iv_avatar"
+                        android:layout_width="80dp" android:layout_height="80dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_person"
+                        android:clickable="true" android:focusable="true"
+                        app:civ_border_width="2dp"
+                        app:civ_border_color="?attr/colorSurface"/>
 
-    <!-- ── Profile header: avatar + stats ── -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:paddingTop="14dp" android:paddingBottom="10dp">
+                    <View android:layout_width="16dp" android:layout_height="16dp"
+                        android:layout_gravity="bottom|end"
+                        android:layout_marginEnd="2dp" android:layout_marginBottom="2dp"
+                        android:background="@drawable/bg_story_ring"
+                        android:backgroundTint="@color/status_online"/>
+                </FrameLayout>
 
-        <!-- Avatar with story ring -->
-        <FrameLayout android:layout_width="90dp" android:layout_height="90dp">
+                <!-- Stats: Reels | Followers | Following -->
+                <LinearLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:layout_marginStart="8dp">
 
-            <View android:id="@+id/view_story_ring"
-                android:layout_width="90dp" android:layout_height="90dp"
-                android:background="@drawable/bg_story_ring"
+                    <!-- Reels count -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView android:id="@+id/tv_reel_count"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textSize="18sp"
+                            android:fontFamily="sans-serif-bold"
+                            android:textColor="?attr/colorOnSurface"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Reels"
+                            android:textSize="11sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"/>
+                    </LinearLayout>
+
+                    <!-- Followers count (clickable) -->
+                    <LinearLayout android:id="@+id/layout_followers_click"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:clickable="true" android:focusable="true"
+                        android:foreground="?attr/selectableItemBackground">
+                        <TextView android:id="@+id/tv_followers"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textSize="18sp"
+                            android:fontFamily="sans-serif-bold"
+                            android:textColor="?attr/colorOnSurface"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Followers"
+                            android:textSize="11sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"/>
+                    </LinearLayout>
+
+                    <!-- Following count (clickable) -->
+                    <LinearLayout android:id="@+id/layout_following_click"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:clickable="true" android:focusable="true"
+                        android:foreground="?attr/selectableItemBackground">
+                        <TextView android:id="@+id/tv_following"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textSize="18sp"
+                            android:fontFamily="sans-serif-bold"
+                            android:textColor="?attr/colorOnSurface"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Following"
+                            android:textSize="11sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Bio (max 3 lines, tap to expand) -->
+            <TextView android:id="@+id/tv_bio"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="2dp" android:paddingBottom="4dp"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurface"
+                android:maxLines="3" android:ellipsize="end"
+                android:clickable="true" android:focusable="true"
                 android:visibility="gone"/>
 
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_avatar"
-                android:layout_width="80dp" android:layout_height="80dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="2dp"
-                app:civ_border_color="@color/brand_primary"/>
+            <!-- Mutual followers row -->
+            <LinearLayout android:id="@+id/layout_mutual_followers"
+                android:layout_width="match_parent" android:layout_height="32dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="12dp"
+                android:layout_marginTop="2dp"
+                android:clickable="true" android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone">
 
-            <View android:layout_width="16dp" android:layout_height="16dp"
-                android:layout_gravity="bottom|end"
-                android:layout_marginEnd="2dp" android:layout_marginBottom="2dp"
-                android:background="@drawable/bg_story_ring"
-                android:backgroundTint="@color/status_online"/>
-        </FrameLayout>
+                <FrameLayout android:id="@+id/frame_mutual_avatars"
+                    android:layout_width="60dp" android:layout_height="26dp"
+                    android:layout_marginEnd="8dp">
 
-        <!-- Stats: Followers | Following | Reels -->
-        <LinearLayout
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="horizontal"
-            android:gravity="center" android:layout_marginStart="8dp">
+                    <de.hdodenhof.circleimageview.CircleImageView
+                        android:id="@+id/iv_mutual_3"
+                        android:layout_width="24dp" android:layout_height="24dp"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginStart="18dp"
+                        android:src="@drawable/ic_person"
+                        android:visibility="gone"
+                        app:civ_border_width="1.5dp"
+                        app:civ_border_color="?attr/colorSurface"/>
 
-            <LinearLayout android:id="@+id/layout_followers_click"
-                android:layout_width="0dp" android:layout_height="wrap_content"
-                android:layout_weight="1" android:orientation="vertical"
-                android:gravity="center" android:clickable="true" android:focusable="true"
-                android:foreground="?attr/selectableItemBackground">
-                <TextView android:id="@+id/tv_followers"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="0" android:textSize="19sp"
-                    android:fontFamily="sans-serif-bold"
-                    android:textColor="#00C6FF"/>
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="FOLLOWERS" android:textSize="10sp"
-                    android:letterSpacing="0.04"
-                    android:textColor="#6BCFEF"/>
+                    <de.hdodenhof.circleimageview.CircleImageView
+                        android:id="@+id/iv_mutual_2"
+                        android:layout_width="24dp" android:layout_height="24dp"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginStart="9dp"
+                        android:src="@drawable/ic_person"
+                        android:visibility="gone"
+                        app:civ_border_width="1.5dp"
+                        app:civ_border_color="?attr/colorSurface"/>
+
+                    <de.hdodenhof.circleimageview.CircleImageView
+                        android:id="@+id/iv_mutual_1"
+                        android:layout_width="24dp" android:layout_height="24dp"
+                        android:layout_gravity="center_vertical"
+                        android:src="@drawable/ic_person"
+                        android:visibility="gone"
+                        app:civ_border_width="1.5dp"
+                        app:civ_border_color="?attr/colorSurface"/>
+                </FrameLayout>
+
+                <TextView android:id="@+id/tv_mutual_followers"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:maxLines="2" android:lineSpacingMultiplier="1.2"/>
             </LinearLayout>
 
-            <LinearLayout android:id="@+id/layout_following_click"
-                android:layout_width="0dp" android:layout_height="wrap_content"
-                android:layout_weight="1" android:orientation="vertical"
-                android:gravity="center" android:clickable="true" android:focusable="true"
-                android:foreground="?attr/selectableItemBackground">
-                <TextView android:id="@+id/tv_following"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="0" android:textSize="19sp"
-                    android:fontFamily="sans-serif-bold"
-                    android:textColor="#00F260"/>
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="FOLLOWING" android:textSize="10sp"
-                    android:letterSpacing="0.04"
-                    android:textColor="#6BE8A8"/>
+            <!-- Social links: Phone -->
+            <LinearLayout android:id="@+id/layout_phone"
+                android:layout_width="match_parent" android:layout_height="40dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:clickable="true" android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_phone"
+                    android:tint="@color/brand_primary"
+                    android:contentDescription="Phone"/>
+                <TextView android:id="@+id/tv_phone"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="10dp"
+                    android:textSize="13sp" android:textColor="@color/brand_primary"
+                    android:singleLine="true"/>
+                <ImageView android:layout_width="14dp" android:layout_height="14dp"
+                    android:src="@drawable/ic_arrow_forward"
+                    android:tint="?attr/colorOnSurfaceVariant"
+                    android:contentDescription="Open"/>
             </LinearLayout>
 
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-                android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-                <TextView android:id="@+id/tv_reel_count"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="0" android:textSize="19sp"
-                    android:fontFamily="sans-serif-bold"
-                    android:textColor="#A855F7"/>
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="REELS" android:textSize="10sp"
-                    android:letterSpacing="0.04"
-                    android:textColor="#C084FC"/>
+            <!-- WhatsApp -->
+            <LinearLayout android:id="@+id/layout_whatsapp"
+                android:layout_width="match_parent" android:layout_height="40dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:clickable="true" android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_whatsapp"
+                    android:tint="#25D366"
+                    android:contentDescription="WhatsApp"/>
+                <TextView android:id="@+id/tv_whatsapp"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="10dp"
+                    android:textSize="13sp" android:textColor="#25D366"
+                    android:singleLine="true"/>
+                <ImageView android:layout_width="14dp" android:layout_height="14dp"
+                    android:src="@drawable/ic_arrow_forward"
+                    android:tint="?attr/colorOnSurfaceVariant"
+                    android:contentDescription="Open"/>
             </LinearLayout>
-        </LinearLayout>
-    </LinearLayout>
 
-    <!-- Mutual followers — Instagram style (clickable) -->
-    <LinearLayout android:id="@+id/layout_mutual_followers"
-        android:layout_width="match_parent" android:layout_height="48dp"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="12dp"
-        android:clickable="true" android:focusable="true"
-        android:foreground="?attr/selectableItemBackground"
-        android:visibility="gone">
+            <!-- Instagram -->
+            <LinearLayout android:id="@+id/layout_instagram"
+                android:layout_width="match_parent" android:layout_height="40dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:clickable="true" android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_instagram"
+                    android:tint="#E1306C"
+                    android:contentDescription="Instagram"/>
+                <TextView android:id="@+id/tv_instagram"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="10dp"
+                    android:textSize="13sp" android:textColor="#E1306C"
+                    android:singleLine="true"/>
+                <ImageView android:layout_width="14dp" android:layout_height="14dp"
+                    android:src="@drawable/ic_arrow_forward"
+                    android:tint="?attr/colorOnSurfaceVariant"
+                    android:contentDescription="Open"/>
+            </LinearLayout>
 
-        <!-- Overlapping avatars container (fixed 62dp wide for up to 3 avatars) -->
-        <FrameLayout
-            android:id="@+id/frame_mutual_avatars"
-            android:layout_width="62dp"
-            android:layout_height="30dp"
-            android:layout_marginEnd="10dp">
-
-            <!-- Avatar 3 (back) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_mutual_3"
-                android:layout_width="28dp" android:layout_height="28dp"
-                android:layout_gravity="center_vertical"
-                android:layout_marginStart="18dp"
-                android:src="@drawable/ic_person"
-                android:visibility="gone"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="?attr/colorSurface"
-                xmlns:app="http://schemas.android.com/apk/res-auto"/>
-
-            <!-- Avatar 2 (middle) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_mutual_2"
-                android:layout_width="28dp" android:layout_height="28dp"
-                android:layout_gravity="center_vertical"
-                android:layout_marginStart="9dp"
-                android:src="@drawable/ic_person"
-                android:visibility="gone"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="?attr/colorSurface"
-                xmlns:app="http://schemas.android.com/apk/res-auto"/>
-
-            <!-- Avatar 1 (front) -->
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_mutual_1"
-                android:layout_width="28dp" android:layout_height="28dp"
-                android:layout_gravity="center_vertical"
-                android:layout_marginStart="0dp"
-                android:src="@drawable/ic_person"
-                android:visibility="gone"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="?attr/colorSurface"
-                xmlns:app="http://schemas.android.com/apk/res-auto"/>
-        </FrameLayout>
-
-        <!-- "Followed by name1, name2 and X others" -->
-        <TextView android:id="@+id/tv_mutual_followers"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="12sp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:maxLines="2"
-            android:lineSpacingMultiplier="1.2"/>
-
-    </LinearLayout>
-
-    <!-- Bio -->
-    <!-- Bio (max 3 lines, tap to expand) -->
-    <TextView android:id="@+id/tv_bio"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:paddingTop="4dp" android:paddingBottom="2dp"
-        android:textSize="13sp" android:textColor="?attr/colorOnSurfaceVariant"
-        android:maxLines="3" android:ellipsize="end"
-        android:clickable="true" android:focusable="true"
-        android:visibility="gone"/>
-
-    <!-- Phone number row -->
-    <LinearLayout android:id="@+id/layout_phone"
-        android:layout_width="match_parent" android:layout_height="48dp"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:clickable="true" android:focusable="true"
-        android:foreground="?attr/selectableItemBackground"
-        android:visibility="gone">
-
-        <ImageView android:layout_width="18dp" android:layout_height="18dp"
-            android:src="@drawable/ic_phone"
-            android:tint="@color/brand_primary"
-            android:contentDescription="Phone"/>
-
-        <TextView android:id="@+id/tv_phone"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:textSize="13sp"
-            android:textColor="?attr/colorOnSurface"
-            android:singleLine="true"/>
-
-        <ImageView android:layout_width="16dp" android:layout_height="16dp"
-            android:src="@drawable/ic_arrow_forward"
-            android:tint="?attr/colorOnSurfaceVariant"
-            android:contentDescription="Open"/>
-    </LinearLayout>
-
-    <!-- WhatsApp row -->
-    <LinearLayout android:id="@+id/layout_whatsapp"
-        android:layout_width="match_parent" android:layout_height="48dp"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:clickable="true" android:focusable="true"
-        android:foreground="?attr/selectableItemBackground"
-        android:visibility="gone">
-
-        <ImageView android:layout_width="18dp" android:layout_height="18dp"
-            android:src="@drawable/ic_whatsapp"
-            android:tint="#25D366"
-            android:contentDescription="WhatsApp"/>
-
-        <TextView android:id="@+id/tv_whatsapp"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:textSize="13sp"
-            android:textColor="#25D366"
-            android:singleLine="true"/>
-
-        <ImageView android:layout_width="16dp" android:layout_height="16dp"
-            android:src="@drawable/ic_arrow_forward"
-            android:tint="?attr/colorOnSurfaceVariant"
-            android:contentDescription="Open"/>
-    </LinearLayout>
-
-    <!-- Instagram row -->
-    <LinearLayout android:id="@+id/layout_instagram"
-        android:layout_width="match_parent" android:layout_height="48dp"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:clickable="true" android:focusable="true"
-        android:foreground="?attr/selectableItemBackground"
-        android:visibility="gone">
-
-        <ImageView android:layout_width="18dp" android:layout_height="18dp"
-            android:src="@drawable/ic_instagram"
-            android:tint="#E1306C"
-            android:contentDescription="Instagram"/>
-
-        <TextView android:id="@+id/tv_instagram"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:textSize="13sp"
-            android:textColor="#E1306C"
-            android:singleLine="true"/>
-
-        <ImageView android:layout_width="16dp" android:layout_height="16dp"
-            android:src="@drawable/ic_arrow_forward"
-            android:tint="?attr/colorOnSurfaceVariant"
-            android:contentDescription="Open"/>
-    </LinearLayout>
-
-    <!-- YouTube row -->
-    <LinearLayout android:id="@+id/layout_youtube"
-        android:layout_width="match_parent" android:layout_height="48dp"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:clickable="true" android:focusable="true"
-        android:foreground="?attr/selectableItemBackground"
-        android:visibility="gone">
-
-        <ImageView android:layout_width="18dp" android:layout_height="18dp"
-            android:src="@drawable/ic_youtube"
-            android:tint="#FF0000"
-            android:contentDescription="YouTube"/>
-
-        <TextView android:id="@+id/tv_youtube"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:textSize="13sp"
-            android:textColor="#FF0000"
-            android:singleLine="true"/>
-
-        <ImageView android:layout_width="16dp" android:layout_height="16dp"
-            android:src="@drawable/ic_arrow_forward"
-            android:tint="?attr/colorOnSurfaceVariant"
-            android:contentDescription="Open"/>
-    </LinearLayout>
-
-    <!-- Other link row -->
-    <LinearLayout android:id="@+id/layout_other_link"
-        android:layout_width="match_parent" android:layout_height="48dp"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:clickable="true" android:focusable="true"
-        android:foreground="?attr/selectableItemBackground"
-        android:visibility="gone">
-
-        <ImageView android:layout_width="18dp" android:layout_height="18dp"
-            android:src="@drawable/ic_link"
-            android:tint="@color/brand_primary"
-            android:contentDescription="Link"/>
-
-        <TextView android:id="@+id/tv_other_link"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:textSize="13sp"
-            android:textColor="@color/brand_primary"
-            android:singleLine="true"
-            android:ellipsize="end"/>
-
-        <ImageView android:layout_width="16dp" android:layout_height="16dp"
-            android:src="@drawable/ic_arrow_forward"
-            android:tint="?attr/colorOnSurfaceVariant"
-            android:contentDescription="Open"/>
-    </LinearLayout>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@color/divider"/>
-
-    <!-- Action buttons: Message | Call | Video | Status -->
-    <!-- Action buttons: Message | Call | Video | X | YouTube -->
-    <LinearLayout android:id="@+id/layout_actions"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center"
-        android:paddingStart="8dp" android:paddingEnd="8dp"
-        android:paddingTop="12dp" android:paddingBottom="12dp">
-
-        <!-- Chat / Message button with avatar peek animation -->
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
-                android:clipChildren="false" android:clipToPadding="false">
-                <ImageButton android:id="@+id/btn_message"
-                    android:layout_width="46dp" android:layout_height="46dp"
-                    android:src="@drawable/ic_send"
-                    android:background="@drawable/bg_circle_action"
-                    android:tint="#00C6FF"
-                    android:contentDescription="Message" android:padding="13dp"/>
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_anim_chat"
-                    android:layout_width="24dp" android:layout_height="24dp"
-                    android:layout_gravity="center"
-                    android:elevation="4dp"
-                    android:visibility="invisible"
-                    app:civ_border_width="1.5dp"
-                    app:civ_border_color="@color/brand_primary"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Message" android:textSize="11sp"
-                android:textColor="#00C6FF" android:layout_marginTop="5dp"/>
-        </LinearLayout>
-
-        <!-- Audio Call button -->
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageButton android:id="@+id/btn_audio_call"
-                android:layout_width="46dp" android:layout_height="46dp"
-                android:src="@drawable/ic_phone"
-                android:background="@drawable/bg_circle_action"
-                android:tint="#00F260"
-                android:contentDescription="Audio Call" android:padding="13dp"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Call" android:textSize="11sp"
-                android:textColor="#00F260" android:layout_marginTop="5dp"/>
-        </LinearLayout>
-
-        <!-- Video Call button -->
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageButton android:id="@+id/btn_video_call"
-                android:layout_width="46dp" android:layout_height="46dp"
-                android:src="@drawable/ic_video_call"
-                android:background="@drawable/bg_circle_action"
-                android:tint="#A855F7"
-                android:contentDescription="Video Call" android:padding="13dp"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Video" android:textSize="11sp"
-                android:textColor="#A855F7" android:layout_marginTop="5dp"/>
-        </LinearLayout>
-
-        <!-- X button with avatar peek animation -->
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
-                android:clipChildren="false" android:clipToPadding="false">
-                <ImageButton android:id="@+id/btn_open_x"
-                    android:layout_width="46dp" android:layout_height="46dp"
-                    android:src="@drawable/ic_x_logo"
-                    android:background="@drawable/bg_social_x_btn"
-                    android:tint="@color/white"
-                    android:contentDescription="View X Profile" android:padding="13dp"/>
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_anim_x"
-                    android:layout_width="24dp" android:layout_height="24dp"
-                    android:layout_gravity="center"
-                    android:elevation="4dp"
-                    android:visibility="invisible"
-                    app:civ_border_width="1.5dp"
-                    app:civ_border_color="#000000"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="X" android:textSize="11sp"
-                android:textColor="#CCCCCC" android:layout_marginTop="5dp"/>
-        </LinearLayout>
-
-        <!-- YouTube button with avatar peek animation -->
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <FrameLayout android:layout_width="46dp" android:layout_height="46dp"
-                android:clipChildren="false" android:clipToPadding="false">
-                <ImageButton android:id="@+id/btn_open_youtube"
-                    android:layout_width="46dp" android:layout_height="46dp"
+            <!-- YouTube -->
+            <LinearLayout android:id="@+id/layout_youtube"
+                android:layout_width="match_parent" android:layout_height="40dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:clickable="true" android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
                     android:src="@drawable/ic_youtube"
-                    android:background="@drawable/bg_social_youtube_btn"
-                    android:tint="@color/white"
-                    android:contentDescription="View YouTube Channel" android:padding="13dp"/>
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_anim_youtube"
-                    android:layout_width="24dp" android:layout_height="24dp"
-                    android:layout_gravity="center"
-                    android:elevation="4dp"
-                    android:visibility="invisible"
-                    app:civ_border_width="1.5dp"
-                    app:civ_border_color="#FF0000"/>
-            </FrameLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="YouTube" android:textSize="11sp"
-                android:textColor="#FF0000" android:layout_marginTop="5dp"/>
+                    android:tint="#FF0000"
+                    android:contentDescription="YouTube"/>
+                <TextView android:id="@+id/tv_youtube"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="10dp"
+                    android:textSize="13sp" android:textColor="#FF0000"
+                    android:singleLine="true"/>
+                <ImageView android:layout_width="14dp" android:layout_height="14dp"
+                    android:src="@drawable/ic_arrow_forward"
+                    android:tint="?attr/colorOnSurfaceVariant"
+                    android:contentDescription="Open"/>
+            </LinearLayout>
+
+            <!-- Other link -->
+            <LinearLayout android:id="@+id/layout_other_link"
+                android:layout_width="match_parent" android:layout_height="40dp"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:clickable="true" android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <ImageView android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/ic_link"
+                    android:tint="@color/brand_primary"
+                    android:contentDescription="Link"/>
+                <TextView android:id="@+id/tv_other_link"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="10dp"
+                    android:textSize="13sp" android:textColor="@color/brand_primary"
+                    android:singleLine="true" android:ellipsize="end"/>
+                <ImageView android:layout_width="14dp" android:layout_height="14dp"
+                    android:src="@drawable/ic_arrow_forward"
+                    android:tint="?attr/colorOnSurfaceVariant"
+                    android:contentDescription="Open"/>
+            </LinearLayout>
+
+            <!-- ── Instagram-style CTA buttons (shown for other user) ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="12dp" android:paddingEnd="12dp"
+                android:paddingTop="10dp" android:paddingBottom="6dp">
+
+                <!-- Follow / Following button — wide, full row, Instagram style -->
+                <Button android:id="@+id/btn_follow"
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:text="Follow"
+                    android:textSize="14sp"
+                    android:fontFamily="sans-serif-bold"
+                    app:textAllCaps="false"
+                    android:background="@color/brand_primary"
+                    android:textColor="#FFFFFF"
+                    android:layout_marginBottom="10dp"
+                    android:visibility="gone"/>
+
+                <!-- Action icon buttons: Message | Call | Video | X | YouTube -->
+                <LinearLayout android:id="@+id/layout_actions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:visibility="gone">
+
+                    <!-- Message -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <FrameLayout android:layout_width="44dp" android:layout_height="44dp"
+                            android:clipChildren="false" android:clipToPadding="false">
+                            <ImageButton android:id="@+id/btn_message"
+                                android:layout_width="44dp" android:layout_height="44dp"
+                                android:src="@drawable/ic_send"
+                                android:background="@drawable/bg_circle_action"
+                                android:tint="#00C6FF"
+                                android:contentDescription="Message" android:padding="12dp"/>
+                            <de.hdodenhof.circleimageview.CircleImageView
+                                android:id="@+id/iv_anim_chat"
+                                android:layout_width="22dp" android:layout_height="22dp"
+                                android:layout_gravity="center"
+                                android:elevation="4dp"
+                                android:visibility="invisible"
+                                app:civ_border_width="1.5dp"
+                                app:civ_border_color="@color/brand_primary"/>
+                        </FrameLayout>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Message" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <!-- Audio Call -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <ImageButton android:id="@+id/btn_audio_call"
+                            android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_phone"
+                            android:background="@drawable/bg_circle_action"
+                            android:tint="#00F260"
+                            android:contentDescription="Audio Call" android:padding="12dp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Call" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <!-- Video Call -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <ImageButton android:id="@+id/btn_video_call"
+                            android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_video_call"
+                            android:background="@drawable/bg_circle_action"
+                            android:tint="#A855F7"
+                            android:contentDescription="Video Call" android:padding="12dp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Video" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <!-- X (Twitter) -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <FrameLayout android:layout_width="44dp" android:layout_height="44dp"
+                            android:clipChildren="false" android:clipToPadding="false">
+                            <ImageButton android:id="@+id/btn_open_x"
+                                android:layout_width="44dp" android:layout_height="44dp"
+                                android:src="@drawable/ic_x_logo"
+                                android:background="@drawable/bg_social_x_btn"
+                                android:tint="@color/white"
+                                android:contentDescription="View X Profile" android:padding="12dp"/>
+                            <de.hdodenhof.circleimageview.CircleImageView
+                                android:id="@+id/iv_anim_x"
+                                android:layout_width="22dp" android:layout_height="22dp"
+                                android:layout_gravity="center"
+                                android:elevation="4dp"
+                                android:visibility="invisible"
+                                app:civ_border_width="1.5dp"
+                                app:civ_border_color="#000000"/>
+                        </FrameLayout>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="X" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <!-- YouTube -->
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical" android:gravity="center">
+                        <FrameLayout android:layout_width="44dp" android:layout_height="44dp"
+                            android:clipChildren="false" android:clipToPadding="false">
+                            <ImageButton android:id="@+id/btn_open_youtube"
+                                android:layout_width="44dp" android:layout_height="44dp"
+                                android:src="@drawable/ic_youtube"
+                                android:background="@drawable/bg_social_youtube_btn"
+                                android:tint="@color/white"
+                                android:contentDescription="View YouTube Channel" android:padding="12dp"/>
+                            <de.hdodenhof.circleimageview.CircleImageView
+                                android:id="@+id/iv_anim_youtube"
+                                android:layout_width="22dp" android:layout_height="22dp"
+                                android:layout_gravity="center"
+                                android:elevation="4dp"
+                                android:visibility="invisible"
+                                app:civ_border_width="1.5dp"
+                                app:civ_border_color="#FF0000"/>
+                        </FrameLayout>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="YouTube" android:textSize="10sp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Divider -->
+            <View android:layout_width="match_parent" android:layout_height="0.5dp"
+                android:background="@color/divider"
+                android:layout_marginTop="4dp"/>
+
+            <!-- Repost + Series row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="4dp" android:paddingBottom="6dp"
+                android:gravity="center">
+
+                <LinearLayout android:id="@+id/btn_repost_section"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true" android:focusable="true"
+                    android:paddingTop="10dp" android:paddingBottom="10dp">
+                    <ImageView
+                        android:layout_width="20dp" android:layout_height="20dp"
+                        android:src="@drawable/ic_repost"
+                        android:tint="#FF6B35"
+                        android:contentDescription="Reposts"/>
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Reposted"
+                        android:textSize="13sp"
+                        android:textColor="#FF6B35"
+                        android:layout_marginStart="6dp"
+                        android:fontFamily="sans-serif-medium"/>
+                </LinearLayout>
+
+                <View android:layout_width="1dp" android:layout_height="24dp"
+                    android:background="@color/divider"/>
+
+                <LinearLayout android:id="@+id/btn_series_section"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true" android:focusable="true"
+                    android:paddingTop="10dp" android:paddingBottom="10dp">
+                    <ImageView
+                        android:layout_width="20dp" android:layout_height="20dp"
+                        android:src="@drawable/ic_duet_series"
+                        android:tint="#A855F7"
+                        android:contentDescription="Series"/>
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Series"
+                        android:textSize="13sp"
+                        android:textColor="#A855F7"
+                        android:layout_marginStart="6dp"
+                        android:fontFamily="sans-serif-medium"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Divider before tabs -->
+            <View android:layout_width="match_parent" android:layout_height="0.5dp"
+                android:background="@color/divider"/>
+
         </LinearLayout>
-    </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@color/divider"/>
+        <!-- ── CHILD 3: TabLayout — pinned (noScroll), sticks below top nav once header collapses ── -->
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/tab_layout"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            app:layout_scrollFlags="noScroll"
+            app:tabMode="fixed"
+            app:tabGravity="fill"
+            app:tabSelectedTextColor="?attr/colorOnSurface"
+            app:tabTextColor="?attr/colorOnSurfaceVariant"
+            app:tabIndicatorColor="?attr/colorOnSurface"
+            app:tabIndicatorHeight="1dp"
+            app:tabPaddingStart="-1dp"
+            app:tabPaddingEnd="-1dp">
 
-    <!-- ── Repost + Series buttons row ── -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:paddingTop="8dp" android:paddingBottom="8dp"
-        android:gravity="center">
+            <!-- Icon-only tabs — Instagram style -->
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_reels"/>
 
-        <!-- Repost button -->
-        <LinearLayout android:id="@+id/btn_repost_section"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical" android:gravity="center"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:clickable="true" android:focusable="true"
-            android:paddingTop="8dp" android:paddingBottom="8dp">
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_heart"/>
 
-            <ImageView
-                android:layout_width="28dp" android:layout_height="28dp"
-                android:src="@drawable/ic_repost"
-                android:tint="#FF6B35"
-                android:contentDescription="Reposts"/>
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_bookmark"/>
 
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Reposted"
-                android:textSize="12sp"
-                android:textColor="#FF6B35"
-                android:layout_marginTop="4dp"
-                android:fontFamily="sans-serif-medium"/>
-        </LinearLayout>
+        </com.google.android.material.tabs.TabLayout>
 
-        <!-- Divider -->
-        <View android:layout_width="1dp" android:layout_height="36dp"
-            android:background="@color/divider" android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+    </com.google.android.material.appbar.AppBarLayout>
 
-        <!-- Series button -->
-        <LinearLayout android:id="@+id/btn_series_section"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical" android:gravity="center"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:clickable="true" android:focusable="true"
-            android:paddingTop="8dp" android:paddingBottom="8dp">
-
-            <ImageView
-                android:layout_width="28dp" android:layout_height="28dp"
-                android:src="@drawable/ic_duet_series"
-                android:tint="#A855F7"
-                android:contentDescription="Series"/>
-
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Series"
-                android:textSize="12sp"
-                android:textColor="#A855F7"
-                android:layout_marginTop="4dp"
-                android:fontFamily="sans-serif-medium"/>
-        </LinearLayout>
-    </LinearLayout>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@color/divider"/>
-
-    <!-- ── Tabs: Reels | Liked | Saved (3 tabs only) ── -->
-    <com.google.android.material.tabs.TabLayout
-        android:id="@+id/tab_layout"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        app:tabMode="fixed"
-        app:tabGravity="fill"
-        app:tabSelectedTextColor="@color/brand_primary"
-        app:tabTextColor="?attr/colorOnSurfaceVariant"
-        app:tabIndicatorColor="@color/brand_primary"
-        app:tabIndicatorHeight="2dp"
-        app:tabTextAppearance="@style/TextAppearance.MaterialComponents.Caption">
-
-        <com.google.android.material.tabs.TabItem
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Reels" android:icon="@drawable/ic_reels"/>
-
-        <com.google.android.material.tabs.TabItem
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Liked" android:icon="@drawable/ic_heart"/>
-
-        <com.google.android.material.tabs.TabItem
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Saved" android:icon="@drawable/ic_bookmark"/>
-
-    </com.google.android.material.tabs.TabLayout>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@color/divider"/>
-
-    <!--
-        ── SCROLLING FIX: SwipeRefreshLayout + RecyclerView fill remaining space ──
-        layout_height="0dp" + layout_weight="1" makes RecyclerView take ALL remaining
-        vertical space. RecyclerView scrolls independently — no NestedScrollView wrapper.
-    -->
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Main scroll area — RecyclerView (with AppBarLayout coordination)
+         layout_behavior makes the RecyclerView offset below the AppBarLayout
+         and shrink upward as AppBarLayout collapses.
+         ═══════════════════════════════════════════════════════════════════ -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipe_refresh"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- Reel grid — RecyclerView owns scrolling -->
+            <!-- Reel grid -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_reels"
                 android:layout_width="match_parent"
@@ -692,20 +719,21 @@
                 android:overScrollMode="ifContentScrolls"
                 android:padding="1dp"/>
 
-              <!-- Series tab grid — visibility toggled by UserReelsActivity -->
-              <androidx.recyclerview.widget.RecyclerView
-                  android:id="@+id/rv_series"
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent"
-                  android:clipToPadding="false"
-                  android:padding="3dp"
-                  android:visibility="gone"/>
+            <!-- Series grid (visibility toggled by Java) -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_series"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:padding="3dp"
+                android:visibility="gone"/>
 
             <!-- Private account overlay -->
             <LinearLayout android:id="@+id/layout_private_account"
                 android:layout_width="match_parent" android:layout_height="match_parent"
                 android:orientation="vertical" android:gravity="center"
-                android:padding="40dp" android:background="?attr/colorSurface"
+                android:padding="40dp"
+                android:background="?attr/colorSurface"
                 android:visibility="gone">
 
                 <ImageView android:layout_width="64dp" android:layout_height="64dp"
@@ -717,7 +745,7 @@
                     android:layout_marginTop="16dp"
                     android:text="This account is private"
                     android:textSize="17sp" android:fontFamily="sans-serif-medium"
-                    android:textColor="#CE93D8"/>
+                    android:textColor="?attr/colorOnSurface"/>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -731,26 +759,28 @@
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:layout_marginTop="48dp"
-                android:indeterminateTint="#A855F7"
+                android:indeterminateTint="@color/brand_primary"
                 android:visibility="gone"/>
 
             <!-- Empty state -->
             <LinearLayout android:id="@+id/layout_empty"
                 android:layout_width="match_parent" android:layout_height="match_parent"
                 android:orientation="vertical" android:gravity="center"
-                android:padding="32dp" android:visibility="gone">
+                android:padding="32dp"
+                android:visibility="gone">
 
                 <ImageView android:id="@+id/iv_empty_icon"
                     android:layout_width="64dp" android:layout_height="64dp"
                     android:src="@drawable/ic_reels" android:alpha="0.6"
-                    android:tint="#FF416C"
+                    android:tint="@color/brand_primary"
                     android:contentDescription="Empty"/>
 
                 <TextView android:id="@+id/tv_empty_title"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp" android:text="No Reels Yet"
+                    android:layout_marginTop="16dp"
+                    android:text="No Reels Yet"
                     android:textSize="18sp" android:fontFamily="sans-serif-medium"
-                    android:textColor="#FF416C"/>
+                    android:textColor="?attr/colorOnSurface"/>
 
                 <TextView android:id="@+id/tv_empty_subtitle"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -764,4 +794,25 @@
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-</LinearLayout>
+
+      <!-- ── View All Reels Button ────────────────────────────────────── -->
+      <com.google.android.material.button.MaterialButton
+          android:id="@+id/btn_view_all_reels"
+          style="@style/Widget.Material3.Button.OutlinedButton"
+          android:layout_width="match_parent"
+          android:layout_height="48dp"
+          android:layout_gravity="bottom"
+          android:layout_margin="16dp"
+          android:layout_marginBottom="16dp"
+          android:text="View All Reels"
+          android:textSize="14sp"
+          android:fontFamily="sans-serif-medium"
+          android:visibility="gone"
+          app:layout_anchor="@id/swipe_refresh"
+          app:layout_anchorGravity="bottom"
+          app:strokeColor="@color/brand_primary"
+          app:rippleColor="@color/brand_primary"
+          android:textColor="@color/brand_primary"
+          android:elevation="4dp"/>
+
+  </androidx.coordinatorlayout.widget.CoordinatorLayout>

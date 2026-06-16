@@ -28,6 +28,7 @@ import com.google.android.material.tabs.TabLayout;
 import com.bumptech.glide.Glide;
 import com.callx.app.reels.R;
 import com.callx.app.profile.ReelGridAdapter;
+import com.callx.app.profile.AllReelsFullActivity;
 import com.callx.app.analytics.ReelCreatorDashboardActivity;
 import com.callx.app.profile.ReelEditProfileActivity;
 import com.callx.app.creator.ReelCreatorHubActivity;
@@ -68,16 +69,13 @@ public class UserReelsActivity extends AppCompatActivity
     public static final String EXTRA_NAME  = "name";
     public static final String EXTRA_PHOTO = "photo";
 
-    private static final int PAGE_SIZE  = 12;
+    private static final int PAGE_SIZE  = 6;
     private static final int TAB_REELS  = 0;
     private static final int TAB_LIKED  = 1;
     private static final int TAB_SAVED  = 2;
     // These tab constants are kept for internal data methods — no longer shown as tabs
     private static final int TAB_REPOST = 3;
     private static final int TAB_SERIES = 4;
-
-    // Liked/Saved tabs show at most this many reels with a "View All Reels" footer below
-    private static final int MAX_CAPPED_ITEMS = 6;
 
     // Views
     private CircleImageView ivAvatar;
@@ -113,10 +111,13 @@ public class UserReelsActivity extends AppCompatActivity
     private TextView        tvSelectedCount;
     private ImageButton     btnShareSelected, btnDeleteSelected, btnCancelSelect, btnDeleteAll;
     private View            layoutPrivateAccount;
+    private View            btnViewAllReels;
     private View            layoutFollowersClick;
     private View            layoutFollowingClick;
     private View            btnRepostSection;
     private View            btnSeriesSection;
+    private com.google.android.material.appbar.AppBarLayout appBarLayout;
+    private boolean         isAppBarExpanded = true;
 
     // State
     private String  targetUid, targetName, targetPhoto;
@@ -174,6 +175,7 @@ public class UserReelsActivity extends AppCompatActivity
         loadMutualFollowers();
         loadPinnedReel();
         loadCurrentTab(true);
+        setupViewAllReelsButton();
         loadReelCount();
         checkActiveStory();
         loadAccountPrivacy();
@@ -220,6 +222,7 @@ public class UserReelsActivity extends AppCompatActivity
         progressBar          = findViewById(R.id.progress_bar);
         layoutEmpty          = findViewById(R.id.layout_empty);
         swipeRefresh         = findViewById(R.id.swipe_refresh);
+        btnViewAllReels      = findViewById(R.id.btn_view_all_reels);
         layoutMultiSelectBar = findViewById(R.id.layout_multi_select_bar);
         tvSelectedCount      = findViewById(R.id.tv_selected_count);
         btnShareSelected     = findViewById(R.id.btn_share_selected);
@@ -241,6 +244,7 @@ public class UserReelsActivity extends AppCompatActivity
         layoutInstagram  = findViewById(R.id.layout_instagram);
         layoutYoutube    = findViewById(R.id.layout_youtube);
         layoutOtherLink  = findViewById(R.id.layout_other_link);
+        appBarLayout     = findViewById(R.id.app_bar);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -294,8 +298,7 @@ public class UserReelsActivity extends AppCompatActivity
         gridLayoutManager = new GridLayoutManager(this, 3);
         gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override public int getSpanSize(int position) {
-                int type = adapter.getItemViewType(position);
-                return (type == ReelGridAdapter.TYPE_PINNED || type == ReelGridAdapter.TYPE_VIEW_ALL) ? 3 : 1;
+                return adapter.getItemViewType(position) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
             }
         });
 
@@ -330,8 +333,19 @@ public class UserReelsActivity extends AppCompatActivity
             loadCurrentTab(true);
             if (activeTab == TAB_REELS) loadPinnedReel();
         });
-        // Initially enabled; scroll listener will toggle it
         swipeRefresh.setEnabled(true);
+
+        // Instagram-style: disable pull-to-refresh while AppBarLayout is mid-collapse.
+        // SwipeRefreshLayout must only activate when the header is fully expanded AND
+        // the RecyclerView has not scrolled (i.e., the user is truly at the very top).
+        if (appBarLayout != null) {
+            appBarLayout.addOnOffsetChangedListener((abl, verticalOffset) -> {
+                isAppBarExpanded = (verticalOffset == 0);
+                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+                    swipeRefresh.setEnabled(isAppBarExpanded && !rvReels.canScrollVertically(-1));
+                }
+            });
+        }
     }
 
     // ── Scroll listener for pagination + SwipeRefresh guard ───────────────
@@ -347,9 +361,10 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                // Allow pull-to-refresh only when list is fully at top
-                if (swipeRefresh != null) {
-                    swipeRefresh.setEnabled(!rv.canScrollVertically(-1));
+                // SwipeRefresh only when AppBarLayout fully expanded AND list at very top.
+                // isAppBarExpanded is updated by the AppBarLayout offset listener in setupSwipeRefresh().
+                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+                    swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
                 }
 
                 // Pagination trigger: load next page when 6 items from end
@@ -383,9 +398,9 @@ public class UserReelsActivity extends AppCompatActivity
                 // rvSeries hidden for all 3 tabs now
                 if (rvSeries != null) rvSeries.setVisibility(android.view.View.GONE);
                 if (rvReels  != null) rvReels.setVisibility(android.view.View.VISIBLE);
-                refreshAdapterForCurrentTab();
+                adapter.notifyDataSetChanged();
                 if (activeTabData().isEmpty()) loadCurrentTab(true);
-                else refreshEmptyState();
+                else { refreshEmptyState(); updateViewAllButton(); }
             }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {
@@ -422,35 +437,6 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_SAVED:  return savedTabData;
             default:         return reelsTabData;
         }
-    }
-
-    /** Liked/Saved tabs are capped to MAX_CAPPED_ITEMS with a "View All Reels" footer. */
-    private boolean isCappedTab() {
-        return activeTab == TAB_LIKED || activeTab == TAB_SAVED;
-    }
-
-    /** Display list bound to the adapter — full list for Reels tab, capped for Liked/Saved. */
-    private List<ReelModel> displayTabData() {
-        List<ReelModel> full = activeTabData();
-        if (!isCappedTab() || full.size() <= MAX_CAPPED_ITEMS) return full;
-        return new ArrayList<>(full.subList(0, MAX_CAPPED_ITEMS));
-    }
-
-    /** Refresh the adapter to show the current tab's (possibly capped) data + footer. */
-    private void refreshAdapterForCurrentTab() {
-        adapter.setItems(displayTabData());
-        boolean showFooter = isCappedTab() && activeTabData().size() > MAX_CAPPED_ITEMS;
-        adapter.setShowViewAllFooter(showFooter, this::openViewAllReelsScreen);
-    }
-
-    private void openViewAllReelsScreen() {
-        Intent i = new Intent(this, ReelsViewAllActivity.class);
-        i.putExtra(ReelsViewAllActivity.EXTRA_UID,  targetUid);
-        i.putExtra(ReelsViewAllActivity.EXTRA_NAME, orEmpty(targetName));
-        i.putExtra(ReelsViewAllActivity.EXTRA_TAB_TYPE,
-            activeTab == TAB_LIKED ? ReelsViewAllActivity.TAB_TYPE_LIKED
-                                    : ReelsViewAllActivity.TAB_TYPE_SAVED);
-        startActivity(i);
     }
 
     // ── Privacy ───────────────────────────────────────────────────────────
@@ -938,18 +924,35 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
-    private void finishLoading(boolean refresh, int tab) {
+    private void setupViewAllReelsButton() {
+          if (btnViewAllReels == null) return;
+          btnViewAllReels.setOnClickListener(v -> {
+              Intent i = new Intent(this, AllReelsFullActivity.class);
+              i.putExtra(AllReelsFullActivity.EXTRA_UID,   targetUid);
+              i.putExtra(AllReelsFullActivity.EXTRA_NAME,  targetName  != null ? targetName  : "");
+              i.putExtra(AllReelsFullActivity.EXTRA_PHOTO, targetPhoto != null ? targetPhoto : "");
+              i.putExtra(AllReelsFullActivity.EXTRA_TAB,   activeTab);
+              startActivity(i);
+          });
+          updateViewAllButton();
+      }
+
+      private void updateViewAllButton() {
+          if (btnViewAllReels == null) return;
+          List<ReelModel> data = activeTabData();
+          // Show "View All" if we loaded a full page (likely more exist) or if any data exists
+          boolean show = !data.isEmpty();
+          btnViewAllReels.setVisibility(show ? View.VISIBLE : View.GONE);
+      }
+
+      private void finishLoading(boolean refresh, int tab) {
         if (isFinishing() || isDestroyed()) return;
         isLoadingMore = false;
         adapter.setSkeletonMode(false);
-        if (tab == activeTab) {
-            refreshAdapterForCurrentTab();
-        } else {
-            adapter.notifyDataSetChanged();
-        }
+        adapter.notifyDataSetChanged();
         if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
         if (progressBar  != null) progressBar.setVisibility(View.GONE);
-        if (tab == activeTab) refreshEmptyState();
+        if (tab == activeTab) { refreshEmptyState(); updateViewAllButton(); }
     }
 
     private void refreshEmptyState() {
@@ -977,8 +980,7 @@ public class UserReelsActivity extends AppCompatActivity
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
         if (reelIdx < 0) reelIdx = 0;
 
-        // Use the same (possibly capped) list the adapter is actually rendering
-        List<ReelModel> data = displayTabData();
+        List<ReelModel> data = activeTabData();
         if (data.isEmpty()) return;
 
         // Clamp to valid range
@@ -1002,7 +1004,7 @@ public class UserReelsActivity extends AppCompatActivity
 
     @Override
     public void onLongPress(int adapterPos) {
-        List<ReelModel> data = displayTabData();
+        List<ReelModel> data = activeTabData();
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
 
         if (isSelf && activeTab == TAB_REELS && reelIdx >= 0 && reelIdx < data.size()) {
@@ -1041,7 +1043,7 @@ public class UserReelsActivity extends AppCompatActivity
                 FirebaseUtils.getReelsByUserRef(targetUid).child(reel.reelId).removeValue();
                 if (pinnedReel != null && reel.reelId.equals(pinnedReel.reelId)) unpinReel();
                 reelsTabData.remove(reel);
-                refreshAdapterForCurrentTab();
+                adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
             })
@@ -1128,7 +1130,7 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void toggleSelection(int adapterPos) {
-        List<ReelModel> data = displayTabData();
+        List<ReelModel> data = activeTabData();
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
         if (reelIdx < 0 || reelIdx >= data.size()) return;
         String reelId = data.get(reelIdx).reelId;
@@ -1178,7 +1180,7 @@ public class UserReelsActivity extends AppCompatActivity
                 }
                 activeTabData().removeIf(r -> selectedReelIds.contains(r.reelId));
                 exitMultiSelectMode();
-                refreshAdapterForCurrentTab();
+                adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted successfully", Toast.LENGTH_SHORT).show();
             })
@@ -1207,7 +1209,7 @@ public class UserReelsActivity extends AppCompatActivity
                 if (pinnedReel != null) unpinReel();
                 data.clear();
                 exitMultiSelectMode();
-                refreshAdapterForCurrentTab();
+                adapter.notifyDataSetChanged();
                 refreshEmptyState();
                 Toast.makeText(this, "All reels deleted", Toast.LENGTH_SHORT).show();
             })

@@ -26,7 +26,6 @@ import java.util.Map;
  *  TYPE_SKELETON (0) — shimmer placeholder (Feature 3)
  *  TYPE_REEL     (1) — normal 1-col thumbnail cell
  *  TYPE_PINNED   (2) — full-width featured hero card spanning 3 cols (Feature 6)
- *  TYPE_VIEW_ALL (3) — full-width "View All Reels" footer row (Liked/Saved cap)
  *
  * Features:
  *  ✅ Feature 3:  Shimmer skeleton loading
@@ -34,14 +33,12 @@ import java.util.Map;
  *  ✅ Feature 5:  Multi-select mode with selection overlay
  *  ✅ Feature 6:  Pinned/featured reel hero card
  *  ✅ Feature 15: Views count overlay on own-profile reels
- *  ✅ Capped Liked/Saved tabs (max 6) + "View All Reels" footer
  */
 public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public static final int TYPE_SKELETON = 0;
     public static final int TYPE_REEL     = 1;
     public static final int TYPE_PINNED   = 2;
-    public static final int TYPE_VIEW_ALL = 3;
 
     private static final int SKELETON_COUNT = 12;
 
@@ -50,12 +47,11 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     public interface OnItemClickListener       { void onItemClick(int position); }
     public interface LongPressListener         { void onLongPress(int position); }
     public interface MultiSelectChangeListener { void onSelectionChanged(int count); }
-    public interface ViewAllClickListener       { void onViewAllClick(); }
 
     // ── Fields ────────────────────────────────────────────────────────────
 
     private final Context                    context;
-    private List<ReelModel>                  reels;
+    private final List<ReelModel>            reels;
     private final OnItemClickListener        clickListener;
     private final LongPressListener          longPressListener;
     private final MultiSelectChangeListener  multiSelectListener;
@@ -64,8 +60,6 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     private boolean                     skeletonMode      = false;
     private boolean                     multiSelectMode   = false;
     private boolean                     showViewsOverlay  = false;   // Feature 15
-    private boolean                     showViewAllFooter = false;
-    private ViewAllClickListener        viewAllClickListener = null;
     private final Map<Integer, Boolean> selectedPositions = new HashMap<>();
 
     /** Convenience constructor — long-press and multi-select disabled. */
@@ -88,15 +82,6 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     }
 
     // ── Feature 6: Pinned reel ────────────────────────────────────────────
-
-    /**
-     * Swap the underlying data list — used when switching between
-     * Reels / Liked / Saved tabs (each backed by its own list).
-     */
-    public void setItems(List<ReelModel> items) {
-        this.reels = items;
-        notifyDataSetChanged();
-    }
 
     public void setPinnedReel(ReelModel reel) {
         this.pinnedReel = reel;
@@ -125,19 +110,6 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         this.showViewsOverlay = show;
     }
 
-    // ── "View All Reels" footer (capped Liked/Saved tabs) ────────────────
-
-    /**
-     * When enabled, a full-width "View All Reels" row is appended after the
-     * last reel cell. Used on Liked/Saved tabs where the list is capped to
-     * 6 items and more reels exist on the server.
-     */
-    public void setShowViewAllFooter(boolean show, ViewAllClickListener listener) {
-        this.showViewAllFooter   = show;
-        this.viewAllClickListener = listener;
-        notifyDataSetChanged();
-    }
-
     // ── Feature 5: Multi-select ───────────────────────────────────────────
 
     public void setMultiSelectMode(boolean enabled) {
@@ -163,7 +135,6 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     @Override
     public int getItemViewType(int position) {
         if (skeletonMode) return TYPE_SKELETON;
-        if (showViewAllFooter && position == getItemCount() - 1) return TYPE_VIEW_ALL;
         if (hasPinned() && position == 0) return TYPE_PINNED;
         return TYPE_REEL;
     }
@@ -171,9 +142,7 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     @Override
     public int getItemCount() {
         if (skeletonMode) return SKELETON_COUNT;
-        int count = reels.size() + (hasPinned() ? 1 : 0);
-        if (showViewAllFooter) count += 1;
-        return count;
+        return reels.size() + (hasPinned() ? 1 : 0);
     }
 
     @NonNull
@@ -184,8 +153,6 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, parent, false));
         if (viewType == TYPE_PINNED)
             return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, parent, false));
-        if (viewType == TYPE_VIEW_ALL)
-            return new ViewAllVH(inf.inflate(R.layout.item_view_all_reels_footer, parent, false));
         return new ReelVH(inf.inflate(R.layout.item_saved_reel, parent, false));
     }
 
@@ -196,12 +163,6 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             return;
         }
         if (holder instanceof PinnedVH) { bindPinned((PinnedVH) holder); return; }
-        if (holder instanceof ViewAllVH) {
-            holder.itemView.setOnClickListener(v -> {
-                if (viewAllClickListener != null) viewAllClickListener.onViewAllClick();
-            });
-            return;
-        }
         if (!(holder instanceof ReelVH)) return;
 
         ReelVH h = (ReelVH) holder;
@@ -293,7 +254,7 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     @Override
     public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewAttachedToWindow(holder);
-        if (!(holder instanceof PinnedVH) && !(holder instanceof ViewAllVH)) {
+        if (!(holder instanceof PinnedVH)) {
             holder.itemView.post(() -> {
                 int w = holder.itemView.getWidth();
                 if (w > 0) {
@@ -349,9 +310,5 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             super(v);
             shimmer = v.findViewById(R.id.shimmer_layout);
         }
-    }
-
-    static class ViewAllVH extends RecyclerView.ViewHolder {
-        ViewAllVH(@NonNull View v) { super(v); }
     }
 }
