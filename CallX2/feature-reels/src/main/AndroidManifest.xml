@@ -18,6 +18,9 @@
             android:theme="@style/Theme.AppCompat.NoActionBar"/>
         <activity android:name="com.callx.app.profile.UserReelsActivity"
             android:exported="false"/>
+        <activity android:name="com.callx.app.profile.ReelsViewAllActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"/>
         <activity android:name="com.callx.app.explore.ReelSearchActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
