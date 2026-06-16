@@ -167,7 +167,11 @@ public class ReelsFragment extends Fragment {
 
         adapter = new ReelsAdapter(this);
         vpReels.setAdapter(adapter);
-        vpReels.setOffscreenPageLimit(2);
+        // ── Instagram-style instant playback ──────────────────────────────
+        // offscreenPageLimit=3 → N-1, N, N+1, N+2 fragments all kept alive.
+        // Combined with preparePlayerSilently() in ReelPlayerFragment, the next
+        // 2 reels are always pre-prepared → zero buffering spinner on swipe.
+        vpReels.setOffscreenPageLimit(3);
 
         ReelCacheManager.init(requireContext());
         videoPreloader = new ReelVideoPreloader(requireContext());

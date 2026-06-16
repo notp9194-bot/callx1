@@ -57,8 +57,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ReelVideoPreloader {
 
     private static final String TAG           = "ReelVideoPreloader";
-    private static final int    PRELOAD_COUNT = 3;           // Agle 3 reels preload karo
-    private static final long   PRELOAD_BYTES = 6 * 1024 * 1024L; // Pehle 6MB preload (smooth playback)
+    private static final int    PRELOAD_COUNT = 4;            // Agle 4 reels preload karo
+    private static final long   PRELOAD_BYTES = 10 * 1024 * 1024L; // Pehle 10MB preload (guaranteed smooth playback)
     /** Duet originals: 50MB — compositor needs the full video for rendering */
     private static final long   PRELOAD_BYTES_DUET = UnifiedVideoCacheManager.PARTIAL_BYTES_DUET;
 
@@ -71,8 +71,8 @@ public class ReelVideoPreloader {
 
     public ReelVideoPreloader(Context context) {
         mContext  = context.getApplicationContext();
-        // 2 background threads — zyada nahi chahiye
-        mExecutor = Executors.newFixedThreadPool(2);
+        // 3 background threads — next 3 reels parallel preload karo
+        mExecutor = Executors.newFixedThreadPool(3);
         ReelCacheManager.init(mContext);
     }
 

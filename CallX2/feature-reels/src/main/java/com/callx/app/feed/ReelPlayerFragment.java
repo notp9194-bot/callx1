@@ -334,6 +334,10 @@ public class ReelPlayerFragment extends Fragment
         startFirebaseListeners();
         // Restore cinema mode state for this reel
         applyCinemaState(v);
+        // ── Instagram-style instant playback: pre-prepare player in background ──
+        // Player is built + prepared HERE (paused/muted) so by the time user swipes
+        // to this reel, ExoPlayer is already in STATE_READY → zero buffering spinner.
+        if (!isPhotoMode) preparePlayerSilently();
         return v;
     }
 
@@ -372,6 +376,7 @@ public class ReelPlayerFragment extends Fragment
         isVisible = visible;
         if (visible) {
             startPlayback();
+            startDiscAnimation(); // Feature 11: start disc when reel becomes visible
             recordView();
             markReelNotificationsRead();
         } else {
@@ -1040,6 +1045,89 @@ public class ReelPlayerFragment extends Fragment
 
     // ── Playback ──────────────────────────────────────────────────────────
 
+    /**
+     * ── Instagram-style instant playback ──────────────────────────────────
+     *
+     * Called from onCreateView (NOT from setUserVisibleHint).
+     * Builds ExoPlayer + prepares it SILENTLY (volume=0, paused) so by the time
+     * the user swipes to this reel, the player is already in STATE_READY.
+     * startPlayback() then only needs to call player.play() → zero spinner.
+     *
+     * Why this works:
+     *   ViewPager2 with offscreenPageLimit=2 keeps N+1 and N+2 fragments alive.
+     *   We prepare their players in background while user watches reel N.
+     *   Combined with ReelVideoPreloader (which pre-fetches 6MB), first frame
+     *   is instantly available → no buffering circle ever shown on swipe.
+     */
+    private void preparePlayerSilently() {
+        if (!isAdded() || getContext() == null) return;
+        if (reel == null || reel.videoUrl == null || reel.videoUrl.isEmpty()) return;
+        if (player != null) return; // already prepared
+
+        player = new ExoPlayer.Builder(requireContext()).build();
+        playerView.setPlayer(player);
+
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (!isAdded() || getContext() == null) return;
+                if (state == Player.STATE_BUFFERING) {
+                    // Only show spinner if this reel is currently VISIBLE and already playing
+                    // (i.e. mid-playback stall). On initial load, thumbnail covers it.
+                    if (isVisible) {
+                        progressBuffering.setVisibility(View.VISIBLE);
+                    }
+                } else {
+                    progressBuffering.setVisibility(View.GONE);
+                    if (state == Player.STATE_READY && isVisible) {
+                        // Player ready while visible → hide thumbnail immediately
+                        ivThumb.setVisibility(View.GONE);
+                        startProgressTracking();
+                    }
+                    if (state == Player.STATE_ENDED) autoAdvance();
+                }
+            }
+
+            @Override
+            public void onIsPlayingChanged(boolean playing) {
+                if (!isAdded()) return;
+                if (playing) {
+                    progressBuffering.setVisibility(View.GONE);
+                    // Hide thumbnail as soon as first frame renders
+                    ivThumb.setVisibility(View.GONE);
+                }
+                if (btnMute != null) {
+                    btnMute.setVisibility(playing ? View.GONE : View.VISIBLE);
+                }
+                if (isVisible) {
+                    Fragment parent = getParentFragment();
+                    if (parent instanceof ReelsFragment) {
+                        ((ReelsFragment) parent).onReelPlaybackStateChanged(playing);
+                    }
+                }
+            }
+
+            @Override
+            public void onPlayerError(@NonNull PlaybackException error) {
+                if (!isAdded()) return;
+                progressBuffering.setVisibility(View.GONE);
+                ivThumb.setVisibility(View.VISIBLE);
+            }
+        });
+
+        CacheDataSource.Factory cacheFactory = ReelCacheManager.getCacheDataSourceFactory();
+        ProgressiveMediaSource mediaSource = new ProgressiveMediaSource.Factory(cacheFactory)
+            .createMediaSource(MediaItem.fromUri(reel.videoUrl));
+        player.setMediaSource(mediaSource);
+        player.setRepeatMode(Player.REPEAT_MODE_ONE);
+        // Pre-prepare silently: volume=0, playWhenReady=false
+        // Volume will be restored to real value in startPlayback()
+        player.setVolume(0f);
+        player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
+        player.setPlayWhenReady(false);
+        player.prepare(); // starts buffering in background — no playback yet
+    }
+
     private void startPlayback() {
         if (!isAdded() || getContext() == null) return;
         if (reel == null) return;
@@ -1058,59 +1146,23 @@ public class ReelPlayerFragment extends Fragment
         if (reel.videoUrl == null || reel.videoUrl.isEmpty()) return;
 
         if (player == null) {
-            player = new ExoPlayer.Builder(requireContext()).build();
-            playerView.setPlayer(player);
-
-            player.addListener(new Player.Listener() {
-                @Override
-                public void onPlaybackStateChanged(int state) {
-                    if (!isAdded() || getContext() == null) return;
-                    if (state == Player.STATE_BUFFERING) {
-                        progressBuffering.setVisibility(View.VISIBLE);
-                    } else {
-                        progressBuffering.setVisibility(View.GONE);
-                        if (state == Player.STATE_READY) {
-                            ivThumb.setVisibility(View.GONE);
-                            startProgressTracking();
-                        }
-                        if (state == Player.STATE_ENDED) autoAdvance();
-                    }
-                }
-
-                @Override
-                public void onIsPlayingChanged(boolean playing) {
-                    if (!isAdded()) return;
-                    if (playing) progressBuffering.setVisibility(View.GONE);
-                    // Hide/show mute button and top gradient with the top bar
-                    if (btnMute != null) {
-                        btnMute.setVisibility(playing ? View.GONE : View.VISIBLE);
-                    }
-
-                    if (isVisible) {
-                        Fragment parent = getParentFragment();
-                        if (parent instanceof ReelsFragment) {
-                            ((ReelsFragment) parent).onReelPlaybackStateChanged(playing);
-                        }
-                    }
-                }
-
-                @Override
-                public void onPlayerError(@NonNull PlaybackException error) {
-                    if (!isAdded()) return;
-                    progressBuffering.setVisibility(View.GONE);
-                    ivThumb.setVisibility(View.VISIBLE);
-                }
-            });
-
-            CacheDataSource.Factory cacheFactory = ReelCacheManager.getCacheDataSourceFactory();
-            ProgressiveMediaSource mediaSource = new ProgressiveMediaSource.Factory(cacheFactory)
-                .createMediaSource(MediaItem.fromUri(reel.videoUrl));
-            player.setMediaSource(mediaSource);
-            player.setRepeatMode(Player.REPEAT_MODE_ONE);
-            player.setVolume(isMuted ? 0f : 1f);
-            player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
-            player.prepare();
+            // Fallback: preparePlayerSilently wasn't called or was too early
+            // Build player now (may have brief buffering)
+            preparePlayerSilently();
         }
+
+        // Restore real volume (preparePlayerSilently sets it to 0)
+        player.setVolume(isMuted ? 0f : 1f);
+
+        // If already STATE_READY → thumbnail hides instantly, no spinner
+        if (player.getPlaybackState() == Player.STATE_READY) {
+            ivThumb.setVisibility(View.GONE);
+            progressBuffering.setVisibility(View.GONE);
+            startProgressTracking();
+        }
+        // If still buffering → thumbnail stays visible (no spinner on initial load)
+        // The STATE_READY callback above will hide thumbnail when ready
+
         player.play();
     }
 
