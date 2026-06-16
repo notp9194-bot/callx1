@@ -40,10 +40,10 @@ public class ReelCacheManager {
 
     private static final String TAG = "ReelCacheManager";
 
-    // Adaptive cache: low-end 300MB, normal 500MB
-    private static final long CACHE_SIZE_LOW  = 300L * 1024 * 1024; // 300MB
-    private static final long CACHE_SIZE_NORM = 500L * 1024 * 1024; // 500MB
-    private static final String CACHE_DIR  = "reel_video_cache";
+    // Note: actual cache dir/size managed by UnifiedVideoCacheManager ("reel_video_cache")
+    // These constants are kept for legacy reference only
+    private static final long CACHE_SIZE_LOW  = 300L * 1024 * 1024;
+    private static final long CACHE_SIZE_NORM = 500L * 1024 * 1024;
 
     private static SimpleCache            sSimpleCache;
     private static CacheDataSource.Factory sCacheDataSourceFactory;
