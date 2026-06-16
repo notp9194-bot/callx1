@@ -20,6 +20,8 @@ package com.callx.app.profile;
   import de.hdodenhof.circleimageview.CircleImageView;
 
   import java.util.*;
+import androidx.recyclerview.widget.RecyclerView;
+import android.graphics.Rect;
 
   /**
    * AllReelsFullActivity - Instagram-style full reels grid.
@@ -136,6 +138,15 @@ package com.callx.app.profile;
           });
           rvReels.setLayoutManager(layoutManager);
           rvReels.setAdapter(adapter);
+          // 1dp gap between grid cells — matches Instagram reel grid style
+          int gap = Math.round(1 * getResources().getDisplayMetrics().density);
+          rvReels.addItemDecoration(new RecyclerView.ItemDecoration() {
+              @Override
+              public void getItemOffsets(@NonNull Rect out, @NonNull View view,
+                                         @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+                  out.set(gap, gap, 0, 0);
+              }
+          });
           rvReels.setHasFixedSize(false);
       }
 

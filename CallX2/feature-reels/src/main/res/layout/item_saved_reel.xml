@@ -1,80 +1,138 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:foreground="?attr/selectableItemBackground">
+  <!--
+    item_saved_reel.xml — Instagram-style 3-column reel grid cell
+    ─────────────────────────────────────────────────────────────
+    Layout:
+      • Thumbnail fills the entire square cell (centerCrop)
+      • Top gradient scrim  → caption text overlay (2–3 lines)
+      • Bottom gradient scrim → play-count (bottom-left) + duration (bottom-right)
+      • Multi-select overlays (gone by default)
+  -->
+  <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:background="#000000"
+      android:foreground="?attr/selectableItemBackground">
 
-    <!-- Thumbnail -->
-    <ImageView
-        android:id="@+id/iv_thumb"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop"
-        android:contentDescription="Reel thumbnail"/>
+      <!-- ── Thumbnail ──────────────────────────────────────────────────── -->
+      <ImageView
+          android:id="@+id/iv_thumb"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:minHeight="120dp"
+          android:scaleType="centerCrop"
+          android:contentDescription="Reel thumbnail"/>
 
-    <!-- Bottom scrim for duration readability -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="28dp"
-        android:layout_gravity="bottom"
-        android:background="#88000000"/>
+      <!-- ── Top gradient scrim (for caption readability) ─────────────── -->
+      <View
+          android:layout_width="match_parent"
+          android:layout_height="80dp"
+          android:layout_gravity="top"
+          android:background="@drawable/gradient_reel_top"/>
 
-    <!-- Duration badge (bottom-right) -->
-    <TextView
-        android:id="@+id/tv_duration"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="4dp"
-        android:text="0:00"
-        android:textColor="#FFFFFF"
-        android:textSize="11sp"
-        android:fontFamily="sans-serif-medium"/>
+      <!-- ── Caption text — top of cell, bold white like screenshot ────── -->
+      <TextView
+          android:id="@+id/tv_caption"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:layout_gravity="top"
+          android:paddingStart="6dp"
+          android:paddingEnd="6dp"
+          android:paddingTop="6dp"
+          android:paddingBottom="0dp"
+          android:textColor="#FFFFFF"
+          android:textSize="11sp"
+          android:textStyle="bold"
+          android:maxLines="3"
+          android:ellipsize="end"
+          android:lineSpacingMultiplier="1.1"
+          android:shadowColor="#CC000000"
+          android:shadowDx="0"
+          android:shadowDy="1"
+          android:shadowRadius="3"
+          android:visibility="gone"/>
 
-    <!-- Feature 15: Views overlay badge (top-left, own profile only) -->
-    <TextView
-        android:id="@+id/tv_views_overlay"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|start"
-        android:layout_margin="4dp"
-        android:text="👁 0"
-        android:textColor="#FFFFFF"
-        android:textSize="10sp"
-        android:background="#66000000"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp"
-        android:paddingTop="2dp"
-        android:paddingBottom="2dp"
-        android:visibility="gone"/>
+      <!-- ── Bottom gradient scrim ─────────────────────────────────────── -->
+      <View
+          android:layout_width="match_parent"
+          android:layout_height="36dp"
+          android:layout_gravity="bottom"
+          android:background="@drawable/gradient_reel_bottom"/>
 
-    <!-- Multi-select: dim overlay -->
-    <View
-        android:id="@+id/view_dim_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#44000000"
-        android:visibility="gone"/>
+      <!-- ── Play-count row (bottom-left) — always shown ──────────────── -->
+      <LinearLayout
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="bottom|start"
+          android:layout_marginStart="4dp"
+          android:layout_marginBottom="4dp"
+          android:orientation="horizontal"
+          android:gravity="center_vertical">
 
-    <!-- Multi-select: selected highlight overlay -->
-    <View
-        android:id="@+id/view_select_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#556C5CE7"
-        android:visibility="gone"/>
+          <!-- Play triangle icon -->
+          <ImageView
+              android:layout_width="10dp"
+              android:layout_height="10dp"
+              android:src="@drawable/ic_play"
+              android:tint="#FFFFFF"
+              android:alpha="0.9"
+              android:contentDescription="Views"/>
 
-    <!-- Multi-select: checkmark (top-right) -->
-    <ImageView
-        android:id="@+id/iv_checkmark"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
-        android:layout_gravity="top|end"
-        android:layout_margin="6dp"
-        android:src="@drawable/ic_double_tick_blue"
-        android:background="@drawable/circle_primary"
-        android:padding="3dp"
-        android:contentDescription="Selected"
-        android:visibility="gone"/>
+          <!-- Count label (tv_views_overlay kept for adapter compatibility) -->
+          <TextView
+              android:id="@+id/tv_views_overlay"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_marginStart="3dp"
+              android:text="0"
+              android:textColor="#FFFFFF"
+              android:textSize="10sp"
+              android:fontFamily="sans-serif-medium"/>
 
-</FrameLayout>
+      </LinearLayout>
+
+      <!-- ── Duration badge (bottom-right) ─────────────────────────────── -->
+      <TextView
+          android:id="@+id/tv_duration"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="bottom|end"
+          android:layout_marginEnd="4dp"
+          android:layout_marginBottom="4dp"
+          android:text="0:00"
+          android:textColor="#DDDDDD"
+          android:textSize="10sp"
+          android:fontFamily="sans-serif-medium"
+          android:visibility="gone"/>
+
+      <!-- ── Multi-select: dim overlay ──────────────────────────────────── -->
+      <View
+          android:id="@+id/view_dim_overlay"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:background="#44000000"
+          android:visibility="gone"/>
+
+      <!-- ── Multi-select: selected highlight ──────────────────────────── -->
+      <View
+          android:id="@+id/view_select_overlay"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:background="#556C5CE7"
+          android:visibility="gone"/>
+
+      <!-- ── Multi-select: checkmark (top-right) ───────────────────────── -->
+      <ImageView
+          android:id="@+id/iv_checkmark"
+          android:layout_width="24dp"
+          android:layout_height="24dp"
+          android:layout_gravity="top|end"
+          android:layout_margin="6dp"
+          android:src="@drawable/ic_double_tick_blue"
+          android:background="@drawable/circle_primary"
+          android:padding="3dp"
+          android:contentDescription="Selected"
+          android:visibility="gone"/>
+
+  </FrameLayout>
+  

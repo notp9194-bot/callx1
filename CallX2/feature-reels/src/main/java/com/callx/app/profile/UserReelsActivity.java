@@ -304,6 +304,15 @@ public class UserReelsActivity extends AppCompatActivity
 
         rvReels.setLayoutManager(gridLayoutManager);
         rvReels.setAdapter(adapter);
+          // 1dp gap between grid cells — matches Instagram reel grid style
+          int gap = Math.round(getResources().getDisplayMetrics().density);
+          rvReels.addItemDecoration(new RecyclerView.ItemDecoration() {
+              @Override
+              public void getItemOffsets(@NonNull android.graphics.Rect out, @NonNull View view,
+                                         @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+                  out.set(gap, gap, 0, 0);
+              }
+          });
         // KEY FIX: RecyclerView must NOT have nested scrolling disabled.
         // It lives directly inside SwipeRefreshLayout (no NestedScrollView wrapper),
         // so it scrolls normally on its own.
