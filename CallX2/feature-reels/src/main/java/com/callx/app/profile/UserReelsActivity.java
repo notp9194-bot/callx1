@@ -114,6 +114,8 @@ public class UserReelsActivity extends AppCompatActivity
     private View            layoutFollowingClick;
     private View            btnRepostSection;
     private View            btnSeriesSection;
+    private com.google.android.material.appbar.AppBarLayout appBarLayout;
+    private boolean         isAppBarExpanded = true;
 
     // State
     private String  targetUid, targetName, targetPhoto;
@@ -238,6 +240,7 @@ public class UserReelsActivity extends AppCompatActivity
         layoutInstagram  = findViewById(R.id.layout_instagram);
         layoutYoutube    = findViewById(R.id.layout_youtube);
         layoutOtherLink  = findViewById(R.id.layout_other_link);
+        appBarLayout     = findViewById(R.id.app_bar);
     }
 
     // ── Header ────────────────────────────────────────────────────────────
@@ -326,8 +329,19 @@ public class UserReelsActivity extends AppCompatActivity
             loadCurrentTab(true);
             if (activeTab == TAB_REELS) loadPinnedReel();
         });
-        // Initially enabled; scroll listener will toggle it
         swipeRefresh.setEnabled(true);
+
+        // Instagram-style: disable pull-to-refresh while AppBarLayout is mid-collapse.
+        // SwipeRefreshLayout must only activate when the header is fully expanded AND
+        // the RecyclerView has not scrolled (i.e., the user is truly at the very top).
+        if (appBarLayout != null) {
+            appBarLayout.addOnOffsetChangedListener((abl, verticalOffset) -> {
+                isAppBarExpanded = (verticalOffset == 0);
+                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+                    swipeRefresh.setEnabled(isAppBarExpanded && !rvReels.canScrollVertically(-1));
+                }
+            });
+        }
     }
 
     // ── Scroll listener for pagination + SwipeRefresh guard ───────────────
@@ -343,9 +357,10 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                // Allow pull-to-refresh only when list is fully at top
-                if (swipeRefresh != null) {
-                    swipeRefresh.setEnabled(!rv.canScrollVertically(-1));
+                // SwipeRefresh only when AppBarLayout fully expanded AND list at very top.
+                // isAppBarExpanded is updated by the AppBarLayout offset listener in setupSwipeRefresh().
+                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+                    swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
                 }
 
                 // Pagination trigger: load next page when 6 items from end
