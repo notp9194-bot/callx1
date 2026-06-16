@@ -394,7 +394,10 @@ public class UserReelsActivity extends AppCompatActivity
                 // rvSeries hidden for all 3 tabs now
                 if (rvSeries != null) rvSeries.setVisibility(android.view.View.GONE);
                 if (rvReels  != null) rvReels.setVisibility(android.view.View.VISIBLE);
-                adapter.notifyDataSetChanged();
+                // FIX: adapter must point at the new tab's actual list (Reels/Liked/Saved),
+                // otherwise it keeps showing the old (Reels) list/size and the RecyclerView
+                // can't scroll properly, which also breaks the AppBarLayout collapse above it.
+                adapter.setReelsList(activeTabData());
                 if (activeTabData().isEmpty()) loadCurrentTab(true);
                 else refreshEmptyState();
             }

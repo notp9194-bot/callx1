@@ -51,7 +51,7 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     // ── Fields ────────────────────────────────────────────────────────────
 
     private final Context                    context;
-    private final List<ReelModel>            reels;
+    private List<ReelModel>                  reels;
     private final OnItemClickListener        clickListener;
     private final LongPressListener          longPressListener;
     private final MultiSelectChangeListener  multiSelectListener;
@@ -79,6 +79,13 @@ public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         this.clickListener       = clickListener;
         this.longPressListener   = longPressListener;
         this.multiSelectListener = multiSelectListener;
+    }
+
+    // ── Tab switch fix: swap underlying list reference ───────────────────
+    /** Switches the adapter to point at a different tab's data list (Reels/Liked/Saved). */
+    public void setReelsList(List<ReelModel> newList) {
+        this.reels = newList;
+        notifyDataSetChanged();
     }
 
     // ── Feature 6: Pinned reel ────────────────────────────────────────────
