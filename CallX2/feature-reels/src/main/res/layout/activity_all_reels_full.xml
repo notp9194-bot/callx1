@@ -75,7 +75,7 @@
               app:tabGravity="fill"
               app:tabTextAppearance="@style/TextAppearance.Material3.LabelLarge"
               app:tabSelectedTextColor="?attr/colorPrimary"
-              app:tabUnselectedTextColor="?attr/colorOnSurfaceVariant"
+              app:tabTextColor="?attr/colorOnSurfaceVariant"
               app:tabIndicatorColor="?attr/colorPrimary"
               app:tabIndicatorHeight="2dp"
               app:layout_scrollFlags="noScroll">
