@@ -32,8 +32,8 @@ import java.util.*;
  *
  * On ACCEPT, writes to Firebase:
  *  • reels/{newId}                              — new collab reel document (isCollabRepost=true)
- *  • user_videos/{initiatorUid}/{newId}         — appears on initiator's profile
- *  • user_videos/{collaboratorUid}/{newId}      — appears on collaborator's profile
+ *  • reelsByUser/{initiatorUid}/{newId}         — appears on initiator's profile
+ *  • reelsByUser/{collaboratorUid}/{newId}      — appears on collaborator's profile
  *  • collabReposts/{collabRepostId}             — canonical collab record (status=accepted)
  *  • collabRepostInvites/{collaboratorUid}/{id} — status=accepted
  *  • collabRepostSent/{initiatorUid}/{id}       — status=accepted + collabReelId
@@ -489,8 +489,10 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
         progressBar.setVisibility(View.VISIBLE);
 
         // Create new collab reel document
-        DatabaseReference newReelRef = FirebaseDatabase.getInstance(Constants.DB_URL)
-            .getReference("reels/videos").push();
+        // NOTE: must use the SAME path the rest of the app uses for reels (FirebaseUtils.getReelsRef()
+        // = "reels/{reelId}"), NOT "reels/videos/...". Writing to the wrong path silently created the
+        // collab reel in a location no profile/feed screen ever reads from.
+        DatabaseReference newReelRef = com.callx.app.utils.FirebaseUtils.getReelsRef().push();
         String newReelId = newReelRef.getKey();
         if (newReelId == null) {
             resetButtons(); return;
@@ -537,14 +539,15 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
         DatabaseReference root = FirebaseDatabase.getInstance(Constants.DB_URL).getReference();
         Map<String, Object> updates = new HashMap<>();
 
-        // 1. New reel document
-        updates.put("reels/videos/" + newReelId, reelData);
+        // 1. New reel document — must match FirebaseUtils.getReelsRef() = "reels/{reelId}"
+        updates.put("reels/" + newReelId, reelData);
 
-        // 2. Appears on initiator's profile
-        updates.put("reels/user_videos/" + initiatorUid + "/" + newReelId, now);
+        // 2. Appears on initiator's profile — must match FirebaseUtils.getReelsByUserRef(uid)
+        //    = "reelsByUser/{uid}/{reelId}", same path UserReelsActivity/AllReelsFullActivity query.
+        updates.put("reelsByUser/" + initiatorUid + "/" + newReelId, true);
 
         // 3. Appears on collaborator's profile
-        updates.put("reels/user_videos/" + myUid + "/" + newReelId, now);
+        updates.put("reelsByUser/" + myUid + "/" + newReelId, true);
 
         // 4. Update collab invite status
         updates.put("collabRepostInvites/" + myUid + "/" + collabRepostId + "/status",      "accepted");
@@ -604,7 +607,7 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
         }
 
         // 9. Increment collabRepostCount on original reel
-        root.child("reels/videos/" + originalReelId + "/collabRepostCount").runTransaction(
+        root.child("reels/" + originalReelId + "/collabRepostCount").runTransaction(
             new Transaction.Handler() {
                 @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
                     Integer c = d.getValue(Integer.class);

@@ -76,8 +76,8 @@ public class CollabRepostModel {
     /**
      * Once accepted, the new collab repost reel ID written to:
      *  reels/{collabReelId} — with isCollabRepost=true
-     *  user_videos/{initiatorUid}/{collabReelId}
-     *  user_videos/{collaboratorUid}/{collabReelId}
+     *  reelsByUser/{initiatorUid}/{collabReelId}
+     *  reelsByUser/{collaboratorUid}/{collabReelId}
      */
     public String collabReelId;
 
