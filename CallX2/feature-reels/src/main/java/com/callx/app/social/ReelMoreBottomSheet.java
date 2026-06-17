@@ -60,6 +60,8 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_VIDEO_REPLY         = "video_reply";
     public static final String ACTION_SHARE_TO_STORY      = "share_to_story";
     public static final String ACTION_COLLAB_REQUEST      = "collab_request";
+    /** Collab Repost — opens CollabRepostActivity for joint repost with a collaborator */
+    public static final String ACTION_COLLAB_REPOST       = "collab_repost";
     public static final String ACTION_NOT_INTERESTED      = "not_interested";
     public static final String ACTION_COPY_LINK           = "copy_link";
     public static final String ACTION_REPORT              = "report";
@@ -112,6 +114,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private static final int CLR_TEAL     = 0xFF00E5FF;
     private static final int CLR_RED      = 0xFFFF4444;
     private static final int CLR_GOLD     = 0xFFFFE082;
+    private static final int CLR_COLLAB   = 0xFF7C3AED; // violet for collab repost
     private static final int CLR_DISABLED = 0x55FFFFFF; // semi-transparent white for locked items
 
     private OnItemClickListener listener;
@@ -308,10 +311,11 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             list.add(new MenuItem(ACTION_VIEW_SERIES, "View Series 🎬", R.drawable.ic_duet_series, CLR_CYAN, false, false));
         }
 
-        list.add(new MenuItem(ACTION_VIDEO_REPLY,   "Video Reply",      R.drawable.ic_reply,       CLR_PURPLE, false, false));
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY,"Share to Story",   R.drawable.ic_share_reel,  CLR_GREEN,  true,  false));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST,"Collab Request",   R.drawable.ic_group,       CLR_TEAL,   true,  false));
-        list.add(new MenuItem(ACTION_NOT_INTERESTED,"Not Interested",   R.drawable.ic_eye_off,     CLR_GOLD,   false, false));
+        list.add(new MenuItem(ACTION_VIDEO_REPLY,   "Video Reply",        R.drawable.ic_reply,       CLR_PURPLE,  false, false));
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY,"Share to Story",   R.drawable.ic_share_reel,  CLR_GREEN,   true,  false));
+        list.add(new MenuItem(ACTION_COLLAB_REPOST, "🤝 Collab Repost", R.drawable.ic_group,       CLR_COLLAB,  false, false));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST,"Collab Request",   R.drawable.ic_group,       CLR_TEAL,    true,  false));
+        list.add(new MenuItem(ACTION_NOT_INTERESTED,"Not Interested",   R.drawable.ic_eye_off,     CLR_GOLD,    false, false));
         list.add(new MenuItem(ACTION_COPY_LINK,     "Copy Link",        R.drawable.ic_link,        CLR_CYAN,   true,  false));
         list.add(new MenuItem(ACTION_REPORT,        "Report",           R.drawable.ic_flag,        CLR_RED,    false, false));
         list.add(new MenuItem(ACTION_BLOCK,         "Block User",       R.drawable.ic_phone_off,   CLR_RED,    false, false));
@@ -347,9 +351,10 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             list.add(new MenuItem(ACTION_VIEW_SERIES, "View Series 🎬", R.drawable.ic_duet_series, CLR_CYAN, false, false));
         }
 
-        list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story", R.drawable.ic_share_reel, CLR_GREEN,  true,  false));
-        list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",        R.drawable.ic_qr_code,    CLR_ORANGE, false, false));
-        list.add(new MenuItem(ACTION_COLLAB_REQUEST, "Collab Request", R.drawable.ic_group,       CLR_TEAL,   true,  false));
+        list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story",   R.drawable.ic_share_reel, CLR_GREEN,   true,  false));
+        list.add(new MenuItem(ACTION_COLLAB_REPOST,  "🤝 Collab Repost", R.drawable.ic_group,      CLR_COLLAB,  false, false));
+        list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",          R.drawable.ic_qr_code,    CLR_ORANGE,  false, false));
+        list.add(new MenuItem(ACTION_COLLAB_REQUEST, "Collab Request",   R.drawable.ic_group,       CLR_TEAL,   true,  false));
         list.add(new MenuItem(ACTION_COPY_LINK,      "Copy Link",      R.drawable.ic_link,        CLR_CYAN,   false, false));
         list.add(new MenuItem(ACTION_DELETE,         "Delete",         R.drawable.ic_delete,      CLR_RED,    false, false));
         return list;

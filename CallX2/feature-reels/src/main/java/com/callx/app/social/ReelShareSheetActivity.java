@@ -54,7 +54,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
 
     private RecyclerView  rvContacts;
     private ProgressBar   progressBar;
-    private View          btnCopyLink, btnShareExternal, btnShareToStatus, btnRepostWithCaption;
+    private View          btnCopyLink, btnShareExternal, btnShareToStatus, btnRepostWithCaption, btnCollabRepost;
 
     private ReelContactShareAdapter  adapter;
     private final List<User>         contacts = new ArrayList<>();
@@ -119,6 +119,7 @@ public class ReelShareSheetActivity extends AppCompatActivity
         btnShareExternal     = findViewById(R.id.btn_share_external);
         btnShareToStatus     = findViewById(R.id.btn_share_to_status);
         btnRepostWithCaption = findViewById(R.id.btn_repost_with_caption);
+        btnCollabRepost      = findViewById(R.id.btn_collab_repost);
 
         adapter = new ReelContactShareAdapter(contacts, this);
         rvContacts.setLayoutManager(
@@ -130,6 +131,8 @@ public class ReelShareSheetActivity extends AppCompatActivity
         btnShareToStatus.setOnClickListener(v -> shareToStatus());
         if (btnRepostWithCaption != null)
             btnRepostWithCaption.setOnClickListener(v -> openRepostWithCaption());
+        if (btnCollabRepost != null)
+            btnCollabRepost.setOnClickListener(v -> openCollabRepost());
 
         loadContacts();
     }
@@ -240,6 +243,35 @@ public class ReelShareSheetActivity extends AppCompatActivity
         i.putExtra(RepostWithCaptionActivity.EXTRA_THUMB_URL,  getIntent().getStringExtra(EXTRA_THUMB_URL) != null ? getIntent().getStringExtra(EXTRA_THUMB_URL) : "");
         i.putExtra(RepostWithCaptionActivity.EXTRA_VIDEO_URL,  videoUrl != null ? videoUrl : "");
         i.putExtra(RepostWithCaptionActivity.EXTRA_CAPTION,    caption != null ? caption : "");
+        startActivity(i);
+        finish();
+    }
+
+    /**
+     * Opens CollabRepostActivity — the user selects a collaborator and initiates
+     * a joint collab repost with them.
+     *
+     * Triggered by:
+     *  • "🤝 Collab Repost" button in the share sheet (btn_collab_repost)
+     *  • ACTION_COLLAB_REPOST in ReelMoreBottomSheet
+     */
+    private void openCollabRepost() {
+        if (!allowRepost) {
+            Toast.makeText(this, "This creator has disabled reposting of this reel.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String thumbUrl = getIntent().getStringExtra(EXTRA_THUMB_URL);
+        Intent i = new Intent(this, CollabRepostActivity.class);
+        i.putExtra(CollabRepostActivity.EXTRA_REEL_ID,       reelId);
+        i.putExtra(CollabRepostActivity.EXTRA_OWNER_UID,     ownerUid   != null ? ownerUid   : "");
+        i.putExtra(CollabRepostActivity.EXTRA_OWNER_NAME,    "");           // resolved inside activity
+        i.putExtra(CollabRepostActivity.EXTRA_THUMB_URL,     thumbUrl   != null ? thumbUrl   : "");
+        i.putExtra(CollabRepostActivity.EXTRA_VIDEO_URL,     videoUrl   != null ? videoUrl   : "");
+        i.putExtra(CollabRepostActivity.EXTRA_CAPTION,       caption    != null ? caption    : "");
+        i.putExtra(CollabRepostActivity.EXTRA_ALLOW_REPOSTS, allowRepost);
+        // Media type: not available from share sheet extras — default to "video".
+        // Callers that know the media type should launch CollabRepostActivity directly.
+        i.putExtra(CollabRepostActivity.EXTRA_MEDIA_TYPE,   "video");
         startActivity(i);
         finish();
     }

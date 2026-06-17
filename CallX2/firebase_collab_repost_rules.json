@@ -1,0 +1,40 @@
+{
+  "_comment": "Collab Repost system — Firebase Realtime Database security rules.",
+  "_instructions": [
+    "1. Open Firebase Console → Realtime Database → Rules tab",
+    "2. Merge the 'rules' object below into your existing rules JSON",
+    "3. These rules complement firebase_repost_rules.json — both are needed"
+  ],
+  "_firebase_paths": {
+    "collabRepostInvites/{collaboratorUid}/{inviteId}": "Pending/processed invites received by a user",
+    "collabRepostSent/{initiatorUid}/{inviteId}":       "Invites sent by a user (initiator's copy)",
+    "collabReposts/{collabRepostId}":                   "Canonical collab repost records (post-accept)"
+  },
+  "rules": {
+    "collabRepostInvites": {
+      "$collaboratorUid": {
+        ".read":  "auth != null && auth.uid === $collaboratorUid",
+        "$inviteId": {
+          ".write": "auth != null && (auth.uid === $collaboratorUid || (newData.exists() && newData.child('initiatorUid').val() === auth.uid))",
+          ".validate": "newData.hasChildren(['collabRepostId','originalReelId','initiatorUid','collaboratorUid','status','createdAt']) && newData.child('status').isString() && (newData.child('status').val() === 'pending' || newData.child('status').val() === 'accepted' || newData.child('status').val() === 'declined' || newData.child('status').val() === 'cancelled' || newData.child('status').val() === 'expired')"
+        }
+      }
+    },
+    "collabRepostSent": {
+      "$initiatorUid": {
+        ".read":  "auth != null && auth.uid === $initiatorUid",
+        "$inviteId": {
+          ".write": "auth != null && (auth.uid === $initiatorUid || (data.exists() && data.child('collaboratorUid').val() === auth.uid))",
+          ".validate": "newData.hasChildren(['collabRepostId','originalReelId','initiatorUid','collaboratorUid','status','createdAt'])"
+        }
+      }
+    },
+    "collabReposts": {
+      "$collabRepostId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (data.child('initiatorUid').val() === auth.uid || data.child('collaboratorUid').val() === auth.uid || (!data.exists() && newData.child('initiatorUid').val() === auth.uid))",
+        ".validate": "newData.hasChildren(['collabRepostId','originalReelId','initiatorUid','collaboratorUid','status','createdAt','audienceType'])"
+      }
+    }
+  }
+}

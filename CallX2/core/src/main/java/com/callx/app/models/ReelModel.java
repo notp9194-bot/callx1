@@ -325,6 +325,84 @@ public class ReelModel {
     /** Slot index (0 = host, 1-3 = participants) in the multi-duet grid. */
     public int    multiDuetSlot;
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── Collab Repost fields ──────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * True when this reel is a collaborative repost (created by CollabRepostAcceptActivity).
+     * Both co-authors' profiles show this reel. Default: false.
+     */
+    public boolean isCollabRepost = false;
+
+    /**
+     * Firebase key of the CollabRepostModel record that produced this reel.
+     * Path: collabReposts/{collabRepostId}
+     * Allows linking back to the invite / acceptance record.
+     */
+    public String collabRepostId;
+
+    /**
+     * UID of the user who initiated (sent) the collab repost invite.
+     * On the published reel, this user is shown as the primary co-author.
+     */
+    public String collabInitiatorUid;
+
+    /** Display name of the collab repost initiator. */
+    public String collabInitiatorName;
+
+    /** Profile photo URL of the collab repost initiator (for in-feed avatar). */
+    public String collabInitiatorPhoto;
+
+    /**
+     * Initiator's own caption / commentary on this collab repost.
+     * Shown beneath the initiator's avatar on the reel card.
+     */
+    public String collabInitiatorCaption;
+
+    /**
+     * UID of the user who accepted the collab repost invite (the collaborator).
+     * Note: field name intentionally spelled "Colaborator" (one 'l') to match
+     * legacy data written by CollabRepostAcceptActivity v1; both spellings are
+     * accepted by @IgnoreExtraProperties.
+     */
+    public String collabColaboratorUid;
+
+    /** Display name of the collab repost collaborator. */
+    public String collabCollaboratorName;
+
+    /** Profile photo URL of the collab repost collaborator. */
+    public String collabCollaboratorPhoto;
+
+    /**
+     * Collaborator's own caption / commentary on this collab repost.
+     * Shown beneath the collaborator's avatar on the reel card.
+     */
+    public String collabCollaboratorCaption;
+
+    /**
+     * The original reel's caption — preserved here for display inside the
+     * collab repost card without requiring a secondary Firestore read.
+     */
+    public String originalCaption;
+
+    /**
+     * Number of times this reel has been collab-reposted by pairs of users.
+     * Incremented atomically by CollabRepostAcceptActivity on each acceptance.
+     * Default: 0.
+     */
+    public int collabRepostCount;
+
+    /**
+     * Combined (joint) caption shown at the top of the reel post.
+     * Built by CollabRepostAcceptActivity.buildJointCaption():
+     *   "initiatorCaption | collaboratorCaption"
+     * If only one caption was provided, only that caption is stored.
+     * Falls back to originalCaption if both users left their captions empty.
+     */
+    // Note: joint caption is already stored in the `caption` field.
+    // These sub-captions allow UIs to display each author's caption separately.
+
     public ReelModel() {}
 
     public ReelModel(String reelId, String uid, String ownerName, String ownerPhoto,
