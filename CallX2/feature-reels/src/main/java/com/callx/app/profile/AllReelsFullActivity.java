@@ -136,7 +136,7 @@ package com.callx.app.profile;
           });
           rvReels.setLayoutManager(layoutManager);
           rvReels.setAdapter(adapter);
-          rvReels.addItemDecoration(new ReelGridAdapter.WhiteGridDecoration(this));
+        rvReels.addItemDecoration(new ReelGridAdapter.WhiteGridDecoration(this));
           rvReels.setHasFixedSize(false);
       }
 

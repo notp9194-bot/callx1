@@ -307,7 +307,7 @@ public class UserReelsActivity extends AppCompatActivity
 
         rvReels.setLayoutManager(gridLayoutManager);
         rvReels.setAdapter(adapter);
-          rvReels.addItemDecoration(new ReelGridAdapter.WhiteGridDecoration(this));
+        rvReels.addItemDecoration(new ReelGridAdapter.WhiteGridDecoration(this));
         // KEY FIX: RecyclerView must NOT have nested scrolling disabled.
         // It lives directly inside SwipeRefreshLayout (no NestedScrollView wrapper),
         // so it scrolls normally on its own.
@@ -365,35 +365,16 @@ public class UserReelsActivity extends AppCompatActivity
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
               public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                  // ── PROFILE HEADER SCROLL FIX ────────────────────────────────
-                  // Root cause: SwipeRefreshLayout only implements NestedScrollingParent v1,
-                  // NOT v2/v3 required by CoordinatorLayout for AppBarLayout collapsing.
-                  // Result: RecyclerView scroll stays inside SwipeRefreshLayout and the
-                  // profile header above the tabs never collapses.
-                  // Fix: call AppBarLayout.Behavior.onNestedPreScroll() directly with the
-                  // RecyclerView dy, bypassing the broken SwipeRefreshLayout chain entirely.
-                  if (appBarLayout != null
-                          && appBarLayout.getParent() instanceof CoordinatorLayout) {
-                      CoordinatorLayout cl =
-                          (CoordinatorLayout) appBarLayout.getParent();
-                      CoordinatorLayout.LayoutParams lp =
-                          (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
-                      CoordinatorLayout.Behavior<?> b = lp.getBehavior();
-                      if (b instanceof AppBarLayout.Behavior) {
-                          ((AppBarLayout.Behavior) b).onNestedPreScroll(
-                              cl, appBarLayout, rv,
-                              0, dy, new int[]{0, 0},
-                              ViewCompat.TYPE_NON_TOUCH
-                          );
-                      }
-                  }
+                  // SwipeRefreshLayout hata diya activity_user_reels.xml se.
+                  // Reason: SwipeRefreshLayout sirf NestedScrollingParent v1 implement karta hai
+                  // (v2/v3 nahi), isliye CoordinatorLayout ko nested scroll events nahi milte
+                  // aur profile header kabhi collapse nahi hota.
+                  //
+                  // Fix: RecyclerView ab directly FrameLayout (app:layout_behavior) ke andar hai.
+                  // Scroll chain: RecyclerView → FrameLayout → CoordinatorLayout → AppBarLayout ✅
+                  // swipeRefresh = null at runtime; har jagah null-check hai so no crash.
 
-                  // SwipeRefresh only when AppBarLayout fully expanded AND list at very top.
-                  if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                      swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
-                  }
-
-                  // Pagination trigger: load next page when 6 items from end
+                  // Pagination: load next page when 6 items from end
                   if (isLoadingMore) return;
                   if (!getCurrentTabHasMore()) return;
                   int total       = gridLayoutManager.getItemCount();

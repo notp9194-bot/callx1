@@ -37,15 +37,15 @@ package com.callx.app.profile;
 
       private ReelModel                   pinnedReel        = null;
       private boolean                     skeletonMode      = false;
-      private boolean                     multiSelectMode   = false;
       private boolean                     showViewsOverlay  = false;
+      private boolean                     multiSelectMode   = false;
       private final Map<Integer, Boolean> selectedPositions = new HashMap<>();
 
-      /** White-line separator: 1dp top+left gap per cell. RecyclerView bg = #FFFFFF shows through. */
+      /** 1dp white separator: RecyclerView bg=#FFFFFF, item bg=#000000, gap shows through. */
       public static class WhiteGridDecoration extends RecyclerView.ItemDecoration {
           private final int gap;
           public WhiteGridDecoration(Context ctx) {
-              gap = Math.round(ctx.getResources().getDisplayMetrics().density); // 1dp → px
+              gap = Math.round(ctx.getResources().getDisplayMetrics().density);
           }
           @Override
           public void getItemOffsets(@NonNull Rect out, @NonNull View view,
@@ -57,15 +57,13 @@ package com.callx.app.profile;
       public ReelGridAdapter(Context context, List<ReelModel> reels, OnItemClickListener clickListener) {
           this(context, reels, clickListener, null, null);
       }
-
       public ReelGridAdapter(Context context, List<ReelModel> reels,
                              OnItemClickListener clickListener,
                              LongPressListener longPressListener,
                              MultiSelectChangeListener multiSelectListener) {
-          this.context             = context;
-          this.reels               = reels;
-          this.clickListener       = clickListener;
-          this.longPressListener   = longPressListener;
+          this.context = context; this.reels = reels;
+          this.clickListener = clickListener;
+          this.longPressListener = longPressListener;
           this.multiSelectListener = multiSelectListener;
       }
 
@@ -74,36 +72,27 @@ package com.callx.app.profile;
       private int reelIndexFor(int pos)             { return hasPinned() ? pos - 1 : pos; }
       public void setSkeletonMode(boolean s)        { this.skeletonMode = s; }
       public void setShowViewsOverlay(boolean show) { this.showViewsOverlay = show; }
+      public void setMultiSelectMode(boolean e)     { this.multiSelectMode = e; if (!e) clearSelections(); else notifyDataSetChanged(); }
+      public void setSelected(int pos, boolean sel) { if (sel) selectedPositions.put(pos, true); else selectedPositions.remove(pos); }
+      public void clearSelections()                 { selectedPositions.clear(); notifyDataSetChanged(); }
+      public int  getSelectedCount()                { return selectedPositions.size(); }
 
-      public void setMultiSelectMode(boolean enabled) {
-          this.multiSelectMode = enabled;
-          if (!enabled) clearSelections(); else notifyDataSetChanged();
-      }
-      public void setSelected(int pos, boolean sel) {
-          if (sel) selectedPositions.put(pos, true); else selectedPositions.remove(pos);
-      }
-      public void clearSelections() { selectedPositions.clear(); notifyDataSetChanged(); }
-      public int getSelectedCount() { return selectedPositions.size(); }
-
-      @Override public int getItemViewType(int position) {
+      @Override public int getItemViewType(int pos) {
           if (skeletonMode) return TYPE_SKELETON;
-          if (hasPinned() && position == 0) return TYPE_PINNED;
+          if (hasPinned() && pos == 0) return TYPE_PINNED;
           return TYPE_REEL;
       }
-
       @Override public int getItemCount() {
           if (skeletonMode) return SKELETON_COUNT;
           return reels.size() + (hasPinned() ? 1 : 0);
       }
 
       @NonNull @Override
-      public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+      public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int type) {
           LayoutInflater inf = LayoutInflater.from(context);
-          if (viewType == TYPE_SKELETON)
-              return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, parent, false));
-          if (viewType == TYPE_PINNED)
-              return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, parent, false));
-          return new ReelVH(inf.inflate(R.layout.item_saved_reel, parent, false));
+          if (type == TYPE_SKELETON) return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, p, false));
+          if (type == TYPE_PINNED)   return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, p, false));
+          return new ReelVH(inf.inflate(R.layout.item_saved_reel, p, false));
       }
 
       @Override
@@ -111,46 +100,36 @@ package com.callx.app.profile;
           if (holder instanceof SkeletonVH) { ((SkeletonVH) holder).shimmer.startShimmer(); return; }
           if (holder instanceof PinnedVH)   { bindPinned((PinnedVH) holder); return; }
           if (!(holder instanceof ReelVH))  return;
-
           ReelVH h = (ReelVH) holder;
-          int reelIdx = reelIndexFor(position);
-          if (reelIdx < 0 || reelIdx >= reels.size()) return;
-          ReelModel reel = reels.get(reelIdx);
+          int idx = reelIndexFor(position);
+          if (idx < 0 || idx >= reels.size()) return;
+          ReelModel r = reels.get(idx);
 
-          if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty())
-              Glide.with(context).load(reel.thumbUrl).centerCrop()
-                      .placeholder(R.drawable.ic_reels).into(h.ivThumb);
+          if (r.thumbUrl != null && !r.thumbUrl.isEmpty())
+              Glide.with(context).load(r.thumbUrl).centerCrop().placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
 
           if (h.tvCaption != null) {
-              boolean has = reel.caption != null && !reel.caption.trim().isEmpty();
-              h.tvCaption.setText(has ? reel.caption.trim() : "");
+              boolean has = r.caption != null && !r.caption.trim().isEmpty();
+              h.tvCaption.setText(has ? r.caption.trim() : "");
               h.tvCaption.setVisibility(has ? View.VISIBLE : View.GONE);
           }
-
           if (h.tvViewsOverlay != null) {
-              h.tvViewsOverlay.setText(formatCount(Math.max(reel.viewsCount, 0)));
+              h.tvViewsOverlay.setText(formatCount(Math.max(r.viewsCount, 0)));
               h.tvViewsOverlay.setVisibility(View.VISIBLE);
           }
-
           if (h.tvDuration != null) {
-              if (reel.duration > 0) {
-                  int s = (reel.duration / 1000) % 60, m = reel.duration / 60000;
-                  h.tvDuration.setText(String.format(Locale.getDefault(), "%d:%02d", m, s));
+              if (r.duration > 0) {
+                  int s=(r.duration/1000)%60, m=r.duration/60000;
+                  h.tvDuration.setText(String.format(Locale.getDefault(),"%d:%02d",m,s));
                   h.tvDuration.setVisibility(View.VISIBLE);
               } else h.tvDuration.setVisibility(View.GONE);
           }
 
-          if (multiSelectMode) {
-              boolean sel = Boolean.TRUE.equals(selectedPositions.get(position));
-              if (h.viewSelectOverlay != null) h.viewSelectOverlay.setVisibility(sel ? View.VISIBLE : View.INVISIBLE);
-              if (h.ivCheckmark      != null) h.ivCheckmark.setVisibility(sel ? View.VISIBLE : View.INVISIBLE);
-              if (h.viewDimOverlay   != null) h.viewDimOverlay.setVisibility(View.VISIBLE);
-          } else {
-              if (h.viewSelectOverlay != null) h.viewSelectOverlay.setVisibility(View.GONE);
-              if (h.ivCheckmark      != null) h.ivCheckmark.setVisibility(View.GONE);
-              if (h.viewDimOverlay   != null) h.viewDimOverlay.setVisibility(View.GONE);
-          }
+          boolean sel = multiSelectMode && Boolean.TRUE.equals(selectedPositions.get(position));
+          if (h.viewSelectOverlay != null) h.viewSelectOverlay.setVisibility(multiSelectMode ? (sel ? View.VISIBLE : View.INVISIBLE) : View.GONE);
+          if (h.ivCheckmark      != null) h.ivCheckmark.setVisibility(multiSelectMode ? (sel ? View.VISIBLE : View.INVISIBLE) : View.GONE);
+          if (h.viewDimOverlay   != null) h.viewDimOverlay.setVisibility(multiSelectMode ? View.VISIBLE : View.GONE);
 
           h.itemView.setOnClickListener(v -> { if (clickListener != null) clickListener.onItemClick(holder.getAdapterPosition()); });
           h.itemView.setOnLongClickListener(v -> { if (longPressListener != null) longPressListener.onLongPress(holder.getAdapterPosition()); return true; });
@@ -159,15 +138,11 @@ package com.callx.app.profile;
       private void bindPinned(PinnedVH h) {
           if (pinnedReel == null) return;
           if (pinnedReel.thumbUrl != null && !pinnedReel.thumbUrl.isEmpty())
-              Glide.with(context).load(pinnedReel.thumbUrl).centerCrop()
-                      .placeholder(R.drawable.ic_reels).into(h.ivThumb);
+              Glide.with(context).load(pinnedReel.thumbUrl).centerCrop().placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
-          if (pinnedReel.duration > 0) {
-              int s=(pinnedReel.duration/1000)%60, m=pinnedReel.duration/60000;
-              h.tvDuration.setText(String.format(Locale.getDefault(),"%d:%02d",m,s));
-          }
-          boolean hasCaption = pinnedReel.caption != null && !pinnedReel.caption.isEmpty();
-          if (h.tvCaption  != null) { h.tvCaption.setText(hasCaption ? pinnedReel.caption : ""); h.tvCaption.setVisibility(hasCaption ? View.VISIBLE : View.GONE); }
+          if (pinnedReel.duration > 0) { int s=(pinnedReel.duration/1000)%60,m=pinnedReel.duration/60000; h.tvDuration.setText(String.format(Locale.getDefault(),"%d:%02d",m,s)); }
+          boolean has = pinnedReel.caption != null && !pinnedReel.caption.isEmpty();
+          if (h.tvCaption  != null) { h.tvCaption.setText(has?pinnedReel.caption:""); h.tvCaption.setVisibility(has?View.VISIBLE:View.GONE); }
           if (h.tvLikes    != null) h.tvLikes.setText(formatCount(pinnedReel.likesCount));
           if (h.tvComments != null) h.tvComments.setText(formatCount(pinnedReel.commentsCount));
           if (h.tvViews    != null) h.tvViews.setText(formatCount(pinnedReel.viewsCount));
@@ -176,65 +151,36 @@ package com.callx.app.profile;
       }
 
       private String formatCount(int n) {
-          if (n >= 1_000_000) return String.format(Locale.getDefault(), "%.1fM", n/1_000_000f);
-          if (n >= 1_000)     return String.format(Locale.getDefault(), "%.1fK", n/1_000f);
+          if (n>=1_000_000) return String.format(Locale.getDefault(),"%.1fM",n/1_000_000f);
+          if (n>=1_000)     return String.format(Locale.getDefault(),"%.1fK",n/1_000f);
           return String.valueOf(n);
       }
 
-      @Override
-      public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
+      @Override public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
           super.onViewAttachedToWindow(holder);
           if (!(holder instanceof PinnedVH)) {
               holder.itemView.post(() -> {
                   int w = holder.itemView.getWidth();
-                  if (w > 0) {
-                      ViewGroup.LayoutParams lp = holder.itemView.getLayoutParams();
-                      lp.height = (int)(w * 16f / 9f);
-                      holder.itemView.setLayoutParams(lp);
-                  }
+                  if (w > 0) { ViewGroup.LayoutParams lp = holder.itemView.getLayoutParams(); lp.height = (int)(w*16f/9f); holder.itemView.setLayoutParams(lp); }
               });
           }
       }
-
-      @Override
-      public void onViewDetachedFromWindow(@NonNull RecyclerView.ViewHolder holder) {
+      @Override public void onViewDetachedFromWindow(@NonNull RecyclerView.ViewHolder holder) {
           super.onViewDetachedFromWindow(holder);
-          if (holder instanceof SkeletonVH) ((SkeletonVH) holder).shimmer.stopShimmer();
+          if (holder instanceof SkeletonVH) ((SkeletonVH)holder).shimmer.stopShimmer();
       }
 
       static class ReelVH extends RecyclerView.ViewHolder {
-          ImageView ivThumb, ivCheckmark;
-          TextView  tvDuration, tvViewsOverlay, tvCaption;
-          View      viewSelectOverlay, viewDimOverlay;
-          ReelVH(@NonNull View v) {
-              super(v);
-              ivThumb           = v.findViewById(R.id.iv_thumb);
-              tvDuration        = v.findViewById(R.id.tv_duration);
-              tvViewsOverlay    = v.findViewById(R.id.tv_views_overlay);
-              tvCaption         = v.findViewById(R.id.tv_caption);
-              viewSelectOverlay = v.findViewById(R.id.view_select_overlay);
-              viewDimOverlay    = v.findViewById(R.id.view_dim_overlay);
-              ivCheckmark       = v.findViewById(R.id.iv_checkmark);
-          }
+          ImageView ivThumb, ivCheckmark; TextView tvDuration, tvViewsOverlay, tvCaption; View viewSelectOverlay, viewDimOverlay;
+          ReelVH(@NonNull View v) { super(v); ivThumb=v.findViewById(R.id.iv_thumb); tvDuration=v.findViewById(R.id.tv_duration); tvViewsOverlay=v.findViewById(R.id.tv_views_overlay); tvCaption=v.findViewById(R.id.tv_caption); viewSelectOverlay=v.findViewById(R.id.view_select_overlay); viewDimOverlay=v.findViewById(R.id.view_dim_overlay); ivCheckmark=v.findViewById(R.id.iv_checkmark); }
       }
-
       static class PinnedVH extends RecyclerView.ViewHolder {
-          ImageView ivThumb;
-          TextView  tvDuration, tvCaption, tvLikes, tvComments, tvViews;
-          PinnedVH(@NonNull View v) {
-              super(v);
-              ivThumb    = v.findViewById(R.id.iv_pinned_thumb);
-              tvDuration = v.findViewById(R.id.tv_pinned_duration);
-              tvCaption  = v.findViewById(R.id.tv_pinned_caption);
-              tvLikes    = v.findViewById(R.id.tv_pinned_likes);
-              tvComments = v.findViewById(R.id.tv_pinned_comments);
-              tvViews    = v.findViewById(R.id.tv_pinned_views);
-          }
+          ImageView ivThumb; TextView tvDuration, tvCaption, tvLikes, tvComments, tvViews;
+          PinnedVH(@NonNull View v) { super(v); ivThumb=v.findViewById(R.id.iv_pinned_thumb); tvDuration=v.findViewById(R.id.tv_pinned_duration); tvCaption=v.findViewById(R.id.tv_pinned_caption); tvLikes=v.findViewById(R.id.tv_pinned_likes); tvComments=v.findViewById(R.id.tv_pinned_comments); tvViews=v.findViewById(R.id.tv_pinned_views); }
       }
-
       static class SkeletonVH extends RecyclerView.ViewHolder {
           ShimmerFrameLayout shimmer;
-          SkeletonVH(@NonNull View v) { super(v); shimmer = v.findViewById(R.id.shimmer_layout); }
+          SkeletonVH(@NonNull View v) { super(v); shimmer=v.findViewById(R.id.shimmer_layout); }
       }
   }
   

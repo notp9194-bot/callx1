@@ -50,9 +50,8 @@
               android:background="#000000">
               <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_reels"
                   android:layout_width="match_parent" android:layout_height="match_parent"
-                  android:background="#FFFFFF"
-                  android:clipToPadding="false" android:overScrollMode="never"
-                  android:nestedScrollingEnabled="true"/>
+                  android:background="#FFFFFF" android:clipToPadding="false"
+                  android:overScrollMode="never" android:nestedScrollingEnabled="true"/>
               <ProgressBar android:id="@+id/progress_bar_bottom"
                   style="?android:attr/progressBarStyleHorizontal"
                   android:layout_width="match_parent" android:layout_height="3dp"
