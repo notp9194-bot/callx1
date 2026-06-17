@@ -810,7 +810,7 @@
                     android:textColor="?attr/colorOnSurfaceVariant"/>
             </LinearLayout>
 
-        </FrameLayout>
+        </LinearLayout>
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 
