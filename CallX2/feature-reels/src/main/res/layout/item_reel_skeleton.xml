@@ -10,13 +10,7 @@
       app:shimmer_highlight_color="#2E2E2E"
       app:shimmer_duration="1200"
       app:shimmer_auto_start="true">
-
-      <!-- Dark 9:16 placeholder -->
-      <View
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:minHeight="160dp"
-          android:background="#1A1A1A"/>
-
+      <View android:layout_width="match_parent" android:layout_height="match_parent"
+          android:minHeight="160dp" android:background="#1A1A1A"/>
   </com.facebook.shimmer.ShimmerFrameLayout>
   

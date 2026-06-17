@@ -1,17 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-  <!--
-    item_saved_reel.xml — 9:16 portrait reel grid cell (like Instagram Reels grid)
-    ──────────────────────────────────────────────────────────────────────────────
-    Aspect ratio 9:16 is enforced in ReelGridAdapter.onViewAttachedToWindow
-    by setting height = (int)(width * 16f / 9)
-  -->
   <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
       android:background="#000000"
       android:foreground="?attr/selectableItemBackground">
 
-      <!-- ── Thumbnail — fills full 9:16 cell ────────────────────────────── -->
       <ImageView
           android:id="@+id/iv_thumb"
           android:layout_width="match_parent"
@@ -20,14 +13,6 @@
           android:scaleType="centerCrop"
           android:contentDescription="Reel thumbnail"/>
 
-      <!-- ── Top gradient scrim (for caption readability) ─────────────── -->
-      <View
-          android:layout_width="match_parent"
-          android:layout_height="80dp"
-          android:layout_gravity="top"
-          android:background="@drawable/gradient_reel_top"/>
-
-      <!-- ── Caption text — top of cell, bold white ────────────────────── -->
       <TextView
           android:id="@+id/tv_caption"
           android:layout_width="match_parent"
@@ -41,21 +26,10 @@
           android:textStyle="bold"
           android:maxLines="3"
           android:ellipsize="end"
-          android:lineSpacingMultiplier="1.1"
           android:shadowColor="#CC000000"
-          android:shadowDx="0"
-          android:shadowDy="1"
-          android:shadowRadius="3"
+          android:shadowDx="0" android:shadowDy="1" android:shadowRadius="3"
           android:visibility="gone"/>
 
-      <!-- ── Bottom gradient scrim ─────────────────────────────────────── -->
-      <View
-          android:layout_width="match_parent"
-          android:layout_height="40dp"
-          android:layout_gravity="bottom"
-          android:background="@drawable/gradient_reel_bottom"/>
-
-      <!-- ── Play-count row (bottom-left) ─────────────────────────────── -->
       <LinearLayout
           android:layout_width="wrap_content"
           android:layout_height="wrap_content"
@@ -64,50 +38,33 @@
           android:layout_marginBottom="4dp"
           android:orientation="horizontal"
           android:gravity="center_vertical">
-
           <ImageView
-              android:layout_width="10dp"
-              android:layout_height="10dp"
-              android:src="@drawable/ic_play"
-              android:tint="#FFFFFF"
-              android:alpha="0.9"
-              android:contentDescription="Views"/>
-
+              android:layout_width="10dp" android:layout_height="10dp"
+              android:src="@drawable/ic_play" android:tint="#FFFFFF"
+              android:alpha="0.9" android:contentDescription="Views"/>
           <TextView
               android:id="@+id/tv_views_overlay"
-              android:layout_width="wrap_content"
-              android:layout_height="wrap_content"
-              android:layout_marginStart="3dp"
-              android:text="0"
-              android:textColor="#FFFFFF"
-              android:textSize="10sp"
+              android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:layout_marginStart="3dp" android:text="0"
+              android:textColor="#FFFFFF" android:textSize="10sp"
               android:fontFamily="sans-serif-medium"/>
-
       </LinearLayout>
 
-      <!-- ── Duration badge (bottom-right) ─────────────────────────────── -->
       <TextView
           android:id="@+id/tv_duration"
-          android:layout_width="wrap_content"
-          android:layout_height="wrap_content"
+          android:layout_width="wrap_content" android:layout_height="wrap_content"
           android:layout_gravity="bottom|end"
-          android:layout_marginEnd="4dp"
-          android:layout_marginBottom="4dp"
-          android:text="0:00"
-          android:textColor="#DDDDDD"
-          android:textSize="10sp"
-          android:fontFamily="sans-serif-medium"
+          android:layout_marginEnd="4dp" android:layout_marginBottom="4dp"
+          android:text="0:00" android:textColor="#DDDDDD"
+          android:textSize="10sp" android:fontFamily="sans-serif-medium"
           android:visibility="gone"/>
 
-      <!-- ── Multi-select overlays ──────────────────────────────────────── -->
       <View android:id="@+id/view_dim_overlay"
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:background="#44000000" android:visibility="gone"/>
-
       <View android:id="@+id/view_select_overlay"
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:background="#556C5CE7" android:visibility="gone"/>
-
       <ImageView android:id="@+id/iv_checkmark"
           android:layout_width="24dp" android:layout_height="24dp"
           android:layout_gravity="top|end" android:layout_margin="6dp"
@@ -115,6 +72,5 @@
           android:background="@drawable/circle_primary"
           android:padding="3dp" android:contentDescription="Selected"
           android:visibility="gone"/>
-
   </FrameLayout>
   
