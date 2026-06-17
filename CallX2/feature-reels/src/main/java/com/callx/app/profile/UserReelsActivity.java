@@ -122,15 +122,6 @@ public class UserReelsActivity extends AppCompatActivity
     private com.google.android.material.appbar.AppBarLayout appBarLayout;
     private boolean         isAppBarExpanded = true;
 
-      // Filter chips
-      private static final int FILTER_ALL    = 0;
-      private static final int FILTER_SHORT  = 1;
-      private static final int FILTER_LONG   = 2;
-      private static final int FILTER_VIEWED = 3;
-      private int              activeFilter  = FILTER_ALL;
-      private android.widget.HorizontalScrollView hsvFilterChips;
-      private android.widget.LinearLayout         llFilterChips;
-
       // ── Filter chips state ─────────────────────────────────────────────
       private static final int FILTER_ALL    = 0;
       private static final int FILTER_SHORT  = 1; // duration < 15s
