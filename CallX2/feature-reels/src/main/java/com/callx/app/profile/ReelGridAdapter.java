@@ -9,25 +9,15 @@ package com.callx.app.profile;
   import android.widget.TextView;
   import androidx.annotation.NonNull;
   import androidx.recyclerview.widget.RecyclerView;
-
   import com.bumptech.glide.Glide;
   import com.facebook.shimmer.ShimmerFrameLayout;
   import com.callx.app.reels.R;
   import com.callx.app.models.ReelModel;
-
   import java.util.HashMap;
   import java.util.List;
   import java.util.Locale;
   import java.util.Map;
 
-  /**
-   * ReelGridAdapter — 9:16 portrait grid, white separators, no gradient shadows.
-   *
-   * White separator effect:
-   *   RecyclerView background = #FFFFFF
-   *   Each item background    = #000000
-   *   ItemDecoration adds 1dp top + left offset → white lines show through
-   */
   public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
       public static final int TYPE_SKELETON = 0;
@@ -51,11 +41,11 @@ package com.callx.app.profile;
       private boolean                     showViewsOverlay  = false;
       private final Map<Integer, Boolean> selectedPositions = new HashMap<>();
 
-      /** White-line ItemDecoration: 1dp top + left gap per cell → RecyclerView bg shows through */
+      /** White-line separator: 1dp top+left gap per cell. RecyclerView bg = #FFFFFF shows through. */
       public static class WhiteGridDecoration extends RecyclerView.ItemDecoration {
           private final int gap;
           public WhiteGridDecoration(Context ctx) {
-              gap = Math.round(ctx.getResources().getDisplayMetrics().density); // 1dp
+              gap = Math.round(ctx.getResources().getDisplayMetrics().density); // 1dp → px
           }
           @Override
           public void getItemOffsets(@NonNull Rect out, @NonNull View view,
@@ -127,26 +117,22 @@ package com.callx.app.profile;
           if (reelIdx < 0 || reelIdx >= reels.size()) return;
           ReelModel reel = reels.get(reelIdx);
 
-          // Thumbnail
           if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty())
               Glide.with(context).load(reel.thumbUrl).centerCrop()
                       .placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
 
-          // Caption (top)
           if (h.tvCaption != null) {
               boolean has = reel.caption != null && !reel.caption.trim().isEmpty();
               h.tvCaption.setText(has ? reel.caption.trim() : "");
               h.tvCaption.setVisibility(has ? View.VISIBLE : View.GONE);
           }
 
-          // Play-count (always visible)
           if (h.tvViewsOverlay != null) {
               h.tvViewsOverlay.setText(formatCount(Math.max(reel.viewsCount, 0)));
               h.tvViewsOverlay.setVisibility(View.VISIBLE);
           }
 
-          // Duration
           if (h.tvDuration != null) {
               if (reel.duration > 0) {
                   int s = (reel.duration / 1000) % 60, m = reel.duration / 60000;
@@ -155,7 +141,6 @@ package com.callx.app.profile;
               } else h.tvDuration.setVisibility(View.GONE);
           }
 
-          // Multi-select
           if (multiSelectMode) {
               boolean sel = Boolean.TRUE.equals(selectedPositions.get(position));
               if (h.viewSelectOverlay != null) h.viewSelectOverlay.setVisibility(sel ? View.VISIBLE : View.INVISIBLE);
@@ -200,7 +185,6 @@ package com.callx.app.profile;
       public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
           super.onViewAttachedToWindow(holder);
           if (!(holder instanceof PinnedVH)) {
-              // Enforce 9:16 portrait ratio
               holder.itemView.post(() -> {
                   int w = holder.itemView.getWidth();
                   if (w > 0) {

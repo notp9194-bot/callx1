@@ -20,6 +20,9 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
+import androidx.core.view.ViewCompat;
+import com.google.android.material.appbar.AppBarLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
@@ -359,26 +362,48 @@ public class UserReelsActivity extends AppCompatActivity
      * No NestedScrollView needed — RecyclerView scrolls freely.
      */
     private void setupScrollPagination() {
-        rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                // SwipeRefresh only when AppBarLayout fully expanded AND list at very top.
-                // isAppBarExpanded is updated by the AppBarLayout offset listener in setupSwipeRefresh().
-                if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
-                    swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
-                }
+          rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
+              @Override
+              public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                  // ── PROFILE HEADER SCROLL FIX ────────────────────────────────
+                  // Root cause: SwipeRefreshLayout only implements NestedScrollingParent v1,
+                  // NOT v2/v3 required by CoordinatorLayout for AppBarLayout collapsing.
+                  // Result: RecyclerView scroll stays inside SwipeRefreshLayout and the
+                  // profile header above the tabs never collapses.
+                  // Fix: call AppBarLayout.Behavior.onNestedPreScroll() directly with the
+                  // RecyclerView dy, bypassing the broken SwipeRefreshLayout chain entirely.
+                  if (appBarLayout != null
+                          && appBarLayout.getParent() instanceof CoordinatorLayout) {
+                      CoordinatorLayout cl =
+                          (CoordinatorLayout) appBarLayout.getParent();
+                      CoordinatorLayout.LayoutParams lp =
+                          (CoordinatorLayout.LayoutParams) appBarLayout.getLayoutParams();
+                      CoordinatorLayout.Behavior<?> b = lp.getBehavior();
+                      if (b instanceof AppBarLayout.Behavior) {
+                          ((AppBarLayout.Behavior) b).onNestedPreScroll(
+                              cl, appBarLayout, rv,
+                              0, dy, new int[]{0, 0},
+                              ViewCompat.TYPE_NON_TOUCH
+                          );
+                      }
+                  }
 
-                // Pagination trigger: load next page when 6 items from end
-                if (isLoadingMore) return;
-                if (!getCurrentTabHasMore()) return;
-                int total       = gridLayoutManager.getItemCount();
-                int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-                if (lastVisible >= total - 6) {
-                    loadCurrentTab(false);
-                }
-            }
-        });
-    }
+                  // SwipeRefresh only when AppBarLayout fully expanded AND list at very top.
+                  if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
+                      swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
+                  }
+
+                  // Pagination trigger: load next page when 6 items from end
+                  if (isLoadingMore) return;
+                  if (!getCurrentTabHasMore()) return;
+                  int total       = gridLayoutManager.getItemCount();
+                  int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
+                  if (lastVisible >= total - 6) {
+                      loadCurrentTab(false);
+                  }
+              }
+          });
+      }
 
     private boolean getCurrentTabHasMore() {
         switch (activeTab) {
