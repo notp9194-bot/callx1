@@ -13,6 +13,7 @@ package com.callx.app.profile;
   import com.facebook.shimmer.ShimmerFrameLayout;
   import com.callx.app.reels.R;
   import com.callx.app.models.ReelModel;
+  import java.util.ArrayList;
   import java.util.HashMap;
   import java.util.List;
   import java.util.Locale;
@@ -30,7 +31,8 @@ package com.callx.app.profile;
       public interface MultiSelectChangeListener { void onSelectionChanged(int count); }
 
       private final Context                    context;
-      private final List<ReelModel>            reels;
+      private final List<ReelModel>            reels;        // full source list
+      private List<ReelModel>                  displayList;  // filtered view
       private final OnItemClickListener        clickListener;
       private final LongPressListener          longPressListener;
       private final MultiSelectChangeListener  multiSelectListener;
@@ -41,14 +43,11 @@ package com.callx.app.profile;
       private boolean                     multiSelectMode   = false;
       private final Map<Integer, Boolean> selectedPositions = new HashMap<>();
 
-      /**
-       * White 1dp separator between grid cells.
-       * RecyclerView bg = #FFFFFF, item bg = #000000 — the 1dp gap shows through as white lines.
-       */
+      /** White 1dp separator: RecyclerView bg=#FFFFFF, item bg=#000000 → gap shows as white lines. */
       public static class WhiteGridDecoration extends RecyclerView.ItemDecoration {
           private final int gap;
           public WhiteGridDecoration(Context ctx) {
-              gap = Math.round(ctx.getResources().getDisplayMetrics().density); // 1dp → px
+              gap = Math.round(ctx.getResources().getDisplayMetrics().density);
           }
           @Override
           public void getItemOffsets(@NonNull Rect out, @NonNull View view,
@@ -64,10 +63,18 @@ package com.callx.app.profile;
                              OnItemClickListener clickListener,
                              LongPressListener longPressListener,
                              MultiSelectChangeListener multiSelectListener) {
-          this.context = context; this.reels = reels;
+          this.context = context;
+          this.reels = reels;
+          this.displayList = reels;
           this.clickListener = clickListener;
           this.longPressListener = longPressListener;
           this.multiSelectListener = multiSelectListener;
+      }
+
+      /** Called by filter chips to show a subset. Pass null to show all. */
+      public void setFilteredData(List<ReelModel> filtered) {
+          this.displayList = (filtered != null) ? filtered : reels;
+          notifyDataSetChanged();
       }
 
       public void setPinnedReel(ReelModel reel)    { this.pinnedReel = reel; notifyDataSetChanged(); }
@@ -87,7 +94,7 @@ package com.callx.app.profile;
       }
       @Override public int getItemCount() {
           if (skeletonMode) return SKELETON_COUNT;
-          return reels.size() + (hasPinned() ? 1 : 0);
+          return displayList.size() + (hasPinned() ? 1 : 0);
       }
 
       @NonNull @Override
@@ -105,11 +112,12 @@ package com.callx.app.profile;
           if (!(holder instanceof ReelVH))  return;
           ReelVH h = (ReelVH) holder;
           int idx = reelIndexFor(position);
-          if (idx < 0 || idx >= reels.size()) return;
-          ReelModel r = reels.get(idx);
+          if (idx < 0 || idx >= displayList.size()) return;
+          ReelModel r = displayList.get(idx);
 
           if (r.thumbUrl != null && !r.thumbUrl.isEmpty())
-              Glide.with(context).load(r.thumbUrl).centerCrop().placeholder(R.drawable.ic_reels).into(h.ivThumb);
+              Glide.with(context).load(r.thumbUrl).centerCrop()
+                      .placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
 
           if (h.tvCaption != null) {
@@ -141,7 +149,8 @@ package com.callx.app.profile;
       private void bindPinned(PinnedVH h) {
           if (pinnedReel == null) return;
           if (pinnedReel.thumbUrl != null && !pinnedReel.thumbUrl.isEmpty())
-              Glide.with(context).load(pinnedReel.thumbUrl).centerCrop().placeholder(R.drawable.ic_reels).into(h.ivThumb);
+              Glide.with(context).load(pinnedReel.thumbUrl).centerCrop()
+                      .placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
           if (pinnedReel.duration > 0) {
               int s=(pinnedReel.duration/1000)%60, m=pinnedReel.duration/60000;
@@ -188,7 +197,8 @@ package com.callx.app.profile;
               super(v);
               ivThumb=v.findViewById(R.id.iv_thumb); tvDuration=v.findViewById(R.id.tv_duration);
               tvViewsOverlay=v.findViewById(R.id.tv_views_overlay); tvCaption=v.findViewById(R.id.tv_caption);
-              viewSelectOverlay=v.findViewById(R.id.view_select_overlay); viewDimOverlay=v.findViewById(R.id.view_dim_overlay);
+              viewSelectOverlay=v.findViewById(R.id.view_select_overlay);
+              viewDimOverlay=v.findViewById(R.id.view_dim_overlay);
               ivCheckmark=v.findViewById(R.id.iv_checkmark);
           }
       }

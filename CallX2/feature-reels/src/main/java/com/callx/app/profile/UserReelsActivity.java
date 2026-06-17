@@ -122,6 +122,24 @@ public class UserReelsActivity extends AppCompatActivity
     private com.google.android.material.appbar.AppBarLayout appBarLayout;
     private boolean         isAppBarExpanded = true;
 
+      // Filter chips
+      private static final int FILTER_ALL    = 0;
+      private static final int FILTER_SHORT  = 1;
+      private static final int FILTER_LONG   = 2;
+      private static final int FILTER_VIEWED = 3;
+      private int              activeFilter  = FILTER_ALL;
+      private android.widget.HorizontalScrollView hsvFilterChips;
+      private android.widget.LinearLayout         llFilterChips;
+
+      // ── Filter chips state ─────────────────────────────────────────────
+      private static final int FILTER_ALL    = 0;
+      private static final int FILTER_SHORT  = 1; // duration < 15s
+      private static final int FILTER_LONG   = 2; // duration > 30s
+      private static final int FILTER_VIEWED = 3; // most viewed
+      private int              activeFilter  = FILTER_ALL;
+      private android.widget.HorizontalScrollView hsvFilterChips;
+      private android.widget.LinearLayout         llFilterChips;
+
     // State
     private String  targetUid, targetName, targetPhoto;
     // Offline-first Room executor
@@ -170,6 +188,7 @@ public class UserReelsActivity extends AppCompatActivity
         setupSwipeRefresh();
         setupScrollPagination();
         setupTabs();
+        setupFilterChips();
         setupMultiSelectBar();
         loadFromRoom(); // Offline-first: Room se instant load
         loadUserProfile();
@@ -365,11 +384,9 @@ public class UserReelsActivity extends AppCompatActivity
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
               public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                  // ── HEADER SCROLL FIX ─────────────────────────────────────────
-                  // SwipeRefreshLayout only implements NestedScrollingParent v1, NOT v2/v3.
+                  // HEADER SCROLL FIX: SwipeRefreshLayout only implements NestedScrollingParent v1.
                   // CoordinatorLayout requires v2+ to collapse AppBarLayout children.
-                  // Fix: call AppBarLayout.Behavior.onNestedPreScroll() directly with the
-                  // RecyclerView dy — bypasses SwipeRefreshLayout's broken scroll chain.
+                  // We call AppBarLayout.Behavior.onNestedPreScroll() directly to bypass the gap.
                   if (appBarLayout != null
                           && appBarLayout.getParent() instanceof CoordinatorLayout) {
                       CoordinatorLayout cl = (CoordinatorLayout) appBarLayout.getParent();
@@ -383,12 +400,10 @@ public class UserReelsActivity extends AppCompatActivity
                       }
                   }
 
-                  // SwipeRefresh guard — enable PTR only when fully at top
                   if (swipeRefresh != null && !swipeRefresh.isRefreshing()) {
                       swipeRefresh.setEnabled(isAppBarExpanded && !rv.canScrollVertically(-1));
                   }
 
-                  // Pagination: next page when 6 items from end
                   if (isLoadingMore) return;
                   if (!getCurrentTabHasMore()) return;
                   int total       = gridLayoutManager.getItemCount();
@@ -408,7 +423,81 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
-    // ── Tabs ──────────────────────────────────────────────────────────────
+
+      // ── Filter Chips ──────────────────────────────────────────────────────
+
+      private void setupFilterChips() {
+          if (llFilterChips == null) return;
+          String[] labels = {"All", "Short (<15s)", "Long (>30s)", "Most Viewed"};
+          int[] filters   = {FILTER_ALL, FILTER_SHORT, FILTER_LONG, FILTER_VIEWED};
+
+          for (int fi = 0; fi < labels.length; fi++) {
+              final int filter = filters[fi];
+              android.widget.TextView chip = new android.widget.TextView(this);
+              android.view.ViewGroup.MarginLayoutParams lp =
+                  new android.widget.LinearLayout.LayoutParams(
+                      android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                      (int)(32 * getResources().getDisplayMetrics().density));
+              ((android.widget.LinearLayout.LayoutParams)lp).setMarginEnd(
+                  (int)(8 * getResources().getDisplayMetrics().density));
+              chip.setLayoutParams(lp);
+              int ph = (int)(14 * getResources().getDisplayMetrics().density);
+              chip.setPadding(ph, 0, ph, 0);
+              chip.setGravity(android.view.Gravity.CENTER);
+              chip.setText(labels[fi]);
+              chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+              chip.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+              chip.setTag(filter);
+              updateChipStyle(chip, filter == activeFilter);
+              chip.setOnClickListener(v -> {
+                  activeFilter = filter;
+                  for (int c = 0; c < llFilterChips.getChildCount(); c++) {
+                      android.view.View child = llFilterChips.getChildAt(c);
+                      if (child instanceof android.widget.TextView) {
+                          updateChipStyle((android.widget.TextView) child,
+                              child.getTag() != null && (int) child.getTag() == filter);
+                      }
+                  }
+                  applyFilter();
+              });
+              llFilterChips.addView(chip);
+          }
+      }
+
+      private void updateChipStyle(android.widget.TextView chip, boolean selected) {
+          if (selected) {
+              chip.setTextColor(android.graphics.Color.BLACK);
+              chip.setBackgroundResource(R.drawable.bg_filter_chip_selected);
+          } else {
+              chip.setTextColor(android.graphics.Color.WHITE);
+              chip.setBackgroundResource(R.drawable.bg_filter_chip_unselected);
+          }
+      }
+
+      private void applyFilter() {
+          if (adapter == null) return;
+          List<ReelModel> source = activeTabData();
+          List<ReelModel> filtered;
+          switch (activeFilter) {
+              case FILTER_SHORT:
+                  filtered = new ArrayList<>();
+                  for (ReelModel r : source) { if (r.duration > 0 && r.duration < 15000) filtered.add(r); }
+                  break;
+              case FILTER_LONG:
+                  filtered = new ArrayList<>();
+                  for (ReelModel r : source) { if (r.duration > 30000) filtered.add(r); }
+                  break;
+              case FILTER_VIEWED:
+                  filtered = new ArrayList<>(source);
+                  filtered.sort((a, b2) -> b2.viewsCount - a.viewsCount);
+                  break;
+              default:
+                  filtered = source;
+          }
+          adapter.setFilteredData(filtered);
+      }
+
+      // ── Tabs ──────────────────────────────────────────────────────────────
 
     private void setupTabs() {
         if (tabLayout == null) return;

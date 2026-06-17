@@ -2,79 +2,172 @@
   <androidx.coordinatorlayout.widget.CoordinatorLayout
       xmlns:android="http://schemas.android.com/apk/res/android"
       xmlns:app="http://schemas.android.com/apk/res-auto"
-      android:layout_width="match_parent" android:layout_height="match_parent"
-      android:background="#000000">
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:background="?attr/colorSurface">
+
       <com.google.android.material.appbar.AppBarLayout
           android:id="@+id/app_bar"
-          android:layout_width="match_parent" android:layout_height="wrap_content"
-          android:background="#000000" android:elevation="0dp">
-          <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
-              android:orientation="horizontal" android:gravity="center_vertical"
-              android:paddingStart="4dp" android:paddingEnd="12dp"
-              android:background="#000000" app:layout_scrollFlags="noScroll">
-              <ImageButton android:id="@+id/btn_back"
-                  android:layout_width="48dp" android:layout_height="48dp"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:background="?attr/colorSurface"
+          android:elevation="4dp">
+
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="56dp"
+              android:orientation="horizontal"
+              android:gravity="center_vertical"
+              android:paddingStart="4dp"
+              android:paddingEnd="12dp"
+              android:background="?attr/colorSurface"
+              app:layout_scrollFlags="noScroll">
+
+              <ImageButton
+                  android:id="@+id/btn_back"
+                  android:layout_width="48dp"
+                  android:layout_height="48dp"
                   android:src="@drawable/ic_arrow_back"
                   android:background="?attr/selectableItemBackgroundBorderless"
-                  android:tint="#FFFFFF" android:contentDescription="Back"/>
-              <de.hdodenhof.circleimageview.CircleImageView android:id="@+id/iv_avatar"
-                  android:layout_width="32dp" android:layout_height="32dp"
-                  android:layout_marginStart="4dp" android:src="@drawable/ic_person"
-                  app:civ_border_width="1dp" app:civ_border_color="#444444"/>
-              <TextView android:id="@+id/tv_title"
-                  android:layout_width="0dp" android:layout_height="wrap_content"
-                  android:layout_weight="1" android:layout_marginStart="10dp"
-                  android:text="All Reels" android:textSize="18sp"
-                  android:fontFamily="sans-serif-bold" android:textColor="#FFFFFF"
-                  android:maxLines="1" android:ellipsize="end"/>
+                  android:tint="?attr/colorOnSurface"
+                  android:contentDescription="Back"/>
+
+              <de.hdodenhof.circleimageview.CircleImageView
+                  android:id="@+id/iv_avatar"
+                  android:layout_width="32dp"
+                  android:layout_height="32dp"
+                  android:layout_marginStart="4dp"
+                  android:src="@drawable/ic_person"
+                  app:civ_border_width="1dp"
+                  app:civ_border_color="?attr/colorOutline"/>
+
+              <TextView
+                  android:id="@+id/tv_title"
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:layout_marginStart="10dp"
+                  android:text="All Reels"
+                  android:textSize="18sp"
+                  android:fontFamily="sans-serif-bold"
+                  android:textColor="?attr/colorOnSurface"
+                  android:maxLines="1"
+                  android:ellipsize="end"/>
+
           </LinearLayout>
-          <com.google.android.material.tabs.TabLayout android:id="@+id/tab_layout"
-              android:layout_width="match_parent" android:layout_height="44dp"
-              android:background="#000000" app:tabMode="fixed" app:tabGravity="fill"
-              app:tabSelectedTextColor="#FFFFFF" app:tabTextColor="#888888"
-              app:tabIndicatorColor="#FFFFFF" app:tabIndicatorHeight="2dp"
+
+          <com.google.android.material.tabs.TabLayout
+              android:id="@+id/tab_layout"
+              android:layout_width="match_parent"
+              android:layout_height="44dp"
+              android:background="?attr/colorSurface"
+              app:tabMode="fixed"
+              app:tabGravity="fill"
+              app:tabTextAppearance="@style/TextAppearance.Material3.LabelLarge"
+              app:tabSelectedTextColor="?attr/colorPrimary"
+              app:tabTextColor="?attr/colorOnSurfaceVariant"
+              app:tabIndicatorColor="?attr/colorPrimary"
+              app:tabIndicatorHeight="2dp"
               app:layout_scrollFlags="noScroll">
-              <com.google.android.material.tabs.TabItem android:layout_width="wrap_content"
-                  android:layout_height="wrap_content" android:text="Reels" android:icon="@drawable/ic_reels"/>
-              <com.google.android.material.tabs.TabItem android:layout_width="wrap_content"
-                  android:layout_height="wrap_content" android:text="Liked" android:icon="@drawable/ic_heart"/>
-              <com.google.android.material.tabs.TabItem android:layout_width="wrap_content"
-                  android:layout_height="wrap_content" android:text="Saved" android:icon="@drawable/ic_bookmark"/>
+
+              <com.google.android.material.tabs.TabItem
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Reels"
+                  android:icon="@drawable/ic_reels"/>
+
+              <com.google.android.material.tabs.TabItem
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Liked"
+                  android:icon="@drawable/ic_heart"/>
+
+              <com.google.android.material.tabs.TabItem
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Saved"
+                  android:icon="@drawable/ic_bookmark"/>
+
           </com.google.android.material.tabs.TabLayout>
+
       </com.google.android.material.appbar.AppBarLayout>
-      <androidx.swiperefreshlayout.widget.SwipeRefreshLayout android:id="@+id/swipe_refresh"
-          android:layout_width="match_parent" android:layout_height="match_parent"
+
+      <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+          android:id="@+id/swipe_refresh"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
           app:layout_behavior="@string/appbar_scrolling_view_behavior">
-          <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent"
-              android:background="#000000">
-              <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_reels"
-                  android:layout_width="match_parent" android:layout_height="match_parent"
-                  android:background="#FFFFFF" android:clipToPadding="false"
-                  android:overScrollMode="never" android:nestedScrollingEnabled="true"/>
-              <ProgressBar android:id="@+id/progress_bar_bottom"
+
+          <FrameLayout
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+
+              <androidx.recyclerview.widget.RecyclerView
+                  android:id="@+id/rv_reels"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:clipToPadding="false"
+                  android:overScrollMode="never"/>
+
+              <ProgressBar
+                  android:id="@+id/progress_bar_bottom"
                   style="?android:attr/progressBarStyleHorizontal"
-                  android:layout_width="match_parent" android:layout_height="3dp"
-                  android:layout_gravity="bottom" android:indeterminate="true"
-                  android:indeterminateTint="#FFFFFF" android:visibility="gone"/>
-              <ProgressBar android:id="@+id/progress_bar"
-                  android:layout_width="48dp" android:layout_height="48dp"
-                  android:layout_gravity="center" android:indeterminateTint="#FFFFFF" android:visibility="gone"/>
-              <LinearLayout android:id="@+id/layout_empty"
-                  android:layout_width="match_parent" android:layout_height="match_parent"
-                  android:orientation="vertical" android:gravity="center"
-                  android:background="#000000" android:padding="32dp" android:visibility="gone">
-                  <ImageView android:layout_width="72dp" android:layout_height="72dp"
-                      android:src="@drawable/ic_reels" android:tint="#555555" android:contentDescription="No reels"/>
-                  <TextView android:id="@+id/tv_empty_title"
-                      android:layout_width="wrap_content" android:layout_height="wrap_content"
-                      android:layout_marginTop="12dp" android:text="No Reels Yet"
-                      android:textSize="18sp" android:fontFamily="sans-serif-medium" android:textColor="#FFFFFF"/>
-                  <TextView android:id="@+id/tv_empty_sub"
-                      android:layout_width="wrap_content" android:layout_height="wrap_content"
-                      android:layout_marginTop="6dp" android:text="Nothing to show here"
-                      android:textSize="14sp" android:textColor="#888888" android:gravity="center"/>
+                  android:layout_width="match_parent"
+                  android:layout_height="3dp"
+                  android:layout_gravity="bottom"
+                  android:indeterminate="true"
+                  android:indeterminateTint="?attr/colorPrimary"
+                  android:visibility="gone"/>
+
+              <ProgressBar
+                  android:id="@+id/progress_bar"
+                  android:layout_width="48dp"
+                  android:layout_height="48dp"
+                  android:layout_gravity="center"
+                  android:indeterminateTint="?attr/colorPrimary"
+                  android:visibility="gone"/>
+
+              <LinearLayout
+                  android:id="@+id/layout_empty"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:orientation="vertical"
+                  android:gravity="center"
+                  android:padding="32dp"
+                  android:visibility="gone">
+
+                  <ImageView
+                      android:layout_width="72dp"
+                      android:layout_height="72dp"
+                      android:src="@drawable/ic_reels"
+                      android:tint="?attr/colorOnSurfaceVariant"
+                      android:alpha="0.4"
+                      android:contentDescription="No reels"/>
+
+                  <TextView
+                      android:id="@+id/tv_empty_title"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="12dp"
+                      android:text="No Reels Yet"
+                      android:textSize="18sp"
+                      android:fontFamily="sans-serif-medium"
+                      android:textColor="?attr/colorOnSurface"/>
+
+                  <TextView
+                      android:id="@+id/tv_empty_sub"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="6dp"
+                      android:text="Nothing to show here"
+                      android:textSize="14sp"
+                      android:textColor="?attr/colorOnSurfaceVariant"
+                      android:gravity="center"/>
+
               </LinearLayout>
+
           </FrameLayout>
+
       </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
   </androidx.coordinatorlayout.widget.CoordinatorLayout>
-  

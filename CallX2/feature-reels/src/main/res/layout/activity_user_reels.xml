@@ -711,7 +711,25 @@
             android:layout_height="match_parent">
 
             <!-- Reel grid -->
-            <androidx.recyclerview.widget.RecyclerView
+            
+              <!-- ── Filter Chips row ─────────────────────────────────── -->
+              <HorizontalScrollView
+                  android:id="@+id/hsv_filter_chips"
+                  android:layout_width="match_parent"
+                  android:layout_height="48dp"
+                  android:scrollbars="none"
+                  android:background="?attr/colorSurface"
+                  android:paddingStart="12dp"
+                  android:paddingEnd="12dp">
+                  <LinearLayout
+                      android:id="@+id/ll_filter_chips"
+                      android:layout_width="wrap_content"
+                      android:layout_height="match_parent"
+                      android:orientation="horizontal"
+                      android:gravity="center_vertical"/>
+              </HorizontalScrollView>
+
+  <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_reels"
                 android:background="#FFFFFF"
                 android:nestedScrollingEnabled="true"
@@ -792,8 +810,7 @@
                     android:textColor="?attr/colorOnSurfaceVariant"/>
             </LinearLayout>
 
-        </FrameLayout>
-
+        </LinearLayout>
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 
