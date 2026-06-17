@@ -700,14 +700,11 @@
          layout_behavior makes the RecyclerView offset below the AppBarLayout
          and shrink upward as AppBarLayout collapses.
          ═══════════════════════════════════════════════════════════════════ -->
-    <!-- SwipeRefreshLayout removed: it only implements NestedScrollingParent v1 which breaks
-           CoordinatorLayout nested scroll — profile header would not collapse on scroll.
-           Using plain FrameLayout so RecyclerView's nested scroll reaches AppBarLayout correctly. -->
-      <FrameLayout
-          android:id="@+id/layout_content_frame"
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          app:layout_behavior="@string/appbar_scrolling_view_behavior">
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <FrameLayout
             android:layout_width="match_parent"
@@ -797,7 +794,7 @@
 
         </FrameLayout>
 
-    </FrameLayout>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 
       <!-- ── View All Reels Button ────────────────────────────────────── -->

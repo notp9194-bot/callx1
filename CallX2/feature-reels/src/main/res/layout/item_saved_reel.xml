@@ -34,8 +34,7 @@
           android:layout_gravity="bottom|end"
           android:layout_marginEnd="4dp" android:layout_marginBottom="4dp"
           android:text="0:00" android:textColor="#DDDDDD"
-          android:textSize="10sp" android:fontFamily="sans-serif-medium"
-          android:visibility="gone"/>
+          android:textSize="10sp" android:fontFamily="sans-serif-medium" android:visibility="gone"/>
       <View android:id="@+id/view_dim_overlay"
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:background="#44000000" android:visibility="gone"/>
@@ -47,7 +46,6 @@
           android:layout_gravity="top|end" android:layout_margin="6dp"
           android:src="@drawable/ic_double_tick_blue"
           android:background="@drawable/circle_primary"
-          android:padding="3dp" android:contentDescription="Selected"
-          android:visibility="gone"/>
+          android:padding="3dp" android:contentDescription="Selected" android:visibility="gone"/>
   </FrameLayout>
   

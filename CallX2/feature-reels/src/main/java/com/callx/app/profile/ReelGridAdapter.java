@@ -41,11 +41,14 @@ package com.callx.app.profile;
       private boolean                     multiSelectMode   = false;
       private final Map<Integer, Boolean> selectedPositions = new HashMap<>();
 
-      /** 1dp white separator: RecyclerView bg=#FFFFFF, item bg=#000000, gap shows through. */
+      /**
+       * White 1dp separator between grid cells.
+       * RecyclerView bg = #FFFFFF, item bg = #000000 — the 1dp gap shows through as white lines.
+       */
       public static class WhiteGridDecoration extends RecyclerView.ItemDecoration {
           private final int gap;
           public WhiteGridDecoration(Context ctx) {
-              gap = Math.round(ctx.getResources().getDisplayMetrics().density);
+              gap = Math.round(ctx.getResources().getDisplayMetrics().density); // 1dp → px
           }
           @Override
           public void getItemOffsets(@NonNull Rect out, @NonNull View view,
@@ -140,7 +143,10 @@ package com.callx.app.profile;
           if (pinnedReel.thumbUrl != null && !pinnedReel.thumbUrl.isEmpty())
               Glide.with(context).load(pinnedReel.thumbUrl).centerCrop().placeholder(R.drawable.ic_reels).into(h.ivThumb);
           else h.ivThumb.setImageResource(R.drawable.ic_reels);
-          if (pinnedReel.duration > 0) { int s=(pinnedReel.duration/1000)%60,m=pinnedReel.duration/60000; h.tvDuration.setText(String.format(Locale.getDefault(),"%d:%02d",m,s)); }
+          if (pinnedReel.duration > 0) {
+              int s=(pinnedReel.duration/1000)%60, m=pinnedReel.duration/60000;
+              h.tvDuration.setText(String.format(Locale.getDefault(),"%d:%02d",m,s));
+          }
           boolean has = pinnedReel.caption != null && !pinnedReel.caption.isEmpty();
           if (h.tvCaption  != null) { h.tvCaption.setText(has?pinnedReel.caption:""); h.tvCaption.setVisibility(has?View.VISIBLE:View.GONE); }
           if (h.tvLikes    != null) h.tvLikes.setText(formatCount(pinnedReel.likesCount));
@@ -161,7 +167,11 @@ package com.callx.app.profile;
           if (!(holder instanceof PinnedVH)) {
               holder.itemView.post(() -> {
                   int w = holder.itemView.getWidth();
-                  if (w > 0) { ViewGroup.LayoutParams lp = holder.itemView.getLayoutParams(); lp.height = (int)(w*16f/9f); holder.itemView.setLayoutParams(lp); }
+                  if (w > 0) {
+                      ViewGroup.LayoutParams lp = holder.itemView.getLayoutParams();
+                      lp.height = (int)(w * 16f / 9f);
+                      holder.itemView.setLayoutParams(lp);
+                  }
               });
           }
       }
@@ -171,12 +181,25 @@ package com.callx.app.profile;
       }
 
       static class ReelVH extends RecyclerView.ViewHolder {
-          ImageView ivThumb, ivCheckmark; TextView tvDuration, tvViewsOverlay, tvCaption; View viewSelectOverlay, viewDimOverlay;
-          ReelVH(@NonNull View v) { super(v); ivThumb=v.findViewById(R.id.iv_thumb); tvDuration=v.findViewById(R.id.tv_duration); tvViewsOverlay=v.findViewById(R.id.tv_views_overlay); tvCaption=v.findViewById(R.id.tv_caption); viewSelectOverlay=v.findViewById(R.id.view_select_overlay); viewDimOverlay=v.findViewById(R.id.view_dim_overlay); ivCheckmark=v.findViewById(R.id.iv_checkmark); }
+          ImageView ivThumb, ivCheckmark;
+          TextView tvDuration, tvViewsOverlay, tvCaption;
+          View viewSelectOverlay, viewDimOverlay;
+          ReelVH(@NonNull View v) {
+              super(v);
+              ivThumb=v.findViewById(R.id.iv_thumb); tvDuration=v.findViewById(R.id.tv_duration);
+              tvViewsOverlay=v.findViewById(R.id.tv_views_overlay); tvCaption=v.findViewById(R.id.tv_caption);
+              viewSelectOverlay=v.findViewById(R.id.view_select_overlay); viewDimOverlay=v.findViewById(R.id.view_dim_overlay);
+              ivCheckmark=v.findViewById(R.id.iv_checkmark);
+          }
       }
       static class PinnedVH extends RecyclerView.ViewHolder {
           ImageView ivThumb; TextView tvDuration, tvCaption, tvLikes, tvComments, tvViews;
-          PinnedVH(@NonNull View v) { super(v); ivThumb=v.findViewById(R.id.iv_pinned_thumb); tvDuration=v.findViewById(R.id.tv_pinned_duration); tvCaption=v.findViewById(R.id.tv_pinned_caption); tvLikes=v.findViewById(R.id.tv_pinned_likes); tvComments=v.findViewById(R.id.tv_pinned_comments); tvViews=v.findViewById(R.id.tv_pinned_views); }
+          PinnedVH(@NonNull View v) {
+              super(v);
+              ivThumb=v.findViewById(R.id.iv_pinned_thumb); tvDuration=v.findViewById(R.id.tv_pinned_duration);
+              tvCaption=v.findViewById(R.id.tv_pinned_caption); tvLikes=v.findViewById(R.id.tv_pinned_likes);
+              tvComments=v.findViewById(R.id.tv_pinned_comments); tvViews=v.findViewById(R.id.tv_pinned_views);
+          }
       }
       static class SkeletonVH extends RecyclerView.ViewHolder {
           ShimmerFrameLayout shimmer;
