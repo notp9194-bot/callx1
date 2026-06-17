@@ -646,8 +646,8 @@ public class CollabRepostActivity extends AppCompatActivity {
                                   String uid = s.getKey();
                                   if (uid == null || uid.equals(myUid)) continue;
                                   // Client-side case-insensitive partial match
-                                  String storedName   = safe(s.child("displayName").getValue(String.class));
-                                  String storedHandle = safe(s.child("handle").getValue(String.class));
+                                  String tmp1 = s.child("displayName").getValue(String.class); String storedName   = tmp1 != null ? tmp1 : "";
+                                  String tmp2 = s.child("handle").getValue(String.class); String storedHandle = tmp2 != null ? tmp2 : "";
                                   if (!storedName.toLowerCase().contains(qLower) &&
                                       !storedHandle.toLowerCase().contains(qLower)) continue;
                                   // Dedup
