@@ -677,4 +677,79 @@ public class PushNotify {
         }
     }
 
+      // ── Collab Repost Notifications ───────────────────────────────────────────
+
+      /**
+       * Sends FCM push to collaborator when User A invites them for a collab repost.
+       * type = "collab_repost_invite"
+       */
+      public static void notifyCollabRepostInvite(
+              String toUid, String fromUid, String fromName, String fromPhoto,
+              String reelId, String reelThumb, String collabRepostId) {
+          try {
+              org.json.JSONObject body = new org.json.JSONObject()
+                  .put("toUid",          safe(toUid))
+                  .put("fromUid",        safe(fromUid))
+                  .put("fromName",       safe(fromName))
+                  .put("fromPhoto",      safe(fromPhoto))
+                  .put("reelId",         safe(reelId))
+                  .put("reelThumb",      safe(reelThumb))
+                  .put("collabRepostId", safe(collabRepostId))
+                  .put("type",           "collab_repost_invite");
+              postAsync(Constants.SERVER_URL + "/notify/reel", body);
+          } catch (Exception e) {
+              android.util.Log.w("PushNotify", "notifyCollabRepostInvite err: " + e.getMessage());
+          }
+      }
+
+      /**
+       * Sends FCM push to initiator when collaborator accepts the collab repost invite.
+       * type = "collab_repost_accepted"
+       */
+      public static void notifyCollabRepostAccepted(
+              String toUid, String fromUid, String fromName, String fromPhoto,
+              String reelId, String reelThumb, String collabRepostId, String newReelId) {
+          try {
+              org.json.JSONObject body = new org.json.JSONObject()
+                  .put("toUid",          safe(toUid))
+                  .put("fromUid",        safe(fromUid))
+                  .put("fromName",       safe(fromName))
+                  .put("fromPhoto",      safe(fromPhoto))
+                  .put("reelId",         safe(reelId))
+                  .put("reelThumb",      safe(reelThumb))
+                  .put("collabRepostId", safe(collabRepostId))
+                  .put("newReelId",      safe(newReelId))
+                  .put("type",           "collab_repost_accepted");
+              postAsync(Constants.SERVER_URL + "/notify/reel", body);
+          } catch (Exception e) {
+              android.util.Log.w("PushNotify", "notifyCollabRepostAccepted err: " + e.getMessage());
+          }
+      }
+
+      /**
+       * Sends FCM push to initiator when collaborator declines the collab repost invite.
+       * type = "collab_repost_declined"
+       */
+      public static void notifyCollabRepostDeclined(
+              String toUid, String fromUid, String fromName, String fromPhoto,
+              String reelId, String reelThumb, String collabRepostId) {
+          try {
+              org.json.JSONObject body = new org.json.JSONObject()
+                  .put("toUid",          safe(toUid))
+                  .put("fromUid",        safe(fromUid))
+                  .put("fromName",       safe(fromName))
+                  .put("fromPhoto",      safe(fromPhoto))
+                  .put("reelId",         safe(reelId))
+                  .put("reelThumb",      safe(reelThumb))
+                  .put("collabRepostId", safe(collabRepostId))
+                  .put("type",           "collab_repost_declined");
+              postAsync(Constants.SERVER_URL + "/notify/reel", body);
+          } catch (Exception e) {
+              android.util.Log.w("PushNotify", "notifyCollabRepostDeclined err: " + e.getMessage());
+          }
+      }
+
+      private static String safe(String s) { return s != null ? s : ""; }
+
+  
 }

@@ -92,6 +92,10 @@ public class ReelFCMNotificationHandler {
     public static final String TYPE_REPOST              = "repost";
     public static final String TYPE_QUOTE_REPOST        = "quote_repost";
     public static final String TYPE_MULTI_DUET_INVITE   = "multi_duet_invite";
+    // Collab Repost cross-device FCM types
+    public static final String TYPE_COLLAB_REPOST_INVITE   = "collab_repost_invite";
+    public static final String TYPE_COLLAB_REPOST_ACCEPTED = "collab_repost_accepted";
+    public static final String TYPE_COLLAB_REPOST_DECLINED = "collab_repost_declined";
 
     /**
      * Main entry point — called from CallxMessagingService.onMessageReceived().
@@ -325,6 +329,32 @@ public class ReelFCMNotificationHandler {
                         ctx, senderName, senderUid, senderPhoto,
                         reelId, reelThumb, repostCaption, avatar, thumb);
                 });
+                break;
+
+            // ── Collab Repost notifications ───────────────────────────────────
+            case TYPE_COLLAB_REPOST_INVITE:
+                Executors.newSingleThreadExecutor().execute(() ->
+                    com.callx.app.notifications.CollabRepostNotificationHelper.showInviteNotification(
+                        ctx,
+                        get(data, "collabRepostId"),
+                        senderName, get(data, "comment_text"), reelThumb));
+                break;
+
+            case TYPE_COLLAB_REPOST_ACCEPTED:
+                Executors.newSingleThreadExecutor().execute(() ->
+                    com.callx.app.notifications.CollabRepostNotificationHelper.showAcceptedNotification(
+                        ctx,
+                        get(data, "collabRepostId"),
+                        get(data, "newReelId"),
+                        senderName, reelThumb));
+                break;
+
+            case TYPE_COLLAB_REPOST_DECLINED:
+                Executors.newSingleThreadExecutor().execute(() ->
+                    com.callx.app.notifications.CollabRepostNotificationHelper.showDeclinedNotification(
+                        ctx,
+                        get(data, "collabRepostId"),
+                        senderName, reelThumb));
                 break;
 
             case TYPE_QUOTE_REPOST:

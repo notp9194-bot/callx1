@@ -826,7 +826,11 @@ const VALID_REEL_TYPES = new Set([
   // PushNotify.notifyReelRepost() type="repost" bhejta hai — pehle 400 error aata tha
   "repost",
   // Multi-Duet invite
-  "multi_duet_invite"
+  "multi_duet_invite",
+  // Collab Repost cross-device push
+  "collab_repost_invite",
+  "collab_repost_accepted",
+  "collab_repost_declined"
 ]);
 
 app.post("/notify/reel", async (req, res) => {

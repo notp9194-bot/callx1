@@ -2207,6 +2207,8 @@ public class ReelPlayerFragment extends Fragment
                 openShareToStory(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_COLLAB_REQUEST:
                 openCollabRequest(); break;
+            case com.callx.app.social.ReelMoreBottomSheet.ACTION_COLLAB_REPOST:
+                openCollabRepost(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_NOT_INTERESTED:
                 markNotInterested(); break;
             case com.callx.app.social.ReelMoreBottomSheet.ACTION_COPY_LINK:
@@ -2470,7 +2472,29 @@ public class ReelPlayerFragment extends Fragment
         startActivity(i);
     }
 
-    private void openCollabRequest() {
+    /** Opens CollabRepostActivity so the user can invite a collaborator to co-repost this reel. */
+      private void openCollabRepost() {
+          if (!isAdded() || getActivity() == null || reel == null) return;
+          if (!reel.allowReposts) {
+              android.widget.Toast.makeText(getContext(),
+                  "This creator has disabled reposts", android.widget.Toast.LENGTH_SHORT).show();
+              return;
+          }
+          android.content.Intent i = new android.content.Intent(getActivity(),
+              com.callx.app.social.CollabRepostActivity.class);
+          i.putExtra(com.callx.app.social.CollabRepostActivity.EXTRA_REEL_ID,       reel.reelId);
+          i.putExtra(com.callx.app.social.CollabRepostActivity.EXTRA_OWNER_UID,     reel.uid);
+          i.putExtra(com.callx.app.social.CollabRepostActivity.EXTRA_OWNER_NAME,    reel.ownerName);
+          i.putExtra(com.callx.app.social.CollabRepostActivity.EXTRA_THUMB_URL,     reel.thumbUrl);
+          i.putExtra(com.callx.app.social.CollabRepostActivity.EXTRA_VIDEO_URL,     reel.videoUrl);
+          i.putExtra(com.callx.app.social.CollabRepostActivity.EXTRA_CAPTION,       reel.caption);
+          i.putExtra(com.callx.app.social.CollabRepostActivity.EXTRA_ALLOW_REPOSTS, reel.allowReposts);
+          i.putExtra(com.callx.app.social.CollabRepostActivity.EXTRA_MEDIA_TYPE,
+              reel.mediaType != null ? reel.mediaType : "video");
+          startActivity(i);
+      }
+
+          private void openCollabRequest() {
         if (!isAdded() || getActivity() == null || reel == null) return;
         Intent i = new Intent(getActivity(), ReelCollabRequestActivity.class);
         i.putExtra("reel_id",    reel.reelId);

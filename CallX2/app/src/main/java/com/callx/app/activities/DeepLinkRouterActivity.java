@@ -186,7 +186,25 @@ public class DeepLinkRouterActivity extends AppCompatActivity {
             }
 
             // ── NOTIFICATIONS ─────────────────────────────────────────────
-            case "notifications": {
+            // ── Collab Repost deep links ──────────────────────────────────────
+              case "collab_repost_inbox": {
+                  try {
+                      startActivity(new Intent(this,
+                          com.callx.app.social.CollabRepostInboxActivity.class));
+                  } catch (Exception ignored) { goHome(); }
+                  break;
+              }
+
+              case "collab_repost_accept": {
+                  if (param1.isEmpty()) { goHome(); return; }
+                  Intent cra = new Intent(this,
+                      com.callx.app.social.CollabRepostAcceptActivity.class);
+                  cra.putExtra(com.callx.app.social.CollabRepostAcceptActivity.EXTRA_COLLAB_REPOST_ID, param1);
+                  startActivity(cra);
+                  break;
+              }
+
+                          case "notifications": {
                 startActivity(new Intent(this, AllNotificationsActivity.class));
                 break;
             }

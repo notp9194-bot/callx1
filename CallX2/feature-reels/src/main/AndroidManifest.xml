@@ -393,7 +393,26 @@
               android:theme="@style/Theme.AppCompat.NoActionBar"
               android:windowSoftInputMode="adjustResize"/>
 
-        <!-- ── Photo Editor v5 (per-photo filter/effect/caption/sticker/crop) ── -->
+
+          <!-- ── Collab Repost System ── -->
+          <activity android:name="com.callx.app.social.CollabRepostActivity"
+              android:exported="false"
+              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:windowSoftInputMode="adjustResize"/>
+          <activity android:name="com.callx.app.social.CollabRepostAcceptActivity"
+              android:exported="true"
+              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:windowSoftInputMode="adjustResize">
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW"/>
+                  <category android:name="android.intent.category.DEFAULT"/>
+              </intent-filter>
+          </activity>
+          <activity android:name="com.callx.app.social.CollabRepostInboxActivity"
+              android:exported="false"
+              android:theme="@style/Theme.AppCompat.NoActionBar"/>
+
+          <!-- ── Photo Editor v5 (per-photo filter/effect/caption/sticker/crop) ── -->
         <activity android:name="com.callx.app.editor.ReelPhotoEditorActivity"
             android:exported="false"
             android:screenOrientation="portrait"

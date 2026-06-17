@@ -4,6 +4,8 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.work.*;
 import com.callx.app.notifications.CollabRepostNotificationHelper;
+import com.callx.app.utils.PushNotify;
+  import com.callx.app.utils.PushNotify;
 import com.callx.app.utils.Constants;
 import com.google.firebase.database.*;
 import java.util.*;
@@ -130,10 +132,10 @@ public class CollabRepostWorker extends Worker {
         boolean finished = latch.await(FIREBASE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (!finished || !success[0]) return Result.retry();
 
-        // Local device notification (if this device belongs to the target user)
-        CollabRepostNotificationHelper.showInviteNotification(
-            getApplicationContext(),
-            safe(collabId), safe(sName), safe(sCap), safe(thumb));
+        // Cross-device FCM push → server → collaborator's device
+        PushNotify.notifyCollabRepostInvite(
+            safe(tUid), safe(sUid), safe(sName), safe(sPhoto),
+            safe(reelId), safe(thumb), safe(collabId));
 
         return Result.success();
     }
@@ -144,6 +146,11 @@ public class CollabRepostWorker extends Worker {
             String sUid, String sName, String sPhoto,
             String tUid, String thumb) {
 
+        // Cross-device FCM push → server → initiator's device
+        PushNotify.notifyCollabRepostAccepted(
+            safe(tUid), safe(sUid), safe(sName), safe(sPhoto),
+            safe(reelId), safe(thumb), safe(collabId), safe(newReelId));
+        // Local notification (on collaborator device)
         CollabRepostNotificationHelper.showAcceptedNotification(
             getApplicationContext(),
             safe(collabId), safe(newReelId), safe(sName), safe(thumb));
@@ -156,6 +163,11 @@ public class CollabRepostWorker extends Worker {
             String sUid, String sName,
             String tUid, String thumb) {
 
+        // Cross-device FCM push → server → initiator's device
+        PushNotify.notifyCollabRepostDeclined(
+            safe(tUid), safe(sUid), safe(sName), "",
+            safe(reelId), safe(thumb), safe(collabId));
+        // Local notification (on collaborator device)
         CollabRepostNotificationHelper.showDeclinedNotification(
             getApplicationContext(),
             safe(collabId), safe(sName), safe(thumb));

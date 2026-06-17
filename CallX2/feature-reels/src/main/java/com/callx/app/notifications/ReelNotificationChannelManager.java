@@ -62,6 +62,9 @@ public class ReelNotificationChannelManager {
     public static final String CHANNEL_REEL_FOREGROUND_SERVICE = "reel_foreground_service";
     // FIX: Repost channel was missing — repost notifications fell back to undefined channel
     public static final String CHANNEL_REEL_REPOSTS            = "reel_reposts";
+    // Collab Repost channels
+    public static final String CHANNEL_COLLAB_REPOST_INVITE  = "collab_repost_invite";
+    public static final String CHANNEL_COLLAB_REPOST_RESULT  = "collab_repost_result";
 
     public static void ensureChannels(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
@@ -108,7 +111,9 @@ public class ReelNotificationChannelManager {
         registerChannel(nm, CHANNEL_REEL_DOWNLOADED,       "Reel Downloads",        "When someone downloads your reel",          NotificationManager.IMPORTANCE_LOW,   0xFFAAAAAA);
         registerChannel(nm, CHANNEL_REEL_COLLAB_LIVE,      "Collab Live",           "Multi-creator live session updates",        NotificationManager.IMPORTANCE_HIGH,  0xFF5856D6);
         registerChannel(nm, CHANNEL_REEL_REPOSTS, "Reel Reposts", "When someone reposts your reel", NotificationManager.IMPORTANCE_HIGH, 0xFF34C759);
-        registerSilentServiceChannel(nm);
+        registerChannel(nm, CHANNEL_COLLAB_REPOST_INVITE, "Collab Repost Invite", "When someone invites you to co-repost a reel", NotificationManager.IMPORTANCE_HIGH,  0xFF5856D6);
+          registerChannel(nm, CHANNEL_COLLAB_REPOST_RESULT, "Collab Repost Update",  "When your collab repost is accepted or declined", NotificationManager.IMPORTANCE_HIGH, 0xFF34C759);
+          registerSilentServiceChannel(nm);
     }
 
     private static void registerChannel(NotificationManager nm, String id, String name,
