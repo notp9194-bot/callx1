@@ -452,8 +452,4 @@ public class CollabRepostInboxActivity extends AppCompatActivity {
             return (ms / 86_400_000) + "d";
         }
     }
-
-    private int dp(int v) {
-        return (int)(v * getResources().getDisplayMetrics().density);
-    }
 }

@@ -119,7 +119,10 @@ public class ReelShareSheetActivity extends AppCompatActivity
         btnShareExternal     = findViewById(R.id.btn_share_external);
         btnShareToStatus     = findViewById(R.id.btn_share_to_status);
         btnRepostWithCaption = findViewById(R.id.btn_repost_with_caption);
-        btnCollabRepost      = findViewById(R.id.btn_collab_repost);
+        // btn_collab_repost is optional — only present if added to the share sheet layout.
+        // The feature is also accessible via ReelMoreBottomSheet ACTION_COLLAB_REPOST.
+        try { btnCollabRepost = findViewById(R.id.btn_collab_repost); }
+        catch (Exception ignored) { btnCollabRepost = null; }
 
         adapter = new ReelContactShareAdapter(contacts, this);
         rvContacts.setLayoutManager(
