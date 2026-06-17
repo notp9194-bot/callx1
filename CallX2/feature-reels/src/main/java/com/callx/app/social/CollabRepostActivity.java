@@ -103,6 +103,9 @@ public class CollabRepostActivity extends AppCompatActivity {
     private String  selectedCollabPhoto = null;
     private long    lastSendMs          = 0L;
     private boolean inviteSent          = false;
+    private final android.os.Handler     searchHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable                      pendingSearch = null;
+    private int                           pendingQueries = 0;   // tracks in-flight Firebase queries
 
     // ── Search adapter ────────────────────────────────────────────────────────
     private final List<CollabUserItem> searchResults = new ArrayList<>();
@@ -499,10 +502,17 @@ public class CollabRepostActivity extends AppCompatActivity {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             public void afterTextChanged(Editable s) {}
             public void onTextChanged(CharSequence s, int a, int b, int c) {
-                String query = s.toString().trim();
-                if (query.length() >= 2) searchUsers(query);
-                else { searchResults.clear(); searchAdapter.notifyDataSetChanged(); }
-            }
+                  String query = s.toString().trim();
+                  if (pendingSearch != null) searchHandler.removeCallbacks(pendingSearch);
+                  if (query.length() < 2) {
+                      searchResults.clear();
+                      if (searchAdapter != null) searchAdapter.notifyDataSetChanged();
+                      if (tvSearching != null) tvSearching.setVisibility(View.GONE);
+                      return;
+                  }
+                  pendingSearch = () -> searchUsers(query);
+                  searchHandler.postDelayed(pendingSearch, 300);
+              }
         });
         searchRow.addView(etSearch, etSLp);
         card.addView(searchRow, searchLp);
@@ -581,70 +591,111 @@ public class CollabRepostActivity extends AppCompatActivity {
         }
     }
 
-    // ── User search ────────────────────────────────────────────────────────────
-    private void searchUsers(String query) {
-        if (tvSearching != null) {
-            tvSearching.setText("Searching…");
-            tvSearching.setVisibility(View.VISIBLE);
-        }
-        String q = query.toLowerCase().replace("@", "");
-        FirebaseDatabase.getInstance(Constants.DB_URL)
-            .getReference("reels/users")
-            .orderByChild("displayName")
-            .startAt(q).endAt(q + "\uf8ff")
-            .limitToFirst(SEARCH_LIMIT)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isFinishing() || isDestroyed()) return;
-                    searchResults.clear();
-                    for (DataSnapshot s : snap.getChildren()) {
-                        String uid = s.getKey();
-                        if (uid == null || uid.equals(myUid)) continue;
-                        CollabUserItem u = parseUser(s, uid);
-                        if (u != null) searchResults.add(u);
-                    }
-                    // Also search by handle if few results
-                    if (searchResults.size() < 5) {
-                        FirebaseDatabase.getInstance(Constants.DB_URL)
-                            .getReference("reels/users")
-                            .orderByChild("handle")
-                            .startAt(q).endAt(q + "\uf8ff")
-                            .limitToFirst(SEARCH_LIMIT)
-                            .addListenerForSingleValueEvent(new ValueEventListener() {
-                                @Override public void onDataChange(@NonNull DataSnapshot snap2) {
-                                    if (isFinishing() || isDestroyed()) return;
-                                    for (DataSnapshot s : snap2.getChildren()) {
-                                        String uid = s.getKey();
-                                        if (uid == null || uid.equals(myUid)) continue;
-                                        boolean dup = false;
-                                        for (CollabUserItem x : searchResults)
-                                            if (x.uid.equals(uid)) { dup = true; break; }
-                                        if (!dup) {
-                                            CollabUserItem u = parseUser(s, uid);
-                                            if (u != null) searchResults.add(u);
-                                        }
-                                    }
-                                    if (tvSearching != null) tvSearching.setVisibility(View.GONE);
-                                    searchAdapter.notifyDataSetChanged();
-                                }
-                                @Override public void onCancelled(@NonNull DatabaseError e) {
-                                    if (tvSearching != null) tvSearching.setVisibility(View.GONE);
-                                    searchAdapter.notifyDataSetChanged();
-                                }
-                            });
-                    } else {
-                        if (tvSearching != null) tvSearching.setVisibility(View.GONE);
-                        searchAdapter.notifyDataSetChanged();
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    if (isFinishing() || isDestroyed()) return;
-                    if (tvSearching != null) tvSearching.setVisibility(View.GONE);
-                }
-            });
-    }
+    // ── User search (case-insensitive, multi-query, 300 ms debounce) ──────────
+      /**
+       * Firebase Realtime DB orderByChild is CASE-SENSITIVE.
+       * We fire 4 prefix variants (lower, Title, UPPER, original) for both
+       * displayName and handle fields in parallel, then merge on the main thread.
+       * Client-side .contains() ensures partial matches work even across styles.
+       */
+      private void searchUsers(String query) {
+          if (tvSearching != null) {
+              tvSearching.setText("Searching…");
+              tvSearching.setVisibility(View.VISIBLE);
+          }
 
-    private CollabUserItem parseUser(DataSnapshot s, String uid) {
+          final String raw    = query.trim().replace("@", "");
+          if (raw.isEmpty()) { if (tvSearching != null) tvSearching.setVisibility(View.GONE); return; }
+
+          final String qLower = raw.toLowerCase();
+          final String qTitle = Character.toUpperCase(raw.charAt(0)) + raw.substring(1).toLowerCase();
+          final String qUpper = raw.toUpperCase();
+
+          // Unique prefix variants (LinkedHashSet deduplicates identical strings)
+          final java.util.Set<String> variants = new java.util.LinkedHashSet<>();
+          variants.add(qLower);
+          variants.add(qTitle);
+          variants.add(qUpper);
+          variants.add(raw);
+
+          final String[] fields = {"displayName", "handle"};
+          final java.util.List<String[]> pairs = new java.util.ArrayList<>();
+          for (String field : fields)
+              for (String v : variants)
+                  pairs.add(new String[]{field, v});
+
+          final int total = pairs.size();
+          final java.util.concurrent.atomic.AtomicInteger done =
+              new java.util.concurrent.atomic.AtomicInteger(0);
+          // Accumulator shared across callbacks — accessed only on main thread via searchHandler.post()
+          final java.util.List<CollabUserItem> acc = new java.util.ArrayList<>();
+
+          for (String[] pair : pairs) {
+              final String field  = pair[0];
+              final String prefix = pair[1];
+              FirebaseDatabase.getInstance(Constants.DB_URL)
+                  .getReference("reels/users")
+                  .orderByChild(field)
+                  .startAt(prefix).endAt(prefix + "\uf8ff")
+                  .limitToFirst(SEARCH_LIMIT)
+                  .addListenerForSingleValueEvent(new ValueEventListener() {
+                      @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                          searchHandler.post(() -> {
+                              if (isFinishing() || isDestroyed()) return;
+                              for (DataSnapshot s : snap.getChildren()) {
+                                  String uid = s.getKey();
+                                  if (uid == null || uid.equals(myUid)) continue;
+                                  // Client-side case-insensitive partial match
+                                  String storedName   = safe(s.child("displayName").getValue(String.class));
+                                  String storedHandle = safe(s.child("handle").getValue(String.class));
+                                  if (!storedName.toLowerCase().contains(qLower) &&
+                                      !storedHandle.toLowerCase().contains(qLower)) continue;
+                                  // Dedup
+                                  boolean dup = false;
+                                  for (CollabUserItem x : acc)
+                                      if (x.uid.equals(uid)) { dup = true; break; }
+                                  if (!dup) {
+                                      CollabUserItem u = parseUser(s, uid);
+                                      if (u != null) acc.add(u);
+                                  }
+                              }
+                              if (done.incrementAndGet() == total) finalizeSearch(acc, qLower);
+                          });
+                      }
+                      @Override public void onCancelled(@NonNull DatabaseError e) {
+                          searchHandler.post(() -> {
+                              if (done.incrementAndGet() == total) finalizeSearch(acc, qLower);
+                          });
+                      }
+                  });
+          }
+      }
+
+      /** Sorts and shows results once all parallel queries have returned. */
+      private void finalizeSearch(java.util.List<CollabUserItem> acc, String qLower) {
+          if (isFinishing() || isDestroyed()) return;
+          // Sort: exact match > prefix match > contains
+          acc.sort((a2, b2) -> searchScore(b2, qLower) - searchScore(a2, qLower));
+          searchResults.clear();
+          for (int i = 0; i < Math.min(acc.size(), SEARCH_LIMIT); i++)
+              searchResults.add(acc.get(i));
+          if (tvSearching != null) tvSearching.setVisibility(View.GONE);
+          if (searchAdapter != null) searchAdapter.notifyDataSetChanged();
+          if (searchResults.isEmpty() && tvSearching != null) {
+              tvSearching.setText("No users found for \"" + qLower + "\"");
+              tvSearching.setVisibility(View.VISIBLE);
+          }
+      }
+
+      private int searchScore(CollabUserItem u, String q) {
+          String n = u.name.toLowerCase(), h = u.handle.toLowerCase();
+          if (n.equals(q) || h.equals(q))         return 3;
+          if (n.startsWith(q) || h.startsWith(q)) return 2;
+          if (n.contains(q)   || h.contains(q))   return 1;
+          return 0;
+      }
+
+      private CollabUserItem parseUser(DataSnapshot s, String uid) {
         try {
             String name  = s.child("displayName").getValue(String.class);
             String handle = s.child("handle").getValue(String.class);
