@@ -10,7 +10,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import com.callx.app.viewer.StatusViewerActivity;
+import com.callx.app.activities.StatusViewerActivity;
 /**
  * StatusSeenByBottomSheet v26 — Full seen-by list with avatars + timestamps.
  * FIX v26: show() now accepts optional Runnable onDismiss — called via setOnDismissListener,
