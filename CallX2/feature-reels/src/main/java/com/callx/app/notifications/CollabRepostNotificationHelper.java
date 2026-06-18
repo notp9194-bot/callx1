@@ -248,7 +248,7 @@ public class CollabRepostNotificationHelper {
 
         androidx.core.app.NotificationCompat.Builder b =
             new androidx.core.app.NotificationCompat.Builder(ctx,
-                ReelNotificationChannelManager.CHANNEL_REEL_SOCIAL)
+                ReelNotificationChannelManager.CHANNEL_REEL_COLLAB_LIVE)
             .setSmallIcon(com.callx.app.reels.R.drawable.ic_reels)
             .setContentTitle(inviterName + " wants to go LIVE with you! 🔴")
             .setContentText("Tap to join the live collab")

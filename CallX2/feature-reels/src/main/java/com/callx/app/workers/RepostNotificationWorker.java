@@ -92,7 +92,7 @@ public class RepostNotificationWorker extends Worker {
                               String reelThumb, String caption) {
         try {
             com.callx.app.utils.PushNotify.notifyReelRepost(
-                ownerUid, fromUid, fromName, fromPhoto, reelId, reelThumb, caption);
+                ownerUid, fromUid, fromName, reelId, reelThumb);
         } catch (Exception e) {
             e.printStackTrace();
         }
