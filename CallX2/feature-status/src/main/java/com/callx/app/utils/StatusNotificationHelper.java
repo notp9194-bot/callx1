@@ -149,8 +149,7 @@ public class StatusNotificationHelper {
                     String viewerName  = snap.child("name").getValue(String.class);
                     String viewerPhoto = snap.child("photoUrl").getValue(String.class);
                     if (viewerName == null) viewerName = "Someone";
-                    PushNotify.notifyStatusSeen(ownerUid, viewerUid, viewerName,
-                        viewerPhoto != null ? viewerPhoto : "", statusId);
+                    PushNotify.notifyStatusRich(viewerUid, viewerName, viewerPhoto != null ? viewerPhoto : "", "text", ownerUid, null);
                 }
                 @Override public void onCancelled(DatabaseError e) {}
             });

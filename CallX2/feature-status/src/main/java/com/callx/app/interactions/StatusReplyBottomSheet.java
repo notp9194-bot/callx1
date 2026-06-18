@@ -156,7 +156,7 @@ public class StatusReplyBottomSheet {
         if ("video".equals(item.type))  return "🎥 Video status";
         if ("gif".equals(item.type))    return "GIF";
         if ("link".equals(item.type))   return "🔗 " + (item.linkTitle != null ? item.linkTitle : item.linkUrl);
-        if (item.caption != null && !item.caption.isEmpty()) return item.caption;
+        if (item.text != null && !item.text.isEmpty()) return item.text;
         if (item.text    != null && !item.text.isEmpty())    return item.text;
         return "Status";
     }
@@ -176,7 +176,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToType",         item.type != null ? item.type : "text");
         msg.put("replyToText",         getPreviewText(item));
         msg.put("replyToSenderName",   ownerName != null ? ownerName : "Status");
-        msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
+        msg.put("replyToId",           "status_" + (item.statusId != null ? item.statusId : "unknown"));
         if (item.thumbnailUrl != null)
             msg.put("replyToMediaUrl", item.thumbnailUrl);
         else if ("image".equals(item.type) && item.mediaUrl != null)

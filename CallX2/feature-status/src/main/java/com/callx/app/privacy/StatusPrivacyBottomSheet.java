@@ -24,11 +24,11 @@ public class StatusPrivacyBottomSheet {
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = buildRootView(ctx);
         String[] modes   = {
-            StatusPrivacyManager.PRIVACY_EVERYONE,
-            StatusPrivacyManager.PRIVACY_CONTACTS,
+            StatusPrivacyManager.MODE_EVERYONE,
+            StatusPrivacyManager.MODE_CONTACTS,
             "close_friends",
-            StatusPrivacyManager.PRIVACY_EXCEPT,
-            StatusPrivacyManager.PRIVACY_ONLY
+            StatusPrivacyManager.MODE_EXCEPT,
+            StatusPrivacyManager.MODE_ONLY
         };
         String[] labels  = {"Everyone", "My contacts", "Close friends ⭐", "Contacts except…", "Only share with…"};
         String[] descs   = {
@@ -47,8 +47,8 @@ public class StatusPrivacyBottomSheet {
             boolean selected  = mode.equals(current);
             LinearLayout row  = buildRow(ctx, labels[i], descs[i], selected);
             row.setOnClickListener(v -> {
-                if (mode.equals(StatusPrivacyManager.PRIVACY_EXCEPT)
-                        || mode.equals(StatusPrivacyManager.PRIVACY_ONLY)
+                if (mode.equals(StatusPrivacyManager.MODE_EXCEPT)
+                        || mode.equals(StatusPrivacyManager.MODE_ONLY)
                         || mode.equals("close_friends")) {
                     sheet.dismiss();
                     showContactPicker(ctx, myUid, mode, cb);
@@ -67,13 +67,13 @@ public class StatusPrivacyBottomSheet {
                                            String mode, OnPrivacySelected cb) {
         BottomSheetDialog picker = new BottomSheetDialog(ctx);
         LinearLayout root = buildRootView(ctx);
-        String label = mode.equals(StatusPrivacyManager.PRIVACY_EXCEPT)
+        String label = mode.equals(StatusPrivacyManager.MODE_EXCEPT)
                 ? "Exclude these contacts" : mode.equals("close_friends")
                 ? "Select close friends ⭐" : "Share only with";
         root.addView(makeTv(ctx, label, 17, true));
-        Set<String> initial = mode.equals(StatusPrivacyManager.PRIVACY_EXCEPT)
+        Set<String> initial = mode.equals(StatusPrivacyManager.MODE_EXCEPT)
                 ? StatusPrivacyManager.getExceptList(ctx)
-                : mode.equals(StatusPrivacyManager.PRIVACY_ONLY)
+                : mode.equals(StatusPrivacyManager.MODE_ONLY)
                 ? StatusPrivacyManager.getOnlyList(ctx)
                 : StatusCloseFriendsManager.getLocalList(ctx);
         Set<String> selected = new HashSet<>(initial);
@@ -119,9 +119,9 @@ public class StatusPrivacyBottomSheet {
             }
         });
         done.setOnClickListener(v -> {
-            if (mode.equals(StatusPrivacyManager.PRIVACY_EXCEPT)) {
+            if (mode.equals(StatusPrivacyManager.MODE_EXCEPT)) {
                 StatusPrivacyManager.setExceptList(ctx, selected);
-            } else if (mode.equals(StatusPrivacyManager.PRIVACY_ONLY)) {
+            } else if (mode.equals(StatusPrivacyManager.MODE_ONLY)) {
                 StatusPrivacyManager.setOnlyList(ctx, selected);
             } else if (mode.equals("close_friends")) {
                 // Sync close friends list

@@ -93,7 +93,7 @@ public class StatusForwardBottomSheet {
                 for (String uid : selected) {
                     sendForwardMessage(myUid, uid, item);
                 }
-                StatusSeenTracker.incrementForwardCount(item.ownerUid, item.id);
+                StatusSeenTracker.incrementForwardCount(item.ownerUid, item.statusId);
                 Toast.makeText(ctx, "Forwarded to " + selected.size() + " contact(s)",
                         Toast.LENGTH_SHORT).show();
                 sheet.dismiss();
@@ -149,7 +149,7 @@ public class StatusForwardBottomSheet {
         msg.put("id",        msgId);
         msg.put("senderId",  myUid);
         msg.put("type",      "forwarded_status");
-        msg.put("text",      item.text != null ? item.text : item.caption != null ? item.caption : "");
+        msg.put("text",      item.text != null ? item.text : item.text != null ? item.text : "");
         msg.put("mediaUrl",  item.mediaUrl);
         msg.put("thumbUrl",  item.thumbnailUrl);
         msg.put("statusType", item.type);

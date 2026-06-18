@@ -27,9 +27,9 @@ public class StatusReactionBottomSheet {
                             OnReactionSelected listener) {
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = buildView(ctx, item, myUid, emoji -> {
-            String current = item.getReaction(myUid);
+            String current = (item.reactions != null ? item.reactions.get(myUid) : null);
             boolean removing = emoji.equals(current);
-            StatusSeenTracker.reactTo(item.ownerUid, item.id, emoji, current, newEmoji -> {
+            StatusSeenTracker.reactTo(item.ownerUid, item.statusId, emoji, current, newEmoji -> {
                 if (listener != null) listener.onSelected(emoji, newEmoji == null);
             });
             String msg = removing ? "Reaction removed" : emoji + " sent";
@@ -55,13 +55,13 @@ public class StatusReactionBottomSheet {
         title.setPadding(0, 0, 0, dp(ctx,16));
         title.setTextColor(resolveAttrColor(ctx, android.R.attr.textColorPrimary));
         root.addView(title);
-        String myReaction = item.getReaction(myUid);
+        String myReaction = (item.reactions != null ? item.reactions.get(myUid) : null);
         // Emoji row
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER);
         for (String emoji : EMOJIS) {
-            int count = item.getReactionCount(emoji);
+            int count = (item.reactions != null) ? (int) item.reactions.values().stream().filter(e -> e.equals(emoji)).count() : 0;
             LinearLayout cell = new LinearLayout(ctx);
             cell.setOrientation(LinearLayout.VERTICAL);
             cell.setGravity(android.view.Gravity.CENTER);

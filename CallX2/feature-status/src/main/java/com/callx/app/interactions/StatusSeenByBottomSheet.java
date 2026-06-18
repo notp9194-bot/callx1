@@ -84,7 +84,7 @@ public class StatusSeenByBottomSheet {
         for (String uid : uids) {
             final String fUid = uid;
             final long seenAt = item.seenBy.get(uid) != null ? item.seenBy.get(uid) : 0;
-            final String reaction = item.getReaction(fUid);
+            final String reaction = (item.reactions != null ? item.reactions.get(fUid) : null);
             FirebaseUtils.db().getReference("users").child(uid).get()
                 .addOnSuccessListener(snap -> {
                     String name  = snap.child("name").getValue(String.class);

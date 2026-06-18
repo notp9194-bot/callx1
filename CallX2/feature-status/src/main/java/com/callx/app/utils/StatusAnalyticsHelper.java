@@ -51,9 +51,9 @@ public final class StatusAnalyticsHelper {
     }
     public static Analytics compute(StatusItem item, int totalContacts) {
         Analytics a = new Analytics();
-        a.totalViews           = item.getViewCount();
+        a.totalViews           = item.seenCount;
         a.uniqueViewers        = a.totalViews;
-        a.avgViewDurationSec   = item.getAvgViewDurationSec();
+        a.avgViewDurationSec   = 0.0;
         a.reactionBreakdown    = new HashMap<>();
         a.totalReactions       = 0;
         if (item.reactions != null) {

@@ -82,8 +82,7 @@ public class StatusSeenTracker {
                             @NonNull String statusId,
                             @NonNull String viewerUid,
                             @NonNull String emoji) {
-        FirebaseUtils.getStatusReactionRef(ownerUid, statusId)
-            .child(viewerUid).setValue(emoji);
+        FirebaseUtils.getStatusReactionRef(ownerUid, statusId, viewerUid).setValue(emoji);
 
         // Also update denormalized reactions count on the status node itself
         FirebaseUtils.getUserStatusRef(ownerUid)
@@ -103,8 +102,7 @@ public class StatusSeenTracker {
     public void removeReaction(@NonNull String ownerUid,
                                @NonNull String statusId,
                                @NonNull String viewerUid) {
-        FirebaseUtils.getStatusReactionRef(ownerUid, statusId)
-            .child(viewerUid).removeValue();
+        FirebaseUtils.getStatusReactionRef(ownerUid, statusId, viewerUid).removeValue();
         FirebaseUtils.getUserStatusRef(ownerUid)
             .child(statusId)
             .child("reactions")
@@ -147,7 +145,7 @@ public class StatusSeenTracker {
     public void fetchReactions(@NonNull String ownerUid,
                                @NonNull String statusId,
                                @NonNull ReactionsCallback callback) {
-        FirebaseUtils.getStatusReactionRef(ownerUid, statusId)
+        FirebaseUtils.db().getReference("statuses").child(ownerUid).child(statusId).child("reactions")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     Map<String, String> result = new LinkedHashMap<>();
@@ -282,4 +280,52 @@ public class StatusSeenTracker {
     public interface ReactionsCallback {
         void onReactionsLoaded(Map<String, String> reactionsMap);
     }
+
+    // ── Static convenience methods (called from UI) ────────────────────────
+
+    /**
+     * Toggle reaction on a status. If same emoji already set, removes it.
+     * Callback receives the new emoji, or null if removed.
+     */
+    public static void reactTo(@NonNull String ownerUid,
+                               @NonNull String statusId,
+                               @NonNull String emoji,
+                               String currentReaction,
+                               java.util.function.Consumer<String> callback) {
+        StatusSeenTracker tracker = get();
+        String myUid = com.google.firebase.auth.FirebaseAuth.getInstance().getUid();
+        if (myUid == null) return;
+        if (emoji.equals(currentReaction)) {
+            tracker.removeReaction(ownerUid, statusId, myUid);
+            if (callback != null) callback.accept(null);
+        } else {
+            tracker.setReaction(ownerUid, statusId, myUid, emoji);
+            if (callback != null) callback.accept(emoji);
+        }
+    }
+
+    /**
+     * Increment forward count on a status (no-op if statusId null).
+     */
+    public static void incrementForwardCount(@NonNull String ownerUid,
+                                             @NonNull String statusId) {
+        if (statusId == null || ownerUid == null) return;
+        com.google.firebase.database.DatabaseReference ref =
+            FirebaseUtils.db().getReference("statuses")
+                .child(ownerUid).child(statusId).child("forwardCount");
+        ref.runTransaction(new com.google.firebase.database.Transaction.Handler() {
+            @androidx.annotation.NonNull
+            @Override public com.google.firebase.database.Transaction.Result
+            doTransaction(@androidx.annotation.NonNull com.google.firebase.database.MutableData d) {
+                Long count = d.getValue(Long.class);
+                d.setValue(count == null ? 1 : count + 1);
+                return com.google.firebase.database.Transaction.success(d);
+            }
+            @Override public void onComplete(com.google.firebase.database.DatabaseError e,
+                                             boolean b,
+                                             com.google.firebase.database.DataSnapshot s) {}
+        });
+    }
+
+
 }
