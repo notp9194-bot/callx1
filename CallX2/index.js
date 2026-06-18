@@ -1638,6 +1638,13 @@ app.get("/search",          (req, res) => {
   )));
 });
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Collab Repost Endpoints (v9) — Repost, Quote, Collab, Analytics, Scheduled
+// ══════════════════════════════════════════════════════════════════════════════
+const collabRepostRoutes = require('./collab_repost_endpoints');
+app.use('/', collabRepostRoutes);
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Start server + Render keep-alive
 // ══════════════════════════════════════════════════════════════════════════════

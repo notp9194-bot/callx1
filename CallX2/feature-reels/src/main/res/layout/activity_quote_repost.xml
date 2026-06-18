@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#000000">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="8dp" android:paddingEnd="16dp">
+        <ImageButton android:id="@+id/btn_cancel_quote"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/ic_close" android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Quote Repost"
+            android:textSize="18sp" android:textStyle="bold"
+            android:textColor="#FFFFFF" android:paddingStart="8dp"/>
+        <ProgressBar android:id="@+id/progress_quote"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:visibility="gone"/>
+    </LinearLayout>
+
+    <!-- Original reel preview -->
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1">
+        <VideoView android:id="@+id/vv_original_reel"
+            android:layout_width="match_parent" android:layout_height="match_parent"/>
+        <ImageView android:id="@+id/iv_original_thumb"
+            android:layout_width="match_parent" android:layout_height="match_parent"
+            android:scaleType="centerCrop"/>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="bottom" android:padding="16dp"
+            android:background="#88000000">
+            <TextView android:id="@+id/tv_original_owner"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textColor="#FFFFFF" android:textSize="14sp"
+                android:drawableStart="@drawable/ic_repost" android:drawablePadding="8dp"/>
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Caption input -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="16dp" android:background="#111111">
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_quote_caption"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="Add your thoughts..." android:maxLength="150"
+                android:textColor="#FFFFFF" android:hintTextColor="#888888"
+                android:inputType="textMultiLine" android:maxLines="3"/>
+        </com.google.android.material.textfield.TextInputLayout>
+        <TextView android:id="@+id/tv_char_count_quote"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="0/150" android:textColor="#888888"
+            android:textSize="12sp" android:layout_gravity="end" android:layout_marginTop="4dp"/>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_publish_quote"
+            android:layout_width="match_parent" android:layout_height="52dp"
+            android:text="Publish Quote Repost" android:layout_marginTop="12dp"
+            xmlns:app="http://schemas.android.com/apk/res-auto" app:cornerRadius="12dp"/>
+    </LinearLayout>
+</LinearLayout>

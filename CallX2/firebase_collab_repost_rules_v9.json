@@ -1,0 +1,113 @@
+{
+  "_comment": "Complete Firebase Realtime Database rules for Collab Repost system. Merge into your existing rules.",
+  "_instructions": [
+    "1. Open Firebase Console → Realtime Database → Rules tab",
+    "2. Merge the 'rules' object below with your existing rules",
+    "3. Add the indexes in firebase.json for query performance"
+  ],
+  "rules": {
+    "reelReposts": {
+      "$reelId": {
+        ".read": "auth != null",
+        "$repostId": {
+          ".write": "auth != null && (newData.child('reposterId').val() === auth.uid || !newData.exists())",
+          ".validate": "newData.hasChildren(['reposterId','reelId','timestamp','repostType'])"
+        }
+      }
+    },
+    "userReposts": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$reelId": {
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "repostCaptions": {
+      "$reelId": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['caption','uid','name','timestamp','repostType'])"
+        }
+      }
+    },
+    "repostChain": {
+      "$reelId": {
+        ".read": "auth != null",
+        "$repostId": {
+          ".write": "auth != null"
+        }
+      }
+    },
+    "reelCollabs": {
+      "$reelId": {
+        ".read": "auth != null",
+        "$collabId": {
+          ".write": "auth != null && (newData.child('ownerUid').val() === auth.uid || newData.child('inviteeUid').val() === auth.uid || data.child('ownerUid').val() === auth.uid || data.child('inviteeUid').val() === auth.uid)",
+          ".validate": "newData.hasChildren(['ownerUid','inviteeUid','reelId','status','invitedAt'])"
+        }
+      }
+    },
+    "collabPending": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$collabId": {
+          ".write": "auth != null"
+        }
+      }
+    },
+    "collabSeries": {
+      "$seriesId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (data.child('creatorUid').val() === auth.uid || !data.exists())",
+        ".validate": "newData.hasChildren(['title','creatorUid','isPublic'])"
+      }
+    },
+    "userCollabReels": {
+      "$uid": {
+        ".read": "auth != null",
+        "$reelId": {
+          ".write": "auth != null"
+        }
+      }
+    },
+    "liveCollabs": {
+      "$liveId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['hostUid','status'])"
+      }
+    },
+    "scheduledReposts": {
+      "$jobId": {
+        ".read": "auth != null && data.child('fromUid').val() === auth.uid",
+        ".write": "auth != null && (newData.child('fromUid').val() === auth.uid || data.child('fromUid').val() === auth.uid)"
+      }
+    },
+    "reel_notifications": {
+      "$ownerUid": {
+        ".read": "auth != null && auth.uid === $ownerUid",
+        ".write": "auth != null",
+        "$notifId": {
+          ".validate": "newData.hasChildren(['type','senderUid','reel_id','timestamp'])"
+        }
+      }
+    },
+    "reelNotifQueue": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null"
+      }
+    }
+  },
+  "firebase_json_indexes": {
+    "_note": "Add these to your firebase.json under database.rules or as .indexOn in rules",
+    "reelReposts": { ".indexOn": ["timestamp", "reposterId", "repostType"] },
+    "repostChain":  { ".indexOn": ["timestamp"] },
+    "reelCollabs":  { ".indexOn": ["ownerUid", "inviteeUid", "status"] },
+    "collabSeries": { ".indexOn": ["creatorUid", "isPublic"] },
+    "liveCollabs":  { ".indexOn": ["hostUid", "status"] },
+    "scheduledReposts": { ".indexOn": ["scheduledAt", "status"] }
+  }
+}

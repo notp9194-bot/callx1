@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- Split preview area -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical">
+        <View android:id="@+id/view_host_preview"
+            android:layout_width="match_parent" android:layout_height="0dp"
+            android:layout_weight="1" android:background="#1A1A1A"/>
+        <View android:id="@+id/view_guest_preview"
+            android:layout_width="match_parent" android:layout_height="0dp"
+            android:layout_weight="1" android:background="#111111"/>
+    </LinearLayout>
+
+    <!-- Name labels -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical" android:padding="16dp">
+        <TextView android:id="@+id/tv_host_name"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold"
+            android:background="#88000000" android:padding="6dp"/>
+        <android.widget.Space android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_weight="1"/>
+        <TextView android:id="@+id/tv_guest_name"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold"
+            android:background="#88000000" android:padding="6dp"/>
+    </LinearLayout>
+
+    <!-- Status bar -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:padding="12dp"
+        android:gravity="center_vertical" android:background="#44000000">
+        <TextView android:id="@+id/tv_live_status"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="🔴 LIVE"
+            android:textColor="#FFFFFF" android:textStyle="bold"/>
+        <TextView android:id="@+id/tv_viewer_count"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="0 viewers" android:textColor="#FFFFFF" android:textSize="13sp"/>
+    </LinearLayout>
+
+    <!-- Waiting overlay -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:gravity="center" android:orientation="vertical">
+        <ProgressBar android:id="@+id/progress_waiting_guest"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:indeterminateTint="#FFFFFF" android:visibility="gone"/>
+    </LinearLayout>
+
+    <!-- Controls row -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:orientation="horizontal"
+        android:gravity="center" android:padding="24dp" android:background="#88000000">
+        <ImageButton android:id="@+id/btn_mic_toggle"
+            android:layout_width="56dp" android:layout_height="56dp"
+            android:src="@drawable/ic_mic" android:tint="#FFFFFF"
+            android:background="@drawable/bg_circle_dark" android:layout_marginEnd="24dp"/>
+        <ImageButton android:id="@+id/btn_camera_toggle"
+            android:layout_width="56dp" android:layout_height="56dp"
+            android:src="@drawable/ic_camera" android:tint="#FFFFFF"
+            android:background="@drawable/bg_circle_dark" android:layout_marginEnd="24dp"/>
+        <ImageButton android:id="@+id/btn_end_live"
+            android:layout_width="56dp" android:layout_height="56dp"
+            android:src="@drawable/ic_call_end" android:tint="#FFFFFF"
+            android:background="@drawable/bg_circle_red"/>
+    </LinearLayout>
+</FrameLayout>
