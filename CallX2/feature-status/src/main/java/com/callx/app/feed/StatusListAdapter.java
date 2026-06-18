@@ -1,325 +1,478 @@
-package com.callx.app.adapters;
+package com.callx.app.feed;
+  import android.content.Context;
+  import android.view.*;
+  import android.widget.ImageView;
+  import android.widget.TextView;
+  import androidx.annotation.NonNull;
+  import androidx.recyclerview.widget.DiffUtil;
+  import androidx.recyclerview.widget.LinearLayoutManager;
+  import androidx.recyclerview.widget.RecyclerView;
+  import com.bumptech.glide.Glide;
+  import com.callx.app.status.R;
+  import com.callx.app.models.StatusItem;
+  import com.callx.app.utils.StatusCloseFriendsManager;
+  import com.callx.app.utils.StatusMuteManager;
+  import de.hdodenhof.circleimageview.CircleImageView;
+  import java.text.SimpleDateFormat;
+  import java.util.*;
+  /**
+   * StatusListAdapter v26 — Production-grade, section-aware status list.
+   *
+   * FIXES v26:
+   *   FIX: Highlights strip — was mentioned in comments but NOT implemented; now fully added
+   *   FIX: Close Friends star badge — new tv_cf_badge in item_status.xml now wired
+   *   FIX: Unseen badge (tv_badge) — was declared gone, now properly shown for unseenCount > 1
+   *
+   * ORIGINAL (v25):
+   *   DiffUtil smooth animated updates (areContentsTheSame MY_STATUS bug fixed)
+   *   Muted contacts in "Muted" section
+   *   Live search filtering support
+   *   Status expiry time label
+   *   Reaction emoji preview in row
+   *   Media type icon as sub-text prefix
+   */
+  public class StatusListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+      public static final int TYPE_HIGHLIGHTS    = 5; // FIX: was missing
+      public static final int TYPE_MY_STATUS     = 0;
+      public static final int TYPE_SECTION_HEADER = 1;
+      public static final int TYPE_CONTACT       = 2;
+      public static final int TYPE_MUTED_HEADER  = 3;
+      public static final int TYPE_MUTED_CONTACT = 4;
 
-import android.content.Context;
-import android.graphics.Color;
-import android.view.*;
-import android.widget.*;
-import androidx.annotation.NonNull;
-import androidx.recyclerview.widget.*;
-import androidx.recyclerview.widget.ListAdapter;
-import com.bumptech.glide.Glide;
-import com.callx.app.models.StatusItem;
-import java.util.*;
+      // ── Highlight album model ─────────────────────────────────────────────
+      public static class HighlightAlbum {
+          public final String title;
+          public final String coverUrl;
+          public HighlightAlbum(String title, String coverUrl) {
+              this.title = title; this.coverUrl = coverUrl;
+          }
+      }
 
-/**
- * StatusListAdapter — RecyclerView adapter for StatusFragment.
- *
- * Sections / view types:
- *   TYPE_MY_STATUS  (0) — Large row at top, "My status" + last thumb + add overlay
- *   TYPE_HEADER     (1) — Section header: "Recent updates" / "Viewed updates"
- *   TYPE_CONTACT    (2) — Contact row: ring (green=unseen/grey=seen), avatar, name, time, badge, thumb
- *
- * DiffUtil for smooth animations on any list change.
- * Long-press on contact row → mute/unmute options.
- */
-public class StatusListAdapter
-        extends ListAdapter<StatusListAdapter.ListItem, RecyclerView.ViewHolder> {
+      // ── Entry model ───────────────────────────────────────────────────────
+      public static class Entry {
+          public final String     ownerUid;
+          public final String     ownerName;
+          public final String     ownerPhoto;
+          public final Long       latestTimestamp;
+          public final int        totalCount;
+          public final int        unseenCount;
+          public final StatusItem latestItem;
+          public final boolean    isMuted;
+          public final String     latestReaction;
+          public final boolean    isCloseFriend; // FIX: new field
+          public Entry(String ownerUid, String ownerName, String ownerPhoto,
+                       Long latestTimestamp, int totalCount, int unseenCount,
+                       StatusItem latestItem, boolean isMuted, String latestReaction,
+                       boolean isCloseFriend) {
+              this.ownerUid        = ownerUid;
+              this.ownerName       = ownerName;
+              this.ownerPhoto      = ownerPhoto;
+              this.latestTimestamp = latestTimestamp;
+              this.totalCount      = totalCount;
+              this.unseenCount     = unseenCount;
+              this.latestItem      = latestItem;
+              this.isMuted         = isMuted;
+              this.latestReaction  = latestReaction;
+              this.isCloseFriend   = isCloseFriend;
+          }
+          // Backward compat: no isCloseFriend
+          public Entry(String ownerUid, String ownerName, String ownerPhoto,
+                       Long latestTimestamp, int totalCount, int unseenCount,
+                       StatusItem latestItem, boolean isMuted, String latestReaction) {
+              this(ownerUid, ownerName, ownerPhoto, latestTimestamp, totalCount, unseenCount,
+                   latestItem, isMuted, latestReaction, false);
+          }
+      }
 
-    // ── View types ─────────────────────────────────────────────────────────
-    public static final int TYPE_MY_STATUS = 0;
-    public static final int TYPE_HEADER    = 1;
-    public static final int TYPE_CONTACT   = 2;
+      // ── Internal flat list ────────────────────────────────────────────────
+      private static final int ITEM_HIGHLIGHTS = 5; // FIX: new
+      private static final int ITEM_MY      = 0;
+      private static final int ITEM_HDR     = 1;
+      private static final int ITEM_ROW     = 2;
+      private static final int ITEM_MUT_HDR = 3;
+      private static final int ITEM_MUT_ROW = 4;
 
-    private final Context   ctx;
-    private final Callbacks callbacks;
+      private static class FlatItem {
+          int    kind;
+          String header;
+          Entry  entry;
+          FlatItem(int k, String h, Entry e) { kind = k; header = h; entry = e; }
+      }
 
-    // ── DiffUtil ───────────────────────────────────────────────────────────
-    private static final DiffUtil.ItemCallback<ListItem> DIFF_CB =
-        new DiffUtil.ItemCallback<ListItem>() {
-            @Override public boolean areItemsTheSame(@NonNull ListItem a, @NonNull ListItem b) {
-                if (a.type != b.type) return false;
-                if (a.type == TYPE_HEADER)    return Objects.equals(a.headerText, b.headerText);
-                if (a.type == TYPE_MY_STATUS) return true;
-                if (a.type == TYPE_CONTACT)   return Objects.equals(a.contactRow.uid, b.contactRow.uid);
-                return false;
-            }
-            @Override public boolean areContentsTheSame(@NonNull ListItem a, @NonNull ListItem b) {
-                if (a.type == TYPE_HEADER) return Objects.equals(a.headerText, b.headerText);
-                if (a.type == TYPE_MY_STATUS) {
-                    return Objects.equals(a.myStatuses, b.myStatuses);
-                }
-                if (a.type == TYPE_CONTACT) {
-                    ContactRow ra = a.contactRow, rb = b.contactRow;
-                    return ra.unseenCount == rb.unseenCount
-                        && ra.hasUnseen == rb.hasUnseen
-                        && ra.newestTimestamp == rb.newestTimestamp
-                        && Objects.equals(ra.items, rb.items);
-                }
-                return false;
-            }
-        };
+      // ── State ─────────────────────────────────────────────────────────────
+      private final String           myUid;
+      private List<StatusItem>       myStatuses;
+      private final Runnable         onMyStatusClick;
+      private final Runnable         onAddStatusClick;
+      private final ContactClickListener onContactClick;
+      private final LongPressListener    onLongPress;
+      private List<FlatItem>         items = new ArrayList<>();
+      private List<HighlightAlbum>   highlights = new ArrayList<>(); // FIX: new
+      private int myStatusCount = 0;
+      private final SimpleDateFormat timeFmt =
+              new SimpleDateFormat("HH:mm", Locale.getDefault());
 
-    public StatusListAdapter(Context ctx, Callbacks callbacks) {
-        super(DIFF_CB);
-        this.ctx       = ctx;
-        this.callbacks = callbacks;
-    }
+      public interface ContactClickListener {
+          void onClick(String ownerUid, String ownerName);
+      }
+      public interface LongPressListener {
+          void onLongPress(String ownerUid, String ownerName, boolean isMuted);
+      }
+      public interface HighlightClickListener {
+          void onClick(HighlightAlbum album);
+      }
+      private HighlightClickListener onHighlightClick;
 
-    @Override public int getItemViewType(int pos) { return getItem(pos).type; }
+      public StatusListAdapter(String myUid, List<StatusItem> myStatuses,
+                               Runnable onMyStatusClick, Runnable onAddStatusClick,
+                               ContactClickListener onContactClick,
+                               LongPressListener onLongPress) {
+          this.myUid            = myUid;
+          this.myStatuses       = myStatuses;
+          this.onMyStatusClick  = onMyStatusClick;
+          this.onAddStatusClick = onAddStatusClick;
+          this.onContactClick   = onContactClick;
+          this.onLongPress      = onLongPress;
+          setHasStableIds(false);
+      }
 
-    // ── ViewHolder creation ───────────────────────────────────────────────
-    @NonNull @Override
-    public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        LayoutInflater inf = LayoutInflater.from(ctx);
-        switch (viewType) {
-            case TYPE_MY_STATUS:
-                return new MyStatusVH(inf.inflate(
-                    resId("item_my_status"), parent, false));
-            case TYPE_HEADER:
-                return new HeaderVH(inf.inflate(
-                    resId("item_status_header"), parent, false));
-            default: // TYPE_CONTACT
-                return new ContactVH(inf.inflate(
-                    resId("item_status"), parent, false));
-        }
-    }
+      public StatusListAdapter(String myUid, List<StatusItem> myStatuses,
+                               Runnable onMyStatusClick, Runnable onAddStatusClick,
+                               ContactClickListener onContactClick) {
+          this(myUid, myStatuses, onMyStatusClick, onAddStatusClick, onContactClick, null);
+      }
 
-    @Override
-    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int pos) {
-        ListItem item = getItem(pos);
-        if (holder instanceof MyStatusVH) bindMyStatus((MyStatusVH) holder, item.myStatuses);
-        else if (holder instanceof HeaderVH) bindHeader((HeaderVH) holder, item.headerText);
-        else if (holder instanceof ContactVH) bindContact((ContactVH) holder, item.contactRow);
-    }
+      public void setHighlightClickListener(HighlightClickListener l) { this.onHighlightClick = l; }
 
-    // ── My Status ─────────────────────────────────────────────────────────
-    private void bindMyStatus(MyStatusVH vh, List<StatusItem> myStatuses) {
-        if (myStatuses == null || myStatuses.isEmpty()) {
-            if (vh.tvStatusTime   != null) vh.tvStatusTime.setText("Tap to add status update");
-            if (vh.ivThumb        != null) vh.ivThumb.setVisibility(View.GONE);
-            if (vh.ivAddOverlay   != null) vh.ivAddOverlay.setVisibility(View.VISIBLE);
-        } else {
-            int count = myStatuses.size();
-            StatusItem latest = myStatuses.get(0);
-            if (vh.tvStatusTime != null)
-                vh.tvStatusTime.setText(formatTime(latest.timestamp)
-                    + (count > 1 ? " • " + count + " updates" : ""));
-            if (vh.ivThumb != null && latest.thumbnailUrl != null && !latest.thumbnailUrl.isEmpty()) {
-                vh.ivThumb.setVisibility(View.VISIBLE);
-                Glide.with(ctx).load(latest.thumbnailUrl).centerCrop().into(vh.ivThumb);
-            }
-            if (vh.ivAddOverlay != null) vh.ivAddOverlay.setVisibility(View.VISIBLE);
-        }
+      // ── FIX: Update highlights strip data ────────────────────────────────
+      public void updateHighlights(List<HighlightAlbum> albums) {
+          this.highlights = albums != null ? albums : new ArrayList<>();
+          rebuildFlatList(items);
+      }
 
-        vh.root.setOnClickListener(v -> callbacks.onMyStatusClick());
-        vh.root.setOnLongClickListener(v -> { callbacks.onMyStatusLongPress(); return true; });
-    }
+      // ── Data update ───────────────────────────────────────────────────────
+      public void update(List<Entry> unseen, List<Entry> seen) {
+          update(unseen, seen, new ArrayList<>());
+      }
 
-    // ── Header ────────────────────────────────────────────────────────────
-    private void bindHeader(HeaderVH vh, String text) {
-        if (vh.tvHeader != null) vh.tvHeader.setText(text);
-    }
+      public void update(List<Entry> unseen, List<Entry> seen, List<Entry> muted) {
+          final int prevMyCount = myStatusCount;
+          myStatusCount = myStatuses.size();
+          List<FlatItem> next = buildFlatItems(unseen, seen, muted);
+          dispatchDiff(next, prevMyCount);
+      }
 
-    // ── Contact ───────────────────────────────────────────────────────────
-    private void bindContact(ContactVH vh, ContactRow row) {
-        if (vh.tvName   != null) vh.tvName.setText(row.name);
-        if (vh.tvTime   != null) vh.tvTime.setText(formatTime(row.newestTimestamp));
+      private List<FlatItem> buildFlatItems(List<Entry> unseen, List<Entry> seen, List<Entry> muted) {
+          List<FlatItem> next = new ArrayList<>();
+          // FIX: Highlights strip at very top (if any exist)
+          if (!highlights.isEmpty()) {
+              next.add(new FlatItem(ITEM_HIGHLIGHTS, null, null));
+          }
+          next.add(new FlatItem(ITEM_MY, null, null));
+          if (!unseen.isEmpty()) {
+              next.add(new FlatItem(ITEM_HDR, "Recent updates", null));
+              for (Entry e : unseen) next.add(new FlatItem(ITEM_ROW, null, e));
+          }
+          if (!seen.isEmpty()) {
+              next.add(new FlatItem(ITEM_HDR, "Viewed updates", null));
+              for (Entry e : seen) next.add(new FlatItem(ITEM_ROW, null, e));
+          }
+          if (!muted.isEmpty()) {
+              next.add(new FlatItem(ITEM_MUT_HDR, "Muted", null));
+              for (Entry e : muted) next.add(new FlatItem(ITEM_MUT_ROW, null, e));
+          }
+          return next;
+      }
 
-        // Ring color: green = unseen, grey = seen
-        if (vh.ringView != null) {
-            int ringColor = row.hasUnseen
-                ? Color.parseColor("#25D366")
-                : Color.parseColor("#B0B0B0");
-            vh.ringView.setBackgroundTintList(
-                android.content.res.ColorStateList.valueOf(ringColor));
-        }
+      private void rebuildFlatList(List<FlatItem> old) {
+          // Called when only highlights change — extract existing entry lists and rebuild
+          List<Entry> unseen = new ArrayList<>(), seen = new ArrayList<>(), muted = new ArrayList<>();
+          boolean inUnseen = false, inSeen = false, inMuted = false;
+          for (FlatItem fi : old) {
+              if (fi.kind == ITEM_HDR && "Recent updates".equals(fi.header)) { inUnseen=true; inSeen=false; inMuted=false; }
+              else if (fi.kind == ITEM_HDR && "Viewed updates".equals(fi.header)) { inUnseen=false; inSeen=true; inMuted=false; }
+              else if (fi.kind == ITEM_MUT_HDR) { inUnseen=false; inSeen=false; inMuted=true; }
+              else if (fi.kind == ITEM_ROW && fi.entry != null) {
+                  if (inUnseen) unseen.add(fi.entry);
+                  else if (inSeen) seen.add(fi.entry);
+              } else if (fi.kind == ITEM_MUT_ROW && fi.entry != null) {
+                  if (inMuted) muted.add(fi.entry);
+              }
+          }
+          final int prevMyCount = myStatusCount;
+          myStatusCount = myStatuses.size();
+          List<FlatItem> next = buildFlatItems(unseen, seen, muted);
+          dispatchDiff(next, prevMyCount);
+      }
 
-        // Unseen badge
-        if (vh.tvBadge != null) {
-            if (row.hasUnseen && row.unseenCount > 0) {
-                vh.tvBadge.setVisibility(View.VISIBLE);
-                vh.tvBadge.setText(row.unseenCount > 9 ? "9+" : String.valueOf(row.unseenCount));
-            } else {
-                vh.tvBadge.setVisibility(View.GONE);
-            }
-        }
+      private void dispatchDiff(List<FlatItem> next, int prevMyCount) {
+          final List<FlatItem> old = items;
+          final int fPrevMyCount = prevMyCount;
+          DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+              @Override public int getOldListSize() { return old.size(); }
+              @Override public int getNewListSize() { return next.size(); }
+              @Override public boolean areItemsTheSame(int op, int np) {
+                  FlatItem o = old.get(op), n = next.get(np);
+                  if (o.kind != n.kind) return false;
+                  if (o.kind == ITEM_HIGHLIGHTS) return true;
+                  if (o.kind == ITEM_HDR || o.kind == ITEM_MUT_HDR)
+                      return java.util.Objects.equals(o.header, n.header);
+                  if (o.kind == ITEM_ROW || o.kind == ITEM_MUT_ROW)
+                      return o.entry != null && n.entry != null
+                              && o.entry.ownerUid.equals(n.entry.ownerUid);
+                  return true; // MY_STATUS
+              }
+              @Override public boolean areContentsTheSame(int op, int np) {
+                  FlatItem o = old.get(op), n = next.get(np);
+                  if (o.kind == ITEM_HIGHLIGHTS) return highlights.size() == highlights.size(); // always false = re-bind
+                  if (o.kind == ITEM_ROW || o.kind == ITEM_MUT_ROW) {
+                      if (o.entry == null || n.entry == null) return false;
+                      return o.entry.unseenCount == n.entry.unseenCount
+                          && java.util.Objects.equals(o.entry.latestTimestamp, n.entry.latestTimestamp)
+                          && o.entry.totalCount == n.entry.totalCount
+                          && o.entry.isMuted == n.entry.isMuted
+                          && o.entry.isCloseFriend == n.entry.isCloseFriend
+                          && java.util.Objects.equals(o.entry.latestReaction, n.entry.latestReaction);
+                  }
+                  if (o.kind == ITEM_MY) return myStatusCount == fPrevMyCount;
+                  return true;
+              }
+          });
+          items = next;
+          diff.dispatchUpdatesTo(this);
+      }
 
-        // Caption preview
-        if (vh.tvCaption != null && !row.items.isEmpty()) {
-            StatusItem latest = row.items.get(row.items.size() - 1);
-            String preview = captionPreview(latest);
-            vh.tvCaption.setText(preview);
-        }
+      // ── Adapter ───────────────────────────────────────────────────────────
+      @Override public int getItemViewType(int pos) {
+          switch (items.get(pos).kind) {
+              case ITEM_HIGHLIGHTS: return TYPE_HIGHLIGHTS;
+              case ITEM_MY:         return TYPE_MY_STATUS;
+              case ITEM_HDR:        return TYPE_SECTION_HEADER;
+              case ITEM_MUT_HDR:    return TYPE_MUTED_HEADER;
+              case ITEM_MUT_ROW:    return TYPE_MUTED_CONTACT;
+              default:              return TYPE_CONTACT;
+          }
+      }
+      @Override public int getItemCount() { return items.size(); }
 
-        // Thumbnail
-        if (vh.ivThumb != null && !row.items.isEmpty()) {
-            StatusItem latest = row.items.get(row.items.size() - 1);
-            if (latest.thumbnailUrl != null && !latest.thumbnailUrl.isEmpty()) {
-                vh.ivThumb.setVisibility(View.VISIBLE);
-                Glide.with(ctx).load(latest.thumbnailUrl).centerCrop().into(vh.ivThumb);
-            } else {
-                vh.ivThumb.setVisibility(View.GONE);
-            }
-        }
+      @NonNull
+      @Override
+      public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
+          LayoutInflater li = LayoutInflater.from(parent.getContext());
+          switch (vt) {
+              case TYPE_HIGHLIGHTS:
+                  return new HighlightsVH(li.inflate(R.layout.item_status_highlights, parent, false));
+              case TYPE_MY_STATUS:
+                  return new MyStatusVH(li.inflate(R.layout.item_my_status, parent, false));
+              case TYPE_SECTION_HEADER:
+              case TYPE_MUTED_HEADER:
+                  return new HeaderVH(li.inflate(R.layout.item_status_header, parent, false));
+              default:
+                  return new ContactVH(li.inflate(R.layout.item_status, parent, false));
+          }
+      }
 
-        // Avatar
-        if (vh.ivAvatar != null) {
-            Glide.with(ctx)
-                .load(row.photoUrl)
-                .placeholder(android.R.drawable.ic_menu_report_image)
-                .circleCrop()
-                .into(vh.ivAvatar);
-        }
+      @Override
+      public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int pos) {
+          FlatItem fi = items.get(pos);
+          Context ctx = holder.itemView.getContext();
+          if (holder instanceof HighlightsVH) bindHighlights((HighlightsVH) holder, ctx);
+          else if (holder instanceof MyStatusVH) bindMyStatus((MyStatusVH) holder, ctx);
+          else if (holder instanceof HeaderVH) {
+              String label = fi.kind == ITEM_MUT_HDR ? "\uD83D\uDD07 Muted" : fi.header;
+              ((HeaderVH) holder).tvHeader.setText(label);
+          } else bindContact((ContactVH) holder, fi.entry, ctx, fi.kind == ITEM_MUT_ROW);
+      }
 
-        vh.root.setOnClickListener(v ->
-            callbacks.onContactStatusClick(row.uid, row.items));
+      // ── FIX: Highlights ViewHolder ────────────────────────────────────────
+      private void bindHighlights(HighlightsVH h, Context ctx) {
+          h.rvHighlights.setLayoutManager(
+                  new LinearLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, false));
+          HighlightAlbumAdapter albumAdapter = new HighlightAlbumAdapter(highlights, album -> {
+              if (onHighlightClick != null) onHighlightClick.onClick(album);
+          });
+          h.rvHighlights.setAdapter(albumAdapter);
+      }
 
-        vh.root.setOnLongClickListener(v -> {
-            showContactOptions(row);
-            return true;
-        });
-    }
+      // ── My-Status ─────────────────────────────────────────────────────────
+      private void bindMyStatus(MyStatusVH h, Context ctx) {
+          if (myStatuses.isEmpty()) {
+              h.ring.setVisibility(View.GONE);
+              h.ivAdd.setVisibility(View.VISIBLE);
+              h.tvName.setText("My Status");
+              h.tvSub.setText("Tap to add status update");
+              h.ivAvatar.setImageResource(R.drawable.ic_person);
+              h.itemView.setOnClickListener(v -> { if (onAddStatusClick != null) onAddStatusClick.run(); });
+          } else {
+              StatusItem latest = myStatuses.get(myStatuses.size() - 1);
+              h.ring.setVisibility(View.VISIBLE);
+              h.ivAdd.setVisibility(View.GONE);
+              h.tvName.setText("My Status");
+              String timeSub = timeFmt.format(new java.util.Date(latest.timestamp != null ? latest.timestamp : 0));
+              h.tvSub.setText(timeSub + " \u00B7 " + myStatuses.size() + " update"
+                      + (myStatuses.size() > 1 ? "s" : "") + " \u00B7 " + latest.getExpiryLabel());
+              if (latest.ownerPhoto != null && !latest.ownerPhoto.isEmpty())
+                  Glide.with(ctx).load(latest.ownerPhoto).placeholder(R.drawable.ic_person).into(h.ivAvatar);
+              else
+                  h.ivAvatar.setImageResource(R.drawable.ic_person);
+              if (h.ivThumb != null) {
+                  String thumbUrl = latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl;
+                  if (thumbUrl != null && !thumbUrl.isEmpty()) {
+                      h.ivThumb.setVisibility(View.VISIBLE);
+                      Glide.with(ctx).load(thumbUrl).centerCrop().into(h.ivThumb);
+                  } else h.ivThumb.setVisibility(View.GONE);
+              }
+              h.itemView.setOnClickListener(v -> { if (onMyStatusClick != null) onMyStatusClick.run(); });
+          }
+      }
 
-    private void showContactOptions(ContactRow row) {
-        String muteLabel = StatusMuteManagerRef.isMuted(ctx, row.uid) ? "Unmute" : "Mute";
-        String[] opts = {muteLabel + " " + row.name, "Report"};
-        new android.app.AlertDialog.Builder(ctx)
-            .setItems(opts, (d, w) -> {
-                if (w == 0) {
-                    boolean nowMuting = !StatusMuteManagerRef.isMuted(ctx, row.uid);
-                    callbacks.onMuteToggle(row.uid, nowMuting);
-                }
-            }).show();
-    }
+      // ── Contact row ───────────────────────────────────────────────────────
+      private void bindContact(ContactVH h, Entry e, Context ctx, boolean isMuted) {
+          if (e == null) return;
+          h.tvName.setText(e.ownerName != null ? e.ownerName : "");
+          h.tvTime.setText(e.latestTimestamp != null
+                  ? timeFmt.format(new java.util.Date(e.latestTimestamp)) : "");
+          if (e.ownerPhoto != null && !e.ownerPhoto.isEmpty())
+              Glide.with(ctx).load(e.ownerPhoto).placeholder(R.drawable.ic_person).into(h.ivAvatar);
+          else
+              h.ivAvatar.setImageResource(R.drawable.ic_person);
 
-    // ── ViewHolders ────────────────────────────────────────────────────────
-    static class MyStatusVH extends RecyclerView.ViewHolder {
-        View     root, ivAddOverlay, ringView;
-        ImageView ivAvatar, ivThumb;
-        TextView tvName, tvStatusTime;
-        MyStatusVH(View v) {
-            super(v); root = v;
-            ivAvatar    = v.findViewById(resId2(v, "iv_my_avatar"));
-            ivThumb     = v.findViewById(resId2(v, "iv_my_thumb"));
-            ivAddOverlay= v.findViewById(resId2(v, "iv_add_overlay"));
-            tvName      = v.findViewById(resId2(v, "tv_my_name"));
-            tvStatusTime= v.findViewById(resId2(v, "tv_my_status_time"));
-            ringView    = v.findViewById(resId2(v, "view_ring"));
-        }
-        static int resId2(View v, String n) {
-            return v.getContext().getResources()
-                .getIdentifier(n, "id", v.getContext().getPackageName());
-        }
-    }
+          h.ring.setBackgroundResource(isMuted ? R.drawable.circle_status_seen
+                  : e.unseenCount > 0 ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
+          h.ring.setAlpha(isMuted ? 0.4f : 1f);
 
-    static class HeaderVH extends RecyclerView.ViewHolder {
-        TextView tvHeader;
-        HeaderVH(View v) {
-            super(v);
-            tvHeader = v.findViewById(
-                v.getContext().getResources().getIdentifier(
-                    "tv_section_header", "id", v.getContext().getPackageName()));
-        }
-    }
+          // FIX: unseen badge properly shown
+          if (h.tvBadge != null) {
+              if (!isMuted && e.unseenCount > 1) {
+                  h.tvBadge.setVisibility(View.VISIBLE);
+                  h.tvBadge.setText(String.valueOf(e.unseenCount));
+              } else {
+                  h.tvBadge.setVisibility(View.GONE);
+              }
+          }
 
-    static class ContactVH extends RecyclerView.ViewHolder {
-        View     root, ringView;
-        ImageView ivAvatar, ivThumb;
-        TextView tvName, tvTime, tvCaption, tvBadge;
-        ContactVH(View v) {
-            super(v); root = v;
-            ivAvatar  = v.findViewById(resId(v, "iv_contact_avatar"));
-            ivThumb   = v.findViewById(resId(v, "iv_status_thumb"));
-            tvName    = v.findViewById(resId(v, "tv_contact_name"));
-            tvTime    = v.findViewById(resId(v, "tv_status_time"));
-            tvCaption = v.findViewById(resId(v, "tv_status_caption_preview"));
-            tvBadge   = v.findViewById(resId(v, "tv_unseen_badge"));
-            ringView  = v.findViewById(resId(v, "view_status_ring"));
-        }
-        static int resId(View v, String n) {
-            return v.getContext().getResources()
-                .getIdentifier(n, "id", v.getContext().getPackageName());
-        }
-    }
+          // FIX: Close Friends badge
+          if (h.tvCfBadge != null) {
+              h.tvCfBadge.setVisibility(e.isCloseFriend ? View.VISIBLE : View.GONE);
+          }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
-    private String captionPreview(StatusItem item) {
-        if (item == null) return "";
-        if ("text".equals(item.type) && item.text != null) {
-            return item.text.length() > 40 ? item.text.substring(0, 40) + "…" : item.text;
-        }
-        if ("image".equals(item.type))  return "📷 Photo";
-        if ("video".equals(item.type))  return "🎥 Video";
-        if ("gif".equals(item.type))    return "GIF";
-        if ("poll".equals(item.type))   return "📊 " + (item.pollQuestion != null ? item.pollQuestion : "Poll");
-        if ("link".equals(item.type))   return "🔗 " + (item.linkDomain != null ? item.linkDomain : "Link");
-        return item.text != null ? item.text : "";
-    }
+          if (h.tvSub != null) {
+              StatusItem latest = e.latestItem;
+              String sub = "";
+              if (latest != null) {
+                  if ("image".equals(latest.type))   sub = "\uD83D\uDCF7 Photo";
+                  else if ("video".equals(latest.type)) sub = "\uD83C\uDFA5 Video";
+                  else if ("link".equals(latest.type))  sub = "\uD83D\uDD17 Link";
+                  else if ("gif".equals(latest.type))   sub = "GIF";
+                  else if (latest.text != null)         sub = latest.text;
+                  if (latest.caption != null && !latest.caption.isEmpty()) sub = latest.caption;
+                  if (isMuted) sub = "\uD83D\uDD07 " + sub;
+              }
+              h.tvSub.setText(sub);
+          }
 
-    private String formatTime(long ts) {
-        if (ts <= 0) return "";
-        long diff = System.currentTimeMillis() - ts;
-        long mins = diff / 60000;
-        if (mins < 1)  return "just now";
-        if (mins < 60) return mins + "m ago";
-        long hrs = mins / 60;
-        if (hrs < 24)  return hrs + "h ago";
-        return android.text.format.DateFormat.format("MMM d", new java.util.Date(ts)).toString();
-    }
+          if (h.ivThumb != null) {
+              StatusItem latest = e.latestItem;
+              String url = latest != null ? (latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl) : null;
+              if (url != null && !url.isEmpty()) {
+                  h.ivThumb.setVisibility(View.VISIBLE);
+                  Glide.with(ctx).load(url).centerCrop().into(h.ivThumb);
+              } else h.ivThumb.setVisibility(View.GONE);
+          }
 
-    private int resId(String name) {
-        return ctx.getResources().getIdentifier(name, "layout", ctx.getPackageName());
-    }
+          if (h.tvReaction != null) {
+              if (e.latestReaction != null) {
+                  h.tvReaction.setVisibility(View.VISIBLE);
+                  h.tvReaction.setText(e.latestReaction);
+              } else h.tvReaction.setVisibility(View.GONE);
+          }
 
-    // Tiny bridge to avoid direct dependency in ViewHolder
-    private static class StatusMuteManagerRef {
-        static boolean isMuted(Context c, String uid) {
-            return com.callx.app.utils.StatusMuteManager.get(c).isMuted(uid);
-        }
-    }
+          h.itemView.setOnClickListener(v -> {
+              if (!isMuted && onContactClick != null)
+                  onContactClick.onClick(e.ownerUid, e.ownerName);
+              else if (isMuted)
+                  android.widget.Toast.makeText(ctx,
+                          e.ownerName + " is muted. Long press to unmute.",
+                          android.widget.Toast.LENGTH_SHORT).show();
+          });
+          h.itemView.setOnLongClickListener(v -> {
+              if (onLongPress != null) onLongPress.onLongPress(e.ownerUid, e.ownerName, isMuted);
+              return true;
+          });
+      }
 
-    // ── Data classes ──────────────────────────────────────────────────────
-    public static class ListItem {
-        public final int               type;
-        public final String            headerText;
-        public final List<StatusItem>  myStatuses;
-        public final ContactRow        contactRow;
+      // ── ViewHolders ───────────────────────────────────────────────────────
+      // FIX: new HighlightsVH
+      static class HighlightsVH extends RecyclerView.ViewHolder {
+          RecyclerView rvHighlights;
+          HighlightsVH(View v) {
+              super(v);
+              rvHighlights = v.findViewById(R.id.rv_highlights);
+          }
+      }
 
-        public ListItem(int type, Object data) {
-            this.type = type;
-            if (type == TYPE_HEADER)    { headerText = (String) data; myStatuses = null; contactRow = null; }
-            else if (type == TYPE_MY_STATUS) { myStatuses = (List<StatusItem>) data; headerText = null; contactRow = null; }
-            else                        { contactRow = (ContactRow) data; headerText = null; myStatuses = null; }
-        }
-    }
+      static class MyStatusVH extends RecyclerView.ViewHolder {
+          CircleImageView ivAvatar;
+          ImageView ivAdd, ring, ivThumb;
+          TextView tvName, tvSub;
+          MyStatusVH(View v) {
+              super(v);
+              ivAvatar = v.findViewById(R.id.iv_avatar);
+              ivAdd    = v.findViewById(R.id.iv_add);
+              ring     = v.findViewById(R.id.ring);
+              tvName   = v.findViewById(R.id.tv_name);
+              tvSub    = v.findViewById(R.id.tv_sub);
+              ivThumb  = v.findViewById(R.id.iv_thumb);
+          }
+      }
 
-    public static class ContactRow {
-        public final String           uid;
-        public final String           name;
-        public final String           photoUrl;
-        public final List<StatusItem> items;
-        public final boolean          hasUnseen;
-        public final int              unseenCount;
-        public final long             newestTimestamp;
+      static class HeaderVH extends RecyclerView.ViewHolder {
+          TextView tvHeader;
+          HeaderVH(View v) { super(v); tvHeader = v.findViewById(R.id.tv_header); }
+      }
 
-        public ContactRow(String uid, String name, String photoUrl,
-                          List<StatusItem> items, boolean hasUnseen,
-                          int unseenCount, long newestTimestamp) {
-            this.uid            = uid;
-            this.name           = name;
-            this.photoUrl       = photoUrl;
-            this.items          = items;
-            this.hasUnseen      = hasUnseen;
-            this.unseenCount    = unseenCount;
-            this.newestTimestamp = newestTimestamp;
-        }
-    }
+      static class ContactVH extends RecyclerView.ViewHolder {
+          CircleImageView ivAvatar;
+          ImageView ring, ivThumb;
+          TextView tvName, tvTime, tvSub, tvBadge, tvReaction, tvCfBadge; // FIX: tvCfBadge added
+          ContactVH(View v) {
+              super(v);
+              ivAvatar   = v.findViewById(R.id.iv_avatar);
+              ring       = v.findViewById(R.id.ring);
+              tvName     = v.findViewById(R.id.tv_name);
+              tvTime     = v.findViewById(R.id.tv_time);
+              tvSub      = v.findViewById(R.id.tv_sub);
+              tvBadge    = v.findViewById(R.id.tv_badge);
+              ivThumb    = v.findViewById(R.id.iv_thumb);
+              tvReaction = v.findViewById(R.id.tv_reaction);
+              tvCfBadge  = v.findViewById(R.id.tv_cf_badge); // FIX: new
+          }
+      }
 
-    // ── Callbacks ─────────────────────────────────────────────────────────
-    public interface Callbacks {
-        void onMyStatusClick();
-        void onMyStatusLongPress();
-        void onContactStatusClick(String contactUid, List<StatusItem> items);
-        void onMuteToggle(String contactUid, boolean mute);
-    }
-}
+      // ── Inner adapter for highlights horizontal strip ──────────────────────
+      static class HighlightAlbumAdapter extends RecyclerView.Adapter<HighlightAlbumAdapter.VH> {
+          private final List<HighlightAlbum> albums;
+          private final java.util.function.Consumer<HighlightAlbum> onClick;
+          HighlightAlbumAdapter(List<HighlightAlbum> albums, java.util.function.Consumer<HighlightAlbum> onClick) {
+              this.albums = albums; this.onClick = onClick;
+          }
+          @NonNull @Override
+          public VH onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
+              return new VH(LayoutInflater.from(parent.getContext())
+                      .inflate(R.layout.item_highlight_album, parent, false));
+          }
+          @Override public void onBindViewHolder(@NonNull VH h, int pos) {
+              HighlightAlbum a = albums.get(pos);
+              h.tvTitle.setText(a.title);
+              if (a.coverUrl != null && !a.coverUrl.isEmpty())
+                  Glide.with(h.ivCover).load(a.coverUrl).circleCrop().into(h.ivCover);
+              h.itemView.setOnClickListener(v -> onClick.accept(a));
+          }
+          @Override public int getItemCount() { return albums.size(); }
+          static class VH extends RecyclerView.ViewHolder {
+              CircleImageView ivCover;
+              TextView tvTitle;
+              VH(View v) { super(v); ivCover = v.findViewById(R.id.iv_highlight_cover); tvTitle = v.findViewById(R.id.tv_highlight_title); }
+          }
+      }
+  }

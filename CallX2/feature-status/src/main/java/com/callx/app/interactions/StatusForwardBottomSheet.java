@@ -11,7 +11,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.StatusSeenTracker;
 import com.google.firebase.database.*;
 import java.util.*;
-import com.callx.app.activities.StatusViewerActivity;
+import com.callx.app.viewer.StatusViewerActivity;
 /**
  * StatusForwardBottomSheet v26 — Forward a status to one or more contacts.
  * NEW: Multi-select contacts, search bar, send as chat message.
@@ -93,7 +93,7 @@ public class StatusForwardBottomSheet {
                 for (String uid : selected) {
                     sendForwardMessage(myUid, uid, item);
                 }
-                StatusSeenTracker.incrementForwardCount(item.ownerUid, item.statusId);
+                StatusSeenTracker.incrementForwardCount(item.ownerUid, item.id);
                 Toast.makeText(ctx, "Forwarded to " + selected.size() + " contact(s)",
                         Toast.LENGTH_SHORT).show();
                 sheet.dismiss();
@@ -149,7 +149,7 @@ public class StatusForwardBottomSheet {
         msg.put("id",        msgId);
         msg.put("senderId",  myUid);
         msg.put("type",      "forwarded_status");
-        msg.put("text",      item.text != null ? item.text : item.text != null ? item.text : "");
+        msg.put("text",      item.text != null ? item.text : item.caption != null ? item.caption : "");
         msg.put("mediaUrl",  item.mediaUrl);
         msg.put("thumbUrl",  item.thumbnailUrl);
         msg.put("statusType", item.type);

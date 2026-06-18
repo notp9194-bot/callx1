@@ -42,7 +42,7 @@ public class StatusAnalyticsBottomSheet {
         root.addView(cardRow);
         // Expiry row
         TextView expiry = new TextView(ctx);
-        expiry.setText("⏳ " + (item.expiresAt > 0 ? new java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(new java.util.Date(item.expiresAt)) : "N/A"));
+        expiry.setText("⏳ " + item.getExpiryLabel());
         expiry.setTextSize(14);
         expiry.setTextColor(Color.parseColor("#888888"));
         expiry.setPadding(0, 0, 0, dp(ctx, 16));

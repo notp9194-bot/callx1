@@ -1,84 +1,80 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    app:cardElevation="0dp"
-    app:strokeWidth="0dp">
+    android:orientation="horizontal"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="12dp"
+    android:gravity="center_vertical"
+    android:background="?attr/selectableItemBackground">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical">
+    <!-- Avatar + ring + add icon -->
+    <FrameLayout
+        android:layout_width="54dp"
+        android:layout_height="54dp">
 
-        <!-- Avatar with add overlay -->
-        <FrameLayout
-            android:layout_width="54dp"
-            android:layout_height="54dp">
-
-            <!-- Ring border -->
-            <View
-                android:id="@+id/view_ring"
-                android:layout_width="54dp"
-                android:layout_height="54dp"
-                android:background="@drawable/circle_ring_green"
-                android:backgroundTint="#25D366"/>
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_my_avatar"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
-                android:layout_gravity="center"
-                android:src="@android:drawable/ic_menu_report_image"/>
-
-            <!-- Add (+) overlay in bottom-right corner -->
-            <View
-                android:id="@+id/iv_add_overlay"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:layout_gravity="bottom|end"
-                android:background="@drawable/circle_add_green"/>
-        </FrameLayout>
-
-        <!-- Text section -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/tv_my_name"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="My Status"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:textColor="?attr/colorOnSurface"/>
-
-            <TextView
-                android:id="@+id/tv_my_status_time"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="Tap to add status update"
-                android:textSize="13sp"
-                android:textColor="?attr/colorOnSurfaceVariant"/>
-        </LinearLayout>
-
-        <!-- My status thumbnail -->
+        <!-- Status ring (green = has status) -->
         <ImageView
-            android:id="@+id/iv_my_thumb"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
-            android:scaleType="centerCrop"
+            android:id="@+id/ring"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:src="@drawable/circle_status_unseen"
             android:visibility="gone"/>
 
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"/>
+
+        <!-- Add (+) badge -->
+        <ImageView
+            android:id="@+id/iv_add"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="bottom|end"
+            android:src="@android:drawable/ic_input_add"
+            android:background="#006200EE"
+            android:tint="@android:color/white"
+            android:padding="2dp"/>
+    </FrameLayout>
+
+    <!-- Text block -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="14dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="My Status"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"/>
+
+        <TextView
+            android:id="@+id/tv_sub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tap to add status update"
+            android:textSize="12sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:maxLines="1"
+            android:ellipsize="end"/>
     </LinearLayout>
 
-</com.google.android.material.card.MaterialCardView>
+    <!-- Thumbnail preview (NEW) -->
+    <ImageView
+        android:id="@+id/iv_thumb"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:scaleType="centerCrop"
+        android:visibility="gone"
+        android:layout_marginStart="8dp"/>
+
+</LinearLayout>

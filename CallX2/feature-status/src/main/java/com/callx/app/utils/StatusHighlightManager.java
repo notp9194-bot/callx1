@@ -19,7 +19,7 @@ public final class StatusHighlightManager {
             .getReference("statusHighlights")
             .child(ownerUid)
             .child(albumId)
-            .child(item.statusId != null ? item.statusId : FirebaseUtils.db().getReference().push().getKey());
+            .child(item.id != null ? item.id : FirebaseUtils.db().getReference().push().getKey());
         Map<String, Object> data = new HashMap<>(item.toMap());
         data.put("isHighlighted",     true);
         data.put("highlightAlbumId",  albumId);
@@ -49,7 +49,7 @@ public final class StatusHighlightManager {
     // ── Archive ───────────────────────────────────────────────────────────
     public static void archiveStatus(String ownerUid, StatusItem item) {
         if (ownerUid == null || item == null) return;
-        String key = item.statusId != null ? item.statusId : "unknown";
+        String key = item.id != null ? item.id : "unknown";
         Map<String, Object> data = new HashMap<>(item.toMap());
         data.put("isArchived", true);
         data.put("archivedAt", ServerValue.TIMESTAMP);

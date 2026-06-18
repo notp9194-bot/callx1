@@ -10,7 +10,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import com.callx.app.activities.StatusViewerActivity;
+import com.callx.app.viewer.StatusViewerActivity;
 /**
  * StatusSeenByBottomSheet v26 — Full seen-by list with avatars + timestamps.
  * FIX v26: show() now accepts optional Runnable onDismiss — called via setOnDismissListener,
@@ -84,7 +84,7 @@ public class StatusSeenByBottomSheet {
         for (String uid : uids) {
             final String fUid = uid;
             final long seenAt = item.seenBy.get(uid) != null ? item.seenBy.get(uid) : 0;
-            final String reaction = (item.reactions != null ? item.reactions.get(fUid) : null);
+            final String reaction = item.getReaction(fUid);
             FirebaseUtils.db().getReference("users").child(uid).get()
                 .addOnSuccessListener(snap -> {
                     String name  = snap.child("name").getValue(String.class);

@@ -7,7 +7,7 @@ import com.callx.app.history.CallsFragment;
 import com.callx.app.chatlist.ChatsFragment;
 import com.callx.app.group.GroupsFragment;
 import com.callx.app.feed.ReelsFragment;
-import com.callx.app.fragments.StatusFragment;
+import com.callx.app.feed.StatusFragment;
 
 public class ViewPagerAdapter extends FragmentStateAdapter {
     public ViewPagerAdapter(FragmentActivity fa) { super(fa); }

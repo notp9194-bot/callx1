@@ -3,23 +3,29 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
+
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="New Status"
-            app:navigationIcon="@android:drawable/ic_menu_close_clear_cancel"/>
+            android:background="@drawable/gradient_brand"
+            android:title="New Status"
+            app:navigationIcon="@drawable/ic_back"
+            app:titleTextColor="@color/white"/>
+
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+        app:layout_behavior="@string/appbar_scrolling_view_behavior"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -27,269 +33,310 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Mode tabs -->
-            <HorizontalScrollView
+            <!-- ── Text input ── -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/til_text"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingBottom="8dp">
-                    <Button android:id="@+id/btn_mode_text"   android:layout_width="wrap_content" android:layout_height="36dp" android:text="Text"   style="@style/Widget.Material3.Button.TonalButton" android:layout_marginEnd="8dp"/>
-                    <Button android:id="@+id/btn_mode_image"  android:layout_width="wrap_content" android:layout_height="36dp" android:text="📷 Photo"  style="@style/Widget.Material3.Button.OutlinedButton" android:layout_marginEnd="8dp"/>
-                    <Button android:id="@+id/btn_mode_video"  android:layout_width="wrap_content" android:layout_height="36dp" android:text="🎥 Video"  style="@style/Widget.Material3.Button.OutlinedButton" android:layout_marginEnd="8dp"/>
-                    <Button android:id="@+id/btn_mode_gif"    android:layout_width="wrap_content" android:layout_height="36dp" android:text="GIF"    style="@style/Widget.Material3.Button.OutlinedButton" android:layout_marginEnd="8dp"/>
-                    <Button android:id="@+id/btn_mode_link"   android:layout_width="wrap_content" android:layout_height="36dp" android:text="🔗 Link"   style="@style/Widget.Material3.Button.OutlinedButton" android:layout_marginEnd="8dp"/>
-                    <Button android:id="@+id/btn_mode_poll"   android:layout_width="wrap_content" android:layout_height="36dp" android:text="📊 Poll"   style="@style/Widget.Material3.Button.OutlinedButton"/>
-                </LinearLayout>
-            </HorizontalScrollView>
+                android:layout_height="wrap_content"
+                android:hint="Type your status…"
+                app:boxCornerRadiusTopEnd="14dp"
+                app:boxCornerRadiusTopStart="14dp"
+                app:boxCornerRadiusBottomEnd="14dp"
+                app:boxCornerRadiusBottomStart="14dp">
 
-            <!-- Live preview card -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/card_preview"
-                android:layout_width="match_parent"
-                android:layout_height="200dp"
-                android:layout_marginVertical="12dp"
-                app:cardCornerRadius="12dp">
-                <FrameLayout
-                    android:id="@+id/iv_preview_bg"
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_text"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="#075E54">
+                    android:layout_height="wrap_content"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:maxLines="6"
+                    android:minLines="3"/>
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:id="@+id/tv_char_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:text="0 / 700"
+                android:textSize="11sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginBottom="12dp"
+                android:layout_marginEnd="4dp"/>
+
+            <!-- ── Live text preview card ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/text_preview_card"
+                android:layout_width="match_parent"
+                android:layout_height="180dp"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="2dp"
+                android:visibility="gone">
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent">
+
                     <TextView
-                        android:id="@+id/tv_preview_text"
-                        android:layout_width="match_parent"
+                        android:id="@+id/tv_text_preview"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="center"
-                        android:gravity="center"
                         android:padding="24dp"
-                        android:text="Your status text…"
-                        android:textColor="#FFFFFF"
-                        android:textSize="22sp"/>
+                        android:textColor="@color/white"
+                        android:textSize="24sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:text="Preview"/>
+
                 </FrameLayout>
+
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- TEXT mode -->
+            <!-- ── Background color picker ── -->
             <LinearLayout
-                android:id="@+id/layout_text_mode"
+                android:id="@+id/bg_color_picker_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:orientation="horizontal"
+                android:layout_marginBottom="16dp"
+                android:gravity="center">
 
-                <EditText
-                    android:id="@+id/et_status_text"
-                    android:layout_width="match_parent"
-                    android:layout_height="120dp"
-                    android:hint="What's on your mind?"
-                    android:inputType="textMultiLine|textCapSentences"
-                    android:gravity="top"
-                    android:maxLength="280"
-                    android:padding="12dp"
-                    android:background="@android:color/transparent"/>
+                <View android:id="@+id/color_swatch_0"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_1"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_2"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_3"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_4"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_5"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_6"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_7"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_8"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
+                <View android:id="@+id/color_swatch_9"
+                    android:layout_width="28dp" android:layout_height="28dp"
+                    android:layout_margin="4dp" android:background="@drawable/circle_primary"/>
 
-                <TextView
-                    android:id="@+id/tv_char_counter"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="end"
-                    android:text="0/280"
-                    android:textSize="12sp"
-                    android:textColor="#9E9E9E"/>
-
-                <!-- Color swatches row -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="BACKGROUND COLOR"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.08"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginBottom="8dp"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-                    <LinearLayout
-                        android:id="@+id/layout_color_swatches"
-                        android:layout_width="wrap_content"
-                        android:layout_height="40dp"
-                        android:orientation="horizontal"/>
-                </HorizontalScrollView>
-
-                <!-- Font style picker -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="FONT STYLE"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.08"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="8dp"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-                    <LinearLayout
-                        android:id="@+id/layout_font_buttons"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"/>
-                </HorizontalScrollView>
             </LinearLayout>
 
-            <!-- MEDIA mode -->
-            <LinearLayout
-                android:id="@+id/layout_media_mode"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-                <ImageView
-                    android:id="@+id/iv_media_preview"
-                    android:layout_width="match_parent"
-                    android:layout_height="200dp"
-                    android:scaleType="centerCrop"
-                    android:visibility="gone"/>
-                <EditText
-                    android:id="@+id/et_caption"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Add a caption…"
-                    android:inputType="textCapSentences"
-                    android:maxLines="3"/>
-            </LinearLayout>
-
-            <!-- LINK mode -->
-            <LinearLayout
-                android:id="@+id/layout_link_mode"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-                <EditText
-                    android:id="@+id/et_link_url"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="https://…"
-                    android:inputType="textUri"/>
-            </LinearLayout>
-
-            <!-- POLL mode -->
-            <LinearLayout
-                android:id="@+id/layout_poll_mode"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-                <EditText
-                    android:id="@+id/et_poll_question"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Ask a question…"
-                    android:inputType="textCapSentences"/>
-                <LinearLayout
-                    android:id="@+id/layout_poll_options"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginTop="8dp"/>
-                <Button
-                    android:id="@+id/btn_add_poll_option"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="+ Add Option"
-                    style="@style/Widget.Material3.Button.TextButton"/>
-            </LinearLayout>
-
-            <!-- Upload progress -->
-            <LinearLayout
-                android:id="@+id/layout_upload_progress"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:layout_marginTop="16dp"
-                android:visibility="gone">
-                <TextView
-                    android:id="@+id/tv_upload_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Uploading…"
-                    android:textSize="13sp"/>
-                <ProgressBar
-                    android:id="@+id/progress_upload"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:max="100"/>
-            </LinearLayout>
-
-            <!-- Settings row: Privacy | TTL | Location | Feeling -->
+            <!-- ── Font style picker ── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="20dp"
-                android:gravity="center_vertical">
+                android:layout_marginBottom="16dp">
 
-                <ImageButton
-                    android:id="@+id/btn_privacy"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:src="@android:drawable/ic_menu_manage"
-                    android:background="?attr/selectableItemBackgroundBorderless"/>
-                <TextView
-                    android:id="@+id/tv_privacy_label"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_font_default"
+                    style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="My Contacts"
-                    android:textSize="13sp"
-                    android:textColor="?attr/colorPrimary"/>
-
-                <Button
-                    android:id="@+id/btn_ttl"
-                    android:layout_width="wrap_content"
                     android:layout_height="36dp"
-                    android:text="24 hours (default)"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:textSize="11sp"/>
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="Aa"
+                    android:textSize="13sp"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_font_bold"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="Aa"
+                    android:textStyle="bold"
+                    android:textSize="13sp"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_font_italic"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="Aa"
+                    android:textStyle="italic"
+                    android:textSize="13sp"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_font_handwriting"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="Aa"
+                    android:fontFamily="monospace"
+                    android:textSize="13sp"/>
+
             </LinearLayout>
 
-            <!-- Location tag -->
-            <TextView
-                android:id="@+id/tv_location_tag"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textSize="13sp"
-                android:textColor="?attr/colorPrimary"
-                android:visibility="gone"/>
-
-            <!-- Feeling tag -->
-            <TextView
-                android:id="@+id/tv_feeling_tag"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textSize="13sp"
-                android:textColor="?attr/colorPrimary"
-                android:visibility="gone"/>
-
-            <!-- Post button -->
-            <Button
-                android:id="@+id/btn_post_status"
+            <!-- ── Media buttons ── -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_pick_image"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
-                android:layout_marginTop="24dp"
+                android:text="Add Photo"
+                app:icon="@drawable/ic_gallery"
+                app:cornerRadius="14dp"
+                android:layout_marginBottom="10dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_pick_video"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Add Video"
+                app:icon="@drawable/ic_video"
+                app:cornerRadius="14dp"
+                android:layout_marginBottom="16dp"/>
+
+            <!-- ── Media preview ── -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:visibility="gone"
+                android:id="@+id/media_preview_frame">
+
+                <ImageView
+                    android:id="@+id/iv_preview"
+                    android:layout_width="match_parent"
+                    android:layout_height="240dp"
+                    android:scaleType="centerCrop"
+                    android:background="@drawable/card_rounded"/>
+
+                <ImageView
+                    android:id="@+id/iv_video_hint"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_play"
+                    android:tint="@color/white"
+                    android:visibility="gone"/>
+
+                <ImageButton
+                    android:id="@+id/btn_discard_media"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_gravity="top|end"
+                    android:layout_margin="8dp"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    android:tint="@color/white"
+                    android:background="@drawable/circle_avatar_bg"
+                    android:padding="6dp"
+                    android:contentDescription="Discard media"/>
+
+            </FrameLayout>
+
+            <!-- ── Caption (shown when media is selected) ── -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/caption_group"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Add caption…"
                 android:layout_marginBottom="16dp"
+                android:visibility="gone"
+                app:boxCornerRadiusTopEnd="14dp"
+                app:boxCornerRadiusTopStart="14dp"
+                app:boxCornerRadiusBottomEnd="14dp"
+                app:boxCornerRadiusBottomStart="14dp">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapSentences"
+                    android:maxLines="2"/>
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- ── Upload progress ── -->
+            <ProgressBar
+                android:id="@+id/upload_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:indeterminate="true"
+                android:visibility="gone"
+                android:layout_marginBottom="4dp"/>
+
+            <TextView
+                android:id="@+id/tv_upload_hint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp"
+                android:text="Uploading media…"/>
+
+            <!-- ── Privacy selector ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_shield"
+                    android:tint="@color/text_secondary"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Visible to:"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"
+                    android:layout_marginEnd="8dp"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_privacy"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="My contacts"
+                    app:cornerRadius="18dp"/>
+
+            </LinearLayout>
+
+            <!-- ── Post button ── -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_post"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
                 android:text="Post Status"
+                app:cornerRadius="16dp"
+                android:backgroundTint="@color/brand_primary"
                 android:textSize="16sp"
-                style="@style/Widget.Material3.Button"/>
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
 
         </LinearLayout>
+
     </androidx.core.widget.NestedScrollView>
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
