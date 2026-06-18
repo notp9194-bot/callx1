@@ -1853,9 +1853,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
         // ── Show system notification ───────────────────────────────────────
         // Deep-link directly to StatusViewerActivity so the status opens on tap,
         // even when app is killed. EXTRA_OWNER_UID + NAME are required by StatusViewerActivity.
-        Intent i = new Intent(this, com.callx.app.viewer.StatusViewerActivity.class);
-        i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_UID,  fromUid);
-        i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_NAME, name);
+        Intent i = new Intent(this, com.callx.app.activities.StatusViewerActivity.class);
+        i.putExtra(com.callx.app.activities.StatusViewerActivity.EXTRA_OWNER_UID,  fromUid);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(this,
             fromUid.hashCode(),
@@ -2099,9 +2098,11 @@ public class CallxMessagingService extends FirebaseMessagingService {
           String reaction     = safeGet(data, "reaction");
           String ownerUid     = safeGet(data, "ownerUid");
           if (reactorName == null || reaction == null) return;
-          com.callx.app.utils.StatusNotificationHelper.postStatusReactionNotification(
-              getApplicationContext(), reactorUid, reactorName, reactorPhoto,
-              reaction, ownerUid != null ? ownerUid : "");
+          // postStatusReactionNotification replaced with notifyStatusReaction
+          if (ownerUid != null && reactorUid != null && reaction != null) {
+              com.callx.app.utils.StatusNotificationHelper.notifyStatusReaction(
+                  ownerUid, "", reactorUid, reaction);
+          }
           // Save to Firebase store
           com.callx.app.utils.NotificationFirebaseStore.save(
               com.callx.app.utils.NotificationFirebaseStore.TYPE_STATUS,

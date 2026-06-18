@@ -721,8 +721,6 @@ public class AllNotificationsActivity extends AppCompatActivity {
                 if (it.fromUid != null) {
                     Intent sv = new Intent(this, StatusViewerActivity.class);
                     sv.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  it.fromUid);
-                    sv.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME,
-                                it.fromName != null ? it.fromName : "Status");
                     startActivity(sv);
                 } else {
                     // Fallback: open MainActivity on the Status tab
