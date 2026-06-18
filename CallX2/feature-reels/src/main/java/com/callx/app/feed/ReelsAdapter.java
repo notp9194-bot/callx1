@@ -15,23 +15,21 @@ import java.util.List;
  * ReelsAdapter — backs the vertical Reels ViewPager2 feed.
  *
  * ── Mini Games card injection ────────────────────────────────────────────
- * Every GAMES_CARD_INTERVAL (3) real reels, one extra "Mini Games" card is
- * shown (YouTube-Playables-shelf style — see GamesCardFragment), the same
- * way YouTube interleaves a Playables shelf into the home feed.
+ * ONE "Mini Games" card appears at position 3 (after the first 3 reels).
+ * After that, reels continue normally — feed is infinite.
  *
- * This is done purely via *position math* — the underlying `reels` list
- * is never mutated with fake entries. That keeps ReelModel, Firebase
- * pagination (currentPage/loadMoreReels in ReelsFragment), blocking logic,
- * and getItemId() stability completely untouched; only this adapter's
- * position<->reel-index translation changes.
+ * Feed layout: R R R G R R R R R R R ... (infinite)
+ *   positions:  0 1 2 3 4 5 6 7 ...
  *
- * Position layout (1-indexed slots, R = real reel, G = games card):
- *   R R R G R R R G R R R G ...
- * i.e. a games card appears after every 3rd real reel.
+ * Position-to-reel-index mapping:
+ *   position < 3  → reelIndex = position          (reels 0, 1, 2)
+ *   position == 3 → Game Card (no reel)
+ *   position > 3  → reelIndex = position - 1      (reels 3, 4, 5 ...)
  */
 public class ReelsAdapter extends FragmentStateAdapter {
 
-    private static final int GAMES_CARD_INTERVAL = 3; // show games card after every 3 reels
+    /** Game card appears once, after this many reels. */
+    private static final int GAMES_CARD_POSITION = 3;
 
     private final List<ReelModel> reels = new ArrayList<>();
     private boolean gamesCardsEnabled = false;
@@ -45,10 +43,8 @@ public class ReelsAdapter extends FragmentStateAdapter {
     }
 
     /**
-     * Enables/disables the interleaved "Mini Games" card every
-     * GAMES_CARD_INTERVAL reels. Off by default so existing screens that
-     * reuse this adapter (HashtagReelsActivity, SingleReelPlayerActivity)
-     * are unaffected — only the main ReelsFragment feed opts in.
+     * Enables/disables the single "Mini Games" card at position 3.
+     * Off by default so other screens (HashtagReels, SingleReel, etc.) are unaffected.
      */
     public void setGamesCardsEnabled(boolean enabled) {
         if (this.gamesCardsEnabled != enabled) {
@@ -64,40 +60,44 @@ public class ReelsAdapter extends FragmentStateAdapter {
     }
 
     public void addReels(List<ReelModel> more) {
-        int start = reels.size();
+        int insertAt = getItemCount(); // adapter position before new items
         reels.addAll(more);
-        notifyItemRangeInserted(start, more.size());
+        // +1 offset because of the game card slot when enabled and already visible
+        int adapterInsertAt = (gamesCardsEnabled && reels.size() - more.size() >= GAMES_CARD_POSITION)
+                ? insertAt : insertAt;
+        notifyItemRangeInserted(adapterInsertAt, more.size());
     }
 
     public void prependReel(ReelModel reel) {
         reels.add(0, reel);
-        notifyItemInserted(0);
+        notifyDataSetChanged();
     }
 
+    /** Get the ReelModel for an adapter position (must not be a game-card position). */
     public ReelModel get(int position) {
-        int reelIndex = toReelIndex(position);
-        return reels.get(reelIndex);
-    }
-
-    /** True if the given adapter position is a Mini Games card (not a real reel). */
-    public boolean isGamesCardPosition(int position) {
-        if (!gamesCardsEnabled) return false;
-        int slot = position + 1; // 1-indexed
-        return slot % (GAMES_CARD_INTERVAL + 1) == 0;
+        return reels.get(toReelIndex(position));
     }
 
     /**
-     * Converts an adapter position to an index into the `reels` list,
-     * accounting for the games cards interleaved every GAMES_CARD_INTERVAL slots.
-     * Public so callers (e.g. ReelsFragment's preloaders/pagination) can
-     * translate a raw ViewPager2 position into the real reel-list index.
-     * If `position` itself is a games-card slot, returns the index of the
-     * next upcoming real reel (safe clamp for preloading purposes).
+     * True only at position GAMES_CARD_POSITION (position 3).
+     * Game card appears exactly once.
+     */
+    public boolean isGamesCardPosition(int position) {
+        if (!gamesCardsEnabled) return false;
+        return position == GAMES_CARD_POSITION;
+    }
+
+    /**
+     * Converts adapter position → index in the reels list.
+     *   position 0,1,2 → reelIndex 0,1,2
+     *   position 3     → game card (do not call for game card positions)
+     *   position 4,5,6 → reelIndex 3,4,5
      */
     public int toReelIndex(int position) {
         if (!gamesCardsEnabled) return position;
-        int gamesCardsBefore = position / (GAMES_CARD_INTERVAL + 1);
-        return position - gamesCardsBefore;
+        if (position < GAMES_CARD_POSITION) return position;
+        // position > GAMES_CARD_POSITION (skip the one game card slot)
+        return position - 1;
     }
 
     @NonNull
@@ -106,36 +106,30 @@ public class ReelsAdapter extends FragmentStateAdapter {
         if (isGamesCardPosition(position)) {
             return GamesCardFragment.newInstance();
         }
-        int reelIndex = toReelIndex(position);
-        return ReelPlayerFragment.newInstance(reels.get(reelIndex));
+        return ReelPlayerFragment.newInstance(reels.get(toReelIndex(position)));
     }
 
     @Override
     public int getItemCount() {
         if (reels.isEmpty()) return 0;
         if (!gamesCardsEnabled) return reels.size();
-        int gamesCards = reels.size() / GAMES_CARD_INTERVAL;
-        return reels.size() + gamesCards;
+        // If we have at least 3 reels, add 1 extra slot for the game card
+        if (reels.size() >= GAMES_CARD_POSITION) {
+            return reels.size() + 1;
+        }
+        return reels.size();
     }
 
     @Override
     public long getItemId(int position) {
-        if (isGamesCardPosition(position)) {
-            // Stable negative id per games-card slot — never collides with a
-            // reelId.hashCode() (which ReelModel.reelId always produces via
-            // String#hashCode, effectively never landing on these reserved values)
-            // and stays consistent across notifyDataSetChanged() since it's
-            // derived purely from position, not list contents.
-            return -1000L - position;
-        }
-        int reelIndex = toReelIndex(position);
-        String id = reels.get(reelIndex).reelId;
+        if (isGamesCardPosition(position)) return -1000L;
+        String id = reels.get(toReelIndex(position)).reelId;
         return id != null ? id.hashCode() : position;
     }
 
     @Override
     public boolean containsItem(long itemId) {
-        if (itemId <= -1000L) return true; // games-card slots are always considered present
+        if (itemId == -1000L) return true;
         for (ReelModel r : reels) {
             if (r.reelId != null && r.reelId.hashCode() == itemId) return true;
         }

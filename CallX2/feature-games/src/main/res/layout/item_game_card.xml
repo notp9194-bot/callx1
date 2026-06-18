@@ -6,20 +6,26 @@
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:background="@drawable/bg_game_card"
-    android:layout_marginBottom="12dp"
-    android:padding="16dp"
+    android:layout_marginBottom="14dp"
+    android:padding="18dp"
     android:clickable="true"
     android:focusable="true">
 
-    <!-- Game emoji / icon -->
-    <TextView
-        android:id="@+id/tv_game_emoji"
-        android:layout_width="56dp"
-        android:layout_height="56dp"
-        android:gravity="center"
-        android:textSize="32sp"
-        android:background="#2A1A4A"
-        android:text="🎮"/>
+    <!-- Game icon circle -->
+    <FrameLayout
+        android:layout_width="60dp"
+        android:layout_height="60dp"
+        android:background="@drawable/bg_reels_game_icon"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/tv_game_emoji"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textSize="30sp"
+            android:text="🎮"/>
+    </FrameLayout>
 
     <!-- Name + description -->
     <LinearLayout
@@ -27,8 +33,8 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="8dp">
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="10dp">
 
         <TextView
             android:id="@+id/tv_game_name"
@@ -38,7 +44,8 @@
             android:textColor="@color/games_text_primary"
             android:textSize="16sp"
             android:textStyle="bold"
-            android:layout_marginBottom="4dp"/>
+            android:letterSpacing="-0.01"
+            android:layout_marginBottom="5dp"/>
 
         <TextView
             android:id="@+id/tv_game_desc"
@@ -55,17 +62,17 @@
     <!-- Play button -->
     <LinearLayout
         android:id="@+id/btn_game_play"
-        android:layout_width="72dp"
-        android:layout_height="36dp"
+        android:layout_width="80dp"
+        android:layout_height="38dp"
         android:gravity="center"
-        android:background="@drawable/bg_play_btn"
+        android:background="@drawable/bg_reels_game_play_btn"
         android:clickable="true"
         android:focusable="true">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="▶  Play"
+            android:text="▶ Play"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:textStyle="bold"/>

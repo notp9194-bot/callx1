@@ -1,88 +1,109 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    fragment_reels_games_card.xml
-    Full-screen card injected into the Reels ViewPager2 feed every 3 reels.
-    Visually inspired by YouTube's "Playables" shelf — dark purple gradient
-    background matching feature-games' palette (#0D0221 / #1A0A2E / #2A1A4A),
-    with two horizontally-scrollable game cards (Bubble Pop, Car Racing) that
-    deep-link straight into GameActivity's WebView.
+    fragment_reels_games_card.xml  — Ultra Modern Edition
+    Full-screen Games card shown ONCE after the first 3 reels.
+    Design: deep space gradient bg, glassmorphism cards, neon glow accents.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0D0221">
+    android:background="@drawable/bg_games_screen_gradient">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:gravity="center">
+        android:gravity="center"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp">
 
-        <!-- Header -->
+        <!-- ── BADGE ─────────────────────────────────────────────── -->
         <LinearLayout
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="32dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="6dp">
+            android:background="@drawable/bg_games_badge"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:layout_marginBottom="18dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🎮"
-                android:textSize="26sp"
+                android:text="● LIVE"
+                android:textColor="#00FFB2"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.12"
                 android:layout_marginEnd="8dp"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Mini Games"
+                android:text="MINI GAMES"
                 android:textColor="#FFFFFF"
-                android:textSize="22sp"
-                android:textStyle="bold"/>
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.12"/>
         </LinearLayout>
+
+        <!-- ── HEADLINE ──────────────────────────────────────────── -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Play Now"
+            android:textColor="#FFFFFF"
+            android:textSize="38sp"
+            android:textStyle="bold"
+            android:letterSpacing="-0.03"
+            android:layout_marginBottom="6dp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Instant games, no downloads 🕹️"
-            android:textColor="#B0B0C8"
-            android:textSize="13sp"
-            android:layout_marginBottom="28dp"/>
+            android:text="Instant games · No downloads needed"
+            android:textColor="#8B8BAA"
+            android:textSize="14sp"
+            android:letterSpacing="0.01"
+            android:layout_marginBottom="36dp"/>
 
-        <!-- Game cards row -->
+        <!-- ── GAME CARDS ROW ─────────────────────────────────────── -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center"
-            android:paddingStart="28dp"
-            android:paddingEnd="28dp">
+            android:gravity="center">
 
             <!-- Bubble Pop card -->
             <LinearLayout
                 android:id="@+id/card_game_1"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="220dp"
                 android:layout_weight="1"
-                android:layout_marginEnd="12dp"
+                android:layout_marginEnd="10dp"
                 android:orientation="vertical"
-                android:gravity="center"
-                android:background="@drawable/bg_reels_game_card"
-                android:padding="16dp"
+                android:gravity="bottom"
+                android:background="@drawable/bg_reels_game_card_bubble"
+                android:padding="18dp"
                 android:clickable="true"
                 android:focusable="true">
 
-                <TextView
-                    android:id="@+id/tv_game1_emoji"
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:gravity="center"
-                    android:textSize="36sp"
-                    android:background="@drawable/bg_reels_game_icon"
-                    android:text="🫧"
-                    android:layout_marginBottom="12dp"/>
+                <!-- Top row: icon -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:gravity="top|end">
+
+                    <TextView
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:gravity="center"
+                        android:textSize="28sp"
+                        android:background="@drawable/bg_reels_game_icon_circle"
+                        android:text="🫧"/>
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/tv_game1_name"
@@ -90,27 +111,37 @@
                     android:layout_height="wrap_content"
                     android:text="Bubble Pop"
                     android:textColor="#FFFFFF"
-                    android:textSize="15sp"
+                    android:textSize="17sp"
                     android:textStyle="bold"
                     android:maxLines="1"
-                    android:layout_marginBottom="10dp"/>
+                    android:layout_marginBottom="4dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Pop bubbles fast!"
+                    android:textColor="#AAAACC"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:layout_marginBottom="14dp"/>
 
                 <LinearLayout
                     android:id="@+id/btn_game1_play"
                     android:layout_width="match_parent"
-                    android:layout_height="36dp"
+                    android:layout_height="42dp"
                     android:gravity="center"
-                    android:background="@drawable/bg_reels_game_play_btn"
+                    android:background="@drawable/bg_reels_game_play_btn_bubble"
                     android:clickable="true"
                     android:focusable="true">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="▶  Play"
+                        android:text="▶  PLAY NOW"
                         android:textColor="#FFFFFF"
-                        android:textSize="12sp"
-                        android:textStyle="bold"/>
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.05"/>
                 </LinearLayout>
             </LinearLayout>
 
@@ -118,24 +149,31 @@
             <LinearLayout
                 android:id="@+id/card_game_2"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="220dp"
                 android:layout_weight="1"
+                android:layout_marginStart="10dp"
                 android:orientation="vertical"
-                android:gravity="center"
-                android:background="@drawable/bg_reels_game_card"
-                android:padding="16dp"
+                android:gravity="bottom"
+                android:background="@drawable/bg_reels_game_card_racing"
+                android:padding="18dp"
                 android:clickable="true"
                 android:focusable="true">
 
-                <TextView
-                    android:id="@+id/tv_game2_emoji"
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:gravity="center"
-                    android:textSize="36sp"
-                    android:background="@drawable/bg_reels_game_icon"
-                    android:text="🏎️"
-                    android:layout_marginBottom="12dp"/>
+                <!-- Top row: icon -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:gravity="top|end">
+
+                    <TextView
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:gravity="center"
+                        android:textSize="28sp"
+                        android:background="@drawable/bg_reels_game_icon_circle"
+                        android:text="🏎️"/>
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/tv_game2_name"
@@ -143,38 +181,51 @@
                     android:layout_height="wrap_content"
                     android:text="Car Racing"
                     android:textColor="#FFFFFF"
-                    android:textSize="15sp"
+                    android:textSize="17sp"
                     android:textStyle="bold"
                     android:maxLines="1"
-                    android:layout_marginBottom="10dp"/>
+                    android:layout_marginBottom="4dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Race to the finish!"
+                    android:textColor="#AAAACC"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:layout_marginBottom="14dp"/>
 
                 <LinearLayout
                     android:id="@+id/btn_game2_play"
                     android:layout_width="match_parent"
-                    android:layout_height="36dp"
+                    android:layout_height="42dp"
                     android:gravity="center"
-                    android:background="@drawable/bg_reels_game_play_btn"
+                    android:background="@drawable/bg_reels_game_play_btn_racing"
                     android:clickable="true"
                     android:focusable="true">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="▶  Play"
+                        android:text="▶  PLAY NOW"
                         android:textColor="#FFFFFF"
-                        android:textSize="12sp"
-                        android:textStyle="bold"/>
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.05"/>
                 </LinearLayout>
             </LinearLayout>
+
         </LinearLayout>
 
+        <!-- ── FOOTER NOTE ────────────────────────────────────────── -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="👆 Swipe up for more reels"
-            android:textColor="#6E6E8A"
+            android:text="More games coming soon"
+            android:textColor="#44445A"
             android:textSize="12sp"
-            android:layout_marginTop="36dp"/>
+            android:layout_marginTop="28dp"/>
+
     </LinearLayout>
 
 </FrameLayout>
