@@ -231,34 +231,4 @@ public class CollabRepostNotificationHelper {
         int base = (collabId != null ? collabId.hashCode() : 0) ^ (type != null ? type.hashCode() : 0);
         return Math.abs(base) + 90000; // offset to avoid collision with other notification IDs
     }
-
-    /** v9: Shows a high-priority "Live Collab Invite" notification. */
-    public static void showLiveCollabInviteNotification(android.content.Context ctx,
-                                                         String inviterName, String inviterUid,
-                                                         String reelId, Bitmap avatar) {
-        int notifId = ("live_collab_invite_" + inviterUid + reelId).hashCode();
-        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
-            ctx, 0,
-            new android.content.Intent(ctx, com.callx.app.collab.LiveCollabActivity.class)
-                .putExtra("inviter_uid", inviterUid)
-                .putExtra("reel_id", reelId)
-                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT |
-                (android.os.Build.VERSION.SDK_INT >= 23 ? android.app.PendingIntent.FLAG_IMMUTABLE : 0));
-
-        androidx.core.app.NotificationCompat.Builder b =
-            new androidx.core.app.NotificationCompat.Builder(ctx,
-                ReelNotificationChannelManager.CHANNEL_REEL_COLLAB_LIVE)
-            .setSmallIcon(com.callx.app.reels.R.drawable.ic_reels)
-            .setContentTitle(inviterName + " wants to go LIVE with you! 🔴")
-            .setContentText("Tap to join the live collab")
-            .setAutoCancel(true)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
-            .setColor(0xFFFF3B5C)
-            .setContentIntent(pi);
-        if (avatar != null) b.setLargeIcon(avatar);
-        try {
-            NotificationManagerCompat.from(ctx).notify(notifId, b.build());
-        } catch (SecurityException ignored) {}
-    }
 }

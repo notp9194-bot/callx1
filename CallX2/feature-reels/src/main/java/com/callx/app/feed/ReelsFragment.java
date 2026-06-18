@@ -166,6 +166,7 @@ public class ReelsFragment extends Fragment {
         });
 
         adapter = new ReelsAdapter(this);
+        adapter.setGamesCardsEnabled(true); // Mini Games card every 3 reels (YouTube-Playables style)
         vpReels.setAdapter(adapter);
         // ── Instagram-style instant playback ──────────────────────────────
         // offscreenPageLimit=3 → N-1, N, N+1, N+2 fragments all kept alive.
@@ -181,10 +182,11 @@ public class ReelsFragment extends Fragment {
             @Override
             public void onPageSelected(int position) {
                 controlPlayback(position);
-                if (position >= adapter.getItemCount() - 3) loadMoreReels();
+                int reelIndex = adapter.toReelIndex(position);
+                if (reelIndex >= currentPage - 3) loadMoreReels();
                 List<ReelModel> cur = isFypMode ? allReels : followingReels;
-                if (videoPreloader != null) videoPreloader.preloadFrom(cur, position);
-                if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, position);
+                if (videoPreloader != null) videoPreloader.preloadFrom(cur, reelIndex);
+                if (thumbPreloader != null) thumbPreloader.preloadFrom(cur, reelIndex);
             }
         });
 

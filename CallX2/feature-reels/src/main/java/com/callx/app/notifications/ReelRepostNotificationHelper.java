@@ -233,25 +233,5 @@ public class ReelRepostNotificationHelper {
         if (nm != null) nm.notify(notifId, b.build());
     }
 
-    /** v9: shows a "Your reel is going viral!" milestone notification for repost milestones. */
-    public static void showRepostMilestoneNotification(Context ctx, String reelId,
-                                                        String milestoneLabel,
-                                                        android.graphics.Bitmap avatar) {
-        int notifId = ("repost_milestone_" + reelId).hashCode();
-        androidx.core.app.NotificationCompat.Builder b =
-            new androidx.core.app.NotificationCompat.Builder(ctx,
-                ReelNotificationChannelManager.CHANNEL_REEL_REPOSTS)
-            .setSmallIcon(com.callx.app.reels.R.drawable.ic_reels)
-            .setContentTitle("Your reel is going viral! 🔥")
-            .setContentText(milestoneLabel)
-            .setAutoCancel(true)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
-            .setColor(0xFFFF3B5C);
-        if (avatar != null) b.setLargeIcon(avatar);
-        android.app.NotificationManager nm =
-            (android.app.NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify(notifId, b.build());
-    }
-
 
 }

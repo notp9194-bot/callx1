@@ -10,7 +10,6 @@ import com.callx.app.reels.R;
 import com.callx.app.notifications.ReelNotificationsActivity;
 import com.callx.app.notifications.ReelNotificationChannelManager;
 import com.callx.app.notifications.ReelRepostNotificationHelper;
-import com.callx.app.notifications.CollabRepostNotificationHelper;
 import com.callx.app.player.SingleReelPlayerActivity;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -69,9 +68,6 @@ public class ReelFCMNotificationHandler {
     public static final String TYPE_VIRAL              = "viral";
     public static final String TYPE_VIEW_MILESTONE     = "view_milestone";
     public static final String TYPE_FOLLOWER_MILESTONE = "follower_milestone";
-    // v9 Collab/Repost upgrade types
-    public static final String TYPE_REPOST_MILESTONE    = "repost_milestone";
-    public static final String TYPE_LIVE_COLLAB_INVITE  = "live_collab_invite";
     public static final String TYPE_UPLOAD_COMPLETE    = "upload_complete";
     public static final String TYPE_UPLOAD_FAILED      = "upload_failed";
     public static final String TYPE_SCHEDULED_POST     = "scheduled_post";
@@ -410,24 +406,6 @@ public class ReelFCMNotificationHandler {
                 Executors.newSingleThreadExecutor().execute(() ->
                     ReelNotificationHelper.showFollowerMilestoneNotification(ctx, milestone));
                 break;
-
-            // ── v9 Collab/Repost milestone + live collab invite ───────────────────
-            case TYPE_REPOST_MILESTONE: {
-                final String milestoneSender = senderName != null ? senderName : "Your reel";
-                Executors.newSingleThreadExecutor().execute(() -> {
-                    android.graphics.Bitmap avatar = ReelNotificationHelper.downloadCirclePublic(senderPhoto, 100);
-                    ReelRepostNotificationHelper.showRepostMilestoneNotification(ctx, reelId, milestoneSender, avatar);
-                });
-                break;
-            }
-            case TYPE_LIVE_COLLAB_INVITE: {
-                final String inviterName = senderName != null ? senderName : "Someone";
-                Executors.newSingleThreadExecutor().execute(() -> {
-                    android.graphics.Bitmap avatar = ReelNotificationHelper.downloadCirclePublic(senderPhoto, 100);
-                    CollabRepostNotificationHelper.showLiveCollabInviteNotification(ctx, inviterName, senderUid, reelId, avatar);
-                });
-                break;
-            }
 
             case TYPE_UPLOAD_FAILED:
                 Executors.newSingleThreadExecutor().execute(() ->

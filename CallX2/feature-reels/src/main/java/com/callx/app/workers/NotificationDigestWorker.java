@@ -1,7 +1,5 @@
 package com.callx.app.workers;
 
-import com.callx.app.reels.R;
-
   import android.app.NotificationChannel;
   import android.app.NotificationManager;
   import android.app.PendingIntent;

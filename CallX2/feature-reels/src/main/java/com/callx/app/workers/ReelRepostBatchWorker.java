@@ -1,7 +1,5 @@
 package com.callx.app.workers;
 
-import com.callx.app.reels.R;
-
 import android.app.*;
 import android.content.Context;
 import android.content.Intent;
