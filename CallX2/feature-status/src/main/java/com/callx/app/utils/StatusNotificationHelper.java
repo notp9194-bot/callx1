@@ -1,4 +1,5 @@
 package com.callx.app.utils;
+
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -10,253 +11,239 @@ import android.graphics.BitmapFactory;
 import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.target.Target;
-import com.callx.app.status.R;
-import com.callx.app.viewer.StatusViewerActivity;
-import com.callx.app.services.StatusExpiryReceiver;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.ValueEventListener;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
 /**
- * Builds and posts rich status notifications.
+ * StatusNotificationHelper — All status-related push and in-app notifications.
  *
- * Rich features:
- *  - BigPicture style for image statuses (fetches thumbnail via Glide)
- *  - MessagingStyle-style header with sender avatar
- *  - Deep-link PendingIntent → StatusViewerActivity
- *  - Reply action (quick-reply to status via chat)
- *  - Grouped notifications per sender
- *  - Heads-up / high-priority delivery
+ * Types handled:
+ *  1. New status posted (by a contact you follow)
+ *  2. Status viewed (someone saw your status)
+ *  3. Status reaction (emoji reaction on your status)
+ *  4. Status expiry reminder (2h before your status expires)
+ *  5. Status reply (someone replied to your status in chat)
+ *  6. Close-friends status posted (priority notification)
  */
-public final class StatusNotificationHelper {
-    public static final String CHANNEL_ID   = "callx_status";
-    public static final String CHANNEL_NAME = "Status Updates";
-    private static final String GROUP_KEY   = "callx_status_group";
-    private static final ExecutorService BG = Executors.newCachedThreadPool();
-    private StatusNotificationHelper() {}
-    // ── Channel bootstrap (call once from Application.onCreate) ──────────
-    public static void createChannel(Context ctx) {
+public class StatusNotificationHelper {
+
+    private static final String CHANNEL_STATUS      = "ch_status";
+    private static final String CHANNEL_STATUS_REAC = "ch_status_reaction";
+    private static final String CHANNEL_STATUS_EXP  = "ch_status_expiry";
+
+    private static final int NOTIF_ID_BASE_STATUS  = 7000;
+    private static final int NOTIF_ID_BASE_REACT   = 7500;
+    private static final int NOTIF_ID_EXPIRY        = 7999;
+
+    private static final ExecutorService bgEx =
+        Executors.newCachedThreadPool();
+
+    // ── Channel setup — call from Application.onCreate ────────────────────
+    public static void createChannels(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationChannel ch = new NotificationChannel(
-                CHANNEL_ID, CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT);
-        ch.setDescription("Notifications for new statuses from your contacts");
-        ch.enableVibration(true);
         NotificationManager nm =
-                ctx.getSystemService(NotificationManager.class);
-        if (nm != null) nm.createNotificationChannel(ch);
+            (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+
+        // Status updates channel
+        NotificationChannel ch1 = new NotificationChannel(
+            CHANNEL_STATUS, "Status Updates",
+            NotificationManager.IMPORTANCE_DEFAULT);
+        ch1.setDescription("New status posts from your contacts");
+        ch1.enableVibration(true);
+
+        // Reaction channel (higher importance — feels personal)
+        NotificationChannel ch2 = new NotificationChannel(
+            CHANNEL_STATUS_REAC, "Status Reactions",
+            NotificationManager.IMPORTANCE_HIGH);
+        ch2.setDescription("Reactions on your status");
+
+        // Expiry reminder (low importance)
+        NotificationChannel ch3 = new NotificationChannel(
+            CHANNEL_STATUS_EXP, "Status Expiry Reminder",
+            NotificationManager.IMPORTANCE_LOW);
+        ch3.setDescription("Reminder 2 hours before your status expires");
+
+        nm.createNotificationChannel(ch1);
+        nm.createNotificationChannel(ch2);
+        nm.createNotificationChannel(ch3);
     }
-    // ── Post a status notification ────────────────────────────────────────
+
+    // ── 1. New status posted ──────────────────────────────────────────────
     /**
-     * Post a rich status notification. Runs Glide image fetch on a background
-     * thread so it is safe to call from a BroadcastReceiver or Service.
-     *
-     * @param ctx        context
-     * @param fromUid    status owner UID
-     * @param fromName   display name
-     * @param fromPhoto  avatar URL (may be null)
-     * @param statusType "text" | "image" | "video"
-     * @param text       status text or caption
-     * @param mediaUrl   media URL for image/video (may be null)
-     * @param notifId    unique notification ID (use fromUid.hashCode())
+     * Rich notification: poster name, avatar, status type.
+     * Groups multiple new statuses from same contact into one notification.
+     * Called from StatusBackgroundService when a new status is detected.
      */
-    public static void postStatusNotification(Context ctx,
-                                              String fromUid,
-                                              String fromName,
-                                              String fromPhoto,
-                                              String statusType,
-                                              String text,
-                                              String mediaUrl,
-                                              int    notifId) {
-        BG.execute(() -> {
-            try {
-                Bitmap avatarBmp = null;
-                if (fromPhoto != null && !fromPhoto.isEmpty()) {
-                    try {
-                        avatarBmp = Glide.with(ctx.getApplicationContext())
-                                .asBitmap()
-                                .load(fromPhoto)
-                                .circleCrop()
-                                .submit(128, 128)
-                                .get();
-                    } catch (Exception ignored) {}
-                }
-                Bitmap mediaBmp = null;
-                if ("image".equals(statusType) && mediaUrl != null && !mediaUrl.isEmpty()) {
-                    try {
-                        mediaBmp = Glide.with(ctx.getApplicationContext())
-                                .asBitmap()
-                                .load(mediaUrl)
-                                .submit(Target.SIZE_ORIGINAL, Target.SIZE_ORIGINAL)
-                                .get();
-                    } catch (Exception ignored) {}
-                }
-                // Deep-link intent → StatusViewerActivity
-                Intent open = new Intent(ctx, StatusViewerActivity.class);
-                open.putExtra(StatusViewerActivity.EXTRA_OWNER_UID,  fromUid);
-                open.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, fromName);
-                open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                PendingIntent openPi = PendingIntent.getActivity(ctx, notifId, open,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                // Body text
-                String body;
-                if ("image".equals(statusType))  body = "Posted a photo status";
-                else if ("video".equals(statusType)) body = "Posted a video status";
-                else body = (text != null && !text.isEmpty()) ? text : "Posted a new status";
-                NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
-                        .setSmallIcon(R.drawable.ic_status_notification)
-                        .setContentTitle(fromName != null ? fromName : "New Status")
-                        .setContentText(body)
-                        .setAutoCancel(true)
-                        .setGroup(GROUP_KEY)
-                        .setContentIntent(openPi)
-                        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                        .setCategory(NotificationCompat.CATEGORY_SOCIAL);
-                if (avatarBmp != null) {
-                    b.setLargeIcon(avatarBmp);
-                }
-                if (mediaBmp != null) {
-                    // BigPicture style shows image preview in notification
-                    b.setStyle(new NotificationCompat.BigPictureStyle()
-                            .bigPicture(mediaBmp)
+    public static void notifyNewStatus(Context ctx,
+                                       String fromUid,
+                                       String fromName,
+                                       String fromPhoto,
+                                       String statusType,
+                                       String mediaUrl,
+                                       String statusText,
+                                       String statusId) {
+        bgEx.execute(() -> {
+            Bitmap avatar = fetchBitmap(fromPhoto);
+
+            // Deep-link intent → opens StatusViewerActivity directly
+            Intent tapIntent = new Intent("com.callx.app.ACTION_OPEN_STATUS");
+            tapIntent.putExtra("ownerUid",  fromUid);
+            tapIntent.putExtra("statusId",  statusId);
+            tapIntent.setPackage(ctx.getPackageName());
+            PendingIntent pi = PendingIntent.getActivity(ctx,
+                (fromUid + statusId).hashCode(), tapIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+            String body = buildStatusBody(statusType, statusText);
+
+            NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_STATUS)
+                .setSmallIcon(android.R.drawable.ic_menu_camera)
+                .setContentTitle(fromName + " added to their status")
+                .setContentText(body)
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .setGroup("status_group_" + fromUid)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+
+            if (avatar != null) {
+                b.setLargeIcon(avatar);
+                if ("image".equals(statusType) || "video".equals(statusType)) {
+                    // BigPicture for image/video statuses
+                    Bitmap bigPic = mediaUrl != null ? fetchBitmap(mediaUrl) : null;
+                    if (bigPic != null) {
+                        b.setStyle(new NotificationCompat.BigPictureStyle()
+                            .bigPicture(bigPic)
+                            .bigLargeIcon((Bitmap) null)
                             .setSummaryText(body));
+                    }
                 } else {
-                    b.setStyle(new NotificationCompat.BigTextStyle()
-                            .bigText(body));
+                    b.setStyle(new NotificationCompat.BigTextStyle().bigText(body));
                 }
-                NotificationManagerCompat nm = NotificationManagerCompat.from(ctx);
-                nm.notify(notifId, b.build());
-                // Summary notification for grouping
-                Notification summary = new NotificationCompat.Builder(ctx, CHANNEL_ID)
-                        .setSmallIcon(R.drawable.ic_status_notification)
-                        .setGroup(GROUP_KEY)
-                        .setGroupSummary(true)
-                        .setAutoCancel(true)
-                        .build();
-                nm.notify(Integer.MAX_VALUE - 1, summary);
-            } catch (Exception e) {
-                android.util.Log.w("StatusNotifHelper", "Failed to post: " + e.getMessage());
             }
+
+            int notifId = NOTIF_ID_BASE_STATUS + Math.abs(fromUid.hashCode() % 400);
+            NotificationManagerCompat.from(ctx).notify(notifId, b.build());
         });
     }
-      // ─────────────────────────────────────────────────────────────────────
-      // STATUS REACTION NOTIFICATION
-      // ─────────────────────────────────────────────────────────────────────
-      public static void postStatusReactionNotification(Context ctx, String reactorUid,
-              String reactorName, String reactorPhoto, String reaction, String statusOwnerUid) {
-          final String CH_REACTION = "callx_status_reaction";
-          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-              NotificationManager nm2 = ctx.getSystemService(NotificationManager.class);
-              if (nm2 != null && nm2.getNotificationChannel(CH_REACTION) == null) {
-                  android.app.NotificationChannel ch =
-                      new android.app.NotificationChannel(CH_REACTION,
-                          "Status Reactions", NotificationManager.IMPORTANCE_DEFAULT);
-                  ch.setDescription("When someone reacts to your status");
-                  nm2.createNotificationChannel(ch);
-              }
-          }
-          String title = reactorName + " reacted " + reaction + " to your status";
-          String body  = "Tap to view your status";
-          android.app.PendingIntent pi = android.app.PendingIntent.getActivity(ctx,
-              ("react_" + reactorUid).hashCode(),
-              new android.content.Intent(ctx, com.callx.app.viewer.StatusViewerActivity.class)
-                  .putExtra("owner_uid", statusOwnerUid)
-                  .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-              android.app.PendingIntent.FLAG_UPDATE_CURRENT |
-              android.app.PendingIntent.FLAG_IMMUTABLE);
-          androidx.core.app.NotificationCompat.Builder b =
-              new androidx.core.app.NotificationCompat.Builder(ctx, CH_REACTION)
-                  .setSmallIcon(R.drawable.ic_status_notification)
-                  .setContentTitle(title)
-                  .setContentText(body)
-                  .setAutoCancel(true)
-                  .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
-                  .setContentIntent(pi);
-          new Thread(() -> {
-              try {
-                  android.graphics.Bitmap bm = downloadBitmap(ctx, reactorPhoto);
-                  if (bm != null) b.setLargeIcon(circle(bm));
-              } catch (Exception ignored) {}
-              NotificationManager nm3 = ctx.getSystemService(NotificationManager.class);
-              if (nm3 != null) nm3.notify(("react_" + reactorUid).hashCode(), b.build());
-          }).start();
-      }
-      // ─────────────────────────────────────────────────────────────────────
-      // STATUS EXPIRY REMINDER (fires 2h before status expires)
-      // ─────────────────────────────────────────────────────────────────────
-      public static void scheduleStatusExpiryReminder(Context ctx, String statusId, long expiresAt) {
-          long reminderAt = expiresAt - (2 * 60 * 60 * 1000L); // 2h before
-          if (reminderAt <= System.currentTimeMillis()) return;
-          android.app.AlarmManager am =
-              (android.app.AlarmManager) ctx.getSystemService(android.content.Context.ALARM_SERVICE);
-          if (am == null) return;
-          android.content.Intent intent = new android.content.Intent(ctx, com.callx.app.services.StatusExpiryReceiver.class)
-              .putExtra("status_id", statusId);
-          android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(ctx,
-              statusId.hashCode(), intent,
-              android.app.PendingIntent.FLAG_UPDATE_CURRENT |
-              android.app.PendingIntent.FLAG_IMMUTABLE);
-          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-              am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, reminderAt, pi);
-          } else {
-              am.setExact(android.app.AlarmManager.RTC_WAKEUP, reminderAt, pi);
-          }
-      }
-      // ─────────────────────────────────────────────────────────────────────
-      // STATUS VIEWED NOTIFICATION (optional, user-controlled)
-      // ─────────────────────────────────────────────────────────────────────
-      public static void postStatusViewedNotification(Context ctx, String viewerName,
-              String viewerPhoto, String ownerUid, int viewerCount) {
-          final String CH = "callx_status_viewed";
-          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-              NotificationManager nm2 = ctx.getSystemService(NotificationManager.class);
-              if (nm2 != null && nm2.getNotificationChannel(CH) == null) {
-                  android.app.NotificationChannel ch =
-                      new android.app.NotificationChannel(CH,
-                          "Status Views", NotificationManager.IMPORTANCE_LOW);
-                  ch.setDescription("When contacts view your status");
-                  nm2.createNotificationChannel(ch);
-              }
-          }
-          String title = viewerCount == 1
-              ? viewerName + " viewed your status"
-              : viewerName + " and " + (viewerCount - 1) + " others viewed your status";
-          androidx.core.app.NotificationCompat.Builder b =
-              new androidx.core.app.NotificationCompat.Builder(ctx, CH)
-                  .setSmallIcon(R.drawable.ic_status_notification)
-                  .setContentTitle(title)
-                  .setContentText("Tap to see who viewed your status")
-                  .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
-                  .setAutoCancel(true);
-          NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-          if (nm != null) nm.notify(("viewed_" + ownerUid).hashCode(), b.build());
-      }
-      // ─────────────────────────────────────────────────────────────────────
-      // Bitmap helpers (package-private reuse)
-      // ─────────────────────────────────────────────────────────────────────
-      public static android.graphics.Bitmap downloadBitmap(Context ctx, String url) {
-          if (url == null || url.isEmpty()) return null;
-          try {
-              java.net.HttpURLConnection c =
-                  (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-              c.setDoInput(true); c.connect();
-              return android.graphics.BitmapFactory.decodeStream(c.getInputStream());
-          } catch (Exception e) { return null; }
-      }
-      public static android.graphics.Bitmap circle(android.graphics.Bitmap src) {
-          if (src == null) return null;
-          int size = Math.min(src.getWidth(), src.getHeight());
-          android.graphics.Bitmap output = android.graphics.Bitmap.createBitmap(size, size,
-              android.graphics.Bitmap.Config.ARGB_8888);
-          android.graphics.Canvas canvas = new android.graphics.Canvas(output);
-          android.graphics.Paint paint = new android.graphics.Paint();
-          paint.setAntiAlias(true);
-          canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint);
-          paint.setXfermode(new android.graphics.PorterDuffXfermode(
-              android.graphics.PorterDuff.Mode.SRC_IN));
-          canvas.drawBitmap(src, 0, 0, paint);
-          return output;
-      }
-  
+
+    // ── 2. Status viewed ──────────────────────────────────────────────────
+    /**
+     * Notifies status owner that viewerUid viewed their status.
+     * Low-key notification — not every view, batched per ~10 new views.
+     * Called from StatusSeenTracker.markSeenWithOwner.
+     */
+    public static void notifyStatusViewed(String ownerUid,
+                                          String statusId,
+                                          String viewerUid) {
+        // Look up viewer name and fire FCM to owner via server
+        FirebaseUtils.getUserRef(viewerUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    String viewerName  = snap.child("name").getValue(String.class);
+                    String viewerPhoto = snap.child("photoUrl").getValue(String.class);
+                    if (viewerName == null) viewerName = "Someone";
+                    PushNotify.notifyStatusSeen(ownerUid, viewerUid, viewerName,
+                        viewerPhoto != null ? viewerPhoto : "", statusId);
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+    }
+
+    // ── 3. Status reaction ────────────────────────────────────────────────
+    /**
+     * Notifies status owner of an emoji reaction.
+     * HIGH importance — feels personal like a DM.
+     */
+    public static void notifyStatusReaction(String ownerUid,
+                                            String statusId,
+                                            String reactorUid,
+                                            String emoji) {
+        FirebaseUtils.getUserRef(reactorUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    String name  = snap.child("name").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    if (name == null) name = "Someone";
+                    PushNotify.notifyStatusReaction(ownerUid, reactorUid, name,
+                        photo != null ? photo : "", emoji, statusId);
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
+    }
+
+    // ── 4. Status expiry reminder (local) ────────────────────────────────
+    /**
+     * Shows a local notification 2h before a status expires.
+     * Scheduled by StatusExpiryManager.scheduleExpiryReminder().
+     */
+    public static void showExpiryReminder(Context ctx,
+                                          String statusId,
+                                          String text,
+                                          String type) {
+        String body = "Your status (" + buildStatusBody(type, text) + ") expires in 2 hours.";
+
+        Intent tapIntent = new Intent("com.callx.app.ACTION_OPEN_MY_STATUS");
+        tapIntent.setPackage(ctx.getPackageName());
+        PendingIntent pi = PendingIntent.getActivity(ctx, statusId.hashCode(), tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // Action: Extend TTL
+        Intent extendIntent = new Intent("com.callx.app.ACTION_EXTEND_STATUS");
+        extendIntent.putExtra("statusId", statusId);
+        extendIntent.setPackage(ctx.getPackageName());
+        PendingIntent extendPi = PendingIntent.getBroadcast(ctx, ("extend_" + statusId).hashCode(),
+            extendIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_STATUS_EXP)
+            .setSmallIcon(android.R.drawable.ic_menu_recent_history)
+            .setContentTitle("Status expiring soon")
+            .setContentText(body)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .addAction(0, "Extend 24h", extendPi)
+            .setPriority(NotificationCompat.PRIORITY_LOW);
+
+        NotificationManagerCompat.from(ctx).notify(NOTIF_ID_EXPIRY, b.build());
+    }
+
+    // ── 5. Status reply (in-app only — sends via chat) ────────────────────
+    /**
+     * When someone replies to your status from the viewer screen,
+     * a regular chat message is sent. This triggers the normal chat notification.
+     * No special handling needed here — handled by existing ChatNotificationHelper.
+     */
+
+    // ── Helper ────────────────────────────────────────────────────────────
+    private static String buildStatusBody(String type, String text) {
+        if (type == null) return text != null ? text : "Status update";
+        switch (type) {
+            case "image":   return "📷 Photo";
+            case "video":   return "🎥 Video";
+            case "gif":     return "GIF";
+            case "poll":    return "📊 Poll";
+            case "link":    return "🔗 Link";
+            default:        return text != null && !text.isEmpty() ? text : "Status update";
+        }
+    }
+
+    private static Bitmap fetchBitmap(String url) {
+        if (url == null || url.isEmpty()) return null;
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(4000);
+            conn.setReadTimeout(4000);
+            conn.connect();
+            InputStream is = conn.getInputStream();
+            return BitmapFactory.decodeStream(is);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

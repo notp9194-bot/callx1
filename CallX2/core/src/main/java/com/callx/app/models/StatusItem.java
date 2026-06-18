@@ -1,230 +1,204 @@
 package com.callx.app.models;
 
-import com.google.firebase.database.Exclude;
 import com.google.firebase.database.IgnoreExtraProperties;
-import java.util.*;
+import com.google.firebase.database.ServerValue;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
- * StatusItem v25 — Full-featured status data model.
+ * StatusItem — Production-level model for WhatsApp-style Stories/Status.
  *
- * Original fields: id, ownerUid, ownerName, ownerPhoto, type, text, caption,
- *   mediaUrl, thumbnailUrl, bgColor, fontStyle, textColor, timestamp,
- *   expiresAt, deleted, privacy, seenBy, reactions, viewCount.
- *
- * New fields added:
- *   reactions       — Map<viewerUid, emoji> (replaces old Map<uid, boolean>)
- *   viewDurations   — Map<viewerUid, durationMs>
- *   mentionNames    — Map<username, uid>
- *   privacyList     — List<String> (except/only UIDs)
- *   isCloseFriends  — boolean
- *   expiryHours     — int (1/3/6/12/24/48/72)
- *   isHighlighted   — boolean
- *   highlightAlbumId, highlightAlbumName
- *   isArchived      — boolean
- *   archivedAt      — Long
- *   forwardCount    — int
- *   gifUrl          — String
- *   stickerUrl      — String
- *   linkUrl/Title/Description/ImageUrl/Domain — link preview fields
- *   gradientColors  — List<String>
- *   textAlign       — "left"/"center"/"right"
- *   textSize        — float
- *   locationName, locationLat, locationLng
- *   bgColor2        — for gradient end
- *   durationSec     — video duration hint
- *   mediaWidth/Height
- *   caption
- *   closeFriendsOnly (deprecated → use isCloseFriends)
+ * Firebase node: statuses/{ownerUid}/{statusId}
  */
 @IgnoreExtraProperties
 public class StatusItem {
 
-    // ── Core identity ──────────────────────────────────────────────────
-    public String  id;
+    // ── Identity ──────────────────────────────────────────────────────────
+    public String  statusId;
     public String  ownerUid;
     public String  ownerName;
     public String  ownerPhoto;
 
-    // ── Type ──────────────────────────────────────────────────────────
-    /** "text", "image", "video", "link", "gif", "sticker", "reel_story", "reel_clip" */
+    // ── Content ───────────────────────────────────────────────────────────
+    /** "text" | "image" | "video" | "gif" | "link" | "poll" */
     public String  type;
+    public String  text;           // text content or caption on media
+    public String  mediaUrl;       // full-res image/video URL
+    public String  thumbnailUrl;   // thumb for chat list & fast preview
+    public String  mediaLocalPath; // offline: local file path before upload
+    public long    mediaDuration;  // video duration in ms
+    public String  mimeType;
 
-    // ── Content ───────────────────────────────────────────────────────
-    public String  text;
-    public String  caption;
-    public String  mediaUrl;
-    public String  thumbnailUrl;
-    public int     mediaWidth;
-    public int     mediaHeight;
-    public int     durationSec;      // video duration hint in seconds
+    // ── Text style ────────────────────────────────────────────────────────
+    public String  bgColor;        // hex string e.g. "#25D366"
+    public String  bgGradientEnd;  // optional second color for gradient
+    public int     fontStyle;      // 0=default 1=serif 2=mono 3=cursive 4=bold
+    public int     textAlign;      // 0=center 1=left 2=right
+    public float   textSize;       // sp, default 24
 
-    // ── Text style ────────────────────────────────────────────────────
-    public String  bgColor;          // hex, e.g. "#6200EE"
-    public String  bgColor2;         // gradient end color (null = solid)
-    public List<String> gradientColors; // multi-stop gradient
-    public String  fontStyle;        // "default"/"bold"/"italic"/"handwriting"/"condensed"/"serif"
-    public String  textColor;        // hex
-    public float   textSize;         // sp, 0 = default
-    public String  textAlign;        // "left"/"center"/"right"
+    // ── Timestamps & TTL ─────────────────────────────────────────────────
+    public long    timestamp;
+    public long    expiresAt;       // default: timestamp + 24h; custom TTL supported
+    public boolean deleted;         // soft-delete
+    public boolean archived;        // moved to archive on expiry
 
-    // ── Timing ────────────────────────────────────────────────────────
-    public Long    timestamp;
-    public Long    expiresAt;
-    public int     expiryHours;      // 1/3/6/12/24/48/72 — default 24
+    // ── Privacy ───────────────────────────────────────────────────────────
+    /** "everyone" | "contacts" | "except" | "only" */
+    public String  privacy;
+    /** UIDs excluded when privacy="except", or allowed when privacy="only" */
+    public List<String> privacyList;
+    public boolean closeFriendsOnly; // shortcut for "only" → closeFriends group
 
-    // ── State ────────────────────────────────────────────────────────
-    public Boolean deleted;
+    // ── Seen & Reactions ──────────────────────────────────────────────────
+    /** Map<uid, timestamp> — written to statusSeen/{ownerUid}/{statusId}/{viewerUid} */
+    public Map<String, Long>   seenBy;
+    /** Map<uid, emoji> — ❤️ 😂 😮 😢 😡 👍 */
+    public Map<String, String> reactions;
+    public int seenCount;   // denormalized for fast badge display
 
-    // ── Privacy ───────────────────────────────────────────────────────
-    /** "everyone"/"contacts"/"except"/"only"/"close_friends" */
-    public String       privacy;
-    public List<String> privacyList;     // UIDs for except/only
-    public boolean      isCloseFriends;  // post to close friends only
-
-    // ── Seen / reactions / analytics ─────────────────────────────────
-    /** seenBy: Map<viewerUid, timestampMs> */
-    public Map<String, Long>    seenBy;
-    /** reactions: Map<viewerUid, emoji> e.g. "❤️","😂","🔥" */
-    public Map<String, String>  reactions;
-    /** viewDurations: Map<viewerUid, durationMs> */
-    public Map<String, Long>    viewDurations;
-
-    // ── Mentions ──────────────────────────────────────────────────────
-    /** mentionNames: Map<username, uid> */
-    public Map<String, String>  mentionNames;
-
-    // ── Highlights / Archive ─────────────────────────────────────────
-    public boolean isHighlighted;
-    public String  highlightAlbumId;
-    public String  highlightAlbumName;
-    public boolean isArchived;
-    public Long    archivedAt;
-
-    // ── Stats ─────────────────────────────────────────────────────────
-    public int forwardCount;
-
-    // ── GIF / Sticker ─────────────────────────────────────────────────
-    public String gifUrl;
-    public String stickerUrl;
-
-    // ── Link preview ──────────────────────────────────────────────────
+    // ── Link preview (type="link") ────────────────────────────────────────
     public String linkUrl;
     public String linkTitle;
     public String linkDescription;
-    public String linkImageUrl;
+    public String linkThumbUrl;
     public String linkDomain;
 
-    // ── Location ──────────────────────────────────────────────────────
-    public String locationName;
+    // ── Poll (type="poll") ────────────────────────────────────────────────
+    public String       pollQuestion;
+    public List<String> pollOptions;
+    /** Map<optionIndex, Map<uid, true>> */
+    public Map<String, Map<String, Boolean>> pollVotes;
+    public boolean pollMultipleChoice;
+    public long    pollExpiresAt;
+
+    // ── Music overlay ─────────────────────────────────────────────────────
+    public String musicTrackId;
+    public String musicTitle;
+    public String musicArtist;
+    public String musicCoverUrl;
+    public long   musicStartMs;  // trim start in ms
+    public long   musicEndMs;    // trim end in ms
+
+    // ── Location tag ──────────────────────────────────────────────────────
     public double locationLat;
     public double locationLng;
+    public String locationName;
 
-    // ── Legacy / Deprecated (keep for backward compat) ────────────────
-    /** @deprecated use isCloseFriends */
-    @Deprecated public boolean closeFriendsOnly;
+    // ── Feeling / Activity ───────────────────────────────────────────────
+    public String feeling;       // "happy", "excited", etc.
+    public String feelingEmoji;
 
-    // ── Computed helpers (excluded from Firebase) ─────────────────────
+    // ── Mentions ─────────────────────────────────────────────────────────
+    /** List of mentioned UIDs */
+    public List<String> mentions;
+    /** List of hashtags without # */
+    public List<String> hashtags;
 
-    @Exclude
-    public int getViewCount() {
-        return seenBy != null ? seenBy.size() : 0;
+    // ── Highlight ────────────────────────────────────────────────────────
+    public boolean inHighlight;
+    public String  highlightId;  // which highlight collection this belongs to
+
+    // ── Question sticker ─────────────────────────────────────────────────
+    public boolean hasQuestion;
+    public String  questionText;
+    /** Map<uid, answer> */
+    public Map<String, String> questionAnswers;
+
+    // ── Drawing/Doodle overlay ────────────────────────────────────────────
+    public String drawingDataUrl; // base64 or URL of doodle layer PNG
+
+    // ── Stickers ─────────────────────────────────────────────────────────
+    /** Serialized JSON array of sticker placements */
+    public String stickersJson;
+
+    // ── Constructors ──────────────────────────────────────────────────────
+    public StatusItem() {}
+
+    public StatusItem(String ownerUid, String ownerName, String ownerPhoto,
+                      String type, String text, String bgColor, int fontStyle) {
+        this.ownerUid   = ownerUid;
+        this.ownerName  = ownerName;
+        this.ownerPhoto = ownerPhoto;
+        this.type       = type;
+        this.text       = text;
+        this.bgColor    = bgColor;
+        this.fontStyle  = fontStyle;
+        this.privacy    = "contacts";
+        this.timestamp  = System.currentTimeMillis();
+        this.expiresAt  = this.timestamp + 24L * 60 * 60 * 1000; // 24h default
+        this.deleted    = false;
+        this.archived   = false;
     }
 
-    @Exclude
-    public double getAvgViewDurationSec() {
-        if (viewDurations == null || viewDurations.isEmpty()) return 0;
-        long sum = 0;
-        for (long d : viewDurations.values()) sum += d;
-        return (double) sum / viewDurations.size() / 1000.0;
+    // ── Helpers ───────────────────────────────────────────────────────────
+    public boolean isExpired() {
+        return System.currentTimeMillis() > expiresAt;
     }
 
-    @Exclude
-    public boolean hasReaction(String uid) {
-        return uid != null && reactions != null && reactions.containsKey(uid);
+    public boolean hasMedia() {
+        return "image".equals(type) || "video".equals(type) || "gif".equals(type);
     }
 
-    @Exclude
-    public String getReaction(String uid) {
-        if (uid == null || reactions == null) return null;
-        return reactions.get(uid);
+    public int getReactionCount() {
+        return reactions == null ? 0 : reactions.size();
     }
 
-    @Exclude
-    public int getReactionCount(String emoji) {
-        if (emoji == null || reactions == null) return 0;
-        int count = 0;
-        for (String e : reactions.values()) if (emoji.equals(e)) count++;
-        return count;
+    public int getSeenCount() {
+        return seenBy == null ? 0 : seenBy.size();
     }
 
-    @Exclude
-    public int getTotalReactionCount() {
-        return reactions != null ? reactions.size() : 0;
-    }
-
-    /** Human-readable expiry label: "Expires in 2h", "Expired", etc. */
-    @Exclude
-    public String getExpiryLabel() {
-        if (expiresAt == null) return "";
-        long diff = expiresAt - System.currentTimeMillis();
-        if (diff <= 0) return "Expired";
-        long hours = diff / 3_600_000L;
-        long mins  = (diff % 3_600_000L) / 60_000L;
-        if (hours >= 24) return "Expires in " + (hours / 24) + "d";
-        if (hours >= 1)  return "Expires in " + hours + "h";
-        return "Expires in " + mins + "m";
-    }
-
-    /** Convert to Firebase Map (preserves all fields, excludes nulls). */
-    @Exclude
+    /** Build the Firebase map for saving a new status */
     public Map<String, Object> toMap() {
         Map<String, Object> m = new HashMap<>();
-        if (id != null)               m.put("id", id);
-        if (ownerUid != null)         m.put("ownerUid", ownerUid);
-        if (ownerName != null)        m.put("ownerName", ownerName);
-        if (ownerPhoto != null)       m.put("ownerPhoto", ownerPhoto);
-        if (type != null)             m.put("type", type);
-        if (text != null)             m.put("text", text);
-        if (caption != null)          m.put("caption", caption);
-        if (mediaUrl != null)         m.put("mediaUrl", mediaUrl);
-        if (thumbnailUrl != null)     m.put("thumbnailUrl", thumbnailUrl);
-        if (mediaWidth != 0)          m.put("mediaWidth", mediaWidth);
-        if (mediaHeight != 0)         m.put("mediaHeight", mediaHeight);
-        if (durationSec != 0)         m.put("durationSec", durationSec);
-        if (bgColor != null)          m.put("bgColor", bgColor);
-        if (bgColor2 != null)         m.put("bgColor2", bgColor2);
-        if (gradientColors != null)   m.put("gradientColors", gradientColors);
-        if (fontStyle != null)        m.put("fontStyle", fontStyle);
-        if (textColor != null)        m.put("textColor", textColor);
-        if (textSize != 0)            m.put("textSize", textSize);
-        if (textAlign != null)        m.put("textAlign", textAlign);
-        if (timestamp != null)        m.put("timestamp", timestamp);
-        if (expiresAt != null)        m.put("expiresAt", expiresAt);
-        if (expiryHours != 0)         m.put("expiryHours", expiryHours);
-        if (deleted != null)          m.put("deleted", deleted);
-        if (privacy != null)          m.put("privacy", privacy);
-        if (privacyList != null)      m.put("privacyList", privacyList);
-        m.put("isCloseFriends",       isCloseFriends);
-        if (seenBy != null)           m.put("seenBy", seenBy);
-        if (reactions != null)        m.put("reactions", reactions);
-        if (viewDurations != null)    m.put("viewDurations", viewDurations);
-        if (mentionNames != null)     m.put("mentionNames", mentionNames);
-        m.put("isHighlighted",        isHighlighted);
-        if (highlightAlbumId != null) m.put("highlightAlbumId", highlightAlbumId);
-        if (highlightAlbumName != null) m.put("highlightAlbumName", highlightAlbumName);
-        m.put("isArchived",           isArchived);
-        if (archivedAt != null)       m.put("archivedAt", archivedAt);
-        if (forwardCount != 0)        m.put("forwardCount", forwardCount);
-        if (gifUrl != null)           m.put("gifUrl", gifUrl);
-        if (stickerUrl != null)       m.put("stickerUrl", stickerUrl);
-        if (linkUrl != null)          m.put("linkUrl", linkUrl);
-        if (linkTitle != null)        m.put("linkTitle", linkTitle);
-        if (linkDescription != null)  m.put("linkDescription", linkDescription);
-        if (linkImageUrl != null)     m.put("linkImageUrl", linkImageUrl);
-        if (linkDomain != null)       m.put("linkDomain", linkDomain);
-        if (locationName != null)     m.put("locationName", locationName);
-        if (locationLat != 0)         m.put("locationLat", locationLat);
-        if (locationLng != 0)         m.put("locationLng", locationLng);
+        m.put("statusId",      statusId);
+        m.put("ownerUid",      ownerUid);
+        m.put("ownerName",     ownerName);
+        m.put("ownerPhoto",    ownerPhoto != null ? ownerPhoto : "");
+        m.put("type",          type != null ? type : "text");
+        m.put("text",          text != null ? text : "");
+        m.put("mediaUrl",      mediaUrl != null ? mediaUrl : "");
+        m.put("thumbnailUrl",  thumbnailUrl != null ? thumbnailUrl : "");
+        m.put("mediaDuration", mediaDuration);
+        m.put("mimeType",      mimeType != null ? mimeType : "");
+        m.put("bgColor",       bgColor != null ? bgColor : "#075E54");
+        m.put("bgGradientEnd", bgGradientEnd != null ? bgGradientEnd : "");
+        m.put("fontStyle",     fontStyle);
+        m.put("textAlign",     textAlign);
+        m.put("textSize",      textSize > 0 ? textSize : 24f);
+        m.put("timestamp",     timestamp > 0 ? timestamp : ServerValue.TIMESTAMP);
+        m.put("expiresAt",     expiresAt);
+        m.put("deleted",       false);
+        m.put("archived",      false);
+        m.put("privacy",       privacy != null ? privacy : "contacts");
+        m.put("seenCount",     0);
+        m.put("closeFriendsOnly", closeFriendsOnly);
+        // Optional fields
+        if (linkUrl != null)       m.put("linkUrl",       linkUrl);
+        if (linkTitle != null)     m.put("linkTitle",     linkTitle);
+        if (linkDescription != null) m.put("linkDescription", linkDescription);
+        if (linkThumbUrl != null)  m.put("linkThumbUrl",  linkThumbUrl);
+        if (linkDomain != null)    m.put("linkDomain",    linkDomain);
+        if (pollQuestion != null)  m.put("pollQuestion",  pollQuestion);
+        if (pollOptions != null)   m.put("pollOptions",   pollOptions);
+        m.put("pollMultipleChoice", pollMultipleChoice);
+        if (pollExpiresAt > 0)     m.put("pollExpiresAt", pollExpiresAt);
+        if (musicTitle != null)    m.put("musicTitle",    musicTitle);
+        if (musicArtist != null)   m.put("musicArtist",   musicArtist);
+        if (musicCoverUrl != null) m.put("musicCoverUrl", musicCoverUrl);
+        m.put("musicStartMs",      musicStartMs);
+        m.put("musicEndMs",        musicEndMs);
+        if (locationName != null)  m.put("locationName",  locationName);
+        m.put("locationLat",       locationLat);
+        m.put("locationLng",       locationLng);
+        if (feeling != null)       m.put("feeling",       feeling);
+        if (feelingEmoji != null)  m.put("feelingEmoji",  feelingEmoji);
+        if (mentions != null)      m.put("mentions",      mentions);
+        if (hashtags != null)      m.put("hashtags",      hashtags);
+        m.put("hasQuestion",       hasQuestion);
+        if (questionText != null)  m.put("questionText",  questionText);
+        if (drawingDataUrl != null) m.put("drawingDataUrl", drawingDataUrl);
+        if (stickersJson != null)  m.put("stickersJson",  stickersJson);
         return m;
     }
 }

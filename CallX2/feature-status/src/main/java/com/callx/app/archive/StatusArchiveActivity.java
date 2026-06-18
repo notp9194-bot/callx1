@@ -1,5 +1,5 @@
-package com.callx.app.archive;
-import android.content.Intent;
+package com.callx.app.activities;
+
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
@@ -7,165 +7,211 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
 import com.bumptech.glide.Glide;
-import com.callx.app.status.R;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.FirebaseUtils;
-import com.callx.app.utils.StatusHighlightManager;
+import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
-import java.text.SimpleDateFormat;
 import java.util.*;
-import com.callx.app.viewer.StatusViewerActivity;
+
 /**
- * StatusArchiveActivity — View and manage archived statuses.
- * NEW: Archived statuses listed with thumbnail, text, timestamp.
- * NEW: Long-press to add to Highlights album.
- * NEW: Swipe to delete from archive.
+ * StatusArchiveActivity — View all your archived (expired) statuses.
+ *
+ * Firebase node: statusArchive/{myUid}/{statusId}
+ *
+ * Features:
+ *  • Grid of archived status thumbnails (2 columns)
+ *  • Tap → StatusViewerActivity (read-only, no progress animation)
+ *  • Long-press → "Restore" (re-post with new 24h TTL) or "Delete Permanently"
+ *  • Sort by newest first
+ *  • Pull-to-refresh
+ *  • "Add to Highlight" option
  */
 public class StatusArchiveActivity extends AppCompatActivity {
-    private RecyclerView rv;
-    private TextView     tvEmpty;
-    private ProgressBar  progress;
-    private final List<StatusItem> items = new ArrayList<>();
-    private ArchiveAdapter adapter;
-    private String myUid;
+
+    private RecyclerView      rvArchive;
+    private View              layoutEmpty;
+    private SwipeRefreshLayout swipeRefresh;
+
+    private List<StatusItem>  archivedItems = new ArrayList<>();
+    private String            myUid;
+    private ValueEventListener archiveListener;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        androidx.appcompat.widget.Toolbar toolbar = new androidx.appcompat.widget.Toolbar(this);
-        toolbar.setTitle("Status Archive");
-        toolbar.setNavigationIcon(android.R.drawable.ic_menu_revert);
-        toolbar.setNavigationOnClickListener(v -> finish());
-        root.addView(toolbar, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        progress = new ProgressBar(this);
-        root.addView(progress);
-        tvEmpty = new TextView(this);
-        tvEmpty.setText("No archived statuses");
-        tvEmpty.setGravity(android.view.Gravity.CENTER);
-        tvEmpty.setPadding(0, 64, 0, 0);
-        tvEmpty.setVisibility(View.GONE);
-        root.addView(tvEmpty);
-        rv = new RecyclerView(this);
-        rv.setLayoutManager(new GridLayoutManager(this, 3));
-        adapter = new ArchiveAdapter();
-        rv.setAdapter(adapter);
-        // Swipe to delete
-        new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
-            @Override public boolean onMove(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder h,
-                                            @NonNull RecyclerView.ViewHolder t) { return false; }
-            @Override public void onSwiped(@NonNull RecyclerView.ViewHolder h, int dir) {
-                int pos = h.getAdapterPosition();
-                if (pos < 0 || pos >= items.size()) return;
-                StatusItem removed = items.remove(pos);
-                adapter.notifyItemRemoved(pos);
-                StatusHighlightManager.unarchiveStatus(myUid, removed.id);
-            }
-        }).attachToRecyclerView(rv);
-        root.addView(rv, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-        setContentView(root);
-        try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { finish(); return; }
+        // setContentView(R.layout.activity_status_archive);
+
+        myUid = FirebaseAuth.getInstance().getCurrentUser() != null
+            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+        if (myUid == null) { finish(); return; }
+
+        rvArchive    = fv("rv_archive");
+        layoutEmpty  = fv("layout_empty_archive");
+        swipeRefresh = fv("swipe_refresh");
+
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+            getSupportActionBar().setTitle("Status Archive");
+        }
+
+        if (rvArchive != null)
+            rvArchive.setLayoutManager(new GridLayoutManager(this, 2));
+
+        if (swipeRefresh != null)
+            swipeRefresh.setOnRefreshListener(() -> {
+                if (archiveListener != null)
+                    FirebaseUtils.db().getReference("statusArchive").child(myUid)
+                        .removeEventListener(archiveListener);
+                loadArchive();
+            });
+
         loadArchive();
     }
+
     private void loadArchive() {
-        StatusHighlightManager.getArchiveRef(myUid)
-            .orderByChild("archivedAt")
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    progress.setVisibility(View.GONE);
-                    items.clear();
-                    for (DataSnapshot c : snap.getChildren()) {
-                        StatusItem item = c.getValue(StatusItem.class);
-                        if (item != null) items.add(0, item); // newest first
+        archiveListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                archivedItems.clear();
+                for (DataSnapshot c : snap.getChildren()) {
+                    StatusItem item = c.getValue(StatusItem.class);
+                    if (item != null) {
+                        if (item.statusId == null) item.statusId = c.getKey();
+                        archivedItems.add(item);
                     }
-                    adapter.notifyDataSetChanged();
-                    tvEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    progress.setVisibility(View.GONE);
-                }
-            });
+                archivedItems.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                runOnUiThread(() -> {
+                    if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                    if (layoutEmpty != null)
+                        layoutEmpty.setVisibility(archivedItems.isEmpty() ? View.VISIBLE : View.GONE);
+                    if (rvArchive != null) rvArchive.setAdapter(buildAdapter());
+                });
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+            }
+        };
+        FirebaseUtils.db().getReference("statusArchive").child(myUid)
+            .orderByChild("timestamp")
+            .addValueEventListener(archiveListener);
     }
-    class ArchiveAdapter extends RecyclerView.Adapter<ArchiveAdapter.VH> {
-        SimpleDateFormat fmt = new SimpleDateFormat("dd MMM", Locale.getDefault());
-        @NonNull @Override
-        public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            FrameLayout fl = new FrameLayout(parent.getContext());
-            int size = parent.getWidth() / 3;
-            fl.setLayoutParams(new RecyclerView.LayoutParams(size, size));
-            return new VH(fl);
-        }
-        @Override public void onBindViewHolder(@NonNull VH h, int pos) {
-            StatusItem item = items.get(pos);
-            h.bind(item);
-        }
-        @Override public int getItemCount() { return items.size(); }
-        class VH extends RecyclerView.ViewHolder {
-            ImageView iv; TextView tvOverlay;
-            VH(FrameLayout fl) {
-                super(fl);
-                iv = new ImageView(fl.getContext());
-                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+
+    private RecyclerView.Adapter<RecyclerView.ViewHolder> buildAdapter() {
+        return new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+            @NonNull @Override
+            public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int vt) {
+                FrameLayout card = new FrameLayout(StatusArchiveActivity.this);
+                RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, 200);
+                lp.setMargins(4, 4, 4, 4);
+                card.setLayoutParams(lp);
+                ImageView iv = new ImageView(StatusArchiveActivity.this);
+                iv.setId(android.R.id.icon);
                 iv.setLayoutParams(new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT));
-                fl.addView(iv);
-                tvOverlay = new TextView(fl.getContext());
-                tvOverlay.setTextColor(android.graphics.Color.WHITE);
-                tvOverlay.setTextSize(11);
-                tvOverlay.setPadding(8, 4, 8, 4);
-                tvOverlay.setGravity(android.view.Gravity.BOTTOM);
-                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT);
-                tvOverlay.setLayoutParams(lp);
-                tvOverlay.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.START);
-                tvOverlay.setBackgroundColor(android.graphics.Color.parseColor("#66000000"));
-                fl.addView(tvOverlay);
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                card.addView(iv);
+                // Date overlay
+                TextView tvDate = new TextView(StatusArchiveActivity.this);
+                tvDate.setId(android.R.id.text1);
+                FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.BOTTOM);
+                dlp.bottomMargin = 4;
+                tvDate.setLayoutParams(dlp);
+                tvDate.setTextColor(android.graphics.Color.WHITE);
+                tvDate.setTextSize(11);
+                tvDate.setPadding(8, 4, 8, 4);
+                tvDate.setBackgroundColor(0x66000000);
+                card.addView(tvDate);
+                return new RecyclerView.ViewHolder(card) {};
             }
-            void bind(StatusItem item) {
-                String url = item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl;
-                if (url != null) {
-                    Glide.with(iv).load(url).centerCrop().into(iv);
+
+            @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
+                StatusItem item = archivedItems.get(pos);
+                ImageView iv = h.itemView.findViewById(android.R.id.icon);
+                TextView tvD = h.itemView.findViewById(android.R.id.text1);
+                tvD.setText(formatDate(item.timestamp));
+                if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
+                    Glide.with(StatusArchiveActivity.this).load(item.thumbnailUrl).centerCrop().into(iv);
                 } else {
-                    iv.setBackgroundColor(item.bgColor != null
-                            ? android.graphics.Color.parseColor(item.bgColor) : 0xFF6200EE);
+                    try { iv.setBackgroundColor(android.graphics.Color.parseColor(
+                        item.bgColor != null ? item.bgColor : "#075E54")); }
+                    catch (Exception ignored) {}
                 }
-                tvOverlay.setText(item.archivedAt != null ? fmt.format(new Date(item.archivedAt)) : "");
-                // Long press → add to highlight
-                itemView.setOnLongClickListener(v -> {
-                    showAddToHighlightDialog(item);
-                    return true;
-                });
-                itemView.setOnClickListener(v -> {
-                    Intent i = new Intent(itemView.getContext(), StatusViewerActivity.class);
-                    i.putExtra(StatusViewerActivity.EXTRA_OWNER_UID, myUid);
-                    i.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, "My Status");
-                    startActivity(i);
-                });
+                h.itemView.setOnLongClickListener(v -> { showOptions(item, pos); return true; });
             }
-        }
+            @Override public int getItemCount() { return archivedItems.size(); }
+        };
     }
-    private void showAddToHighlightDialog(StatusItem item) {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Add to Highlights")
-            .setMessage("Enter album name:")
-            .setView(new EditText(this) {{
-                setHint("Album name (e.g. Vacation 2024)");
-                setId(android.R.id.text1);
-            }})
-            .setPositiveButton("Add", (d, w) -> {
-                EditText et = ((androidx.appcompat.app.AlertDialog) d)
-                        .findViewById(android.R.id.text1);
-                String album = et != null ? et.getText().toString().trim() : "";
-                if (album.isEmpty()) album = "Highlights";
-                String albumId = album.toLowerCase().replace(" ", "_");
-                StatusHighlightManager.addToHighlight(myUid, item, albumId, album);
-                Toast.makeText(this, "Added to " + album, Toast.LENGTH_SHORT).show();
+
+    private void showOptions(StatusItem item, int pos) {
+        String[] opts = {"Restore (Re-post 24h)", "Add to Highlight", "Delete Permanently"};
+        new android.app.AlertDialog.Builder(this)
+            .setItems(opts, (d, w) -> {
+                if (w == 0) restoreStatus(item, pos);
+                else if (w == 1) addToHighlight(item);
+                else deleteFromArchive(item, pos);
+            }).show();
+    }
+
+    private void restoreStatus(StatusItem item, int pos) {
+        // Re-post with new 24h TTL
+        item.timestamp  = System.currentTimeMillis();
+        item.expiresAt  = item.timestamp + 24L * 3600_000;
+        item.deleted    = false;
+        item.archived   = false;
+        DatabaseReference ref = FirebaseUtils.getUserStatusRef(myUid).push();
+        item.statusId = ref.getKey();
+        ref.setValue(item.toMap(), (e, r) -> {
+            if (e == null) {
+                Toast.makeText(this, "Status restored!", Toast.LENGTH_SHORT).show();
+                com.callx.app.utils.StatusExpiryManager.scheduleExpiryReminder(this, item);
+            }
+        });
+    }
+
+    private void addToHighlight(StatusItem item) {
+        android.content.Intent i = new android.content.Intent(this, StatusHighlightsActivity.class);
+        i.putExtra("statusId",   item.statusId);
+        i.putExtra("thumbUrl",   item.thumbnailUrl);
+        i.putExtra("mediaUrl",   item.mediaUrl);
+        i.putExtra("statusType", item.type);
+        startActivity(i);
+    }
+
+    private void deleteFromArchive(StatusItem item, int pos) {
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Delete permanently?")
+            .setMessage("This archived status will be gone forever.")
+            .setPositiveButton("Delete", (d, w) -> {
+                FirebaseUtils.db().getReference("statusArchive")
+                    .child(myUid).child(item.statusId).removeValue();
+                archivedItems.remove(pos);
+                if (rvArchive != null && rvArchive.getAdapter() != null)
+                    rvArchive.getAdapter().notifyItemRemoved(pos);
             })
-            .setNegativeButton("Cancel", null)
-            .show();
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    private String formatDate(long ts) {
+        return android.text.format.DateFormat.format("MMM d, yyyy", new java.util.Date(ts)).toString();
+    }
+
+    @Override public boolean onSupportNavigateUp() { finish(); return true; }
+
+    @Override protected void onDestroy() {
+        super.onDestroy();
+        if (myUid != null && archiveListener != null)
+            FirebaseUtils.db().getReference("statusArchive").child(myUid)
+                .removeEventListener(archiveListener);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends View> T fv(String name) {
+        int id = getResources().getIdentifier(name, "id", getPackageName());
+        if (id == 0) return null;
+        return (T) findViewById(id);
     }
 }

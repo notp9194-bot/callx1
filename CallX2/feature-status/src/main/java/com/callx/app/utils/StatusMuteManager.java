@@ -1,44 +1,56 @@
 package com.callx.app.utils;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import java.util.HashSet;
 import java.util.Set;
+
 /**
- * StatusMuteManager — Mute/unmute contacts' status updates locally.
- * Muted contacts still load but are hidden from "Recent updates" section.
- * Data stored in SharedPreferences — no Firebase sync needed.
+ * StatusMuteManager — Hide specific contacts' statuses from your feed.
+ *
+ * Muting is purely local (SharedPrefs). The muted user has NO idea.
+ * Their statuses are simply skipped during StatusFragment list building.
  */
-public final class StatusMuteManager {
-    private static final String PREFS  = "status_mute_prefs";
-    private static final String KEY    = "muted_uids";
-    private StatusMuteManager() {}
-    public static boolean isMuted(Context ctx, String uid) {
-        if (uid == null) return false;
-        return getMutedSet(ctx).contains(uid);
+public class StatusMuteManager {
+
+    private static final String PREFS = "callx_status_mute";
+    private static final String KEY   = "muted_uids";
+
+    private static volatile StatusMuteManager instance;
+    private final SharedPreferences prefs;
+
+    private StatusMuteManager(Context ctx) {
+        prefs = ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
-    public static void mute(Context ctx, String uid) {
-        if (uid == null) return;
-        Set<String> s = getMutedSet(ctx);
-        s.add(uid);
-        save(ctx, s);
+
+    public static StatusMuteManager get(Context ctx) {
+        if (instance == null) synchronized (StatusMuteManager.class) {
+            if (instance == null) instance = new StatusMuteManager(ctx);
+        }
+        return instance;
     }
-    public static void unmute(Context ctx, String uid) {
-        if (uid == null) return;
-        Set<String> s = getMutedSet(ctx);
-        s.remove(uid);
-        save(ctx, s);
+
+    public void mute(String uid) {
+        Set<String> set = new HashSet<>(getMutedUids());
+        set.add(uid);
+        prefs.edit().putStringSet(KEY, set).apply();
     }
-    public static void toggle(Context ctx, String uid) {
-        if (isMuted(ctx, uid)) unmute(ctx, uid);
-        else                   mute(ctx, uid);
+
+    public void unmute(String uid) {
+        Set<String> set = new HashSet<>(getMutedUids());
+        set.remove(uid);
+        prefs.edit().putStringSet(KEY, set).apply();
     }
-    public static Set<String> getMutedSet(Context ctx) {
-        return new HashSet<>(prefs(ctx).getStringSet(KEY, new HashSet<>()));
+
+    public boolean isMuted(String uid) {
+        return getMutedUids().contains(uid);
     }
-    private static void save(Context ctx, Set<String> s) {
-        prefs(ctx).edit().putStringSet(KEY, s).apply();
+
+    public Set<String> getMutedUids() {
+        return prefs.getStringSet(KEY, new HashSet<>());
     }
-    private static SharedPreferences prefs(Context ctx) {
-        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+
+    public void clearAll() {
+        prefs.edit().remove(KEY).apply();
     }
 }

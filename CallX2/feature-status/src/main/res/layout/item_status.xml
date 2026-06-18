@@ -1,123 +1,106 @@
 <?xml version="1.0" encoding="utf-8"?>
-  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-      android:layout_width="match_parent"
-      android:layout_height="wrap_content"
-      android:orientation="horizontal"
-      android:paddingHorizontal="16dp"
-      android:paddingVertical="12dp"
-      android:gravity="center_vertical"
-      android:background="?attr/selectableItemBackground">
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="0dp"
+    android:layout_marginVertical="1dp"
+    app:cardElevation="0dp"
+    app:strokeWidth="0dp">
 
-      <!-- Avatar + ring + badge -->
-      <FrameLayout
-          android:layout_width="54dp"
-          android:layout_height="54dp">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical">
 
-          <ImageView
-              android:id="@+id/ring"
-              android:layout_width="54dp"
-              android:layout_height="54dp"
-              android:src="@drawable/circle_status_unseen"/>
+        <!-- Ring + Avatar container -->
+        <FrameLayout
+            android:layout_width="54dp"
+            android:layout_height="54dp">
 
-          <de.hdodenhof.circleimageview.CircleImageView
-              android:id="@+id/iv_avatar"
-              android:layout_width="46dp"
-              android:layout_height="46dp"
-              android:layout_gravity="center"
-              android:src="@drawable/ic_person"/>
+            <!-- Ring border (green=unseen, grey=seen) -->
+            <View
+                android:id="@+id/view_status_ring"
+                android:layout_width="54dp"
+                android:layout_height="54dp"
+                android:background="@drawable/circle_ring_green"
+                android:backgroundTint="#25D366"/>
 
-          <!-- Unseen count badge (FIX: now wired in adapter) -->
-          <TextView
-              android:id="@+id/tv_badge"
-              android:layout_width="18dp"
-              android:layout_height="18dp"
-              android:layout_gravity="top|end"
-              android:background="#FF6200EE"
-              android:textColor="@android:color/white"
-              android:textSize="10sp"
-              android:gravity="center"
-              android:visibility="gone"/>
+            <!-- Avatar -->
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_contact_avatar"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:layout_gravity="center"
+                android:src="@android:drawable/ic_menu_report_image"/>
+        </FrameLayout>
 
-      </FrameLayout>
+        <!-- Text section -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:orientation="vertical">
 
-      <!-- Info block -->
-      <LinearLayout
-          android:layout_width="0dp"
-          android:layout_height="wrap_content"
-          android:layout_weight="1"
-          android:layout_marginStart="14dp"
-          android:orientation="vertical">
+            <TextView
+                android:id="@+id/tv_contact_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="?attr/colorOnSurface"/>
 
-          <LinearLayout
-              android:layout_width="wrap_content"
-              android:layout_height="wrap_content"
-              android:orientation="horizontal"
-              android:gravity="center_vertical">
+            <TextView
+                android:id="@+id/tv_status_caption_preview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
 
-              <TextView
-                  android:id="@+id/tv_name"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:textSize="15sp"
-                  android:textStyle="bold"
-                  android:textColor="?attr/colorOnSurface"
-                  android:maxLines="1"
-                  android:ellipsize="end"/>
+            <TextView
+                android:id="@+id/tv_status_time"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
 
-              <!-- FIX NEW: Close Friends star badge -->
-              <TextView
-                  android:id="@+id/tv_cf_badge"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:layout_marginStart="4dp"
-                  android:text="&#x2B50;"
-                  android:textSize="11sp"
-                  android:visibility="gone"/>
+        <!-- Right: thumb + badge -->
+        <FrameLayout
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp">
 
-          </LinearLayout>
+            <ImageView
+                android:id="@+id/iv_status_thumb"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:scaleType="centerCrop"
+                android:visibility="gone"/>
 
-          <LinearLayout
-              android:layout_width="match_parent"
-              android:layout_height="wrap_content"
-              android:orientation="horizontal"
-              android:gravity="center_vertical">
+            <!-- Unseen count badge -->
+            <TextView
+                android:id="@+id/tv_unseen_badge"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="top|end"
+                android:gravity="center"
+                android:textSize="10sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:background="@drawable/badge_circle_green"
+                android:visibility="gone"/>
+        </FrameLayout>
+    </LinearLayout>
 
-              <TextView
-                  android:id="@+id/tv_time"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:textSize="12sp"
-                  android:textColor="?attr/colorOnSurfaceVariant"/>
-
-              <TextView
-                  android:id="@+id/tv_sub"
-                  android:layout_width="0dp"
-                  android:layout_height="wrap_content"
-                  android:layout_weight="1"
-                  android:layout_marginStart="6dp"
-                  android:textSize="12sp"
-                  android:textColor="?attr/colorOnSurfaceVariant"
-                  android:maxLines="1"
-                  android:ellipsize="end"/>
-          </LinearLayout>
-      </LinearLayout>
-
-      <!-- Thumbnail preview -->
-      <ImageView
-          android:id="@+id/iv_thumb"
-          android:layout_width="44dp"
-          android:layout_height="44dp"
-          android:scaleType="centerCrop"
-          android:visibility="gone"
-          android:layout_marginStart="8dp"/>
-
-      <!-- Reaction preview emoji -->
-      <TextView
-          android:id="@+id/tv_reaction"
-          android:layout_width="wrap_content"
-          android:layout_height="wrap_content"
-          android:textSize="20sp"
-          android:layout_marginStart="4dp"
-          android:visibility="gone"/>
-
-  </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

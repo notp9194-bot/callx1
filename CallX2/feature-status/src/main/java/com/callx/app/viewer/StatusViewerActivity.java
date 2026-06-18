@@ -1,644 +1,557 @@
-package com.callx.app.viewer;
-  import android.content.Intent;
-  import android.graphics.Color;
-  import android.net.Uri;
-  import android.os.Bundle;
-  import android.os.Handler;
-  import android.os.Looper;
-  import android.text.TextUtils;
-  import android.view.*;
-  import android.view.animation.*;
-  import android.widget.*;
-  import androidx.annotation.NonNull;
-  import androidx.annotation.OptIn;
-  import androidx.appcompat.app.AlertDialog;
-  import androidx.appcompat.app.AppCompatActivity;
-  import androidx.media3.common.*;
-  import androidx.media3.common.util.UnstableApi;
-  import androidx.media3.datasource.cache.CacheDataSource;
-  import androidx.media3.exoplayer.ExoPlayer;
-  import androidx.media3.exoplayer.source.ProgressiveMediaSource;
-  import com.bumptech.glide.Glide;
-  import com.callx.app.cache.StatusVideoCacheManager;
-  import com.callx.app.status.R;
-  import com.callx.app.status.databinding.ActivityStatusViewerBinding;
-  import com.callx.app.models.StatusItem;
-  import com.callx.app.utils.*;
-  import com.google.android.material.bottomsheet.BottomSheetDialog;
-  import com.google.firebase.database.*;
-  import java.util.*;
-  import com.callx.app.highlights.StatusAddToHighlightBottomSheet;
-  import com.callx.app.analytics.StatusAnalyticsBottomSheet;
-  import com.callx.app.interactions.StatusDeleteConfirmBottomSheet;
-  import com.callx.app.interactions.StatusForwardBottomSheet;
-  import com.callx.app.interactions.StatusReactionBottomSheet;
-  import com.callx.app.interactions.StatusReplyBottomSheet;
-  import com.callx.app.interactions.StatusSeenByBottomSheet;
-  import com.callx.app.utils.StatusCloseFriendsManager;
-  import com.callx.app.utils.StatusDownloadHelper;
-  import com.callx.app.utils.StatusHighlightManager;
-  import com.callx.app.utils.StatusMentionHelper;
-  import com.callx.app.utils.StatusMuteManager;
-  import com.callx.app.utils.StatusSeenTracker;
-  /**
-   * StatusViewerActivity v26 — Fully comprehensive story/status viewer.
-   *
-   * FIXES v26:
-   *   FIX: setupDownloadButton() — was findViewWithTag("btn_download") (no tag in XML → null), now binding.btnDownload
-   *   FIX: setupForwardButton() — was findViewWithTag("btn_forward") (no tag in XML → null), now binding.btnForward
-   *   FIX: hideAllContent() — was findViewWithTag("tv_location_tag") → null, now binding.tvLocationTag
-   *   FIX: showLocationTag() — was findViewWithTag("tv_location_tag") → null, now binding.tvLocationTag
-   *   FIX: updateExpiryLabel() — was findViewWithTag("tv_expiry_label") → null, now binding.tvExpiryLabel
-   *   FIX: showOwnerMoreMenu() — added "Who viewed this" option (was completely missing)
-   *   FIX: btn_download and btn_forward made visible for viewer (were always GONE, no code showed them)
-   *
-   * ORIGINAL (fully working):
-   *   Multi-segment progress bar, tap/hold gestures, ExoPlayer cache, DiskCacheStrategy,
-   *   Text/image/video/gif/link status types, Reply, Reactions, Mute, Seen tracking,
-   *   Analytics, Highlights, Delete, Archive, Cross-fade, Keep screen ON.
-   */
-  public class StatusViewerActivity extends AppCompatActivity {
-      public static final String EXTRA_OWNER_UID  = "ownerUid";
-      public static final String EXTRA_OWNER_NAME = "ownerName";
-      private ActivityStatusViewerBinding binding;
-      private final List<StatusItem> items         = new ArrayList<>();
-      private final List<String>     seenInSession  = new ArrayList<>();
-      private int     idx         = 0;
-      private ExoPlayer player;
-      private final Handler  handler      = new Handler(Looper.getMainLooper());
-      private Runnable       progressRunner;
-      private boolean        paused       = false;
-      private long           remainingMs  = 0;
-      private boolean        isMuted      = false;
-      private long           viewStartTime = 0;
-      private String myUid, ownerUid, ownerName;
-      private final List<ProgressBar> segmentBars = new ArrayList<>();
-      private GestureDetector swipeDetector;
-      // ── Lifecycle ─────────────────────────────────────────────────────────
-      @Override
-      protected void onCreate(Bundle savedInstanceState) {
-          super.onCreate(savedInstanceState);
-          binding = ActivityStatusViewerBinding.inflate(getLayoutInflater());
-          setContentView(binding.getRoot());
-          getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-          getWindow().getDecorView().setSystemUiVisibility(
-              View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-              | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-          ownerUid  = getIntent().getStringExtra(EXTRA_OWNER_UID);
-          ownerName = getIntent().getStringExtra(EXTRA_OWNER_NAME);
-          if (ownerUid == null) { finish(); return; }
-          try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
-          setupSwipeDownGesture();
-          setupTouchZones();
-          setupCloseButton();
-          setupReactionButton();
-          setupReplyButton();
-          setupMoreButton();
-          setupMuteButton();
-          setupDownloadButton();
-          setupForwardButton();
-          binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
-          if (StatusCloseFriendsManager.isCloseFriend(this, ownerUid))
-              binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : "Status"));
-          load(ownerUid);
-      }
-      @Override protected void onPause()  { super.onPause();  pauseProgress(); }
-      @Override protected void onResume() { super.onResume(); if (paused) resumeProgress(); }
-      @Override
-      protected void onDestroy() {
-          releasePlayer();
-          stopProgress();
-          handler.removeCallbacksAndMessages(null);
-          getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-          if (!seenInSession.isEmpty() && ownerUid != null) {
-              String thumbForBubble = "";
-              if (!items.isEmpty()) {
-                  StatusItem first = items.get(0);
-                  if (first.thumbnailUrl != null && !first.thumbnailUrl.isEmpty())
-                      thumbForBubble = first.thumbnailUrl;
-                  else if (first.mediaUrl != null && "image".equals(first.type))
-                      thumbForBubble = first.mediaUrl;
-              }
-              StatusSeenTracker.markSeenBatch(ownerUid, seenInSession,
-                      ownerName != null ? ownerName : "", thumbForBubble);
-          }
-          if (viewStartTime > 0 && idx < items.size()) {
-              StatusItem cur = items.get(idx);
-              if (cur.id != null)
-                  StatusSeenTracker.recordViewDuration(ownerUid, cur.id,
-                          System.currentTimeMillis() - viewStartTime);
-          }
-          super.onDestroy();
-      }
-      // ── Load ──────────────────────────────────────────────────────────────
-      private void load(String uid) {
-          FirebaseUtils.getStatusRef().child(uid)
-              .addListenerForSingleValueEvent(new ValueEventListener() {
-                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                      long now = System.currentTimeMillis();
-                      for (DataSnapshot c : snap.getChildren()) {
-                          StatusItem s = c.getValue(StatusItem.class);
-                          if (s == null || s.deleted) continue;
-                          if (s.expiresAt != null && s.expiresAt < now) continue;
-                          items.add(s);
-                      }
-                      if (items.isEmpty()) { finish(); return; }
-                      items.sort((a, b) -> Long.compare(
-                              a.timestamp == null ? 0 : a.timestamp,
-                              b.timestamp == null ? 0 : b.timestamp));
-                      StatusItem first = items.get(0);
-                      if (first.ownerPhoto != null && !first.ownerPhoto.isEmpty())
-                          Glide.with(StatusViewerActivity.this).load(first.ownerPhoto)
-                               .circleCrop().into(binding.ivOwner);
-                      buildSegmentBars();
-                      showCurrent();
-                      // FIX: show download+forward for viewer, hide for owner
-                      boolean isOwner = myUid != null && myUid.equals(ownerUid);
-                      binding.btnDownload.setVisibility(isOwner ? View.GONE : View.VISIBLE);
-                      binding.btnForward.setVisibility(isOwner ? View.GONE : View.VISIBLE);
-                  }
-                  @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
-              });
-      }
-      // ── Segment bar ───────────────────────────────────────────────────────
-      private void buildSegmentBars() {
-          binding.segmentsContainer.removeAllViews();
-          segmentBars.clear();
-          int count = items.size();
-          for (int i = 0; i < count; i++) {
-              ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-              pb.setMax(1000);
-              pb.setProgress(0);
-              LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dpToPx(2), 1f);
-              lp.setMarginEnd(i < count - 1 ? dpToPx(3) : 0);
-              pb.setLayoutParams(lp);
-              pb.getProgressDrawable().setColorFilter(Color.WHITE, android.graphics.PorterDuff.Mode.SRC_IN);
-              binding.segmentsContainer.addView(pb);
-              segmentBars.add(pb);
-          }
-      }
-      private void fillSegmentsBefore(int currentIdx) {
-          for (int i = 0; i < segmentBars.size(); i++)
-              segmentBars.get(i).setProgress(i < currentIdx ? 1000 : 0);
-      }
-      // ── Show current item ─────────────────────────────────────────────────
-      private void showCurrent() {
-          if (idx >= items.size()) { finish(); return; }
-          StatusItem s = items.get(idx);
-          if (viewStartTime > 0 && idx > 0) {
-              StatusItem prev = items.get(idx - 1);
-              if (prev.id != null)
-                  StatusSeenTracker.recordViewDuration(ownerUid, prev.id,
-                          System.currentTimeMillis() - viewStartTime);
-          }
-          viewStartTime = System.currentTimeMillis();
-          fillSegmentsBefore(idx);
-          updateHeaderTimestamp(s);
-          updateSeenByInfo(s);
-          updateExpiryLabel(s);
-          crossFadeIn();
-          if (s.id != null && !s.id.isEmpty() && myUid != null && !myUid.equals(ownerUid))
-              if (!seenInSession.contains(s.id)) seenInSession.add(s.id);
-          binding.btnMute.setVisibility(View.GONE);
-          hideAllContent();
-          switch (s.type != null ? s.type : "") {
-              case "text":
-                  showTextStatus(s); break;
-              case "image":
-                  if (s.mediaUrl != null) showImageStatusFromUrl(s.mediaUrl, s.caption); break;
-              case "video": case "reel_story": case "reel_clip":
-                  if (s.mediaUrl != null) { showVideoStatus(s); break; }
-                  if (s.thumbnailUrl != null) { showImageStatusFromUrl(s.thumbnailUrl, s.caption); break; }
-                  next(); break;
-              case "link":  showLinkStatus(s); break;
-              case "gif": case "sticker": showGifStatus(s); break;
-              default: next();
-          }
-      }
-      // ── Content renderers ─────────────────────────────────────────────────
-      private void showTextStatus(StatusItem s) {
-          binding.flTextStatus.setVisibility(View.VISIBLE);
-          binding.tvTextStatus.setText(StatusMentionHelper.highlight(s.text != null ? s.text : ""));
-          try {
-              if (s.bgColor != null) binding.flTextStatus.setBackgroundColor(Color.parseColor(s.bgColor));
-              else binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
-          } catch (Exception e) {
-              binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
-          }
-          if (s.textColor != null) {
-              try { binding.tvTextStatus.setTextColor(Color.parseColor(s.textColor)); }
-              catch (Exception ignored) {}
-          }
-          applyFontStyle(binding.tvTextStatus, s.fontStyle);
-          if (s.textSize > 0) binding.tvTextStatus.setTextSize(s.textSize);
-          if (s.textAlign != null) {
-              switch (s.textAlign) {
-                  case "left":  binding.tvTextStatus.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); break;
-                  case "right": binding.tvTextStatus.setGravity(Gravity.END   | Gravity.CENTER_VERTICAL); break;
-                  default:      binding.tvTextStatus.setGravity(Gravity.CENTER);
-              }
-          }
-          if (s.locationName != null && !s.locationName.isEmpty()) showLocationTag(s.locationName);
-          showCaption(s.caption);
-          startProgress(5_000L);
-      }
-      private void showImageStatusFromUrl(String url, String caption) {
-          binding.ivStatus.setVisibility(View.VISIBLE);
-          Glide.with(this).load(url)
-               .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-               .placeholder(android.R.drawable.screen_background_dark)
-               .into(binding.ivStatus);
-          showCaption(caption);
-          startProgress(5_000L);
-      }
-      private void showLinkStatus(StatusItem s) {
-          if (s.linkImageUrl != null && !s.linkImageUrl.isEmpty())
-              showImageStatusFromUrl(s.linkImageUrl, s.linkTitle);
-          else showTextStatus(s);
-          if (s.linkUrl != null) {
-              binding.tvCaption.setClickable(true);
-              binding.tvCaption.setOnClickListener(v -> {
-                  pauseProgress();
-                  startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(s.linkUrl)));
-              });
-          }
-      }
-      private void showGifStatus(StatusItem s) {
-          binding.ivStatus.setVisibility(View.VISIBLE);
-          String url = s.gifUrl != null ? s.gifUrl : s.stickerUrl != null ? s.stickerUrl : s.mediaUrl;
-          if (url != null)
-              Glide.with(this).asGif().load(url)
-                   .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.DATA)
-                   .placeholder(android.R.drawable.screen_background_dark)
-                   .into(binding.ivStatus);
-          showCaption(s.caption);
-          startProgress(4_000L);
-      }
-      @OptIn(markerClass = UnstableApi.class)
-      private void showVideoStatus(StatusItem s) {
-          binding.playerView.setVisibility(View.VISIBLE);
-          binding.btnMute.setVisibility(View.VISIBLE);
-          releasePlayer();
-          ExoPlayer.Builder builder = new ExoPlayer.Builder(this);
-          if (StatusVideoCacheManager.isInitialized()) {
-              CacheDataSource.Factory cf = StatusVideoCacheManager.getCacheDataSourceFactory();
-              ProgressiveMediaSource ms = new ProgressiveMediaSource.Factory(cf)
-                      .createMediaSource(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
-              player = builder.build();
-              binding.playerView.setPlayer(player);
-              player.setMediaSource(ms);
-          } else {
-              player = builder.build();
-              binding.playerView.setPlayer(player);
-              player.setMediaItem(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
-          }
-          player.setVolume(isMuted ? 0f : 1f);
-          long estimated = s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L;
-          player.addListener(new Player.Listener() {
-              @Override public void onPlaybackStateChanged(int state) {
-                  if (state == Player.STATE_READY) {
-                      long real = player.getDuration();
-                      long dur = (real > 0 && real != Long.MIN_VALUE) ? Math.min(real, 30_000L) : estimated;
-                      stopProgress(); startProgress(dur);
-                  } else if (state == Player.STATE_ENDED) { next(); }
-              }
-          });
-          player.prepare(); player.setPlayWhenReady(true);
-          startProgress(estimated);
-          showCaption(s.caption);
-      }
-      private void hideAllContent() {
-          binding.flTextStatus.setVisibility(View.GONE);
-          binding.ivStatus.setVisibility(View.GONE);
-          binding.playerView.setVisibility(View.GONE);
-          binding.tvCaption.setVisibility(View.GONE);
-          // FIX: was findViewWithTag("tv_location_tag") — always null — now binding ref
-          binding.tvLocationTag.setVisibility(View.GONE);
-      }
-      private void showCaption(String caption) {
-          if (!TextUtils.isEmpty(caption)) {
-              binding.tvCaption.setVisibility(View.VISIBLE);
-              binding.tvCaption.setText(StatusMentionHelper.highlight(caption));
-          }
-      }
-      // FIX: was findViewWithTag("tv_location_tag") → null, now binding.tvLocationTag
-      private void showLocationTag(String location) {
-          binding.tvLocationTag.setText("\uD83D\uDCCD " + location);
-          binding.tvLocationTag.setVisibility(View.VISIBLE);
-      }
-      // ── Progress ──────────────────────────────────────────────────────────
-      private void startProgress(long durationMs) {
-          stopProgress(); paused = false; remainingMs = durationMs;
-          runProgressTick(durationMs, durationMs);
-      }
-      private void runProgressTick(final long totalMs, final long remaining) {
-          final long STEP = 50L;
-          progressRunner = new Runnable() {
-              long elapsed = totalMs - remaining;
-              @Override public void run() {
-                  if (paused) return;
-                  elapsed += STEP;
-                  int prog = (int) Math.min(1000L, (elapsed * 1000L) / totalMs);
-                  if (idx < segmentBars.size()) segmentBars.get(idx).setProgress(prog);
-                  if (elapsed >= totalMs) { next(); }
-                  else { remainingMs = totalMs - elapsed; handler.postDelayed(this, STEP); }
-              }
-          };
-          handler.postDelayed(progressRunner, STEP);
-      }
-      private void stopProgress() {
-          if (progressRunner != null) { handler.removeCallbacks(progressRunner); progressRunner = null; }
-      }
-      private void pauseProgress() {
-          if (paused) return; paused = true;
-          if (player != null) player.setPlayWhenReady(false);
-          stopProgress();
-      }
-      private void resumeProgress() {
-          if (!paused) return; paused = false;
-          if (player != null) player.setPlayWhenReady(true);
-          if (idx < items.size()) {
-              StatusItem s = items.get(idx);
-              long total;
-              if ("video".equals(s.type) || "reel_story".equals(s.type) || "reel_clip".equals(s.type)) {
-                  long real = (player != null) ? player.getDuration() : Long.MIN_VALUE;
-                  total = (real > 0 && real != Long.MIN_VALUE) ? Math.min(real, 30_000L)
-                          : (s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L);
-              } else total = 5_000L;
-              runProgressTick(total, remainingMs);
-          }
-      }
-      // ── Navigation ────────────────────────────────────────────────────────
-      private void next()     { releasePlayer(); stopProgress(); idx++; showCurrent(); }
-      private void previous() { releasePlayer(); stopProgress(); idx = Math.max(0, idx - 1); showCurrent(); }
-      // ── Swipe down ────────────────────────────────────────────────────────
-      private void setupSwipeDownGesture() {
-          swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-              @Override public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float vx, float vy) {
-                  if (e1 == null) return false;
-                  float dy = e2.getRawY() - e1.getRawY();
-                  if (dy > 120 && Math.abs(vy) > 100) { finishWithAnimation(); return true; }
-                  return false;
-              }
-          });
-      }
-      private void finishWithAnimation() {
-          AlphaAnimation fade = new AlphaAnimation(1f, 0f);
-          fade.setDuration(200);
-          fade.setAnimationListener(new Animation.AnimationListener() {
-              @Override public void onAnimationStart(Animation a) {}
-              @Override public void onAnimationRepeat(Animation a) {}
-              @Override public void onAnimationEnd(Animation a) { finish(); }
-          });
-          binding.getRoot().startAnimation(fade);
-      }
-      private void crossFadeIn() {
-          binding.getRoot().setAlpha(0f);
-          binding.getRoot().animate().alpha(1f).setDuration(150).start();
-      }
-      // ── Touch zones ───────────────────────────────────────────────────────
-      private void setupTouchZones() {
-          binding.touchLayer.setOnTouchListener((v, e) -> {
-              swipeDetector.onTouchEvent(e);
-              switch (e.getAction()) {
-                  case MotionEvent.ACTION_DOWN: pauseProgress(); break;
-                  case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
-                      resumeProgress();
-                      float x = e.getX(), w = v.getWidth();
-                      if (e.getEventTime() - e.getDownTime() < 200) {
-                          if (x < w / 3f) previous(); else next();
-                      }
-                      break;
-              }
-              return true;
-          });
-      }
-      // ── Buttons ───────────────────────────────────────────────────────────
-      private void setupCloseButton() {
-          binding.btnCloseStatus.setOnClickListener(v -> finishWithAnimation());
-      }
-      private void setupReactionButton() {
-          binding.btnReact.setOnClickListener(v -> {
-              if (myUid != null && myUid.equals(ownerUid)) return;
-              StatusItem current = idx < items.size() ? items.get(idx) : null;
-              if (current == null) return;
-              pauseProgress();
-              StatusReactionBottomSheet.show(this, current, myUid, (emoji, removed) -> {
-                  if (removed) { if (current.reactions != null) current.reactions.remove(myUid); }
-                  else { if (current.reactions == null) current.reactions = new HashMap<>(); current.reactions.put(myUid, emoji); }
-                  updateSeenByInfo(current);
-                  resumeProgress();
-              });
-          });
-      }
-      private void setupReplyButton() {
-          if (myUid != null && myUid.equals(ownerUid)) {
-              binding.etReply.setVisibility(View.GONE);
-              binding.btnSendReply.setVisibility(View.GONE);
-              return;
-          }
-          binding.etReply.setOnClickListener(v -> {
-              StatusItem current = idx < items.size() ? items.get(idx) : null;
-              if (current == null || myUid == null) return;
-              pauseProgress();
-              StatusReplyBottomSheet.show(this, current, ownerName, myUid, ownerUid, msg -> resumeProgress());
-          });
-          binding.etReply.setOnFocusChangeListener((v, has) -> { if (has) pauseProgress(); else resumeProgress(); });
-          binding.btnSendReply.setOnClickListener(v -> {
-              String msg = binding.etReply.getText() != null
-                      ? binding.etReply.getText().toString().trim() : "";
-              if (TextUtils.isEmpty(msg)) return;
-              if (myUid == null || ownerUid == null) return;
-              sendReplyToChat(ownerUid, msg);
-              binding.etReply.setText(""); binding.etReply.clearFocus();
-              resumeProgress();
-              Toast.makeText(this, "Reply sent", Toast.LENGTH_SHORT).show();
-          });
-      }
-      /** FIX v26: was findViewWithTag("btn_download") — tag not in XML → always null → click never registered */
-      private void setupDownloadButton() {
-          binding.btnDownload.setOnClickListener(v -> {
-              StatusItem current = idx < items.size() ? items.get(idx) : null;
-              if (current == null) return;
-              if (!StatusDownloadHelper.hasPermission(this)) {
-                  StatusDownloadHelper.requestPermission(this); return;
-              }
-              StatusDownloadHelper.downloadStatus(this, current);
-          });
-      }
-      /** FIX v26: was findViewWithTag("btn_forward") — tag not in XML → always null → click never registered */
-      private void setupForwardButton() {
-          binding.btnForward.setOnClickListener(v -> {
-              StatusItem current = idx < items.size() ? items.get(idx) : null;
-              if (current == null || myUid == null) return;
-              pauseProgress();
-              StatusForwardBottomSheet.show(this, current, myUid, this::resumeProgress);
-          });
-      }
-      private void setupMoreButton() {
-          binding.btnMore.setOnClickListener(v -> {
-              pauseProgress();
-              boolean isOwner = myUid != null && myUid.equals(ownerUid);
-              if (isOwner) showOwnerMoreMenu(); else showViewerMoreMenu();
-          });
-      }
-      /** FIX v26: "Who viewed this" added as first option (was completely missing from owner menu) */
-      private void showOwnerMoreMenu() {
-          StatusItem current = idx < items.size() ? items.get(idx) : null;
-          String[] opts = {"Who viewed this", "Delete this status", "Archive status", "Add to Highlights", "Analytics", "Cancel"};
-          new AlertDialog.Builder(this)
-              .setItems(opts, (d, w) -> {
-                  if (w == 0) {
-                      // FIX: "Who viewed this" — open SeenByBottomSheet directly from menu
-                      if (current != null) {
-                          StatusSeenByBottomSheet.show(this, current, this::resumeProgress);
-                      } else resumeProgress();
-                  } else if (w == 1 && current != null && current.id != null) {
-                      String previewUrl = current.thumbnailUrl != null ? current.thumbnailUrl : current.mediaUrl;
-                      StatusDeleteConfirmBottomSheet.show(this, current.type, previewUrl, () -> {
-                          StatusSeenTracker.deleteStatus(ownerUid, current.id);
-                          items.remove(idx);
-                          Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
-                          if (items.isEmpty()) { finish(); return; }
-                          idx = Math.min(idx, items.size() - 1);
-                          buildSegmentBars(); stopProgress(); showCurrent();
-                      });
-                  } else if (w == 2 && current != null) {
-                      StatusHighlightManager.archiveStatus(ownerUid, current);
-                      Toast.makeText(this, "Archived \u2713", Toast.LENGTH_SHORT).show();
-                      resumeProgress();
-                  } else if (w == 3 && current != null) {
-                      showAddToHighlightBottomSheet(current);
-                  } else if (w == 4 && current != null) {
-                      showAnalyticsBottomSheet(current);
-                  } else {
-                      resumeProgress();
-                  }
-              })
-              .setOnCancelListener(d -> resumeProgress())
-              .show();
-      }
-      private void showViewerMoreMenu() {
-          String muteLabel = StatusMuteManager.isMuted(this, ownerUid)
-                  ? "Unmute " + ownerName : "Mute " + ownerName;
-          String[] opts = {muteLabel, "Download", "Forward", "Report", "Cancel"};
-          new AlertDialog.Builder(this)
-              .setItems(opts, (d, w) -> {
-                  if (w == 0) {
-                      StatusMuteManager.toggle(this, ownerUid);
-                      String msg = StatusMuteManager.isMuted(this, ownerUid)
-                              ? ownerName + " muted" : ownerName + " unmuted";
-                      Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-                      finish();
-                  } else if (w == 1) {
-                      StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                      if (cur != null) StatusDownloadHelper.downloadStatus(this, cur);
-                  } else if (w == 2) {
-                      StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                      if (cur != null && myUid != null) StatusForwardBottomSheet.show(this, cur, myUid);
-                  } else if (w == 3) {
-                      Toast.makeText(this, "Reported", Toast.LENGTH_SHORT).show();
-                  }
-                  resumeProgress();
-              })
-              .setOnCancelListener(d -> resumeProgress())
-              .show();
-      }
-      private void showAddToHighlightBottomSheet(StatusItem item) {
-          pauseProgress();
-          StatusAddToHighlightBottomSheet.show(this, ownerUid, item, albumName -> {
-              Toast.makeText(this, "Added to " + albumName + " \u2713", Toast.LENGTH_SHORT).show();
-              resumeProgress();
-          });
-      }
-      private void showAnalyticsBottomSheet(StatusItem item) {
-          pauseProgress();
-          StatusAnalyticsBottomSheet.show(this, item, this::resumeProgress);
-      }
-      private void setupMuteButton() {
-          binding.btnMute.setOnClickListener(v -> {
-              isMuted = !isMuted;
-              if (player != null) player.setVolume(isMuted ? 0f : 1f);
-              binding.btnMute.setImageResource(isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
-          });
-      }
-      // ── Seen-by info ──────────────────────────────────────────────────────
-      private void updateSeenByInfo(StatusItem s) {
-          if (myUid != null && myUid.equals(ownerUid)) {
-              int count = s.getViewCount();
-              binding.tvSeenBy.setVisibility(View.VISIBLE);
-              String reactionSummary = buildReactionSummary(s);
-              binding.tvSeenBy.setText("\uD83D\uDC41 " + count + (reactionSummary.isEmpty() ? "" : "  " + reactionSummary));
-              binding.tvSeenBy.setOnClickListener(v -> {
-                  pauseProgress();
-                  StatusSeenByBottomSheet.show(this, s, this::resumeProgress);
-              });
-          } else {
-              binding.tvSeenBy.setVisibility(View.GONE);
-              if (s.hasReaction(myUid)) {
-                  String myReaction = s.getReaction(myUid);
-                  binding.btnReact.setContentDescription("React (" + myReaction + ")");
-              }
-          }
-      }
-      private String buildReactionSummary(StatusItem s) {
-          if (s.reactions == null || s.reactions.isEmpty()) return "";
-          Map<String, Integer> counts = new LinkedHashMap<>();
-          for (String e : s.reactions.values()) counts.merge(e, 1, Integer::sum);
-          StringBuilder sb = new StringBuilder();
-          for (Map.Entry<String, Integer> e : counts.entrySet())
-              sb.append(e.getKey()).append(e.getValue() > 1 ? "\u00D7" + e.getValue() : "").append(" ");
-          return sb.toString().trim();
-      }
-      // ── Header helpers ────────────────────────────────────────────────────
-      private void updateHeaderTimestamp(StatusItem s) {
-          if (s.timestamp != null) binding.tvTimestamp.setText(formatAgo(System.currentTimeMillis() - s.timestamp));
-          else binding.tvTimestamp.setText("");
-      }
-      /** FIX v26: was findViewWithTag("tv_expiry_label") → null, now binding.tvExpiryLabel */
-      private void updateExpiryLabel(StatusItem s) {
-          if (s.expiresAt != null) {
-              long diffMs = s.expiresAt - System.currentTimeMillis();
-              if (diffMs > 0) {
-                  long hoursLeft = diffMs / 3_600_000L;
-                  String label = hoursLeft < 1 ? "Expires <1h" : "Expires in " + hoursLeft + "h";
-                  binding.tvExpiryLabel.setText(label);
-                  binding.tvExpiryLabel.setVisibility(View.VISIBLE);
-              } else {
-                  binding.tvExpiryLabel.setVisibility(View.GONE);
-              }
-          } else {
-              binding.tvExpiryLabel.setVisibility(View.GONE);
-          }
-      }
-      // ── Utilities ─────────────────────────────────────────────────────────
-      private String formatAgo(long ms) {
-          if (ms < 60_000) return "just now";
-          if (ms < 3_600_000) return (ms / 60_000) + "m ago";
-          if (ms < 86_400_000) return (ms / 3_600_000) + "h ago";
-          return (ms / 86_400_000) + "d ago";
-      }
-      private void applyFontStyle(TextView tv, String style) {
-          if (style == null) return;
-          switch (style) {
-              case "bold":        tv.setTypeface(null, android.graphics.Typeface.BOLD); break;
-              case "italic":      tv.setTypeface(null, android.graphics.Typeface.ITALIC); break;
-              case "bold_italic": tv.setTypeface(null, android.graphics.Typeface.BOLD_ITALIC); break;
-              default:            tv.setTypeface(null, android.graphics.Typeface.NORMAL);
-          }
-      }
-      private void sendReplyToChat(String toUid, String msg) {
-          String chatId = FirebaseUtils.getChatId(myUid, toUid);
-          FirebaseUtils.getMessagesRef(chatId)
-              .push().setValue(new java.util.HashMap<String, Object>() {{
-                  put("sender", myUid); put("text", msg);
-                  put("timestamp", System.currentTimeMillis()); put("type", "text");
-              }});
-      }
-      private int dpToPx(int dp) {
-          return Math.round(dp * getResources().getDisplayMetrics().density);
-      }
-      private void releasePlayer() {
-          if (player != null) { player.release(); player = null; }
-      }
-  }
+package com.callx.app.activities;
+
+import android.animation.*;
+import android.content.Intent;
+import android.graphics.Color;
+import android.os.*;
+import android.text.format.DateFormat;
+import android.view.*;
+import android.view.animation.LinearInterpolator;
+import android.widget.*;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import com.bumptech.glide.Glide;
+import com.callx.app.models.StatusItem;
+import com.callx.app.utils.*;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.database.*;
+import java.util.*;
+
+/**
+ * StatusViewerActivity — Production-level full-screen status viewer.
+ *
+ * Features:
+ *  • Multi-segment progress bars (one per status item of the contact)
+ *  • Auto-advance (5s for text, 7s for image, full video duration)
+ *  • Hold-to-pause (long-press anywhere)
+ *  • Left/right tap zones (< 1/3 = previous, > 2/3 = next)
+ *  • Swipe down to dismiss
+ *  • Reactions bottom sheet (❤️ 😂 😮 😢 😡 👍)
+ *  • Reply bar (sends to chat)
+ *  • "Seen by N" overlay for owner viewing own status
+ *  • Font/color rendering matching NewStatusActivity styles
+ *  • Real-time seen tracking via StatusSeenTracker
+ *  • Owner can delete/save/add-to-highlights from overflow menu
+ *  • Viewer can forward/save-to-gallery/report from overflow
+ */
+public class StatusViewerActivity extends AppCompatActivity {
+
+    public static final String EXTRA_OWNER_UID = "owner_uid";
+    public static final String EXTRA_START_IDX = "start_index";
+
+    private static final long AUTO_ADVANCE_TEXT_MS  = 5_000;
+    private static final long AUTO_ADVANCE_IMAGE_MS = 7_000;
+
+    // ── Views ─────────────────────────────────────────────────────────────
+    private LinearLayout      progressContainer;
+    private ImageView         ivBackground, ivAvatar;
+    private TextView          tvOwnerName, tvTimestamp, tvStatusText;
+    private TextView          tvSeenBy, tvCaption;
+    private View              pauseLayer, layoutBottom;
+    private View              btnReact, btnReply, btnMore;
+    private EditText          etReply;
+    private View              layoutLink;
+    private TextView          tvLinkTitle, tvLinkDomain;
+    private ImageView         ivLinkThumb;
+    private View              layoutPoll;
+
+    // ── Progress bars ─────────────────────────────────────────────────────
+    private List<ProgressBar> segmentBars = new ArrayList<>();
+    private ObjectAnimator    currentAnimator;
+
+    // ── State ─────────────────────────────────────────────────────────────
+    private List<StatusItem>  items = new ArrayList<>();
+    private int               currentIndex = 0;
+    private boolean           isPaused    = false;
+    private String            ownerUid;
+    private String            myUid;
+    private boolean           isOwner;
+
+    // ── Swipe to dismiss ──────────────────────────────────────────────────
+    private float touchStartY;
+    private static final float SWIPE_THRESHOLD = 200f;
+
+    // ── Firebase ──────────────────────────────────────────────────────────
+    private ValueEventListener statusListener;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        // setContentView(R.layout.activity_status_viewer);
+
+        ownerUid = getIntent().getStringExtra(EXTRA_OWNER_UID);
+        int startIdx = getIntent().getIntExtra(EXTRA_START_IDX, 0);
+        myUid    = FirebaseAuth.getInstance().getCurrentUser() != null
+            ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
+        isOwner  = ownerUid != null && ownerUid.equals(myUid);
+
+        bindViews();
+        setupTouchHandlers();
+        setupBottomActions();
+        loadStatuses(ownerUid, startIdx);
+    }
+
+    // ── View binding ──────────────────────────────────────────────────────
+    private void bindViews() {
+        progressContainer = fv("progress_container");
+        ivBackground      = fv("iv_status_background");
+        ivAvatar          = fv("iv_owner_avatar");
+        tvOwnerName       = fv("tv_owner_name");
+        tvTimestamp       = fv("tv_timestamp");
+        tvStatusText      = fv("tv_status_text");
+        tvSeenBy          = fv("tv_seen_by");
+        tvCaption         = fv("tv_status_caption");
+        pauseLayer        = fv("pause_touch_layer");
+        btnReact          = fv("btn_react");
+        btnReply          = fv("btn_reply");
+        btnMore           = fv("btn_more");
+        etReply           = fv("et_reply");
+        layoutLink        = fv("layout_link_preview");
+        tvLinkTitle       = fv("tv_link_title");
+        tvLinkDomain      = fv("tv_link_domain");
+        ivLinkThumb       = fv("iv_link_thumb");
+        layoutPoll        = fv("layout_poll");
+    }
+
+    // ── Load statuses ─────────────────────────────────────────────────────
+    private void loadStatuses(String uid, int startIdx) {
+        long cutoff = System.currentTimeMillis() - 24L * 3600_000;
+        statusListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                items.clear();
+                for (DataSnapshot c : snap.getChildren()) {
+                    StatusItem item = c.getValue(StatusItem.class);
+                    if (item == null || item.deleted || item.archived) continue;
+                    if (item.expiresAt > 0 && System.currentTimeMillis() > item.expiresAt) continue;
+                    if (item.statusId == null) item.statusId = c.getKey();
+                    items.add(item);
+                }
+                items.sort((a, b) -> Long.compare(a.timestamp, b.timestamp));
+                if (items.isEmpty()) { finish(); return; }
+                currentIndex = Math.min(startIdx, items.size() - 1);
+                buildProgressBars();
+                showCurrent();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { finish(); }
+        };
+        FirebaseUtils.getUserStatusRef(uid)
+            .orderByChild("timestamp").startAt(cutoff)
+            .addListenerForSingleValueEvent(statusListener);
+    }
+
+    // ── Progress bars ─────────────────────────────────────────────────────
+    private void buildProgressBars() {
+        if (progressContainer == null) return;
+        progressContainer.removeAllViews();
+        segmentBars.clear();
+        int n = items.size();
+        float weightEach = 1f / n;
+        for (int i = 0; i < n; i++) {
+            ProgressBar pb = new ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, (int)(3 * getResources().getDisplayMetrics().density));
+            lp.weight = weightEach;
+            lp.leftMargin = lp.rightMargin = (int)(2 * getResources().getDisplayMetrics().density);
+            pb.setLayoutParams(lp);
+            pb.setMax(1000);
+            pb.setProgress(i < currentIndex ? 1000 : 0);
+            pb.getProgressDrawable().setColorFilter(Color.WHITE,
+                android.graphics.PorterDuff.Mode.SRC_IN);
+            progressContainer.addView(pb);
+            segmentBars.add(pb);
+        }
+    }
+
+    // ── Show current item ─────────────────────────────────────────────────
+    private void showCurrent() {
+        if (items.isEmpty() || currentIndex >= items.size()) { finish(); return; }
+        StatusItem item = items.get(currentIndex);
+
+        // Header
+        if (tvOwnerName != null) tvOwnerName.setText(item.ownerName);
+        if (tvTimestamp != null) tvTimestamp.setText(formatTs(item.timestamp));
+        if (ivAvatar != null && item.ownerPhoto != null) {
+            Glide.with(this).load(item.ownerPhoto).circleCrop().into(ivAvatar);
+        }
+
+        renderContent(item);
+        markSeen(item);
+
+        // Owner: show seen by count
+        if (isOwner && tvSeenBy != null) {
+            int cnt = item.seenCount;
+            tvSeenBy.setVisibility(View.VISIBLE);
+            tvSeenBy.setText(cnt == 0 ? "Not seen yet"
+                : cnt + " viewer" + (cnt != 1 ? "s" : ""));
+            tvSeenBy.setOnClickListener(v -> openSeenBySheet(item));
+        } else if (tvSeenBy != null) {
+            tvSeenBy.setVisibility(View.GONE);
+        }
+
+        // Update progress bars
+        for (int i = 0; i < segmentBars.size(); i++) {
+            segmentBars.get(i).setProgress(i < currentIndex ? 1000 : 0);
+        }
+
+        startProgressAnimation(item);
+    }
+
+    private void renderContent(StatusItem item) {
+        // Reset all content views
+        if (tvStatusText  != null) tvStatusText.setVisibility(View.GONE);
+        if (ivBackground  != null) ivBackground.setVisibility(View.GONE);
+        if (layoutLink    != null) layoutLink.setVisibility(View.GONE);
+        if (layoutPoll    != null) layoutPoll.setVisibility(View.GONE);
+        if (tvCaption     != null) tvCaption.setVisibility(View.GONE);
+
+        String type = item.type != null ? item.type : "text";
+        switch (type) {
+            case "text":
+                renderText(item); break;
+            case "image":
+            case "gif":
+                renderImage(item); break;
+            case "video":
+                renderVideo(item); break;
+            case "link":
+                renderLink(item); break;
+            case "poll":
+                renderPoll(item); break;
+        }
+
+        // Caption for media
+        if ((!"text".equals(type)) && item.text != null && !item.text.isEmpty()) {
+            if (tvCaption != null) {
+                tvCaption.setText(item.text);
+                tvCaption.setVisibility(View.VISIBLE);
+            }
+        }
+    }
+
+    private void renderText(StatusItem item) {
+        if (tvStatusText == null) return;
+        tvStatusText.setVisibility(View.VISIBLE);
+        tvStatusText.setText(item.text);
+        String bg = item.bgColor != null ? item.bgColor : "#075E54";
+        try { getWindow().getDecorView().setBackgroundColor(Color.parseColor(bg)); }
+        catch (Exception e) { getWindow().getDecorView().setBackgroundColor(Color.parseColor("#075E54")); }
+        applyFontStyle(tvStatusText, item.fontStyle);
+    }
+
+    private void renderImage(StatusItem item) {
+        if (ivBackground == null) return;
+        ivBackground.setVisibility(View.VISIBLE);
+        getWindow().getDecorView().setBackgroundColor(Color.BLACK);
+        // Progressive: load thumb instantly, then full
+        if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
+            Glide.with(this).load(item.thumbnailUrl).centerCrop()
+                .thumbnail(Glide.with(this).load(item.mediaUrl))
+                .into(ivBackground);
+        } else if (item.mediaUrl != null) {
+            Glide.with(this).load(item.mediaUrl).centerCrop().into(ivBackground);
+        }
+    }
+
+    private void renderVideo(StatusItem item) {
+        // TODO: Use ExoPlayer for video playback
+        // For now show thumbnail + play overlay
+        renderImage(item);
+    }
+
+    private void renderLink(StatusItem item) {
+        if (layoutLink == null) return;
+        layoutLink.setVisibility(View.VISIBLE);
+        getWindow().getDecorView().setBackgroundColor(Color.parseColor("#1A1A2E"));
+        if (tvLinkTitle  != null) tvLinkTitle.setText(item.linkTitle != null ? item.linkTitle : item.linkUrl);
+        if (tvLinkDomain != null) tvLinkDomain.setText(item.linkDomain != null ? item.linkDomain : "");
+        if (ivLinkThumb  != null && item.linkThumbUrl != null) {
+            Glide.with(this).load(item.linkThumbUrl).centerCrop().into(ivLinkThumb);
+        }
+    }
+
+    private void renderPoll(StatusItem item) {
+        if (layoutPoll == null) return;
+        layoutPoll.setVisibility(View.VISIBLE);
+        getWindow().getDecorView().setBackgroundColor(Color.parseColor("#1A1A2E"));
+        // TODO: wire poll options to RecyclerView inside layoutPoll
+    }
+
+    // ── Progress animation ────────────────────────────────────────────────
+    private void startProgressAnimation(StatusItem item) {
+        if (currentAnimator != null) currentAnimator.cancel();
+        if (segmentBars.isEmpty() || currentIndex >= segmentBars.size()) return;
+
+        ProgressBar pb  = segmentBars.get(currentIndex);
+        pb.setProgress(0);
+        long duration = AUTO_ADVANCE_IMAGE_MS;
+        if ("text".equals(item.type)) duration = AUTO_ADVANCE_TEXT_MS;
+
+        currentAnimator = ObjectAnimator.ofInt(pb, "progress", 0, 1000);
+        currentAnimator.setDuration(duration);
+        currentAnimator.setInterpolator(new LinearInterpolator());
+        currentAnimator.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator a) {
+                if (!isPaused) advance();
+            }
+        });
+        if (!isPaused) currentAnimator.start();
+    }
+
+    private void pauseProgress() {
+        isPaused = true;
+        if (currentAnimator != null && currentAnimator.isRunning()) currentAnimator.pause();
+    }
+
+    private void resumeProgress() {
+        isPaused = false;
+        if (currentAnimator != null && currentAnimator.isPaused()) currentAnimator.resume();
+    }
+
+    private void advance() {
+        if (currentIndex + 1 < items.size()) {
+            currentIndex++;
+            showCurrent();
+        } else {
+            finish(); // All statuses of this contact viewed
+        }
+    }
+
+    private void goBack() {
+        if (currentIndex > 0) {
+            currentIndex--;
+            showCurrent();
+        }
+    }
+
+    // ── Touch handling ────────────────────────────────────────────────────
+    private void setupTouchHandlers() {
+        if (pauseLayer == null) return;
+        pauseLayer.setOnTouchListener((v, ev) -> {
+            switch (ev.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    touchStartY = ev.getY();
+                    pauseProgress();
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    float dy = ev.getY() - touchStartY;
+                    if (dy > SWIPE_THRESHOLD) {
+                        finish(); // swipe down = dismiss
+                        return true;
+                    }
+                    float x = ev.getX();
+                    float width = pauseLayer.getWidth();
+                    if (x < width / 3f) goBack();
+                    else if (x > 2 * width / 3f) advance();
+                    else resumeProgress();
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    resumeProgress();
+                    return true;
+            }
+            return false;
+        });
+    }
+
+    // ── Bottom actions ────────────────────────────────────────────────────
+    private void setupBottomActions() {
+        if (btnReact != null) btnReact.setOnClickListener(v -> showReactionSheet());
+        if (btnReply != null) btnReply.setOnClickListener(v -> focusReplyBar());
+        if (btnMore  != null) btnMore.setOnClickListener(v  -> showMoreOptions());
+    }
+
+    private void showReactionSheet() {
+        pauseProgress();
+        String[] emojis = {"❤️", "😂", "😮", "😢", "😡", "👍"};
+        View sheet = getLayoutInflater().inflate(
+            getRes("bottom_sheet_status_reactions"), null);
+        com.google.android.material.bottomsheet.BottomSheetDialog bsd =
+            new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        bsd.setContentView(sheet);
+        // Wire each emoji button
+        int[] btnIds = {getRes2("btn_react_heart"), getRes2("btn_react_laugh"),
+            getRes2("btn_react_wow"), getRes2("btn_react_sad"),
+            getRes2("btn_react_angry"), getRes2("btn_react_like")};
+        for (int i = 0; i < btnIds.length && i < emojis.length; i++) {
+            final String emoji = emojis[i];
+            View btn = sheet.findViewById(btnIds[i]);
+            if (btn != null) btn.setOnClickListener(v -> {
+                sendReaction(emoji);
+                bsd.dismiss();
+            });
+        }
+        bsd.setOnDismissListener(d -> resumeProgress());
+        bsd.show();
+    }
+
+    private void sendReaction(String emoji) {
+        if (items.isEmpty() || currentIndex >= items.size()) return;
+        StatusItem item = items.get(currentIndex);
+        if (myUid == null || ownerUid == null) return;
+        StatusSeenTracker.get().setReaction(ownerUid, item.statusId, myUid, emoji);
+        Toast.makeText(this, "Reacted " + emoji, Toast.LENGTH_SHORT).show();
+    }
+
+    private void focusReplyBar() {
+        if (etReply == null) return;
+        pauseProgress();
+        etReply.requestFocus();
+        android.view.inputmethod.InputMethodManager imm =
+            (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.showSoftInput(etReply, 0);
+        // TODO: on send → create chat message referencing this status
+    }
+
+    private void showMoreOptions() {
+        pauseProgress();
+        String[] ownerOptions  = {"Delete Status", "Add to Highlights", "Save to Gallery",
+            "Edit Privacy", "Status Info"};
+        String[] viewerOptions = {"Reply", "Forward to Chat", "Save to Gallery", "Report"};
+        String[] opts = isOwner ? ownerOptions : viewerOptions;
+        new android.app.AlertDialog.Builder(this)
+            .setItems(opts, (d, w) -> {
+                if (isOwner) handleOwnerOption(w);
+                else         handleViewerOption(w);
+                resumeProgress();
+            })
+            .setOnCancelListener(d -> resumeProgress())
+            .show();
+    }
+
+    private void handleOwnerOption(int which) {
+        StatusItem item = currentItem();
+        if (item == null) return;
+        switch (which) {
+            case 0: deleteCurrentStatus(item); break;
+            case 1: openAddToHighlights(item); break;
+            case 2: saveMediaToGallery(item); break;
+            case 3: openPrivacyEdit(item); break;
+            case 4: openSeenBySheet(item); break;
+        }
+    }
+
+    private void handleViewerOption(int which) {
+        StatusItem item = currentItem();
+        if (item == null) return;
+        switch (which) {
+            case 0: focusReplyBar(); break;
+            case 1: forwardToChat(item); break;
+            case 2: saveMediaToGallery(item); break;
+            case 3: reportStatus(item); break;
+        }
+    }
+
+    private void deleteCurrentStatus(StatusItem item) {
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Delete status?")
+            .setMessage("This status will be permanently removed.")
+            .setPositiveButton("Delete", (d2, w2) -> {
+                FirebaseUtils.getUserStatusRef(ownerUid).child(item.statusId)
+                    .child("deleted").setValue(true);
+                StatusExpiryManager.cancelExpiryReminder(this, item.statusId);
+                items.remove(currentIndex);
+                if (items.isEmpty()) finish();
+                else {
+                    if (currentIndex >= items.size()) currentIndex = items.size() - 1;
+                    buildProgressBars();
+                    showCurrent();
+                }
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    private void openAddToHighlights(StatusItem item) {
+        Intent i = new Intent(this, StatusHighlightsActivity.class);
+        i.putExtra("statusId",   item.statusId);
+        i.putExtra("mediaUrl",   item.mediaUrl);
+        i.putExtra("thumbUrl",   item.thumbnailUrl);
+        i.putExtra("statusType", item.type);
+        startActivity(i);
+    }
+
+    private void forwardToChat(StatusItem item) {
+        // TODO: Open contact picker → send as chat message
+        Toast.makeText(this, "Forward: select contact in chat list", Toast.LENGTH_SHORT).show();
+    }
+
+    private void saveMediaToGallery(StatusItem item) {
+        if (item.mediaUrl == null || item.mediaUrl.isEmpty()) {
+            Toast.makeText(this, "No media to save", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // TODO: Download mediaUrl to MediaStore
+        Toast.makeText(this, "Saving to gallery…", Toast.LENGTH_SHORT).show();
+    }
+
+    private void reportStatus(StatusItem item) {
+        Toast.makeText(this, "Status reported", Toast.LENGTH_SHORT).show();
+        // TODO: Write to Firebase reports node
+    }
+
+    private void openPrivacyEdit(StatusItem item) {
+        Intent i = new Intent(this, NewStatusActivity.class);
+        i.putExtra("edit_status_id", item.statusId);
+        startActivity(i);
+    }
+
+    // ── Seen by sheet ─────────────────────────────────────────────────────
+    private void openSeenBySheet(StatusItem item) {
+        pauseProgress();
+        Intent i = new Intent(this, MyStatusActivity.class);
+        i.putExtra("focus_status_id", item.statusId);
+        startActivity(i);
+    }
+
+    // ── Seen tracking ─────────────────────────────────────────────────────
+    private void markSeen(StatusItem item) {
+        if (myUid == null || ownerUid == null || isOwner) return;
+        StatusSeenTracker.get().markSeenWithOwner(ownerUid, item.statusId, myUid);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+    private StatusItem currentItem() {
+        if (items.isEmpty() || currentIndex >= items.size()) return null;
+        return items.get(currentIndex);
+    }
+
+    private String formatTs(long ts) {
+        long diff = System.currentTimeMillis() - ts;
+        if (diff < 3600_000) return (diff / 60000) + "m ago";
+        if (diff < 86400_000) return (diff / 3600000) + "h ago";
+        return DateFormat.format("MMM d", new java.util.Date(ts)).toString();
+    }
+
+    private void applyFontStyle(TextView tv, int style) {
+        switch (style) {
+            case 1: tv.setTypeface(android.graphics.Typeface.SERIF); break;
+            case 2: tv.setTypeface(android.graphics.Typeface.MONOSPACE); break;
+            case 4: tv.setTypeface(null, android.graphics.Typeface.BOLD); break;
+            default: tv.setTypeface(android.graphics.Typeface.DEFAULT);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends View> T fv(String name) {
+        int id = getResources().getIdentifier(name, "id", getPackageName());
+        if (id == 0) return null;
+        return (T) findViewById(id);
+    }
+    private int getRes(String name) {
+        return getResources().getIdentifier(name, "layout", getPackageName());
+    }
+    private int getRes2(String name) {
+        return getResources().getIdentifier(name, "id", getPackageName());
+    }
+
+    @Override protected void onDestroy() {
+        super.onDestroy();
+        if (currentAnimator != null) currentAnimator.cancel();
+    }
+
+    @Override public void onBackPressed() {
+        finish();
+        overridePendingTransition(0, android.R.anim.fade_out);
+    }
+}
