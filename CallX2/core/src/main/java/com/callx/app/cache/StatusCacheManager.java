@@ -79,7 +79,7 @@ public class StatusCacheManager {
         if (items == null || items.isEmpty()) return false;
         Set<String> seen = seenMap.getOrDefault(uid, Collections.emptySet());
         for (StatusItem item : items) {
-            if (!seen.contains(item.id)) return true;
+            if (!seen.contains(item.statusId)) return true;
         }
         return false;
     }
@@ -111,7 +111,7 @@ public class StatusCacheManager {
         Set<String> seen = seenMap.getOrDefault(uid, Collections.emptySet());
         int count = 0;
         for (StatusItem item : items) {
-            if (!seen.contains(item.id)) count++;
+            if (!seen.contains(item.statusId)) count++;
         }
         return count;
     }
@@ -195,13 +195,13 @@ public class StatusCacheManager {
                         try {
                             StatusItem item = stSnap.getValue(StatusItem.class);
                             if (item == null || item.deleted) continue;
-                            if (item.expiresAt != null && item.expiresAt < now) continue;
+                            if (item.expiresAt > 0 && item.expiresAt < now) continue;
                             items.add(item);
                         } catch (Exception ignored) {}
                     }
                     items.sort((a, b) -> {
-                        long ta = a.timestamp == null ? 0 : a.timestamp;
-                        long tb = b.timestamp == null ? 0 : b.timestamp;
+                        long ta = a.timestamp;
+                        long tb = b.timestamp;
                         return Long.compare(ta, tb);
                     });
                     if (!items.isEmpty()) statusMap.put(uid, items);
