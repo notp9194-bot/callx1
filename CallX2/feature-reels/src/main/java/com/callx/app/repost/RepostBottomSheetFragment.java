@@ -10,7 +10,7 @@ import android.view.ViewGroup;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.callx.app.R;
+import com.callx.app.reels.R;
 import com.callx.app.utils.CollabAIHelper;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.button.MaterialButton;

@@ -1,6 +1,6 @@
 package com.callx.app.collab;
 
-import com.callx.app.R;
+import com.callx.app.reels.R;
 
 import android.content.Intent;
 import android.os.Bundle;
