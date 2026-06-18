@@ -57,7 +57,7 @@ import com.callx.app.group.GroupChatActivity;
 import com.callx.app.services.GroupCallRingService;
 import com.callx.app.services.IncomingRingService;
 import com.callx.app.services.NotificationActionReceiver;
-import com.callx.app.viewer.StatusViewerActivity;
+import com.callx.app.activities.StatusViewerActivity;
 import com.callx.app.utils.StatusNotificationHelper;
 public class CallxMessagingService extends FirebaseMessagingService {
     @Override public void onNewToken(String token) {

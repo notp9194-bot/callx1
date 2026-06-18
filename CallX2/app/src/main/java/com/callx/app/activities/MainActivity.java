@@ -56,7 +56,7 @@ import com.callx.app.profile.UserReelsActivity;
   import androidx.annotation.Nullable;
 import com.callx.app.group.NewGroupActivity;
 import com.callx.app.services.CallForegroundService;
-import com.callx.app.compose.NewStatusActivity;
+import com.callx.app.activities.NewStatusActivity;
 import com.callx.app.hub.GamesHubActivity;
 
 public class MainActivity extends AppCompatActivity {
