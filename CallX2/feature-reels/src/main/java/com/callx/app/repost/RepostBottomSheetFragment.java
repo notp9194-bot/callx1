@@ -10,32 +10,24 @@ import android.view.ViewGroup;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import com.callx.app.R;
+import com.callx.app.utils.CollabAIHelper;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 
-/**
- * BottomSheet shown when user taps the Repost button on a reel.
- * Features:
- *  • Simple repost (one tap)
- *  • Repost with caption
- *  • Quote repost (your video overlay)
- *  • Repost to Story
- *  • AI caption suggestion
- *  • Privacy toggle (allowRepostLevel)
- */
 public class RepostBottomSheetFragment extends BottomSheetDialogFragment {
 
     public static final String TAG = "RepostBottomSheet";
 
-    private static final String ARG_REEL_ID       = "reelId";
-    private static final String ARG_OWNER_UID     = "ownerUid";
-    private static final String ARG_OWNER_NAME    = "ownerName";
-    private static final String ARG_REEL_THUMB    = "reelThumb";
-    private static final String ARG_REEL_VIDEO    = "reelVideo";
-    private static final String ARG_HAS_REPOSTED  = "hasReposted";
+    private static final String ARG_REEL_ID      = "reelId";
+    private static final String ARG_OWNER_UID    = "ownerUid";
+    private static final String ARG_OWNER_NAME   = "ownerName";
+    private static final String ARG_REEL_THUMB   = "reelThumb";
+    private static final String ARG_REEL_VIDEO   = "reelVideo";
+    private static final String ARG_HAS_REPOSTED = "hasReposted";
 
     private String reelId, ownerUid, ownerName, reelThumb, reelVideo;
     private boolean hasReposted;
@@ -87,7 +79,7 @@ public class RepostBottomSheetFragment extends BottomSheetDialogFragment {
             repostManager = new RepostManager(
                 u.getUid(),
                 u.getDisplayName() != null ? u.getDisplayName() : "User",
-                u.getPhotoUrl() != null ? u.getPhotoUrl().toString() : ""
+                u.getPhotoUrl()    != null ? u.getPhotoUrl().toString() : ""
             );
         }
     }
@@ -102,16 +94,16 @@ public class RepostBottomSheetFragment extends BottomSheetDialogFragment {
     }
 
     private void bindViews(View v) {
-        etCaption    = v.findViewById(R.id.et_repost_caption);
-        tvCharCount  = v.findViewById(R.id.tv_char_count);
-        tvAiHint     = v.findViewById(R.id.tv_ai_hint);
-        btnRepost    = v.findViewById(R.id.btn_repost);
-        btnUndo      = v.findViewById(R.id.btn_undo_repost);
-        chipQuote    = v.findViewById(R.id.chip_quote_repost);
-        chipStory    = v.findViewById(R.id.chip_repost_story);
-        btnAiSuggest = v.findViewById(R.id.btn_ai_suggest);
-        layoutCaption= v.findViewById(R.id.layout_caption);
-        progressRepost = v.findViewById(R.id.progress_repost);
+        etCaption     = v.findViewById(R.id.et_repost_caption);
+        tvCharCount   = v.findViewById(R.id.tv_char_count);
+        tvAiHint      = v.findViewById(R.id.tv_ai_hint);
+        btnRepost     = v.findViewById(R.id.btn_repost);
+        btnUndo       = v.findViewById(R.id.btn_undo_repost);
+        chipQuote     = v.findViewById(R.id.chip_quote_repost);
+        chipStory     = v.findViewById(R.id.chip_repost_story);
+        btnAiSuggest  = v.findViewById(R.id.btn_ai_suggest);
+        layoutCaption = v.findViewById(R.id.layout_caption);
+        progressRepost= v.findViewById(R.id.progress_repost);
     }
 
     private void setupUI() {
@@ -122,8 +114,6 @@ public class RepostBottomSheetFragment extends BottomSheetDialogFragment {
             btnRepost.setVisibility(View.VISIBLE);
             btnUndo.setVisibility(View.GONE);
         }
-
-        // Character counter
         etCaption.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             public void onTextChanged(CharSequence s, int st, int b, int c) {
@@ -131,34 +121,23 @@ public class RepostBottomSheetFragment extends BottomSheetDialogFragment {
             }
             public void afterTextChanged(Editable s) {}
         });
-
-        // AI caption suggest
         btnAiSuggest.setOnClickListener(v -> suggestAICaption());
-
-        // Simple repost
         btnRepost.setOnClickListener(v -> doRepost("simple"));
-
-        // Undo repost
         btnUndo.setOnClickListener(v -> undoRepost());
-
-        // Quote repost
         chipQuote.setOnClickListener(v -> openQuoteRepost());
-
-        // Repost to Story
         chipStory.setOnClickListener(v -> doRepostToStory());
     }
 
     private void doRepost(String type) {
+        if (repostManager == null) return;
         String caption = etCaption.getText().toString().trim();
         setLoading(true);
-        repostManager.doRepost(reelId, ownerUid, caption, type, (isNow, err) -> {
+        repostManager.doRepost(reelId, ownerUid, caption, type, (ok, err) -> {
             setLoading(false);
             if (err != null) {
                 Toast.makeText(getContext(), "Error: " + err, Toast.LENGTH_SHORT).show();
                 return;
             }
-            RepostManager.checkAndSetViralBadge(reelId, 0); // checked server-side
-            // Send notification
             RepostNotificationWorker.enqueue(requireContext(), reelId, ownerUid,
                     repostManager.myUid(), repostManager.myName(),
                     repostManager.myPhoto(), reelThumb, caption);
@@ -167,16 +146,10 @@ public class RepostBottomSheetFragment extends BottomSheetDialogFragment {
         });
     }
 
-    private void doRepost(String type, RepostManager.RepostCallback cb) {
-        String caption = etCaption.getText().toString().trim();
-        repostManager.doRepost(reelId, ownerUid, caption, type, (isNow, err) -> {
-            if (cb != null) cb.onSuccess(isNow);
-        });
-    }
-
     private void undoRepost() {
+        if (repostManager == null) return;
         setLoading(true);
-        repostManager.removeRepost(reelId, (isNow, err) -> {
+        repostManager.removeRepost(reelId, (ok, err) -> {
             setLoading(false);
             if (doneListener != null) doneListener.onRepostDone(false, -1);
             dismissAllowingStateLoss();
@@ -194,36 +167,30 @@ public class RepostBottomSheetFragment extends BottomSheetDialogFragment {
     }
 
     private void doRepostToStory() {
+        if (repostManager == null) return;
         setLoading(true);
-        repostManager.repostToStory(reelId, reelVideo, reelThumb, ownerName,
-            (isNow, err) -> {
-                setLoading(false);
-                if (err != null) {
-                    Toast.makeText(getContext(), "Story error: " + err, Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                Toast.makeText(getContext(), "Added to your Story!", Toast.LENGTH_SHORT).show();
-                dismissAllowingStateLoss();
-            });
+        repostManager.repostToStory(reelId, reelVideo, reelThumb, ownerName, (ok, err) -> {
+            setLoading(false);
+            if (err != null) {
+                Toast.makeText(getContext(), "Story error: " + err, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Toast.makeText(getContext(), "Added to your Story!", Toast.LENGTH_SHORT).show();
+            dismissAllowingStateLoss();
+        });
     }
 
     private void suggestAICaption() {
-        tvAiHint.setVisibility(View.VISIBLE);
+        if (tvAiHint != null) tvAiHint.setVisibility(View.VISIBLE);
         CollabAIHelper.suggestRepostCaption(reelId, ownerName, caption -> {
-            etCaption.setText(caption);
-            tvAiHint.setVisibility(View.GONE);
+            if (etCaption != null) etCaption.setText(caption);
+            if (tvAiHint  != null) tvAiHint.setVisibility(View.GONE);
         });
     }
 
     private void setLoading(boolean loading) {
-        progressRepost.setVisibility(loading ? View.VISIBLE : View.GONE);
-        btnRepost.setEnabled(!loading);
-        btnUndo.setEnabled(!loading);
-    }
-
-    // Proxy for inner lambda
-    private class RepostCallbackImpl implements RepostManager.RepostCallback {
-        @Override public void onSuccess(boolean isNow) {}
-        @Override public void onError(String msg) {}
+        if (progressRepost != null) progressRepost.setVisibility(loading ? View.VISIBLE : View.GONE);
+        if (btnRepost  != null) btnRepost.setEnabled(!loading);
+        if (btnUndo    != null) btnUndo.setEnabled(!loading);
     }
 }

@@ -5,14 +5,10 @@ import com.google.firebase.database.*;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * RepostManager — Core logic for all repost operations.
- * Handles: simple repost, quote repost, repost to story, remove repost,
- *          repost count, has-reposted check, repost chain tracking.
- */
 public class RepostManager {
 
-    public interface RepostCallback  { void onSuccess(boolean isNowReposted); void onError(String msg); }
+    /** Single-method functional interface — usable as lambda (ok, err) -> {} */
+    public interface RepostCallback      { void onResult(boolean ok, String err); }
     public interface RepostCountCallback { void onCount(long count); }
     public interface HasRepostedCallback { void onResult(boolean hasReposted, RepostModel existing); }
 
@@ -37,7 +33,6 @@ public class RepostManager {
     public String myName()  { return mName;  }
     public String myPhoto() { return mPhoto; }
 
-    // ── Toggle (repost ↔ undo) ────────────────────────────────────────────────
     public void toggleRepost(String reelId, String ownerUid, String caption,
                              String type, RepostCallback cb) {
         checkHasReposted(reelId, (has, existing) -> {
@@ -46,11 +41,10 @@ public class RepostManager {
         });
     }
 
-    // ── Simple / Quote / Story repost ─────────────────────────────────────────
     public void doRepost(String reelId, String ownerUid, String caption,
-                          String type, RepostCallback cb) {
+                         String type, RepostCallback cb) {
         String key = db.child(REEL_REPOSTS).child(reelId).push().getKey();
-        if (key == null) { cb.onError("DB error"); return; }
+        if (key == null) { cb.onResult(false, "DB error"); return; }
 
         long now = System.currentTimeMillis();
         Map<String, Object> repostMap = new HashMap<>();
@@ -64,9 +58,9 @@ public class RepostManager {
         repostMap.put("timestamp",     now);
 
         Map<String, Object> updates = new HashMap<>();
-        updates.put(REEL_REPOSTS    + "/" + reelId + "/" + key, repostMap);
-        updates.put(USER_REPOSTS    + "/" + mUid   + "/" + reelId, key);
-        updates.put(REELS           + "/" + reelId + "/repostCount", ServerValue.increment(1));
+        updates.put(REEL_REPOSTS + "/" + reelId + "/" + key, repostMap);
+        updates.put(USER_REPOSTS + "/" + mUid   + "/" + reelId, key);
+        updates.put(REELS        + "/" + reelId + "/repostCount", ServerValue.increment(1));
 
         if (caption != null && !caption.trim().isEmpty()) {
             Map<String, Object> cap = new HashMap<>();
@@ -81,57 +75,53 @@ public class RepostManager {
         db.updateChildren(updates)
           .addOnSuccessListener(a -> {
               writeChainEntry(reelId, key, ownerUid, now);
-              cb.onSuccess(true);
+              cb.onResult(true, null);
           })
-          .addOnFailureListener(e -> cb.onError(e.getMessage()));
+          .addOnFailureListener(e -> cb.onResult(false, e.getMessage()));
     }
 
-    // ── Remove / Undo repost ─────────────────────────────────────────────────
     public void removeRepost(String reelId, RepostCallback cb) {
         db.child(USER_REPOSTS).child(mUid).child(reelId).get()
           .addOnSuccessListener(snap -> {
-            if (!snap.exists()) { cb.onSuccess(false); return; }
-            String repostKey = snap.getValue(String.class);
-            if (repostKey == null) { cb.onSuccess(false); return; }
+              if (!snap.exists()) { cb.onResult(false, null); return; }
+              String repostKey = snap.getValue(String.class);
+              if (repostKey == null) { cb.onResult(false, null); return; }
 
-            Map<String, Object> del = new HashMap<>();
-            del.put(REEL_REPOSTS    + "/" + reelId + "/" + repostKey, null);
-            del.put(USER_REPOSTS    + "/" + mUid   + "/" + reelId, null);
-            del.put(REPOST_CAPTIONS + "/" + reelId + "/" + mUid, null);
-            del.put(REELS           + "/" + reelId + "/repostCount", ServerValue.increment(-1));
+              Map<String, Object> del = new HashMap<>();
+              del.put(REEL_REPOSTS    + "/" + reelId + "/" + repostKey, null);
+              del.put(USER_REPOSTS    + "/" + mUid   + "/" + reelId, null);
+              del.put(REPOST_CAPTIONS + "/" + reelId + "/" + mUid, null);
+              del.put(REELS           + "/" + reelId + "/repostCount", ServerValue.increment(-1));
 
-            db.updateChildren(del)
-              .addOnSuccessListener(a -> cb.onSuccess(false))
-              .addOnFailureListener(e -> cb.onError(e.getMessage()));
-        });
+              db.updateChildren(del)
+                .addOnSuccessListener(a -> cb.onResult(false, null))
+                .addOnFailureListener(e -> cb.onResult(false, e.getMessage()));
+          });
     }
 
-    // ── Check if already reposted ─────────────────────────────────────────────
     public void checkHasReposted(String reelId, HasRepostedCallback cb) {
         db.child(USER_REPOSTS).child(mUid).child(reelId).get()
           .addOnSuccessListener(snap -> {
-            if (!snap.exists()) { cb.onResult(false, null); return; }
-            String key = snap.getValue(String.class);
-            if (key == null) { cb.onResult(false, null); return; }
-            db.child(REEL_REPOSTS).child(reelId).child(key).get()
-              .addOnSuccessListener(s2 -> cb.onResult(true, s2.getValue(RepostModel.class)));
-        });
+              if (!snap.exists()) { cb.onResult(false, null); return; }
+              String key = snap.getValue(String.class);
+              if (key == null) { cb.onResult(false, null); return; }
+              db.child(REEL_REPOSTS).child(reelId).child(key).get()
+                .addOnSuccessListener(s2 -> cb.onResult(true, s2.getValue(RepostModel.class)));
+          });
     }
 
-    // ── Get live repost count ─────────────────────────────────────────────────
     public void getRepostCount(String reelId, RepostCountCallback cb) {
         db.child(REELS).child(reelId).child("repostCount").get()
           .addOnSuccessListener(snap -> {
-            Long c = snap.exists() ? snap.getValue(Long.class) : 0L;
-            cb.onCount(Math.max(0L, c != null ? c : 0L));
-        });
+              Long c = snap.exists() ? snap.getValue(Long.class) : 0L;
+              cb.onCount(Math.max(0L, c != null ? c : 0L));
+          });
     }
 
-    // ── Repost to Story (24h) ─────────────────────────────────────────────────
     public void repostToStory(String reelId, String reelVideo, String reelThumb,
-                               String ownerName, RepostCallback cb) {
+                              String ownerName, RepostCallback cb) {
         String key = db.child(STORIES).child(mUid).push().getKey();
-        if (key == null) { cb.onError("DB error"); return; }
+        if (key == null) { cb.onResult(false, "DB error"); return; }
 
         Map<String, Object> story = new HashMap<>();
         story.put("storyId",        key);
@@ -147,11 +137,13 @@ public class RepostManager {
         story.put("expiresAt",      System.currentTimeMillis() + 86_400_000L);
 
         db.child(STORIES).child(mUid).child(key).updateChildren(story)
-          .addOnSuccessListener(a -> cb.onSuccess(true))
-          .addOnFailureListener(e -> cb.onError(e.getMessage()));
+          .addOnSuccessListener(a -> cb.onResult(true, null))
+          .addOnFailureListener(e -> cb.onResult(false, e.getMessage()));
     }
 
-    // ── Repost chain entry ────────────────────────────────────────────────────
+    /** No-op stub — badge logic handled server-side */
+    public static void checkAndSetViralBadge(String reelId, long count) {}
+
     private void writeChainEntry(String reelId, String repostKey, String ownerUid, long ts) {
         Map<String, Object> e = new HashMap<>();
         e.put("reposterId",    mUid);

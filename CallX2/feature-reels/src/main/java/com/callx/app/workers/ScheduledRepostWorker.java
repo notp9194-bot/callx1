@@ -6,14 +6,6 @@ import androidx.work.*;
 import com.callx.app.repost.RepostManager;
 import java.util.concurrent.TimeUnit;
 
-/**
- * ScheduledRepostWorker — repost a reel at a scheduled future time.
- * Enqueued with an initial delay computed from scheduledAt timestamp.
- *
- * Usage:
- *   long delayMs = scheduledAt - System.currentTimeMillis();
- *   ScheduledRepostWorker.schedule(ctx, reelId, ownerUid, caption, type, delayMs);
- */
 public class ScheduledRepostWorker extends Worker {
 
     private static final String KEY_REEL_ID    = "reelId";
@@ -34,7 +26,6 @@ public class ScheduledRepostWorker extends Worker {
                                 String caption, String type, String reelThumb,
                                 long delayMs) {
         if (delayMs <= 0) delayMs = 1000;
-
         Data data = new Data.Builder()
             .putString(KEY_REEL_ID,    reelId)
             .putString(KEY_OWNER_UID,  ownerUid)
@@ -45,15 +36,13 @@ public class ScheduledRepostWorker extends Worker {
             .putString(KEY_TYPE,       type      != null ? type      : "simple")
             .putString(KEY_REEL_THUMB, reelThumb != null ? reelThumb : "")
             .build();
-
         String tag = "scheduled_repost_" + reelId;
         OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(ScheduledRepostWorker.class)
             .setInputData(data)
             .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
             .addTag(tag)
             .build();
-        WorkManager.getInstance(ctx).enqueueUniqueWork(
-            tag, ExistingWorkPolicy.REPLACE, req);
+        WorkManager.getInstance(ctx).enqueueUniqueWork(tag, ExistingWorkPolicy.REPLACE, req);
     }
 
     public static void cancel(Context ctx, String reelId) {
@@ -72,15 +61,12 @@ public class ScheduledRepostWorker extends Worker {
         String reelThumb = getInputData().getString(KEY_REEL_THUMB);
 
         RepostManager mgr = new RepostManager(fromUid, fromName, fromPhoto);
-        final boolean[] done = {false};
         mgr.doRepost(reelId, ownerUid, caption, type, (ok, err) -> {
-            done[0] = true;
             if (ok) {
                 RepostNotificationWorker.enqueue(getApplicationContext(),
                         reelId, ownerUid, fromUid, fromName, fromPhoto, reelThumb, caption);
             }
         });
-        // Wait briefly for async Firebase
         try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
         return Result.success();
     }

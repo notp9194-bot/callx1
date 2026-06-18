@@ -1,5 +1,7 @@
 package com.callx.app.adapters;
 
+import com.callx.app.R;
+
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;

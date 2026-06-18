@@ -47,7 +47,7 @@
                 android:id="@+id/et_quote_caption"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:hint="Add your thoughts..." android:maxLength="150"
-                android:textColor="#FFFFFF" android:hintTextColor="#888888"
+                android:textColor="#FFFFFF" android:textColorHint="#888888"
                 android:inputType="textMultiLine" android:maxLines="3"/>
         </com.google.android.material.textfield.TextInputLayout>
         <TextView android:id="@+id/tv_char_count_quote"

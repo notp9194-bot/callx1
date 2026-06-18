@@ -1,5 +1,7 @@
 package com.callx.app.repost;
 
+import com.callx.app.R;
+
 import android.os.Bundle;
 import android.view.View;
 import android.widget.*;

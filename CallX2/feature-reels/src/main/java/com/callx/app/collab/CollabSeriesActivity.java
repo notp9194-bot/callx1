@@ -1,5 +1,7 @@
 package com.callx.app.collab;
 
+import com.callx.app.R;
+
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
