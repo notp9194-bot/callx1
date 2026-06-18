@@ -41,6 +41,11 @@ public class ReelModel {
     public Map<String, Integer> reactions;
     public boolean isVerified;
     public boolean allowReposts  = true;
+    // v9 Collab/Repost upgrade fields
+    public String  viralBadge;               // "hot" | "trending" | "viral" | "legend"
+    public java.util.Map<String, String> collaboratorUids;    // uid → displayName
+    public java.util.Map<String, String> collaboratorPhotos;  // uid → photoUrl
+    public String  allowRepostLevel = "everyone"; // "everyone" | "followers" | "off"
     public String  repostCaption;
     public String  repostedFromReelId;
     public String  repostedFromUid;

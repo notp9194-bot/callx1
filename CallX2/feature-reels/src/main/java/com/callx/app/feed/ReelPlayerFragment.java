@@ -7,6 +7,14 @@ import com.callx.app.social.ReelMoreBottomSheet;
 import com.callx.app.social.ReelSharesBottomSheet;
 import com.callx.app.feed.ReelCinemaSheet;
 import com.callx.app.notifications.ReelRepostNotificationHelper;
+import com.callx.app.repost.RepostBottomSheetFragment;
+import com.callx.app.repost.RepostManager;
+import com.callx.app.repost.ViewRepostsActivity;
+import com.callx.app.repost.RepostAnalyticsActivity;
+import com.callx.app.collab.CollabInviteActivity;
+import com.callx.app.utils.RepostPrivacyManager;
+import com.callx.app.utils.ViralRepostBadgeHelper;
+import com.google.android.material.chip.Chip;
 import com.callx.app.utils.ReelSeenTracker;
 
 import android.animation.AnimatorSet;
@@ -104,6 +112,15 @@ public class ReelPlayerFragment extends Fragment
     private long lastRepostActionMs = 0L;
     /** Attribution banner shown when reel.repostedFromName is set. */
     private TextView tvRepostAttribution;
+
+    // v9 Collab/Repost fields
+    private RepostManager repostManager;
+    private boolean hasReposted = false;
+    private long currentRepostCount = 0;
+    // tvViralBadge — overlaid badge TextView (bound lazily via tag since it's optional)
+    private TextView tvViralBadge;
+    // tvAuthorLine — existing author display
+    private TextView tvAuthorLine;
     private static final String[] SPEED_LABELS = {"0.5×", "1×", "1.5×", "2×"};
     private int speedIndex = 1;
 
@@ -329,6 +346,17 @@ public class ReelPlayerFragment extends Fragment
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_reel_player, container, false);
         bindViews(v);
+
+        // v9: Init RepostManager with current user credentials
+        com.google.firebase.auth.FirebaseUser fbUser =
+            com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+        if (fbUser != null) {
+            repostManager = new RepostManager(
+                fbUser.getUid(),
+                fbUser.getDisplayName() != null ? fbUser.getDisplayName() : "User",
+                fbUser.getPhotoUrl()    != null ? fbUser.getPhotoUrl().toString() : "");
+        }
+
         populateStaticData();
         setupClickListeners(v);
         startFirebaseListeners();
@@ -450,6 +478,9 @@ public class ReelPlayerFragment extends Fragment
         btnSave           = v.findViewById(R.id.btn_save);
         tvRepostCount     = v.findViewById(R.id.tv_repost_count);
         tvRepostAttribution = v.findViewWithTag("tv_repost_attribution");
+        // v9 optional overlay views (tag-bound; may be absent in older layouts)
+        tvViralBadge        = v.findViewWithTag("tv_viral_badge");
+        tvAuthorLine        = v.findViewWithTag("tv_author_line");
 
         containerHashtags = v.findViewById(R.id.container_hashtags);
         scrollHashtags    = v.findViewById(R.id.scroll_hashtags);
@@ -671,6 +702,55 @@ public class ReelPlayerFragment extends Fragment
         }
 
         renderHashtags();
+
+        // ── v9: Repost state check + privacy guard + chips ────────────────────
+        if (reel.reelId != null && repostManager != null) {
+            String myUidV9 = safeMyUid();
+
+            // Check if current user has already reposted
+            repostManager.checkHasReposted(reel.reelId, (hasRep, existing) -> {
+                if (!isAdded()) return;
+                hasReposted = hasRep;
+                currentRepostCount = reel.repostCount;
+                if (btnRepost != null) {
+                    if (hasRep) {
+                        btnRepost.setColorFilter(
+                            android.graphics.Color.parseColor("#4CAF50"),
+                            android.graphics.PorterDuff.Mode.SRC_IN);
+                    } else {
+                        btnRepost.setColorFilter(null);
+                    }
+                }
+            });
+
+            // Repost privacy guard
+            RepostPrivacyManager.canUserRepost(reel.reelId, myUidV9, reel.uid, canRepost -> {
+                if (!isAdded() || btnRepost == null) return;
+                btnRepost.setEnabled(canRepost);
+                btnRepost.setAlpha(canRepost ? 1f : 0.4f);
+            });
+
+            // "View Reposts" chip — shown if repostCount > 0 on originals
+            if (reel.repostCount > 0 && (reel.repostedFromReelId == null || reel.repostedFromReelId.isEmpty())) {
+                addViewRepostsChip();
+            }
+
+            // Viral badge
+            if (reel.viralBadge != null && !reel.viralBadge.isEmpty()) {
+                showViralBadge(reel.viralBadge);
+            }
+
+            // Collab authors display
+            if (reel.collaboratorUids != null && !reel.collaboratorUids.isEmpty()) {
+                showCollabAuthors(reel.collaboratorUids);
+            }
+
+            // Owner-only chips: Collab invite + Repost analytics
+            if (myUidV9 != null && myUidV9.equals(reel.uid)) {
+                addCollabInviteChip();
+                addAnalyticsChip();
+            }
+        }
 
         // Photo slideshow setup — must run after view binding
         if (reel.isPhotoSlideshow()) {
@@ -1022,8 +1102,9 @@ public class ReelPlayerFragment extends Fragment
         if (btnDownload != null) btnDownload.setOnClickListener(v -> downloadReel());
         if (btnSpeed != null) btnSpeed.setOnClickListener(v -> cycleSpeed());
 
-        // FIX #5: Repost click
-        if (btnRepost != null) btnRepost.setOnClickListener(v -> toggleRepost());
+        // v9: Repost click → RepostBottomSheetFragment (full repost options sheet)
+        if (btnRepost != null) btnRepost.setOnClickListener(v -> openRepostSheet());
+        if (btnRepost != null) btnRepost.setOnLongClickListener(v -> { openRepostList(); return true; });
 
         if (tvFollowBtn != null) tvFollowBtn.setOnClickListener(v -> toggleFollow());
         if (btnFollowOverlay != null) btnFollowOverlay.setOnClickListener(v -> toggleFollow());
@@ -1859,6 +1940,163 @@ public class ReelPlayerFragment extends Fragment
      *   1. Immediately updates UI
      *   2. Removes the Firebase entry directly (no worker needed for deletions)
      */
+    // ── v9: Open RepostBottomSheetFragment ─────────────────────────────────
+
+    private void openRepostSheet() {
+        if (reel == null || !isAdded() || getContext() == null) return;
+        String myUid = safeMyUid();
+        // Block self-repost
+        if (myUid != null && myUid.equals(reel.uid)) {
+            Toast.makeText(getContext(), "You can't repost your own reel", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        RepostBottomSheetFragment sheet = RepostBottomSheetFragment.newInstance(
+            reel.reelId, reel.uid, reel.ownerName,
+            reel.thumbUrl != null ? reel.thumbUrl : (reel.thumbnailUrl != null ? reel.thumbnailUrl : ""),
+            reel.videoUrl != null ? reel.videoUrl : "",
+            hasReposted);
+        sheet.setDoneListener((isNowReposted, count) -> {
+            hasReposted = isNowReposted;
+            currentRepostCount = count;
+            if (btnRepost != null) {
+                if (isNowReposted) {
+                    btnRepost.setColorFilter(
+                        android.graphics.Color.parseColor("#4CAF50"),
+                        android.graphics.PorterDuff.Mode.SRC_IN);
+                } else {
+                    btnRepost.setColorFilter(null);
+                }
+            }
+            if (tvRepostCount != null)
+                tvRepostCount.setText(formatCount((int) count));
+            // Viral milestone check
+            if (repostManager != null && reel.uid != null) {
+                repostManager.getRepostCount(reel.reelId, c -> {
+                    currentRepostCount = c;
+                    ViralRepostBadgeHelper.checkAndAward(reel.reelId, reel.uid, c);
+                });
+            }
+        });
+        sheet.show(getChildFragmentManager(), RepostBottomSheetFragment.TAG);
+    }
+
+    // ── v9: View-reposts chip ───────────────────────────────────────────────
+
+    private void addViewRepostsChip() {
+        if (!isAdded() || getContext() == null || containerHashtags == null) return;
+        android.widget.TextView chip = new android.widget.TextView(requireContext());
+        chip.setText("🔁 " + formatCount(reel.repostCount) + " Reposts ›");
+        chip.setTextColor(android.graphics.Color.WHITE);
+        chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+        chip.setAlpha(0.9f);
+        chip.setPadding(dpToPx(10), dpToPx(5), dpToPx(10), dpToPx(5));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(40f);
+        bg.setColor(0x2200CFFF);
+        bg.setStroke(1, 0x6600CFFF);
+        chip.setBackground(bg);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, dpToPx(8), 0);
+        chip.setLayoutParams(lp);
+        chip.setOnClickListener(v -> {
+            if (!isAdded() || getActivity() == null) return;
+            Intent i = new Intent(getActivity(), ViewRepostsActivity.class);
+            i.putExtra(ViewRepostsActivity.EXTRA_REEL_ID, reel.reelId);
+            startActivity(i);
+        });
+        // Insert after duet/stitch chips (position depends on how many are already there)
+        containerHashtags.addView(chip);
+        if (scrollHashtags != null) scrollHashtags.setVisibility(View.VISIBLE);
+    }
+
+    // ── v9: Collab-invite chip (owner only) ───────────────────────────────
+
+    private void addCollabInviteChip() {
+        if (!isAdded() || getContext() == null || containerHashtags == null) return;
+        android.widget.TextView chip = new android.widget.TextView(requireContext());
+        chip.setText("🤝 Invite Collab");
+        chip.setTextColor(android.graphics.Color.WHITE);
+        chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+        chip.setAlpha(0.9f);
+        chip.setPadding(dpToPx(10), dpToPx(5), dpToPx(10), dpToPx(5));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(40f);
+        bg.setColor(0x33B039FF);
+        bg.setStroke(1, 0x66B039FF);
+        chip.setBackground(bg);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, dpToPx(8), 0);
+        chip.setLayoutParams(lp);
+        chip.setOnClickListener(v -> {
+            if (!isAdded() || getActivity() == null) return;
+            Intent i = new Intent(getActivity(), CollabInviteActivity.class);
+            i.putExtra(CollabInviteActivity.EXTRA_REEL_ID,    reel.reelId);
+            i.putExtra(CollabInviteActivity.EXTRA_REEL_THUMB,
+                reel.thumbUrl != null ? reel.thumbUrl : "");
+            startActivity(i);
+        });
+        containerHashtags.addView(chip);
+        if (scrollHashtags != null) scrollHashtags.setVisibility(View.VISIBLE);
+    }
+
+    // ── v9: Repost analytics chip (owner only) ────────────────────────────
+
+    private void addAnalyticsChip() {
+        if (!isAdded() || getContext() == null || containerHashtags == null) return;
+        android.widget.TextView chip = new android.widget.TextView(requireContext());
+        chip.setText("📊 Repost Analytics");
+        chip.setTextColor(android.graphics.Color.WHITE);
+        chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+        chip.setAlpha(0.9f);
+        chip.setPadding(dpToPx(10), dpToPx(5), dpToPx(10), dpToPx(5));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(40f);
+        bg.setColor(0x2200FF88);
+        bg.setStroke(1, 0x6600FF88);
+        chip.setBackground(bg);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, dpToPx(8), 0);
+        chip.setLayoutParams(lp);
+        chip.setOnClickListener(v -> {
+            if (!isAdded() || getActivity() == null) return;
+            Intent i = new Intent(getActivity(), RepostAnalyticsActivity.class);
+            i.putExtra(RepostAnalyticsActivity.EXTRA_REEL_ID, reel.reelId);
+            startActivity(i);
+        });
+        containerHashtags.addView(chip);
+        if (scrollHashtags != null) scrollHashtags.setVisibility(View.VISIBLE);
+    }
+
+    // ── v9: Show collab authors row ───────────────────────────────────────
+
+    private void showCollabAuthors(java.util.Map<String, String> collaborators) {
+        if (tvAuthorLine == null || collaborators == null || collaborators.isEmpty()) return;
+        StringBuilder sb = new StringBuilder("@" + (reel.ownerName != null ? reel.ownerName : ""));
+        for (java.util.Map.Entry<String, String> e : collaborators.entrySet()) {
+            if (e.getValue() != null && !e.getValue().isEmpty()) {
+                sb.append(" + @").append(e.getValue());
+            }
+        }
+        tvAuthorLine.setText(sb.toString());
+        tvAuthorLine.setVisibility(View.VISIBLE);
+    }
+
+    // ── v9: Viral repost badge ────────────────────────────────────────────
+
+    private void showViralBadge(String badge) {
+        if (tvViralBadge == null || badge == null || badge.isEmpty()) return;
+        String label = ViralRepostBadgeHelper.getBadgeEmoji(badge) + " " +
+                       ViralRepostBadgeHelper.getBadgeLabel(badge);
+        tvViralBadge.setVisibility(View.VISIBLE);
+        tvViralBadge.setText(label);
+    }
+
     /** Long-press repost button → open who-reposted list. */
     private void openRepostList() {
         if (reel == null || reel.reelId == null || !isAdded() || getActivity() == null) return;

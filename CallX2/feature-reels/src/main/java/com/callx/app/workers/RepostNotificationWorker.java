@@ -4,7 +4,7 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.work.*;
 import com.google.firebase.database.*;
-import org.json.JSONObject;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -91,17 +91,8 @@ public class RepostNotificationWorker extends Worker {
                               String fromName, String fromPhoto,
                               String reelThumb, String caption) {
         try {
-            JSONObject payload = new JSONObject();
-            payload.put("type",       "repost");
-            payload.put("ownerUid",   ownerUid);
-            payload.put("fromUid",    fromUid);
-            payload.put("fromName",   fromName);
-            payload.put("fromPhoto",  fromPhoto);
-            payload.put("reelId",     reelId);
-            payload.put("thumb",      reelThumb);
-            payload.put("caption",    caption);
-            // Use PushNotify.notifyReelRepost(payload) — calls your /notify/reel endpoint
-            // PushNotify.notifyReelRepost(ownerUid, fromUid, fromName, fromPhoto, reelId, reelThumb, caption);
+            com.callx.app.utils.PushNotify.notifyReelRepost(
+                ownerUid, fromUid, fromName, fromPhoto, reelId, reelThumb, caption);
         } catch (Exception e) {
             e.printStackTrace();
         }

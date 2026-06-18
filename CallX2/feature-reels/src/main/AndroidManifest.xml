@@ -422,5 +422,33 @@
           <activity android:name="com.callx.app.profile.AllReelsFullActivity"
               android:exported="false"
               android:windowSoftInputMode="adjustResize"/>
+
+          <!-- ── v9 Collab / Repost Activities ─────────────────────────────── -->
+          <activity android:name="com.callx.app.repost.QuoteRepostActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
+          <activity android:name="com.callx.app.repost.RepostAnalyticsActivity"
+              android:exported="false"/>
+          <activity android:name="com.callx.app.repost.RepostChainActivity"
+              android:exported="false"/>
+          <activity android:name="com.callx.app.repost.ViewRepostsActivity"
+              android:exported="false"/>
+          <!-- CollabPendingActivity: exported=true for deep-link from FCM push tap -->
+          <activity android:name="com.callx.app.collab.CollabPendingActivity"
+              android:exported="true"
+              android:launchMode="singleTop">
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW"/>
+                  <category android:name="android.intent.category.DEFAULT"/>
+              </intent-filter>
+          </activity>
+          <activity android:name="com.callx.app.collab.CollabInviteActivity"
+              android:exported="false"
+              android:windowSoftInputMode="adjustResize"/>
+          <activity android:name="com.callx.app.collab.CollabSeriesActivity"
+              android:exported="false"/>
+          <activity android:name="com.callx.app.collab.LiveCollabActivity"
+              android:exported="false"
+              android:screenOrientation="portrait"/>
       </application>
 </manifest>
