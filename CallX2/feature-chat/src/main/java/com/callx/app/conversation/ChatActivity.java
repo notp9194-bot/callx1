@@ -585,18 +585,21 @@ public class ChatActivity extends AppCompatActivity {
         // ll_reel_hanging ke pivot upar-center hai, wahan se pendulum swing hoga
         LinearLayout reelHanging = binding.llReelHanging;
         if (reelHanging != null) {
-            // Pendulum swing: left → right → left loop, pivot = top-center (rassi ka jod)
-            RotateAnimation swing = new RotateAnimation(
-                    -12f,   // from: 12° left
-                     12f,   // to:   12° right
-                    Animation.RELATIVE_TO_SELF, 0.5f,  // pivotX = center
-                    Animation.RELATIVE_TO_SELF, 0.0f   // pivotY = top (rassi ka upar)
-            );
-            swing.setDuration(1800);                          // ek jhule ka time
-            swing.setRepeatCount(Animation.INFINITE);
-            swing.setRepeatMode(Animation.REVERSE);           // wapas aao smoothly
-            swing.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
-            reelHanging.startAnimation(swing);
+            reelHanging.post(() -> {
+                // pivotX = center (50%), pivotY = top (0%) — rassi ka jod point
+                // RotateAnimation mein directly relative_to_self fraction dete hain
+                RotateAnimation swing = new RotateAnimation(
+                        -12f,   // from: 12° left
+                         12f,   // to:   12° right
+                        Animation.RELATIVE_TO_SELF, 0.5f,  // pivotX = horizontal center
+                        Animation.RELATIVE_TO_SELF, 0.0f   // pivotY = top (rassi ka upar wala sar)
+                );
+                swing.setDuration(1800);
+                swing.setRepeatCount(Animation.INFINITE);
+                swing.setRepeatMode(Animation.REVERSE);
+                swing.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+                reelHanging.startAnimation(swing);
+            });
         }
 
         // X profile button — open partner's X profile sheet

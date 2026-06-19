@@ -93,9 +93,7 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:layout_marginEnd="3dp"
-            android:translationY="-4dp"
-            android:pivotX="15dp"
-            android:pivotY="0dp">
+            android:translationY="-4dp">
 
             <!-- Patli rassi (thin string from top of header) -->
             <View
@@ -114,9 +112,7 @@
                 android:tint="@color/white"
                 android:background="@drawable/bg_social_reel_btn"
                 android:padding="6dp"
-                android:contentDescription="View Reels Profile"
-                android:pivotX="15dp"
-                android:pivotY="0dp"/>
+                android:contentDescription="View Reels Profile"/>
 
         </LinearLayout>
 
