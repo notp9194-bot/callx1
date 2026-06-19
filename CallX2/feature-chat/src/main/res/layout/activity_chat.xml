@@ -84,6 +84,62 @@
                 android:visibility="gone"/>
         </LinearLayout>
 
+        <!-- Reel button — patli rassi se latakta hua, hawa mein jhulta -->
+        <!-- Pura container: rassi + button ek saath upar se neeche -->
+        <LinearLayout
+            android:id="@+id/ll_reel_hanging"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:layout_marginEnd="3dp"
+            android:translationY="-4dp">
+
+            <!-- Patli rassi (thin string from top of header) -->
+            <View
+                android:id="@+id/view_reel_thread"
+                android:layout_width="1.5dp"
+                android:layout_height="8dp"
+                android:background="@drawable/ic_reel_thread"
+                android:layout_gravity="center_horizontal"/>
+
+            <!-- Reel button itself — jhulta hua -->
+            <ImageButton
+                android:id="@+id/btn_toolbar_reel"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/ic_reels"
+                android:tint="@color/white"
+                android:background="@drawable/bg_social_reel_btn"
+                android:padding="6dp"
+                android:contentDescription="View Reels Profile"/>
+
+        </LinearLayout>
+
+        <!-- X button -->
+        <ImageButton
+            android:id="@+id/btn_toolbar_x"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:src="@drawable/ic_x_logo"
+            android:tint="@color/white"
+            android:background="@drawable/bg_social_x_btn"
+            android:padding="6dp"
+            android:layout_marginEnd="3dp"
+            android:contentDescription="View X Profile"/>
+
+        <!-- YouTube button -->
+        <ImageButton
+            android:id="@+id/btn_toolbar_youtube"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:src="@drawable/ic_youtube"
+            android:tint="@color/white"
+            android:background="@drawable/bg_social_youtube_btn"
+            android:padding="6dp"
+            android:layout_marginEnd="1dp"
+            android:contentDescription="View YouTube Channel"/>
+
         <!-- Video call button -->
         <ImageButton
             android:id="@+id/btn_toolbar_video_call"
@@ -346,111 +402,6 @@
         android:layout_weight="1">
 
         <!-- Chat Wallpaper Background Image -->
-
-        <!-- ══════════════════════════════════════════════════════════════
-             SOCIAL BUTTONS — Header ke neeche chat area mein latakte hue
-             X, YouTube, Reel — teeno rassi se jhulte hue, top-right corner
-             ══════════════════════════════════════════════════════════════ -->
-        <LinearLayout
-            android:id="@+id/ll_social_hanging_row"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_gravity="top|end"
-            android:layout_marginEnd="8dp"
-            android:elevation="6dp">
-
-            <!-- X button — latakta hua -->
-            <LinearLayout
-                android:id="@+id/ll_x_hanging"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center_horizontal"
-                android:layout_marginEnd="4dp">
-
-                <!-- Rassi for X — lambi rassi = real pendulum feel -->
-                <View
-                    android:id="@+id/view_x_thread"
-                    android:layout_width="2dp"
-                    android:layout_height="24dp"
-                    android:background="@drawable/ic_reel_thread"
-                    android:layout_gravity="center_horizontal"/>
-
-                <ImageButton
-                    android:id="@+id/btn_toolbar_x"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:src="@drawable/ic_x_logo"
-                    android:tint="@color/white"
-                    android:background="@drawable/bg_social_x_btn"
-                    android:padding="8dp"
-                    android:elevation="6dp"
-                    android:contentDescription="View X Profile"/>
-
-            </LinearLayout>
-
-            <!-- YouTube button — latakta hua -->
-            <LinearLayout
-                android:id="@+id/ll_youtube_hanging"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center_horizontal"
-                android:layout_marginEnd="4dp">
-
-                <!-- Rassi for YouTube — lambi rassi = real pendulum feel -->
-                <View
-                    android:id="@+id/view_youtube_thread"
-                    android:layout_width="2dp"
-                    android:layout_height="24dp"
-                    android:background="@drawable/ic_reel_thread"
-                    android:layout_gravity="center_horizontal"/>
-
-                <ImageButton
-                    android:id="@+id/btn_toolbar_youtube"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:src="@drawable/ic_youtube"
-                    android:tint="@color/white"
-                    android:background="@drawable/bg_social_youtube_btn"
-                    android:padding="8dp"
-                    android:elevation="6dp"
-                    android:contentDescription="View YouTube Channel"/>
-
-            </LinearLayout>
-
-            <!-- Reel button — latakta hua -->
-            <LinearLayout
-                android:id="@+id/ll_reel_hanging"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center_horizontal">
-
-                <!-- Rassi for Reel — lambi rassi = real pendulum feel -->
-                <View
-                    android:id="@+id/view_reel_thread"
-                    android:layout_width="2dp"
-                    android:layout_height="24dp"
-                    android:background="@drawable/ic_reel_thread"
-                    android:layout_gravity="center_horizontal"/>
-
-                <ImageButton
-                    android:id="@+id/btn_toolbar_reel"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:src="@drawable/ic_reels"
-                    android:tint="@color/white"
-                    android:background="@drawable/bg_social_reel_btn"
-                    android:padding="8dp"
-                    android:elevation="6dp"
-                    android:contentDescription="View Reels Profile"/>
-
-            </LinearLayout>
-
-        </LinearLayout>
-
         <ImageView
             android:id="@+id/iv_chat_wallpaper"
             android:layout_width="match_parent"
