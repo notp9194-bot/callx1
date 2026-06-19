@@ -14,8 +14,8 @@
         android:background="@drawable/gradient_brand"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
         android:paddingStart="4dp"
         android:paddingEnd="4dp"
         android:elevation="4dp">
@@ -404,7 +404,7 @@
             android:id="@+id/rv_messages"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:padding="8dp"
+            android:padding="4dp"
             android:clipToPadding="false"
             android:visibility="gone"/>
 
@@ -582,22 +582,22 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="4dp"
+        android:padding="3dp"
         android:background="@color/surface_card"
         android:gravity="center_vertical"
         android:elevation="4dp">
         <ImageButton
             android:id="@+id/btn_attach"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
             android:padding="6dp"
             android:src="@drawable/ic_attach"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Attach"/>
         <ImageButton
             android:id="@+id/btn_camera"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
             android:padding="6dp"
             android:src="@drawable/ic_camera"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -619,8 +619,8 @@
                 android:textColorHint="@color/text_muted"
                 android:textColor="?android:attr/textColorPrimary"
                 android:background="@color/transparent"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
                 android:paddingStart="2dp"
                 android:paddingEnd="2dp"
                 android:textSize="14sp"
@@ -629,16 +629,16 @@
         </FrameLayout>
         <ImageButton
             android:id="@+id/btn_mic"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:padding="8dp"
             android:src="@drawable/ic_mic"
             android:background="@drawable/circle_primary"
             android:contentDescription="Voice message"/>
         <ImageButton
             android:id="@+id/btn_send"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:padding="8dp"
             android:src="@drawable/ic_send"
             android:background="@drawable/circle_primary"
