@@ -220,8 +220,13 @@ public class ReelUiController {
         }
         if (ivOwnerStoryRing != null) {
             // Show story ring if owner has an active status
-            com.callx.app.cache.StatusCacheManager.hasActiveStatus(reel.uid, has ->
-                ivOwnerStoryRing.setVisibility(has ? View.VISIBLE : View.GONE));
+            try {
+                boolean hasStatus = com.callx.app.cache.StatusCacheManager
+                        .getInstance(delegate.requireContext()).hasStatus(reel.uid);
+                ivOwnerStoryRing.setVisibility(hasStatus ? View.VISIBLE : View.GONE);
+            } catch (Exception ignored) {
+                ivOwnerStoryRing.setVisibility(View.GONE);
+            }
         }
 
         // Repost attribution

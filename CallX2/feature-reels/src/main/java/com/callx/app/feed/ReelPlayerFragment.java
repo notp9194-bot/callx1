@@ -263,13 +263,10 @@ public class ReelPlayerFragment extends Fragment
     // ── ReelPlayerDelegate implementation ─────────────────────────────────
 
     @Override public ReelModel getReel()          { return reel; }
-    @Override public boolean isAdded()            { return super.isAdded(); }
-    @Override public Context requireContext()      { return super.requireContext(); }
-    @Override public @Nullable Context getContext() { return super.getContext(); }
-    @Override public @Nullable Activity getActivity() { return super.getActivity(); }
+    // isAdded(), requireContext(), getContext(), getActivity(),
+    // getChildFragmentManager(), getParentFragment() are final in Fragment
+    // and are inherited directly — no override needed to satisfy ReelPlayerDelegate.
     @Override public Fragment getFragment()        { return this; }
-    @Override public FragmentManager getChildFragmentManager() { return super.getChildFragmentManager(); }
-    @Override public @Nullable Fragment getParentFragment() { return super.getParentFragment(); }
     @Override public boolean isCurrentlyVisible() { return isVisible; }
 
     // ── Utility ──────────────────────────────────────────────────────────
