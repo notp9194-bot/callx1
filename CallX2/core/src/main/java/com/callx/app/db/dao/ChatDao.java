@@ -50,6 +50,16 @@ public interface ChatDao {
     @Query("DELETE FROM chats WHERE chatId = :chatId")
     void deleteChat(String chatId);
 
+    // ── v21 DELETE SYSTEM ──────────────────────────────────────────────────
+
+    /** Partner UID se chat delete karo (1-on-1 chat list cleanup). */
+    @Query("DELETE FROM chats WHERE partnerUid = :partnerUid")
+    void deleteByPartnerUid(String partnerUid);
+
+    /** Saare chats delete karo (Delete All). */
+    @Query("DELETE FROM chats")
+    void deleteAllChats();
+
     @Query("SELECT COUNT(*) FROM chats")
     int getChatCount();
 

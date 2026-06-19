@@ -37,12 +37,17 @@ import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
 
 /**
- * ChatsFragment v15 — Offline-First
+ * ChatsFragment v21 — Delete / Delete-All System
  *
- * Flow:
- *   1. onCreateView → loadFromRoom() immediately (zero-latency offline display)
- *   2. loadContacts() → Firebase listener → saves to Room → UI refreshes via LiveData
- *   3. If offline: Room data already showing, no blank screen
+ * CHANGES v21:
+ *  1. Long-press on chat item → selection mode starts immediately.
+ *     PrivacyDirectDialog ab REMOVED from long-press.
+ *     (Privacy actions are now accessible via avatar long-press zoom dialog
+ *      or a future context menu; this avoids conflicting with selection.)
+ *  2. Selection bar: ✕ cancel | count | All | 🗑️ delete icon
+ *  3. Delete Selected: Firebase contacts node se remove + Room DB cleanup
+ *  4. Delete All: confirm dialog → clear everything → Firebase + Room
+ *  5. adapter.setOnLongPressListener() NOT set anymore.
  */
 public class ChatsFragment extends Fragment implements ChatListAdapter.SelectionListener {
 
@@ -56,14 +61,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private final Set<String> specialRequestUids = new HashSet<>();
 
     // FIX #MEM-3C: Listener references store karo taaki onDestroyView mein detach kar sakein.
-    // Pehle anonymous listeners the — unhe remove karna impossible tha → memory leak.
     private DatabaseReference contactsRef;
     private ValueEventListener contactsListener;
     private DatabaseReference specialRequestsRef;
     private ValueEventListener specialRequestsListener;
-
-    // v15: track online state for UI
-    private boolean isOnline = true;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle s) {
@@ -83,17 +84,19 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Avatar click → contact bottom sheet (same as Calls tab)
         adapter.setOnAvatarClickListener(u -> showContactBottomSheet(u));
 
-        // Long-press on chat item → PrivacyDirectDialog (Lock / App info / Small window)
-        adapter.setOnLongPressListener((user, anchor) -> showPrivacyDirectDialog(user));
+        // v21: longPressListener NOT set → long-press now starts selection mode directly.
 
+        // Selection bar buttons
         v.findViewById(R.id.btn_cancel_selection_chats).setOnClickListener(x -> {
             adapter.clearSelection();
             llSelectionBar.setVisibility(View.GONE);
         });
+
         v.findViewById(R.id.btn_select_all_chats).setOnClickListener(x -> {
             adapter.selectAll();
             updateSelectionCount();
         });
+
         v.findViewById(R.id.btn_delete_selected_chats).setOnClickListener(x ->
             confirmDeleteSelected());
 
@@ -107,14 +110,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     }
 
     // ─────────────────────────────────────────────────────────────
-    // v15 FIX 1a: Room se offline-first load
+    // Room se offline-first load
     // ─────────────────────────────────────────────────────────────
 
     private void loadFromRoom() {
         if (getContext() == null) return;
         AppDatabase db = AppDatabase.getInstance(getContext());
 
-        // Background thread pe Room query, UI thread pe update
         Executors.newSingleThreadExecutor().execute(() -> {
             List<ChatEntity> cached = db.chatDao().getAllChatsSync();
             if (cached == null || cached.isEmpty()) return;
@@ -128,14 +130,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 u.photoUrl = e.partnerPhoto;
                 u.thumbUrl = e.partnerThumb;
                 u.lastMessageAt = e.lastMessageAt;
-                // v18 IMPROVEMENT 6: Room.unread se badge — offline mein bhi sahi count
                 u.unread   = e.unread;
                 roomUsers.add(u);
             }
 
             if (getActivity() != null) {
                 getActivity().runOnUiThread(() -> {
-                    // Sirf tab Room data dikhao agar Firebase ne abhi tak kuch nahi diya
                     if (contacts.isEmpty()) {
                         contacts.addAll(roomUsers);
                         sortByLatestMessage();
@@ -156,7 +156,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
         String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
 
-        // FIX #MEM-3C: Ref + listener fields mein store karo — onDestroyView mein remove honge
         contactsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 contacts.clear();
@@ -172,7 +171,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         }
                         contacts.add(u);
 
-                        // v15 FIX 1b: Firebase se aaya → Room mein save karo
                         ChatEntity entity = new ChatEntity();
                         entity.chatId       = uid + "_contact_" + (u.uid != null ? u.uid : "");
                         entity.type         = "private";
@@ -187,7 +185,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     }
                 }
 
-                // Room mein background save karo
                 if (getContext() != null && !toSave.isEmpty()) {
                     AppDatabase db = AppDatabase.getInstance(getContext());
                     Executors.newSingleThreadExecutor().execute(() ->
@@ -205,7 +202,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         contactsRef.addValueEventListener(contactsListener);
     }
 
-    // Change 5: fetch full user details when contact entry is incomplete
     private void enrichContactFromUsers(User u, String myUid) {
         if (u.uid == null) return;
         FirebaseUtils.getUserRef(u.uid)
@@ -240,7 +236,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
         String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
 
-        // FIX #MEM-3C: Field mein store karo — onDestroyView mein remove hoga
         specialRequestsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 specialRequestUids.clear();
@@ -258,24 +253,19 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         specialRequestsRef.addValueEventListener(specialRequestsListener);
     }
 
-    // FIX #MEM-3C: onDestroyView mein saare Firebase listeners detach karo.
-    // Bina iske Firebase background mein data push karta rehta tha — memory + battery waste.
     @Override
     public void onDestroyView() {
         if (contactsRef != null && contactsListener != null) {
             contactsRef.removeEventListener(contactsListener);
-            contactsRef = null;
-            contactsListener = null;
+            contactsRef = null; contactsListener = null;
         }
         if (specialRequestsRef != null && specialRequestsListener != null) {
             specialRequestsRef.removeEventListener(specialRequestsListener);
-            specialRequestsRef = null;
-            specialRequestsListener = null;
+            specialRequestsRef = null; specialRequestsListener = null;
         }
         super.onDestroyView();
     }
 
-    // Change 10: sort contacts so latest message is always at top
     private void sortByLatestMessage() {
         Collections.sort(contacts, (a, b) -> {
             boolean aS = a.uid != null && specialRequestUids.contains(a.uid);
@@ -289,6 +279,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         });
     }
 
+    // ── SelectionListener callbacks ─────────────────────────────────────────
+
     @Override public void onSelectionStarted() {
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.VISIBLE);
         updateSelectionCount();
@@ -300,34 +292,112 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void updateSelectionCount() {
         int count = adapter == null ? 0 : adapter.getSelectedCount();
-        if (tvSelectedCount != null) tvSelectedCount.setText(count + " selected");
+        int total = contacts.size();
+        if (tvSelectedCount != null)
+            tvSelectedCount.setText(count + " / " + total + " selected");
     }
+
+    // ── v21 DELETE SELECTED ────────────────────────────────────────────────
 
     private void confirmDeleteSelected() {
         int count = adapter == null ? 0 : adapter.getSelectedCount();
-        if (count == 0) return;
+        if (count == 0) {
+            Toast.makeText(getContext(), "Koi bhi select nahi kiya", Toast.LENGTH_SHORT).show();
+            return;
+        }
         new AlertDialog.Builder(requireContext())
             .setTitle("Delete " + count + " chat" + (count > 1 ? "s" : "") + "?")
-            .setMessage("Selected conversations will be removed from your chat list.")
+            .setMessage("Selected conversations aapki chat list se remove ho jayenge.")
             .setPositiveButton("Delete", (d, w) -> deleteSelected())
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     private void deleteSelected() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-        String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
         List<User> selected = adapter.getSelectedItems();
-        for (User u : selected)
-            if (u.uid != null) FirebaseUtils.getContactsRef(uid).child(u.uid).removeValue();
+        if (selected.isEmpty()) return;
+
+        // Firebase se remove
+        for (User u : selected) {
+            if (u.uid != null) {
+                FirebaseUtils.getContactsRef(myUid).child(u.uid).removeValue();
+            }
+        }
+
+        // Room DB se remove (background thread)
+        if (getContext() != null) {
+            AppDatabase db = AppDatabase.getInstance(getContext());
+            Executors.newSingleThreadExecutor().execute(() -> {
+                for (User u : selected) {
+                    if (u.uid != null) {
+                        db.chatDao().deleteByPartnerUid(u.uid);
+                    }
+                }
+            });
+        }
+
+        // Local list update
         contacts.removeAll(selected);
         adapter.clearSelection();
         adapter.notifyDataSetChanged();
+
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
         if (emptyState != null)
             emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+
+        int cnt = selected.size();
+        Toast.makeText(getContext(),
+            cnt + " chat" + (cnt > 1 ? "s" : "") + " delete ho gaye",
+            Toast.LENGTH_SHORT).show();
     }
 
-    // ── Contact Bottom Sheet (same style as Calls tab) ───────────────────────
+    // ── v21 DELETE ALL ─────────────────────────────────────────────────────
+
+    /**
+     * Delete All chats — accessible via 3-dot overflow menu in MainActivity/toolbar.
+     * ChatsFragment exposes this as a public method so parent can call it.
+     */
+    public void confirmDeleteAll() {
+        if (contacts.isEmpty()) {
+            Toast.makeText(getContext(), "Koi chat nahi hai", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new AlertDialog.Builder(requireContext())
+            .setTitle("Delete All Chats?")
+            .setMessage("Aapki saari " + contacts.size() + " conversations chat list se remove ho jayengi.\n\nYe action undo nahi ho sakti.")
+            .setPositiveButton("Delete All", (d, w) -> deleteAllChats())
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void deleteAllChats() {
+        if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+        String myUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+
+        // Firebase contacts node clear karo
+        FirebaseUtils.getContactsRef(myUid).removeValue();
+
+        // Room DB completely clear karo
+        if (getContext() != null) {
+            AppDatabase db = AppDatabase.getInstance(getContext());
+            Executors.newSingleThreadExecutor().execute(() ->
+                db.chatDao().deleteAllChats());
+        }
+
+        // Local list clear karo
+        contacts.clear();
+        adapter.clearSelection();
+        adapter.notifyDataSetChanged();
+
+        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+        if (emptyState != null) emptyState.setVisibility(View.VISIBLE);
+
+        Toast.makeText(getContext(), "Saare chats delete ho gaye", Toast.LENGTH_SHORT).show();
+    }
+
+    // ── Contact Bottom Sheet ─────────────────────────────────────────────────
 
     private void showContactBottomSheet(User user) {
         if (getContext() == null || user == null) return;
@@ -355,7 +425,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         CircleImageView ivAnimReel= sv.findViewById(R.id.iv_anim_reel_sheet);
         CircleImageView ivAnimYt  = sv.findViewById(R.id.iv_anim_youtube_sheet);
 
-        // Follow / Subscribe rows
         View layoutXRow      = sv.findViewById(R.id.layout_x_follow_row);
         View layoutReelsRow  = sv.findViewById(R.id.layout_reels_follow_row);
         View layoutYtRow     = sv.findViewById(R.id.layout_youtube_subscribe_row);
@@ -368,7 +437,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         tvName.setText(user.name != null ? user.name : "User");
 
-        // Load avatar
         String avatarUrl = (user.thumbUrl != null && !user.thumbUrl.isEmpty())
             ? user.thumbUrl : user.photoUrl;
         if (avatarUrl != null && !avatarUrl.isEmpty() && ivAvatar != null) {
@@ -378,7 +446,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 .into(ivAvatar);
         }
 
-        // Online status + fresh photo from Firebase
         if (user.uid != null) {
             FirebaseUtils.getUserRef(user.uid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -409,7 +476,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 });
         }
 
-        // Avatar tap → zoom
         if (ivAvatar != null) {
             ivAvatar.setOnClickListener(x -> {
                 if (user.uid == null || getContext() == null) return;
@@ -426,7 +492,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             });
         }
 
-        // Message button → open ChatActivity
         if (btnMessage != null) {
             btnMessage.setOnClickListener(x -> {
                 sheet.dismiss();
@@ -441,7 +506,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             });
         }
 
-        // Voice Call button
         if (btnVoice != null) {
             btnVoice.setOnClickListener(x -> {
                 sheet.dismiss();
@@ -456,7 +520,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             });
         }
 
-        // Video Call button
         if (btnVideo != null) {
             btnVideo.setOnClickListener(x -> {
                 sheet.dismiss();
@@ -471,7 +534,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             });
         }
 
-        // Call History button
         if (btnHistory != null) {
             btnHistory.setOnClickListener(x -> {
                 sheet.dismiss();
@@ -479,7 +541,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             });
         }
 
-        // Social buttons
         if (user.uid != null) {
             final CircleImageView[] peekViews = {ivAnimX, ivAnimReel, ivAnimYt};
             final Handler[] animHandler       = {new Handler(Looper.getMainLooper())};
@@ -696,7 +757,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             });
     }
 
-    // ── Avatar Peek Loop ────────────────────────────────────────────────────
+    // ── Avatar Peek Loop ───────────────────────────────────────────────────
     private void startChatAvatarPeekLoop(
             CircleImageView[] views, Handler[] handlerArr,
             boolean[] runningArr, Runnable[] runnableArr) {
@@ -742,7 +803,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         handlerArr[0].postDelayed(runnableArr[0], 1500);
     }
 
-    // ── Button state helpers ────────────────────────────────────────────────
+    // ── Button state helpers ───────────────────────────────────────────────
     private void updateXBtn(Button btn, boolean following) {
         if (btn == null) return;
         btn.setText(following ? "Following" : "Follow");
@@ -771,7 +832,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         return String.valueOf(n);
     }
 
-    // ── Call History Sheet ───────────────────────────────────────────────────
+    // ── Call History Sheet ──────────────────────────────────────────────────
     private void showChatCallHistorySheet(User user) {
         if (getContext() == null || user.uid == null) return;
 
@@ -806,7 +867,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             btnClose.setOnClickListener(x -> histSheet.dismiss());
         }
 
-        // Load call logs for this user from Firebase
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseAuth.getInstance().getCurrentUser().getUid() : null;
         if (myUid == null) {
@@ -829,7 +889,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                             contactLogs.add(l);
                         }
                     }
-                    // Sort newest first
                     contactLogs.sort((a, b) -> {
                         long ta = a.timestamp != null ? a.timestamp : 0;
                         long tb = b.timestamp != null ? b.timestamp : 0;
@@ -859,7 +918,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         histSheet.show();
     }
 
-    // ── Inline adapter for call history sheet (no cross-module import needed) ──
+    // ── Inline adapter for call history sheet ──────────────────────────────
     private class ChatCallHistoryAdapter
             extends androidx.recyclerview.widget.RecyclerView.Adapter<ChatCallHistoryAdapter.VH> {
 
@@ -904,14 +963,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             h.tvLabel.setTextColor(iconColor);
             h.ivIcon.setImageResource(iconRes);
             h.ivIcon.setColorFilter(iconColor);
-
             h.tvTime.setText(l.timestamp != null ? fmt.format(new java.util.Date(l.timestamp)) : "—");
 
             if (l.duration != null && l.duration > 0) {
                 long d = l.duration;
-                h.tvDuration.setText(d >= 60
-                    ? (d / 60) + "m " + (d % 60) + "s"
-                    : d + "s");
+                h.tvDuration.setText(d >= 60 ? (d / 60) + "m " + (d % 60) + "s" : d + "s");
                 h.tvDuration.setVisibility(android.view.View.VISIBLE);
             } else {
                 h.tvDuration.setVisibility(android.view.View.GONE);
@@ -947,82 +1003,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
     }
 
-    // ── PrivacyDirectDialog (Long-press → Lock / App info / Small window) ───
-    private void showPrivacyDirectDialog(User user) {
-        if (getContext() == null || user == null) return;
-
-        // Fetch fresh status from Firebase for the dialog
-        String nameStr   = user.name   != null ? user.name   : "User";
-        String statusStr = "Offline";
-
-        // Show dialog immediately, status will update async if needed
-        try {
-            Class<?> cls = Class.forName("com.callx.app.smallwindow.PrivacyDirectDialog");
-            java.lang.reflect.Method newInstance = cls.getMethod(
-                "newInstance", String.class, String.class, String.class);
-
-            final String finalStatus = statusStr;
-            // Try to get online status from Firebase, then show dialog
-            if (user.uid != null) {
-                com.callx.app.utils.FirebaseUtils.getUserRef(user.uid)
-                    .addListenerForSingleValueEvent(new ValueEventListener() {
-                        @Override public void onDataChange(DataSnapshot snap) {
-                            String liveStatus = "Offline";
-                            Boolean online = snap.child("online").getValue(Boolean.class);
-                            if (Boolean.TRUE.equals(online)) liveStatus = "Online";
-                            try {
-                                Object dialog = newInstance.invoke(null,
-                                    user.uid, nameStr, liveStatus);
-                                if (dialog instanceof androidx.fragment.app.DialogFragment
-                                        && getParentFragmentManager() != null) {
-                                    ((androidx.fragment.app.DialogFragment) dialog)
-                                        .show(getParentFragmentManager(), "privacy_direct");
-                                }
-                            } catch (Exception ex) {
-                                showPrivacyDirectFallback(user.uid, nameStr, liveStatus);
-                            }
-                        }
-                        @Override public void onCancelled(DatabaseError e) {
-                            showPrivacyDirectFallback(
-                                user.uid, nameStr, finalStatus);
-                        }
-                    });
-            } else {
-                Object dialog = newInstance.invoke(null, "", nameStr, finalStatus);
-                if (dialog instanceof androidx.fragment.app.DialogFragment
-                        && getParentFragmentManager() != null) {
-                    ((androidx.fragment.app.DialogFragment) dialog)
-                        .show(getParentFragmentManager(), "privacy_direct");
-                }
-            }
-        } catch (Exception e) {
-            // Fallback: show plain toast with small window option
-            showPrivacyDirectFallback(
-                user.uid != null ? user.uid : "", nameStr, statusStr);
-        }
-    }
-
-    private void showPrivacyDirectFallback(String uid, String name, String status) {
-        // Reflection-based fallback (PrivacyDirectDialog lives in :app module,
-        // not on feature-chat's compile classpath, so no direct reference here)
-        try {
-            Class<?> cls = Class.forName("com.callx.app.smallwindow.PrivacyDirectDialog");
-            java.lang.reflect.Method newInstance = cls.getMethod(
-                "newInstance", String.class, String.class, String.class);
-            Object dialog = newInstance.invoke(null, uid, name, status);
-            if (dialog instanceof androidx.fragment.app.DialogFragment
-                    && getParentFragmentManager() != null) {
-                ((androidx.fragment.app.DialogFragment) dialog)
-                    .show(getParentFragmentManager(), "privacy_direct");
-            }
-        } catch (Exception ex) {
-            // Last resort
-            if (getContext() != null)
-                android.widget.Toast.makeText(getContext(),
-                    "Options not available", android.widget.Toast.LENGTH_SHORT).show();
-        }
-    }
-
+    // ── Avatar Zoom ────────────────────────────────────────────────────────
     private void showChatAvatarZoom(String photoUrl) {
         if (getContext() == null) return;
         android.app.Dialog dialog = new android.app.Dialog(

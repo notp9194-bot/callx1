@@ -1172,4 +1172,42 @@ public class MainActivity extends AppCompatActivity {
                 .child("fcmToken").setValue(token);
         });
     }
+
+    // ── v21: Overflow menu — Delete All Chats ────────────────────────────
+
+    @Override
+    public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        getMenuInflater().inflate(R.menu.main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(android.view.Menu menu) {
+        // "Delete All Chats" sirf Chat tab pe visible ho
+        android.view.MenuItem deleteAll = menu.findItem(R.id.action_delete_all_chats);
+        if (deleteAll != null)
+            deleteAll.setVisible(binding.viewPager.getCurrentItem() == TAB_CHATS);
+        return super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == R.id.action_delete_all_chats) {
+            // ChatsFragment ko reflect karo aur confirmDeleteAll() call karo
+            try {
+                androidx.fragment.app.Fragment frag =
+                    getSupportFragmentManager()
+                        .findFragmentByTag("f" + binding.viewPager.getAdapter().getItemId(TAB_CHATS));
+                if (frag != null) {
+                    java.lang.reflect.Method m = frag.getClass().getMethod("confirmDeleteAll");
+                    m.invoke(frag);
+                }
+            } catch (Exception e) {
+                android.widget.Toast.makeText(this,
+                    "Delete All not available", android.widget.Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
 }

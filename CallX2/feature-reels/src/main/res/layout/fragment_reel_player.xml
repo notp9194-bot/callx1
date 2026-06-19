@@ -159,6 +159,29 @@
             android:tint="#FFD700"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Mute"/>
+
+        <TextView
+            android:id="@+id/btn_speed"
+            android:layout_width="wrap_content"
+            android:layout_height="38dp"
+            android:gravity="center"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="1x"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Playback speed"/>
+
+        <ImageButton
+            android:id="@+id/btn_download"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:src="@drawable/ic_download_reel"
+            android:tint="#FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Download"/>
     </LinearLayout>
 
     <!-- Right action bar: Avatar · Like · Comment · Share · More

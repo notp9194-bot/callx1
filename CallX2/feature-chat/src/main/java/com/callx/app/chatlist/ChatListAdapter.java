@@ -19,6 +19,20 @@ import com.callx.app.cache.StatusCacheManager;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
+/**
+ * ChatListAdapter v21
+ *
+ * CHANGES v21 — Delete / Delete-All system:
+ *  1. Long-press pe directly selection mode start hota hai.
+ *     PrivacyDirectDialog ab DOUBLE long-press ya dedicated method se trigger hoga
+ *     (ChatsFragment mein showPrivacyDirectDialog() ko context menu se call karo).
+ *  2. Selection overlay: checkmark circle avatar ke upar dikhta hai.
+ *  3. Call buttons + story ring selection mode mein hide hote hain.
+ *  4. setOnLongPressListener() is now used ONLY for external callers who
+ *     still want the old behavior; if NOT set, long-press starts selection.
+ *     ChatsFragment v21 mein longPressListener set nahi karta —
+ *     PrivacyDirectDialog ab selection bar ke 3-dot menu se accessible hai.
+ */
 public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     public interface SelectionListener {
@@ -31,6 +45,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         void onAvatarClick(User user);
     }
 
+    /** @deprecated v21: Long-press now starts selection. Use context-menu instead. */
+    @Deprecated
     public interface OnLongPressListener {
         void onLongPress(User user, View anchor);
     }
@@ -38,8 +54,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     private final List<User> contacts;
     private final SelectionListener selectionListener;
     private OnAvatarClickListener avatarClickListener;
+
+    /** kept for backward-compat but ChatsFragment v21 does NOT set this */
     private OnLongPressListener longPressListener;
-    // Change 3: 12-hour format
+
     private final SimpleDateFormat fmt = new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private Set<String> specialRequestSenders = new HashSet<>();
 
@@ -60,6 +78,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         this.avatarClickListener = listener;
     }
 
+    /** @deprecated v21 — long-press now triggers selection mode. */
+    @Deprecated
     public void setOnLongPressListener(OnLongPressListener listener) {
         this.longPressListener = listener;
     }
@@ -91,15 +111,15 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
 
-        // Story ring + avatar click logic
+        // ── Story ring ──────────────────────────────────────────────────────
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
 
         if (h.ivStoryRing != null && u.uid != null) {
-            if (scm.hasUnseen(u.uid)) {
+            if (!isSelecting && scm.hasUnseen(u.uid)) {
                 h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
                 h.ivStoryRing.setVisibility(View.VISIBLE);
-            } else if (scm.hasStatus(u.uid)) {
+            } else if (!isSelecting && scm.hasStatus(u.uid)) {
                 h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
                 h.ivStoryRing.setVisibility(View.VISIBLE);
             } else {
@@ -112,6 +132,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             });
         }
 
+        // ── Last message / time / unread ────────────────────────────────────
         if (u.lastMessage != null && !u.lastMessage.isEmpty())
             h.tvLastMessage.setText(u.lastMessage);
         else
@@ -121,7 +142,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         h.tvTime.setText((when != null && when > 0) ? fmt.format(new Date(when)) : "");
 
         long unread = u.unread == null ? 0 : u.unread;
-        if (unread > 0) {
+        if (unread > 0 && !isSelecting) {
             h.tvUnread.setText(unread > 99 ? "99+" : String.valueOf(unread));
             h.tvUnread.setVisibility(View.VISIBLE);
             h.tvLastMessage.setTextColor(ctx.getResources().getColor(R.color.text_primary));
@@ -131,16 +152,36 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         }
 
         boolean isSpecial = u.uid != null && specialRequestSenders.contains(u.uid);
-        if (isSpecial) {
+        if (isSpecial && !isSelecting) {
             h.tvLastMessage.setText("⭐ Special unblock request");
             h.tvLastMessage.setTextColor(0xFFFF8F00);
         }
 
+        // ── Selection state ────────────────────────────────────────────────
         boolean selected = u.uid != null && selectedUids.contains(u.uid);
-        h.itemView.setBackgroundColor(selected ? 0x335B5BF6 : (isSpecial ? 0x33FFC107 : 0x00000000));
 
-        // Story ring click → open StatusViewerActivity (only when ring is visible)
-        // (already set above in ivStoryRing block)
+        // Card background highlight
+        h.itemView.setBackgroundColor(
+            selected      ? 0x335B5BF6 :
+            isSpecial     ? 0x33FFC107 : 0x00000000);
+
+        // Selection overlay on avatar
+        if (h.flSelectOverlay != null) {
+            if (isSelecting) {
+                h.flSelectOverlay.setVisibility(View.VISIBLE);
+                if (h.vCheckRing != null)  h.vCheckRing.setVisibility(selected ? View.VISIBLE : View.GONE);
+                if (h.ivCheck != null)     h.ivCheck.setVisibility(View.INVISIBLE);  // ring handles it
+            } else {
+                h.flSelectOverlay.setVisibility(View.GONE);
+            }
+        }
+
+        // Call buttons: hide during selection mode
+        if (h.llCallBtns != null) {
+            h.llCallBtns.setVisibility(isSelecting ? View.GONE : View.VISIBLE);
+        }
+
+        // ── Click listeners ─────────────────────────────────────────────────
 
         h.ivAvatar.setOnClickListener(v -> {
             if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
@@ -153,6 +194,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         });
 
         h.ivAvatar.setOnLongClickListener(v -> {
+            if (isSelecting) return true;
             showAvatarZoom(ctx, u.photoUrl, u.name);
             return true;
         });
@@ -162,12 +204,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             else openChat(ctx, u);
         });
 
+        // ── Long-press: START selection mode (v21) ──────────────────────────
         h.itemView.setOnLongClickListener(v -> {
-            if (longPressListener != null) {
-                longPressListener.onLongPress(u, v);
-                return true;
-            }
             if (!isSelecting) {
+                // Start selection mode
                 isSelecting = true;
                 if (u.uid != null) selectedUids.add(u.uid);
                 notifyDataSetChanged();
@@ -178,15 +218,18 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             return true;
         });
 
-        h.btnCall.setOnClickListener(v -> {
-            if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-            Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.call.CallActivity");
-            i.putExtra("partnerUid", u.uid);
-            i.putExtra("partnerName", u.name);
-            i.putExtra("isCaller", true);
-            i.putExtra("video", false);
-            ctx.startActivity(i);
-        });
+        // Call buttons
+        if (h.btnCall != null) {
+            h.btnCall.setOnClickListener(v -> {
+                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.call.CallActivity");
+                i.putExtra("partnerUid", u.uid);
+                i.putExtra("partnerName", u.name);
+                i.putExtra("isCaller", true);
+                i.putExtra("video", false);
+                ctx.startActivity(i);
+            });
+        }
 
         if (h.btnVideoCall != null) {
             h.btnVideoCall.setOnClickListener(v -> {
@@ -240,17 +283,20 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     }
 
     public void selectAll() {
+        isSelecting = true;
         for (User u : contacts) if (u.uid != null) selectedUids.add(u.uid);
         notifyDataSetChanged();
         if (selectionListener != null) selectionListener.onSelectionChanged();
     }
 
     public void clearSelection() {
-        isSelecting = false; selectedUids.clear();
+        isSelecting = false;
+        selectedUids.clear();
         notifyDataSetChanged();
         if (selectionListener != null) selectionListener.onSelectionCleared();
     }
 
+    public boolean isSelecting() { return isSelecting; }
     public int getSelectedCount() { return selectedUids.size(); }
 
     public List<User> getSelectedItems() {
@@ -268,7 +314,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         android.widget.FrameLayout root = new android.widget.FrameLayout(ctx);
         root.setBackgroundColor(0xEE000000);
 
-        // PhotoView — supports pinch-to-zoom natively
         com.github.chrisbanes.photoview.PhotoView photoView =
             new com.github.chrisbanes.photoview.PhotoView(ctx);
         android.widget.FrameLayout.LayoutParams ivLp = new android.widget.FrameLayout.LayoutParams(
@@ -279,9 +324,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         photoView.setMediumScale(2f);
         photoView.setMaximumScale(5f);
         photoView.setOnOutsidePhotoTapListener(v -> dialog.dismiss());
-        photoView.setOnPhotoTapListener((v, x, y) -> { /* prevent dismiss on photo tap */ });
+        photoView.setOnPhotoTapListener((v, x, y) -> { /* prevent dismiss */ });
 
-        // Close button top-right
         android.widget.ImageButton btnClose = new android.widget.ImageButton(ctx);
         int closeSizePx = (int)(40 * ctx.getResources().getDisplayMetrics().density);
         android.widget.FrameLayout.LayoutParams closeLp =
@@ -294,7 +338,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         btnClose.setBackgroundColor(0x00000000);
         btnClose.setOnClickListener(v -> dialog.dismiss());
 
-        // Name label bottom
         android.widget.TextView tvName = new android.widget.TextView(ctx);
         tvName.setText(name != null ? name : "");
         tvName.setTextColor(0xFFFFFFFF);
@@ -333,18 +376,24 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName, tvLastMessage, tvTime, tvUnread;
         CircleImageView ivAvatar;
-        android.widget.ImageView ivStoryRing;
+        android.widget.ImageView ivStoryRing, ivCheck;
+        View flSelectOverlay, vCheckRing, llCallBtns;
         ImageButton btnCall, btnVideoCall;
+
         VH(View v) {
             super(v);
-            tvName        = v.findViewById(R.id.tv_name);
-            tvLastMessage = v.findViewById(R.id.tv_last_message);
-            tvTime        = v.findViewById(R.id.tv_time);
-            tvUnread      = v.findViewById(R.id.tv_unread_badge);
-            ivAvatar      = v.findViewById(R.id.iv_avatar);
-            ivStoryRing   = v.findViewById(R.id.iv_story_ring);
-            btnCall       = v.findViewById(R.id.btn_call);
-            btnVideoCall  = v.findViewById(R.id.btn_video_call);
+            tvName          = v.findViewById(R.id.tv_name);
+            tvLastMessage   = v.findViewById(R.id.tv_last_message);
+            tvTime          = v.findViewById(R.id.tv_time);
+            tvUnread        = v.findViewById(R.id.tv_unread_badge);
+            ivAvatar        = v.findViewById(R.id.iv_avatar);
+            ivStoryRing     = v.findViewById(R.id.iv_story_ring);
+            flSelectOverlay = v.findViewById(R.id.fl_select_overlay);
+            ivCheck         = v.findViewById(R.id.iv_check);
+            vCheckRing      = v.findViewById(R.id.v_check_ring);
+            llCallBtns      = v.findViewById(R.id.ll_call_btns);
+            btnCall         = v.findViewById(R.id.btn_call);
+            btnVideoCall    = v.findViewById(R.id.btn_video_call);
         }
     }
 }
