@@ -369,11 +369,11 @@
                 android:gravity="center_horizontal"
                 android:layout_marginEnd="4dp">
 
-                <!-- Rassi for X -->
+                <!-- Rassi for X — lambi rassi = real pendulum feel -->
                 <View
                     android:id="@+id/view_x_thread"
-                    android:layout_width="1.5dp"
-                    android:layout_height="16dp"
+                    android:layout_width="2dp"
+                    android:layout_height="24dp"
                     android:background="@drawable/ic_reel_thread"
                     android:layout_gravity="center_horizontal"/>
 
@@ -399,11 +399,11 @@
                 android:gravity="center_horizontal"
                 android:layout_marginEnd="4dp">
 
-                <!-- Rassi for YouTube -->
+                <!-- Rassi for YouTube — lambi rassi = real pendulum feel -->
                 <View
                     android:id="@+id/view_youtube_thread"
-                    android:layout_width="1.5dp"
-                    android:layout_height="16dp"
+                    android:layout_width="2dp"
+                    android:layout_height="24dp"
                     android:background="@drawable/ic_reel_thread"
                     android:layout_gravity="center_horizontal"/>
 
@@ -428,11 +428,11 @@
                 android:orientation="vertical"
                 android:gravity="center_horizontal">
 
-                <!-- Rassi for Reel -->
+                <!-- Rassi for Reel — lambi rassi = real pendulum feel -->
                 <View
                     android:id="@+id/view_reel_thread"
-                    android:layout_width="1.5dp"
-                    android:layout_height="16dp"
+                    android:layout_width="2dp"
+                    android:layout_height="24dp"
                     android:background="@drawable/ic_reel_thread"
                     android:layout_gravity="center_horizontal"/>
 

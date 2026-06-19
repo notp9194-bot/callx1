@@ -581,56 +581,61 @@ public class ChatActivity extends AppCompatActivity {
             }
         });
 
-        // ── Hanging social buttons animation — patli rassi se latakta, hawa mein jhulta ──
-        // Reel, X, YouTube — teeno pendulum swing karenge, thoda alag timing se
+        // ══════════════════════════════════════════════════════════════════
+        // REAL PENDULUM PHYSICS — CycleInterpolator(1) = perfect sine wave
+        // Asli latkane ki feeling: sin curve + chhoti angle + lambi rassi
+        // Har button ka alag duration → natural phase drift, ek saath nahi hilte
+        // ══════════════════════════════════════════════════════════════════
+
+        // ── Reel button — 2.6 second full swing cycle ──
         android.widget.LinearLayout reelHanging = binding.llReelHanging;
         if (reelHanging != null) {
             reelHanging.post(() -> {
+                // CycleInterpolator(1) = sin(2π × t) → exact pendulum physics
+                // from -7 to +7 means ±7° total swing — realistic, not cartoonish
                 android.view.animation.RotateAnimation swing = new android.view.animation.RotateAnimation(
-                        -12f, 12f,
+                        -7f, 7f,
                         android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
                         android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
                 );
-                swing.setDuration(1800);
+                swing.setDuration(2600);
                 swing.setRepeatCount(android.view.animation.Animation.INFINITE);
-                swing.setRepeatMode(android.view.animation.Animation.REVERSE);
-                swing.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+                swing.setRepeatMode(android.view.animation.Animation.RESTART);
+                swing.setInterpolator(new android.view.animation.CycleInterpolator(1));
                 reelHanging.startAnimation(swing);
             });
         }
 
-        // ── X button hanging animation — thoda phase shift (600ms delay) ──
+        // ── X button — 3.1 second cycle (slightly different → natural drift) ──
         android.widget.LinearLayout xHanging = binding.llXHanging;
         if (xHanging != null) {
             xHanging.post(() -> {
                 android.view.animation.RotateAnimation swingX = new android.view.animation.RotateAnimation(
-                        -10f, 10f,
+                        -6f, 6f,
                         android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
                         android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
                 );
-                swingX.setDuration(2000);
-                swingX.setStartOffset(600);   // thoda baad shuru ho — natural lag
+                swingX.setDuration(3100);
                 swingX.setRepeatCount(android.view.animation.Animation.INFINITE);
-                swingX.setRepeatMode(android.view.animation.Animation.REVERSE);
-                swingX.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+                swingX.setRepeatMode(android.view.animation.Animation.RESTART);
+                swingX.setInterpolator(new android.view.animation.CycleInterpolator(1));
                 xHanging.startAnimation(swingX);
             });
         }
 
-        // ── YouTube button hanging animation — aur thoda phase shift (300ms delay) ──
+        // ── YouTube button — 2.3 second cycle (sabse chhota → thodi tez) ──
         android.widget.LinearLayout youtubeHanging = binding.llYoutubeHanging;
         if (youtubeHanging != null) {
             youtubeHanging.post(() -> {
                 android.view.animation.RotateAnimation swingYT = new android.view.animation.RotateAnimation(
-                        -11f, 11f,
+                        -8f, 8f,
                         android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
                         android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
                 );
-                swingYT.setDuration(1600);
-                swingYT.setStartOffset(300);  // beech mein shuru — teen alag laya
+                swingYT.setDuration(2300);
                 swingYT.setRepeatCount(android.view.animation.Animation.INFINITE);
-                swingYT.setRepeatMode(android.view.animation.Animation.REVERSE);
-                swingYT.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+                swingYT.setRepeatMode(android.view.animation.Animation.RESTART);
+                swingYT.setInterpolator(new android.view.animation.CycleInterpolator(1));
                 youtubeHanging.startAnimation(swingYT);
             });
         }
