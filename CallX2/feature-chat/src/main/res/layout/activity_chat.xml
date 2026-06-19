@@ -84,17 +84,41 @@
                 android:visibility="gone"/>
         </LinearLayout>
 
-        <!-- Reel button -->
-        <ImageButton
-            android:id="@+id/btn_toolbar_reel"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:src="@drawable/ic_reels"
-            android:tint="@color/white"
-            android:background="@drawable/bg_social_reel_btn"
-            android:padding="6dp"
+        <!-- Reel button — patli rassi se latakta hua, hawa mein jhulta -->
+        <!-- Pura container: rassi + button ek saath upar se neeche -->
+        <LinearLayout
+            android:id="@+id/ll_reel_hanging"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
             android:layout_marginEnd="3dp"
-            android:contentDescription="View Reels Profile"/>
+            android:translationY="-4dp"
+            android:pivotX="15dp"
+            android:pivotY="0dp">
+
+            <!-- Patli rassi (thin string from top of header) -->
+            <View
+                android:id="@+id/view_reel_thread"
+                android:layout_width="1.5dp"
+                android:layout_height="8dp"
+                android:background="@drawable/ic_reel_thread"
+                android:layout_gravity="center_horizontal"/>
+
+            <!-- Reel button itself — jhulta hua -->
+            <ImageButton
+                android:id="@+id/btn_toolbar_reel"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/ic_reels"
+                android:tint="@color/white"
+                android:background="@drawable/bg_social_reel_btn"
+                android:padding="6dp"
+                android:contentDescription="View Reels Profile"
+                android:pivotX="15dp"
+                android:pivotY="0dp"/>
+
+        </LinearLayout>
 
         <!-- X button -->
         <ImageButton
@@ -576,114 +600,75 @@
 
     </LinearLayout>
 
-    <!-- Modern Input Bar (WhatsApp/Telegram style) -->
+    <!-- Input row -->
     <LinearLayout
         android:id="@+id/ll_input_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingStart="6dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp"
+        android:padding="3dp"
         android:background="@color/surface_card"
-        android:gravity="bottom"
-        android:elevation="8dp">
-
-        <!-- Attach Button (left, outside pill) -->
+        android:gravity="center_vertical"
+        android:elevation="4dp">
         <ImageButton
             android:id="@+id/btn_attach"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:padding="9dp"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:padding="6dp"
             android:src="@drawable/ic_attach"
-            android:background="@drawable/bg_chat_icon_btn"
-            android:imageTintList="@color/text_muted"
-            android:layout_marginEnd="2dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Attach"/>
-
-        <!-- Input Pill (emoji + text + camera) -->
-        <LinearLayout
+        <ImageButton
+            android:id="@+id/btn_camera"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:padding="6dp"
+            android:src="@drawable/ic_camera"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Camera"/>
+        <FrameLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_chat_input_pill"
+            android:background="@drawable/rounded_input_bg"
+            android:layout_marginStart="4dp"
             android:layout_marginEnd="6dp"
-            android:minHeight="44dp">
-
-            <!-- Emoji Button (inside pill, left) -->
-            <ImageButton
-                android:id="@+id/btn_emoji"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
-                android:padding="5dp"
-                android:layout_marginStart="4dp"
-                android:src="@drawable/ic_emoji_chat"
-                android:background="@drawable/bg_chat_icon_btn"
-                android:contentDescription="Emoji"/>
-
-            <!-- Message EditText -->
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
             <com.callx.app.chat.ui.GifAwareEditText
                 android:id="@+id/et_message"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
                 android:hint="@string/hint_message"
                 android:textColorHint="@color/text_muted"
                 android:textColor="?android:attr/textColorPrimary"
-                android:background="@android:color/transparent"
-                android:paddingTop="10dp"
-                android:paddingBottom="10dp"
-                android:paddingStart="6dp"
-                android:paddingEnd="4dp"
-                android:textSize="15sp"
-                android:lineSpacingExtra="2dp"
-                android:maxLines="5"
-                android:maxLength="4000"
-                android:imeOptions="actionNone"
-                android:inputType="textMultiLine|textCapSentences"/>
-
-            <!-- Camera Button (inside pill, right) -->
-            <ImageButton
-                android:id="@+id/btn_camera"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
-                android:padding="5dp"
-                android:layout_marginEnd="4dp"
-                android:src="@drawable/ic_camera"
-                android:imageTintList="@color/text_muted"
-                android:background="@drawable/bg_chat_icon_btn"
-                android:contentDescription="Camera"/>
-
-        </LinearLayout>
-
-        <!-- Mic Button (gradient circle, shown when no text) -->
+                android:background="@color/transparent"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:textSize="14sp"
+                android:maxLines="4"
+                android:maxLength="4000"/>
+        </FrameLayout>
         <ImageButton
             android:id="@+id/btn_mic"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:padding="11dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="8dp"
             android:src="@drawable/ic_mic"
-            android:imageTintList="#FFFFFF"
-            android:background="@drawable/bg_chat_send_btn"
-            android:elevation="2dp"
+            android:background="@drawable/circle_primary"
             android:contentDescription="Voice message"/>
-
-        <!-- Send Button (gradient circle, shown when text typed) -->
         <ImageButton
             android:id="@+id/btn_send"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:padding="11dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="8dp"
             android:src="@drawable/ic_send"
-            android:imageTintList="#FFFFFF"
-            android:background="@drawable/bg_chat_send_btn"
-            android:elevation="2dp"
+            android:background="@drawable/circle_primary"
+            android:layout_marginStart="6dp"
             android:visibility="gone"
             android:contentDescription="Send"/>
-
     </LinearLayout>
 
 </LinearLayout>

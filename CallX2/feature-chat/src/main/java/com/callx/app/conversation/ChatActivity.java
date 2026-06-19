@@ -15,6 +15,9 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
+import android.view.animation.Animation;
+import android.view.animation.RotateAnimation;
+import android.widget.LinearLayout;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -578,6 +581,24 @@ public class ChatActivity extends AppCompatActivity {
             }
         });
 
+        // ── Hanging reel button animation — patli rassi se latakta, hawa mein jhulta ──
+        // ll_reel_hanging ke pivot upar-center hai, wahan se pendulum swing hoga
+        LinearLayout reelHanging = binding.llReelHanging;
+        if (reelHanging != null) {
+            // Pendulum swing: left → right → left loop, pivot = top-center (rassi ka jod)
+            RotateAnimation swing = new RotateAnimation(
+                    -12f,   // from: 12° left
+                     12f,   // to:   12° right
+                    Animation.RELATIVE_TO_SELF, 0.5f,  // pivotX = center
+                    Animation.RELATIVE_TO_SELF, 0.0f   // pivotY = top (rassi ka upar)
+            );
+            swing.setDuration(1800);                          // ek jhule ka time
+            swing.setRepeatCount(Animation.INFINITE);
+            swing.setRepeatMode(Animation.REVERSE);           // wapas aao smoothly
+            swing.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            reelHanging.startAnimation(swing);
+        }
+
         // X profile button — open partner's X profile sheet
         binding.btnToolbarX.setOnClickListener(v -> {
             if (partnerUid == null || partnerUid.isEmpty()) return;
@@ -933,14 +954,6 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnMic.setOnClickListener(v -> toggleRecording());
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> launchCamera());
-        binding.btnEmoji.setOnClickListener(v -> {
-            android.view.inputmethod.InputMethodManager imm =
-                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-            if (imm != null) {
-                binding.etMessage.requestFocus();
-                imm.showSoftInput(binding.etMessage, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
-            }
-        });
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
