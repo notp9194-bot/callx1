@@ -582,62 +582,36 @@ public class ChatActivity extends AppCompatActivity {
         });
 
         // ══════════════════════════════════════════════════════════════════
-        // REAL PENDULUM PHYSICS — CycleInterpolator(1) = perfect sine wave
-        // Asli latkane ki feeling: sin curve + chhoti angle + lambi rassi
-        // Har button ka alag duration → natural phase drift, ek saath nahi hilte
+        // REAL PENDULUM + RUBBER BAND PHYSICS
+        // CycleInterpolator(1) = perfect sine wave pendulum
+        // Touch = rassi kheencho (rubber band), chodo = spring wapas takke
         // ══════════════════════════════════════════════════════════════════
 
-        // ── Reel button — 2.6 second full swing cycle ──
+        // ── Reel button — 2.6 second cycle ──
         android.widget.LinearLayout reelHanging = binding.llReelHanging;
+        android.view.animation.RotateAnimation reelSwing = makePendulumAnim(-7f, 7f, 2600);
         if (reelHanging != null) {
-            reelHanging.post(() -> {
-                // CycleInterpolator(1) = sin(2π × t) → exact pendulum physics
-                // from -7 to +7 means ±7° total swing — realistic, not cartoonish
-                android.view.animation.RotateAnimation swing = new android.view.animation.RotateAnimation(
-                        -7f, 7f,
-                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
-                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
-                );
-                swing.setDuration(2600);
-                swing.setRepeatCount(android.view.animation.Animation.INFINITE);
-                swing.setRepeatMode(android.view.animation.Animation.RESTART);
-                swing.setInterpolator(new android.view.animation.CycleInterpolator(1));
-                reelHanging.startAnimation(swing);
-            });
+            reelHanging.post(() -> reelHanging.startAnimation(reelSwing));
+            setupRubberBandHang(reelHanging, binding.viewReelThread,
+                    binding.btnToolbarReel, -7f, 7f, 2600);
         }
 
-        // ── X button — 3.1 second cycle (slightly different → natural drift) ──
+        // ── X button — 3.1 second cycle ──
         android.widget.LinearLayout xHanging = binding.llXHanging;
+        android.view.animation.RotateAnimation xSwing = makePendulumAnim(-6f, 6f, 3100);
         if (xHanging != null) {
-            xHanging.post(() -> {
-                android.view.animation.RotateAnimation swingX = new android.view.animation.RotateAnimation(
-                        -6f, 6f,
-                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
-                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
-                );
-                swingX.setDuration(3100);
-                swingX.setRepeatCount(android.view.animation.Animation.INFINITE);
-                swingX.setRepeatMode(android.view.animation.Animation.RESTART);
-                swingX.setInterpolator(new android.view.animation.CycleInterpolator(1));
-                xHanging.startAnimation(swingX);
-            });
+            xHanging.post(() -> xHanging.startAnimation(xSwing));
+            setupRubberBandHang(xHanging, binding.viewXThread,
+                    binding.btnToolbarX, -6f, 6f, 3100);
         }
 
-        // ── YouTube button — 2.3 second cycle (sabse chhota → thodi tez) ──
+        // ── YouTube button — 2.3 second cycle ──
         android.widget.LinearLayout youtubeHanging = binding.llYoutubeHanging;
+        android.view.animation.RotateAnimation ytSwing = makePendulumAnim(-8f, 8f, 2300);
         if (youtubeHanging != null) {
-            youtubeHanging.post(() -> {
-                android.view.animation.RotateAnimation swingYT = new android.view.animation.RotateAnimation(
-                        -8f, 8f,
-                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
-                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
-                );
-                swingYT.setDuration(2300);
-                swingYT.setRepeatCount(android.view.animation.Animation.INFINITE);
-                swingYT.setRepeatMode(android.view.animation.Animation.RESTART);
-                swingYT.setInterpolator(new android.view.animation.CycleInterpolator(1));
-                youtubeHanging.startAnimation(swingYT);
-            });
+            youtubeHanging.post(() -> youtubeHanging.startAnimation(ytSwing));
+            setupRubberBandHang(youtubeHanging, binding.viewYoutubeThread,
+                    binding.btnToolbarYoutube, -8f, 8f, 2300);
         }
 
         // X profile button — open partner's X profile sheet
@@ -3180,6 +3154,116 @@ public class ChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
     // UTILS
     // ─────────────────────────────────────────────────────────────────────
+
+    // ══════════════════════════════════════════════════════════════════════
+    // HANGING BUTTON HELPERS — Pendulum + Rubber Band Physics
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** Pendulum animation banata hai — CycleInterpolator = exact sine wave physics */
+    private android.view.animation.RotateAnimation makePendulumAnim(
+            float fromDeg, float toDeg, long durationMs) {
+        android.view.animation.RotateAnimation anim = new android.view.animation.RotateAnimation(
+                fromDeg, toDeg,
+                android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
+                android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
+        );
+        anim.setDuration(durationMs);
+        anim.setRepeatCount(android.view.animation.Animation.INFINITE);
+        anim.setRepeatMode(android.view.animation.Animation.RESTART);
+        anim.setInterpolator(new android.view.animation.CycleInterpolator(1));
+        return anim;
+    }
+
+    /**
+     * Rubber-band hang effect — touch karo toh rassi kheenchti hai, chodo toh spring wapas.
+     *
+     * @param container   Pura hanging LinearLayout (rassi + button)
+     * @param threadView  Rassi ka View — scaleY se stretch hogi
+     * @param button      Button — translationY se neeche jaayega
+     * @param fromDeg     Pendulum start angle
+     * @param toDeg       Pendulum end angle
+     * @param durationMs  Pendulum ek cycle ka time
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void setupRubberBandHang(
+            android.widget.LinearLayout container,
+            android.view.View threadView,
+            android.widget.ImageButton button,
+            float fromDeg, float toDeg, long durationMs) {
+
+        final float MAX_PULL = 160f;       // kitna zyada kheench sakte ho (pixels)
+        final float[] startRawY  = {0f};
+        final boolean[] dragged  = {false};
+
+        button.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+
+                case android.view.MotionEvent.ACTION_DOWN:
+                    startRawY[0] = event.getRawY();
+                    dragged[0]   = false;
+                    // Pendulum rok do, seedha khada karo
+                    container.clearAnimation();
+                    container.setRotation(0f);
+                    // Thread bhi reset
+                    threadView.setPivotY(0f);
+                    threadView.setScaleY(1f);
+                    button.setTranslationY(0f);
+                    return true;
+
+                case android.view.MotionEvent.ACTION_MOVE:
+                    float dy = event.getRawY() - startRawY[0];
+                    if (dy < 0f) dy = 0f;          // sirf neeche kheeche
+                    if (dy > 8f) dragged[0] = true;
+
+                    // Rubber-band resistance formula — exponential decay
+                    // Jitna door kheencho utna kam aage badhta hai, bilkul asli rubber jaisa
+                    float pull = MAX_PULL * (1f - (float) Math.exp(-dy / MAX_PULL));
+
+                    // Rassi oopar se neeche stretch karo (scaleY, pivot = top)
+                    threadView.setPivotY(0f);
+                    float threadH = threadView.getHeight() > 0 ? threadView.getHeight() : 60f;
+                    threadView.setScaleY(1f + pull / threadH);
+
+                    // Button neeche slide karo
+                    button.setTranslationY(pull);
+                    return true;
+
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    if (!dragged[0]) {
+                        // Chhota tap = click treat karo
+                        button.performClick();
+                        // Pendulum resume
+                        android.view.animation.RotateAnimation resume =
+                                makePendulumAnim(fromDeg, toDeg, durationMs);
+                        container.post(() -> container.startAnimation(resume));
+                        return true;
+                    }
+
+                    // ── Spring wapas — OvershootInterpolator = takkar ki feeling ──
+                    // Rassi pehle thodi aur kheench ke phir snap karti hai
+                    threadView.animate()
+                            .scaleY(1f)
+                            .setDuration(550)
+                            .setInterpolator(new android.view.animation.OvershootInterpolator(3.5f))
+                            .start();
+
+                    button.animate()
+                            .translationY(0f)
+                            .setDuration(550)
+                            .setInterpolator(new android.view.animation.OvershootInterpolator(3.5f))
+                            .withEndAction(() -> {
+                                // Pendulum phir shuru — button wapas jhulne lagta hai
+                                android.view.animation.RotateAnimation resume =
+                                        makePendulumAnim(fromDeg, toDeg, durationMs);
+                                container.post(() -> container.startAnimation(resume));
+                            })
+                            .start();
+                    return true;
+            }
+            return false;
+        });
+    }
 
     private int dp(int dp) {
         return (int) (dp * getResources().getDisplayMetrics().density);
