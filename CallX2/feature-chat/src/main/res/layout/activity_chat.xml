@@ -84,38 +84,6 @@
                 android:visibility="gone"/>
         </LinearLayout>
 
-        <!-- Reel button — patli rassi se latakta hua, hawa mein jhulta -->
-        <!-- Pura container: rassi + button ek saath upar se neeche -->
-        <LinearLayout
-            android:id="@+id/ll_reel_hanging"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center_horizontal"
-            android:layout_marginEnd="3dp"
-            android:translationY="-4dp">
-
-            <!-- Patli rassi (thin string from top of header) -->
-            <View
-                android:id="@+id/view_reel_thread"
-                android:layout_width="1.5dp"
-                android:layout_height="8dp"
-                android:background="@drawable/ic_reel_thread"
-                android:layout_gravity="center_horizontal"/>
-
-            <!-- Reel button itself — jhulta hua -->
-            <ImageButton
-                android:id="@+id/btn_toolbar_reel"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:src="@drawable/ic_reels"
-                android:tint="@color/white"
-                android:background="@drawable/bg_social_reel_btn"
-                android:padding="6dp"
-                android:contentDescription="View Reels Profile"/>
-
-        </LinearLayout>
-
         <!-- X button -->
         <ImageButton
             android:id="@+id/btn_toolbar_x"
@@ -402,6 +370,43 @@
         android:layout_weight="1">
 
         <!-- Chat Wallpaper Background Image -->
+
+        <!-- ══════════════════════════════════════════════════════════════
+             REEL BUTTON — Header ke neeche chat area mein latakta hua
+             Rassi + button saath mein, top-right corner, floating style
+             ══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:id="@+id/ll_reel_hanging"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:layout_gravity="top|end"
+            android:layout_marginEnd="14dp"
+            android:elevation="6dp">
+
+            <!-- Patli rassi — header se neeche latakti hui -->
+            <View
+                android:id="@+id/view_reel_thread"
+                android:layout_width="1.5dp"
+                android:layout_height="16dp"
+                android:background="@drawable/ic_reel_thread"
+                android:layout_gravity="center_horizontal"/>
+
+            <!-- Reel button — rassi se jhulta hua -->
+            <ImageButton
+                android:id="@+id/btn_toolbar_reel"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:src="@drawable/ic_reels"
+                android:tint="@color/white"
+                android:background="@drawable/bg_social_reel_btn"
+                android:padding="8dp"
+                android:elevation="6dp"
+                android:contentDescription="View Reels Profile"/>
+
+        </LinearLayout>
+
         <ImageView
             android:id="@+id/iv_chat_wallpaper"
             android:layout_width="match_parent"
