@@ -146,9 +146,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Typing debounce ────────────────────────────────────────────────────
     private final android.os.Handler typingHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable stopTypingRunnable = () -> {
-        if (presenceController != null) presenceController.setOurTypingStatus(false);
-    };
+    // NOTE: must be a method reference (not a lambda with a field ref) to avoid
+    // "illegal forward reference" — presenceController is declared further down.
+    private final Runnable stopTypingRunnable = this::onStopTypingTimeout;
 
     // ── Disappearing messages expiry ───────────────────────────────────────
     private final android.os.Handler expiryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -906,6 +906,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 mediaController.sendGifMessage(contentInfo.getContentUri(), contentInfo);
             });
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // TYPING TIMEOUT CALLBACK
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void onStopTypingTimeout() {
+        if (presenceController != null) presenceController.setOurTypingStatus(false);
     }
 
     // ─────────────────────────────────────────────────────────────────────

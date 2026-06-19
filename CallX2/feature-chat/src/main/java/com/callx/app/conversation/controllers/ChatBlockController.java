@@ -336,7 +336,7 @@ public class ChatBlockController {
     private void showSendRequestSheet(long currentAttemptCount) {
         android.app.Activity activity = delegate.getActivity();
         View sheet = LayoutInflater.from(activity)
-                .inflate(R.layout.bottom_sheet_send_request, null);
+                .inflate(R.layout.dialog_send_unblock_request, null);
 
         de.hdodenhof.circleimageview.CircleImageView ivBlocker =
                 sheet.findViewById(R.id.iv_blocker_avatar);
