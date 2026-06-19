@@ -84,30 +84,6 @@
                 android:visibility="gone"/>
         </LinearLayout>
 
-        <!-- X button -->
-        <ImageButton
-            android:id="@+id/btn_toolbar_x"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:src="@drawable/ic_x_logo"
-            android:tint="@color/white"
-            android:background="@drawable/bg_social_x_btn"
-            android:padding="6dp"
-            android:layout_marginEnd="3dp"
-            android:contentDescription="View X Profile"/>
-
-        <!-- YouTube button -->
-        <ImageButton
-            android:id="@+id/btn_toolbar_youtube"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:src="@drawable/ic_youtube"
-            android:tint="@color/white"
-            android:background="@drawable/bg_social_youtube_btn"
-            android:padding="6dp"
-            android:layout_marginEnd="1dp"
-            android:contentDescription="View YouTube Channel"/>
-
         <!-- Video call button -->
         <ImageButton
             android:id="@+id/btn_toolbar_video_call"
@@ -372,38 +348,106 @@
         <!-- Chat Wallpaper Background Image -->
 
         <!-- ══════════════════════════════════════════════════════════════
-             REEL BUTTON — Header ke neeche chat area mein latakta hua
-             Rassi + button saath mein, top-right corner, floating style
+             SOCIAL BUTTONS — Header ke neeche chat area mein latakte hue
+             X, YouTube, Reel — teeno rassi se jhulte hue, top-right corner
              ══════════════════════════════════════════════════════════════ -->
         <LinearLayout
-            android:id="@+id/ll_reel_hanging"
+            android:id="@+id/ll_social_hanging_row"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center_horizontal"
+            android:orientation="horizontal"
             android:layout_gravity="top|end"
-            android:layout_marginEnd="14dp"
+            android:layout_marginEnd="8dp"
             android:elevation="6dp">
 
-            <!-- Patli rassi — header se neeche latakti hui -->
-            <View
-                android:id="@+id/view_reel_thread"
-                android:layout_width="1.5dp"
-                android:layout_height="16dp"
-                android:background="@drawable/ic_reel_thread"
-                android:layout_gravity="center_horizontal"/>
+            <!-- X button — latakta hua -->
+            <LinearLayout
+                android:id="@+id/ll_x_hanging"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:layout_marginEnd="4dp">
 
-            <!-- Reel button — rassi se jhulta hua -->
-            <ImageButton
-                android:id="@+id/btn_toolbar_reel"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:src="@drawable/ic_reels"
-                android:tint="@color/white"
-                android:background="@drawable/bg_social_reel_btn"
-                android:padding="8dp"
-                android:elevation="6dp"
-                android:contentDescription="View Reels Profile"/>
+                <!-- Rassi for X -->
+                <View
+                    android:id="@+id/view_x_thread"
+                    android:layout_width="1.5dp"
+                    android:layout_height="16dp"
+                    android:background="@drawable/ic_reel_thread"
+                    android:layout_gravity="center_horizontal"/>
+
+                <ImageButton
+                    android:id="@+id/btn_toolbar_x"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:src="@drawable/ic_x_logo"
+                    android:tint="@color/white"
+                    android:background="@drawable/bg_social_x_btn"
+                    android:padding="8dp"
+                    android:elevation="6dp"
+                    android:contentDescription="View X Profile"/>
+
+            </LinearLayout>
+
+            <!-- YouTube button — latakta hua -->
+            <LinearLayout
+                android:id="@+id/ll_youtube_hanging"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:layout_marginEnd="4dp">
+
+                <!-- Rassi for YouTube -->
+                <View
+                    android:id="@+id/view_youtube_thread"
+                    android:layout_width="1.5dp"
+                    android:layout_height="16dp"
+                    android:background="@drawable/ic_reel_thread"
+                    android:layout_gravity="center_horizontal"/>
+
+                <ImageButton
+                    android:id="@+id/btn_toolbar_youtube"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:src="@drawable/ic_youtube"
+                    android:tint="@color/white"
+                    android:background="@drawable/bg_social_youtube_btn"
+                    android:padding="8dp"
+                    android:elevation="6dp"
+                    android:contentDescription="View YouTube Channel"/>
+
+            </LinearLayout>
+
+            <!-- Reel button — latakta hua -->
+            <LinearLayout
+                android:id="@+id/ll_reel_hanging"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <!-- Rassi for Reel -->
+                <View
+                    android:id="@+id/view_reel_thread"
+                    android:layout_width="1.5dp"
+                    android:layout_height="16dp"
+                    android:background="@drawable/ic_reel_thread"
+                    android:layout_gravity="center_horizontal"/>
+
+                <ImageButton
+                    android:id="@+id/btn_toolbar_reel"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:src="@drawable/ic_reels"
+                    android:tint="@color/white"
+                    android:background="@drawable/bg_social_reel_btn"
+                    android:padding="8dp"
+                    android:elevation="6dp"
+                    android:contentDescription="View Reels Profile"/>
+
+            </LinearLayout>
 
         </LinearLayout>
 

@@ -581,24 +581,57 @@ public class ChatActivity extends AppCompatActivity {
             }
         });
 
-        // ── Hanging reel button animation — patli rassi se latakta, hawa mein jhulta ──
-        // ll_reel_hanging ke pivot upar-center hai, wahan se pendulum swing hoga
-        LinearLayout reelHanging = binding.llReelHanging;
+        // ── Hanging social buttons animation — patli rassi se latakta, hawa mein jhulta ──
+        // Reel, X, YouTube — teeno pendulum swing karenge, thoda alag timing se
+        android.widget.LinearLayout reelHanging = binding.llReelHanging;
         if (reelHanging != null) {
             reelHanging.post(() -> {
-                // pivotX = center (50%), pivotY = top (0%) — rassi ka jod point
-                // RotateAnimation mein directly relative_to_self fraction dete hain
-                RotateAnimation swing = new RotateAnimation(
-                        -12f,   // from: 12° left
-                         12f,   // to:   12° right
-                        Animation.RELATIVE_TO_SELF, 0.5f,  // pivotX = horizontal center
-                        Animation.RELATIVE_TO_SELF, 0.0f   // pivotY = top (rassi ka upar wala sar)
+                android.view.animation.RotateAnimation swing = new android.view.animation.RotateAnimation(
+                        -12f, 12f,
+                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
+                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
                 );
                 swing.setDuration(1800);
-                swing.setRepeatCount(Animation.INFINITE);
-                swing.setRepeatMode(Animation.REVERSE);
+                swing.setRepeatCount(android.view.animation.Animation.INFINITE);
+                swing.setRepeatMode(android.view.animation.Animation.REVERSE);
                 swing.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
                 reelHanging.startAnimation(swing);
+            });
+        }
+
+        // ── X button hanging animation — thoda phase shift (600ms delay) ──
+        android.widget.LinearLayout xHanging = binding.llXHanging;
+        if (xHanging != null) {
+            xHanging.post(() -> {
+                android.view.animation.RotateAnimation swingX = new android.view.animation.RotateAnimation(
+                        -10f, 10f,
+                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
+                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
+                );
+                swingX.setDuration(2000);
+                swingX.setStartOffset(600);   // thoda baad shuru ho — natural lag
+                swingX.setRepeatCount(android.view.animation.Animation.INFINITE);
+                swingX.setRepeatMode(android.view.animation.Animation.REVERSE);
+                swingX.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+                xHanging.startAnimation(swingX);
+            });
+        }
+
+        // ── YouTube button hanging animation — aur thoda phase shift (300ms delay) ──
+        android.widget.LinearLayout youtubeHanging = binding.llYoutubeHanging;
+        if (youtubeHanging != null) {
+            youtubeHanging.post(() -> {
+                android.view.animation.RotateAnimation swingYT = new android.view.animation.RotateAnimation(
+                        -11f, 11f,
+                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
+                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.0f
+                );
+                swingYT.setDuration(1600);
+                swingYT.setStartOffset(300);  // beech mein shuru — teen alag laya
+                swingYT.setRepeatCount(android.view.animation.Animation.INFINITE);
+                swingYT.setRepeatMode(android.view.animation.Animation.REVERSE);
+                swingYT.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+                youtubeHanging.startAnimation(swingYT);
             });
         }
 
