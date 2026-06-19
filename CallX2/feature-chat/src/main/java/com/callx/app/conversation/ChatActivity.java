@@ -8,10 +8,6 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
-import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -20,12 +16,12 @@ import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.animation.Animation;
-import android.view.animation.RotateAnimation;
 import android.widget.EditText;
-import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -36,37 +32,26 @@ import androidx.paging.PagingConfig;
 import androidx.paging.PagingData;
 import androidx.paging.PagingDataTransforms;
 import androidx.paging.PagingLiveData;
-import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.callx.app.cache.CacheManager;
 import com.callx.app.chat.R;
-import com.callx.app.chat.analytics.ReplyAnalyticsTracker;
+import com.callx.app.conversation.MessagePagingAdapter;
+import com.callx.app.cache.CacheManager;
 import com.callx.app.chat.databinding.ActivityChatBinding;
-import com.callx.app.chat.gesture.SwipeReplyHandler;
-import com.callx.app.chat.performance.SwipeOptimizer;
-import com.callx.app.chat.reply.ReplyController;
-import com.callx.app.chat.reply.ReplyDataMapper;
-import com.callx.app.chat.ui.GifAwareEditText;
-import com.callx.app.chat.ui.MessageHighlightAnimator;
-import com.callx.app.conversation.controllers.ChatActivityDelegate;
-import com.callx.app.conversation.controllers.ChatBlockController;
-import com.callx.app.conversation.controllers.ChatMediaController;
-import com.callx.app.conversation.controllers.ChatMessageSender;
-import com.callx.app.conversation.controllers.ChatPinController;
-import com.callx.app.conversation.controllers.ChatPresenceController;
-import com.callx.app.conversation.controllers.ChatSearchController;
-import com.callx.app.conversation.controllers.ChatThemeController;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
 import com.callx.app.repository.ChatRepository;
-import com.callx.app.starred.StarredMessagesActivity;
+import com.callx.app.utils.CloudinaryUploader;
+import com.callx.app.utils.ImageCompressor;
+import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.FirebaseUtils;
-import com.callx.app.utils.TypingStyleManager;
-import com.callx.app.utils.UnicodeStyler;
+import com.callx.app.utils.PushNotify;
+import com.callx.app.utils.VoiceRecorder;
+import com.facebook.shimmer.ShimmerFrameLayout;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.ChildEventListener;
@@ -75,37 +60,65 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
 
-import java.util.ArrayList;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
+
+import androidx.recyclerview.widget.ItemTouchHelper;
+import com.callx.app.chat.analytics.ReplyAnalyticsTracker;
+import com.callx.app.chat.gesture.SwipeReplyHandler;
+import com.callx.app.chat.performance.SwipeOptimizer;
+import com.callx.app.chat.reply.ReplyController;
+import com.callx.app.chat.reply.ReplyDataMapper;
+import com.callx.app.chat.ui.MessageHighlightAnimator;
+import com.callx.app.chat.ui.GifAwareEditText;
+import androidx.core.view.inputmethod.InputContentInfoCompat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import com.callx.app.starred.StarredMessagesActivity;
+
 
 /**
- * ChatActivity — 1:1 chat screen coordinator.
- *
- * All heavy logic is delegated to controller classes:
- *   • ChatBlockController    — block / perma-block / unblock-joy / special-request
- *   • ChatPresenceController — typing, online-status, mute, mark-read
- *   • ChatPinController      — pin / unpin
- *   • ChatSearchController   — in-chat search
- *   • ChatThemeController    — theme, wallpaper, customization, privacy dialogs
- *   • ChatMediaController    — media pickers, upload, camera, GIF, voice
- *   • ChatMessageSender      — local-first send, Firebase push, pending retry
+ * ChatActivity — Production-grade 1:1 chat screen.
  *
  * Architecture:
- *   Firebase RT DB ──ChildEventListener──► Room DB (auto-invalidates PagingSource)
- *   Pager<Integer, MessageEntity> ──LiveData──► PagingAdapter ──► RecyclerView
+ *   ┌─────────────────────────────────────────────────────────────┐
+ *   │  Firebase RT DB  ──ChildEventListener──►  Room DB           │
+ *   │  (real-time new msgs)                  (insert/update)       │
+ *   │                                              │               │
+ *   │  MessageDao.getMessagesPagingSource()        │               │
+ *   │  (auto-invalidates on Room change) ◄─────────┘               │
+ *   │            │                                                  │
+ *   │   Pager<Integer, MessageEntity>                              │
+ *   │            │                                                  │
+ *   │   PagingData<MessageEntity>                                  │
+ *   │            │  PagingDataTransforms.map()                     │
+ *   │   PagingData<Message>                                        │
+ *   │            │                                                  │
+ *   │   MessagePagingAdapter ──► RecyclerView                     │
+ *   └─────────────────────────────────────────────────────────────┘
+ *
+ * Key fixes vs original:
+ *   [FIX-1] Replaced MessageAdapter (full List load) with MessagePagingAdapter (Paging 3)
+ *   [FIX-2] Firebase ChildEventListener → Room insert (not List.add) → auto-invalidates PagingSource
+ *   [FIX-3] Delta-sync via ChatRepository: only fetch messages newer than last cached ts
+ *   [FIX-4] Shimmer hidden via LoadState listener (not a fixed delay)
+ *   [FIX-5] Auto-scroll only when new message arrives at tail (not on every page load)
+ *   [FIX-6] RecyclerView adapter data observer scrolls to bottom on new insert
  */
-public class ChatActivity extends AppCompatActivity implements ChatActivityDelegate {
+public class ChatActivity extends AppCompatActivity {
 
     // ── Constants ──────────────────────────────────────────────────────────
     private static final String TAG           = "ChatActivity";
     private static final int    PAGE_SIZE     = 20;
     private static final int    PREFETCH_DIST = 10;
     private static final int    INITIAL_LOAD  = 40;
-    private static final int    MAX_MESSAGE_LENGTH = 4000;
+    private static final int    REQ_AUDIO     = 200;
+    private static final int    REQ_CAMERA    = 300;
 
     // ── View binding ───────────────────────────────────────────────────────
     private ActivityChatBinding binding;
@@ -115,56 +128,64 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private String partnerUid;
     private String partnerName;
     private String partnerPhoto;
-    private String partnerThumb;
+    private String partnerThumb;   // 100×100 WebP — header avatar fast load
     private String currentUid;
     private String currentName;
 
     // ── State flags ────────────────────────────────────────────────────────
-    private boolean isMuted               = false;
-    private boolean isBlocked             = false;
-    private boolean isRecording           = false;
+    private boolean isMuted              = false;
+    private boolean isBlocked            = false;
+    private boolean isRecording          = false;
     private boolean partnerPermaBlockedMe = false;
-    private boolean iPermaBlockedPartner  = false;
+    private boolean iPermaBlockedPartner  = false; // Maine partner ko permanently block kiya hai
 
-    // ── Paging 3 ──────────────────────────────────────────────────────────
+    // ── Paging 3 (core fix) ───────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
     private AppDatabase          db;
     private final Executor       ioExecutor = Executors.newFixedThreadPool(2);
 
-    // ── Firebase ───────────────────────────────────────────────────────────
+    // ── Firebase refs & listeners ──────────────────────────────────────────
     private DatabaseReference  messagesRef;
     private ChildEventListener messageListener;
+    private ValueEventListener typingListener;
+    private ValueEventListener onlineListener;
+    private ValueEventListener blockListener;
+    private ValueEventListener permaBlockListener;
+    private ValueEventListener myPermaBlockListener; // Maine partner ko perma-block kiya check
 
     // ── Reply state ────────────────────────────────────────────────────────
     private Message replyingTo = null;
-    private ReplyController  replyController;
-    private ItemTouchHelper  swipeHelper;
 
-    // ── Network ────────────────────────────────────────────────────────────
-    private ConnectivityManager connMgr;
+    // ── SwipeReplySystem v1 fields ─────────────────────────────────────────
+    private com.callx.app.chat.reply.ReplyController  replyController;
+    private androidx.recyclerview.widget.ItemTouchHelper swipeHelper;
+
+    // ── Media pickers ──────────────────────────────────────────────────────
+    private ActivityResultLauncher<String> imagePicker;
+    private ActivityResultLauncher<String> videoPicker;
+    private ActivityResultLauncher<String> audioPicker;
+    private ActivityResultLauncher<String> filePicker;
+    private ActivityResultLauncher<Uri>    cameraCapturer;
+    private ActivityResultLauncher<String> wallpaperPicker;
+    private Uri cameraOutputUri;
+
+    // ── Voice recorder ─────────────────────────────────────────────────────
+    private VoiceRecorder recorder;
+
+    // ── Pinned message ─────────────────────────────────────────────────────
+    private String pinnedMsgId   = null;
+    private String pinnedMsgText = null;
+
+    // ── Network monitoring (Task 5) ────────────────────────────────────────
+    private ConnectivityManager          connMgr;
     private ConnectivityManager.NetworkCallback netCallback;
 
-    // ── Typing debounce ────────────────────────────────────────────────────
+    // ── Typing debounce ───────────────────────────────────────────────────
     private final android.os.Handler typingHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    // NOTE: must be a method reference (not a lambda with a field ref) to avoid
-    // "illegal forward reference" — presenceController is declared further down.
-    private final Runnable stopTypingRunnable = this::onStopTypingTimeout;
-
-    // ── Disappearing messages expiry ───────────────────────────────────────
-    private final android.os.Handler expiryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // ── Disappearing messages expiry cleanup ──────────────────────────────
+    private final android.os.Handler expiryHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable expiryRunnable;
-
-    // ── Selection toolbar ──────────────────────────────────────────────────
-    private boolean selectionToolbarSetup = false;
-
-    // ── Controllers ────────────────────────────────────────────────────────
-    private ChatBlockController    blockController;
-    private ChatPresenceController presenceController;
-    private ChatPinController      pinController;
-    private ChatSearchController   searchController;
-    private ChatThemeController    themeController;
-    private ChatMediaController    mediaController;
-    private ChatMessageSender      messageSender;
+    private final Runnable           stopTypingRunnable = () -> setOurTypingStatus(false);
 
     // ─────────────────────────────────────────────────────────────────────
     // LIFECYCLE
@@ -172,240 +193,64 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Controllers that register ActivityResultLaunchers MUST be created
-        // before super.onCreate() or at least before onStart.
-        mediaController = new ChatMediaController(this, this);
-        mediaController.registerPickers();   // Must happen early
-
         super.onCreate(savedInstanceState);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
         readIntentExtras();
         if (partnerUid == null || partnerUid.isEmpty()) {
-            android.util.Log.w(TAG, "partnerUid null — finishing");
+            android.util.Log.w("ChatActivity", "partnerUid null — finishing");
             finish(); return;
         }
-
-        db = AppDatabase.getInstance(this);
-
-        // ── Create all remaining controllers ──
-        blockController    = new ChatBlockController(this);
-        presenceController = new ChatPresenceController(this);
-        pinController      = new ChatPinController(this);
-        searchController   = new ChatSearchController(this);
-        themeController    = new ChatThemeController(this);
-        messageSender      = new ChatMessageSender(this);
-
-        // ── Core setup ──
         setupToolbar();
-        themeController.applyScreenTheme();
+        applyScreenTheme();   // ← Apply full chat-screen theme on launch
+        setupPickers();
+        recorder = new VoiceRecorder();
+
         db = AppDatabase.getInstance(this);
 
-        setupPagingRecyclerView();
-        observePagedMessages();
-        startRealtimeListener();
+        // ── Core Paging 3 setup ──
+        setupPagingRecyclerView();   // [FIX-1]  wire adapter
+        observePagedMessages();      // [FIX-2]  start Pager → LiveData
+        startRealtimeListener();     // [FIX-3]  Firebase → Room (auto-invalidates)
 
-        // ── Feature setup ──
+        // ── All other features ──
         setupInputBar();
         setupSwipeToReply();
         setupFabBackToLatest();
+        watchPartnerStatus();
+        watchTyping();
+        watchMute();
+        watchBlock();
+        watchPartnerPermaBlock();
+        watchMyPermaBlock();
+        checkAndShowPendingSpecialRequest();
+        checkAndShowUnblockJoy(); // Unblock ho gaya to khushi sheet dikhao
+        watchPinnedMessage();
+        markMessagesRead();
 
-        // ── Controller init (Firebase listeners) ──
-        presenceController.init();
-        blockController.init();
-        pinController.init();
-
-        markMessagesReadOnOpen();
+        // ── Task 5: Offline banner + message pruning ──
         setupNetworkMonitor();
         ioExecutor.execute(() -> db.messageDao().pruneOldMessages(chatId, 500));
+
+        // Disappearing messages — expired messages cleanup (every 30s while chat is open)
         scheduleExpiryCleanup();
 
+        // Predictive preload of other hot chats (background)
         ChatRepository.getInstance(this).preloadRecentChats(chatId);
+
+        // v18 IMPROVEMENT 2: Draft restore — wapas aane par type kiya hua text restore karo
         restoreDraft();
     }
 
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        if (intent.getBooleanExtra("show_unblock_joy", false)) {
-            binding.getRoot().postDelayed(() -> blockController.checkAndShowUnblockJoy(), 600);
-        }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        saveDraft();
-        if (presenceController != null) presenceController.clearOurTypingStatus();
-        typingHandler.removeCallbacks(stopTypingRunnable);
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        saveDraft();
-
-        if (messagesRef != null && messageListener != null)
-            messagesRef.removeEventListener(messageListener);
-
-        typingHandler.removeCallbacks(stopTypingRunnable);
-        if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
-
-        if (connMgr != null && netCallback != null) {
-            try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
-        }
-        if (replyController != null) replyController.release();
-
-        if (presenceController != null) presenceController.release();
-        if (blockController    != null) blockController.release();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // ChatActivityDelegate IMPLEMENTATION
-    // ─────────────────────────────────────────────────────────────────────
-
-    @Override public ActivityChatBinding getBinding()        { return binding; }
-    @Override public String getChatId()                      { return chatId; }
-    @Override public String getPartnerUid()                  { return partnerUid; }
-    @Override public String getPartnerName()                 { return partnerName; }
-    @Override public String getPartnerPhoto()                { return partnerPhoto; }
-    @Override public String getPartnerThumb()                { return partnerThumb; }
-    @Override public String getCurrentUid()                  { return currentUid; }
-    @Override public String getCurrentName()                 { return currentName; }
-    @Override public AppDatabase getDb()                     { return db; }
-    @Override public Executor getIoExecutor()                { return ioExecutor; }
-    @Override public DatabaseReference getMessagesRef()      { return messagesRef; }
-    @Override public boolean isMuted()                       { return isMuted; }
-    @Override public void setMuted(boolean v)                { isMuted = v; }
-    @Override public boolean isBlocked()                     { return isBlocked; }
-    @Override public void setBlocked(boolean v)              { isBlocked = v; }
-    @Override public boolean isPartnerPermaBlockedMe()       { return partnerPermaBlockedMe; }
-    @Override public void setPartnerPermaBlockedMe(boolean v){ partnerPermaBlockedMe = v; }
-    @Override public boolean isIPermaBlockedPartner()        { return iPermaBlockedPartner; }
-    @Override public void setIPermaBlockedPartner(boolean v) { iPermaBlockedPartner = v; }
-    @Override public boolean isRecording()                   { return isRecording; }
-    @Override public void setRecording(boolean v)            { isRecording = v; }
-    @Override public void runOnMain(Runnable r)              { runOnUiThread(r); }
-    @Override public void showToast(String msg)              { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show(); }
-    @Override public void invalidateMenu()                   { invalidateOptionsMenu(); }
-    @Override public android.app.Activity getActivity()      { return this; }
-    @Override public androidx.fragment.app.FragmentManager getSupportFragmentManager() {
-        return super.getSupportFragmentManager();
-    }
-    @Override public MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
-    @Override public void refreshScreenTheme()               { themeController.applyScreenTheme(); }
-    @Override public void refreshWallpaper()                 { themeController.applyWallpaper(); }
-    @Override public void launchWallpaperPicker()            { mediaController.launchWallpaperPicker(); }
-    @Override public void navigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
-
-    @Override
-    public boolean isOnline() {
-        if (connMgr == null) return true;
-        Network active = connMgr.getActiveNetwork();
-        if (active == null) return false;
-        NetworkCapabilities caps = connMgr.getNetworkCapabilities(active);
-        return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-    }
-
-    @Override
-    public Message buildOutgoing() {
-        Message m    = new Message();
-        m.senderId   = currentUid;
-        m.senderName = currentName;
-        m.timestamp  = System.currentTimeMillis();
-        m.status     = "sent";
-        if (replyingTo != null) {
-            ReplyDataMapper.applyReplyFields(m, replyingTo, currentUid);
-        }
-        return m;
-    }
-
-    @Override
-    public void pushMessage(Message m, String previewText) {
-        messageSender.pushMessage(m, previewText);
-    }
-
-    @Override
-    public void firebasePushMessage(Message m, String key, String previewText) {
-        messageSender.firebasePushMessage(m, key, previewText);
-    }
-
-    @Override
-    public void clearReply() {
-        replyingTo = null;
-        if (replyController != null) replyController.cancel();
-        if (binding.llReplyBar == null) return;
-        binding.llReplyBar.animate()
-                .alpha(0f).translationY(20f).setDuration(150)
-                .withEndAction(() -> {
-                    binding.llReplyBar.setVisibility(View.GONE);
-                    binding.llReplyBar.setAlpha(1f);
-                    binding.llReplyBar.setTranslationY(0f);
-                })
-                .start();
-        if (binding.ivReplyBarThumb != null) binding.ivReplyBarThumb.setVisibility(View.GONE);
-    }
-
-    @Override
-    public void startReply(Message m) {
-        if (replyController != null) {
-            replyController.onSwipeReply(m);
-        } else {
-            activateReplyDirect(m);
-        }
-    }
-
-    @Override
-    public void activateReplyDirect(Message m) {
-        replyingTo = m;
-        if (binding.llReplyBar == null) return;
-
-        String senderName = (currentUid != null && currentUid.equals(m.senderId))
-                ? "You" : (m.senderName != null ? m.senderName : "");
-        String preview;
-        if (Boolean.TRUE.equals(m.deleted)) {
-            preview = "\uD83D\uDEAB  Original message unavailable";
-        } else if (m.text != null && !m.text.isEmpty()) {
-            preview = m.text;
-        } else {
-            preview = buildTypePreviewLocal(m);
-        }
-
-        if (binding.tvReplyBarName != null) binding.tvReplyBarName.setText(senderName);
-        if (binding.tvReplyBarText != null) binding.tvReplyBarText.setText(preview);
-
-        if (binding.ivReplyBarThumb != null) {
-            String thumbUrl = null;
-            if ("image".equals(m.type)) thumbUrl = m.mediaUrl;
-            else if ("video".equals(m.type)) thumbUrl = m.thumbnailUrl;
-            if (thumbUrl != null && !thumbUrl.isEmpty()) {
-                binding.ivReplyBarThumb.setVisibility(View.VISIBLE);
-                Glide.with(this).load(thumbUrl).centerCrop().into(binding.ivReplyBarThumb);
-            } else {
-                binding.ivReplyBarThumb.setVisibility(View.GONE);
-            }
-        }
-
-        binding.llReplyBar.setVisibility(View.VISIBLE);
-        binding.llReplyBar.setAlpha(0f);
-        binding.llReplyBar.setTranslationY(40f);
-        binding.llReplyBar.animate().alpha(1f).translationY(0f).setDuration(200).start();
-        binding.etMessage.requestFocus();
-        ReplyAnalyticsTracker.get().onSwipeTriggered();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // DRAFT
-    // ─────────────────────────────────────────────────────────────────────
+    // ── v18 IMPROVEMENT 2: Draft save/restore ─────────────────────────────
 
     private void saveDraft() {
         if (db == null || chatId == null || binding == null) return;
         String draftText = binding.etMessage.getText() != null
                 ? binding.etMessage.getText().toString() : "";
         Executors.newSingleThreadExecutor().execute(() ->
-                db.chatDao().saveDraft(chatId, draftText));
+            db.chatDao().saveDraft(chatId, draftText));
     }
 
     private void restoreDraft() {
@@ -423,24 +268,83 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
     }
 
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // Notification se aaya — joy sheet check karo
+        if (intent.getBooleanExtra("show_unblock_joy", false)) {
+            binding.getRoot().postDelayed(this::checkAndShowUnblockJoy, 600);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        saveDraft();              // v18 IMPROVEMENT 2: User navigate away — draft save
+        clearOurTypingStatus();   // FIX: typing indicator stuck when app is backgrounded
+        typingHandler.removeCallbacks(stopTypingRunnable);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        saveDraft();
+        if (messagesRef != null && messageListener != null)
+            messagesRef.removeEventListener(messageListener);
+        // FIX [P2-1]: typingListener leak — activity destroy ke baad Firebase keeps calling back
+        if (typingListener != null && chatId != null)
+            FirebaseUtils.db().getReference("typing").child(chatId)
+                    .removeEventListener(typingListener);
+        // FIX [P2-1]: onlineListener leak — partner profile listener bhi detach karo
+        if (onlineListener != null && partnerUid != null)
+            FirebaseUtils.getUserRef(partnerUid).removeEventListener(onlineListener);
+        typingHandler.removeCallbacks(stopTypingRunnable);
+        if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
+        clearOurTypingStatus();
+        if (connMgr != null && netCallback != null) {
+            try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
+        }
+        if (replyController != null) replyController.release();
+        // Block/perma-block listeners cleanup
+        if (blockListener != null && currentUid != null && partnerUid != null)
+            FirebaseUtils.getBlocksRef(currentUid).child(partnerUid)
+                    .removeEventListener(blockListener);
+        if (permaBlockListener != null && partnerUid != null && currentUid != null)
+            FirebaseUtils.db().getReference("permaBlocked").child(partnerUid).child(currentUid)
+                    .removeEventListener(permaBlockListener);
+        if (myPermaBlockListener != null && currentUid != null && partnerUid != null)
+            FirebaseUtils.db().getReference("permaBlocked").child(currentUid).child(partnerUid)
+                    .removeEventListener(myPermaBlockListener);
+    }
+
     // ─────────────────────────────────────────────────────────────────────
-    // EXPIRY CLEANUP (Disappearing messages)
+    // INTENT EXTRAS
     // ─────────────────────────────────────────────────────────────────────
 
+    // ─────────────────────────────────────────────────────────────────────
+    // NETWORK MONITORING (Task 5)
+    // ─────────────────────────────────────────────────────────────────────
+
+    // ── Disappearing Messages — Expiry Cleanup ────────────────────────────
     private void scheduleExpiryCleanup() {
         expiryRunnable = new Runnable() {
             @Override public void run() {
                 if (db == null) return;
                 ioExecutor.execute(() -> {
                     int deleted = db.messageDao().deleteExpiredMessages(System.currentTimeMillis());
-                    if (deleted > 0) deleteExpiredFromFirebase();
+                    if (deleted > 0) {
+                        // Also delete from Firebase for this chatId
+                        deleteExpiredFromFirebase();
+                    }
                 });
-                expiryHandler.postDelayed(this, 30_000L);
+                expiryHandler.postDelayed(this, 30_000L); // every 30s
             }
         };
         expiryHandler.post(expiryRunnable);
     }
 
+    /** Firebase se bhi expired messages delete karo (sender side cleanup) */
     private void deleteExpiredFromFirebase() {
         if (messagesRef == null || chatId == null) return;
         long nowMs = System.currentTimeMillis();
@@ -448,10 +352,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
                         for (DataSnapshot child : snap.getChildren()) {
-                            Object raw = child.child("expiresAt").getValue();
-                            if (raw instanceof Long) {
-                                long expiresAt = (Long) raw;
-                                if (expiresAt > 0 && expiresAt <= nowMs) child.getRef().removeValue();
+                            Object expiresAtRaw = child.child("expiresAt").getValue();
+                            if (expiresAtRaw instanceof Long) {
+                                long expiresAt = (Long) expiresAtRaw;
+                                if (expiresAt > 0 && expiresAt <= nowMs) {
+                                    child.getRef().removeValue();
+                                }
                             }
                         }
                     }
@@ -459,50 +365,57 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 });
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // NETWORK MONITORING
-    // ─────────────────────────────────────────────────────────────────────
-
     private void setupNetworkMonitor() {
         connMgr = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         if (connMgr == null) return;
 
+        // Pehle current state check karo
         boolean online = isOnline();
         updateOfflineBanner(!online);
-        messageSender.updateSendButtonState(online);
+        updateSendButtonState(online);  // v15 FIX 3: initial send button state
 
         netCallback = new ConnectivityManager.NetworkCallback() {
             @Override public void onAvailable(Network n) {
                 runOnUiThread(() -> {
                     updateOfflineBanner(false);
-                    messageSender.updateSendButtonState(true);
-                    messageSender.retryPendingMessages();
+                    // v15 FIX 3: online hone par send button enable + pending retry
+                    updateSendButtonState(true);
+                    retryPendingMessages();
+                    // FIX [P2-2]: Reconnect par missed messages sync karo —
+                    // background mein network drop hua toh new messages miss ho jaate the
                     ChatRepository.getInstance(getApplicationContext()).syncMessagesDelta(chatId);
                 });
             }
             @Override public void onLost(Network n) {
                 runOnUiThread(() -> {
                     updateOfflineBanner(true);
-                    messageSender.updateSendButtonState(false);
+                    // v15 FIX 3: offline hone par send button disable
+                    updateSendButtonState(false);
                 });
             }
         };
         try {
             NetworkRequest req = new NetworkRequest.Builder()
-                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build();
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build();
             connMgr.registerNetworkCallback(req, netCallback);
         } catch (Exception ignored) {}
     }
 
-    private void updateOfflineBanner(boolean offline) {
-        if (binding == null) return;
-        android.widget.TextView banner = binding.getRoot().findViewById(R.id.tv_offline_banner);
-        if (banner != null) banner.setVisibility(offline ? View.VISIBLE : View.GONE);
+    private boolean isOnline() {
+        if (connMgr == null) return true;
+        Network active = connMgr.getActiveNetwork();
+        if (active == null) return false;
+        NetworkCapabilities caps = connMgr.getNetworkCapabilities(active);
+        return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // INTENT EXTRAS
-    // ─────────────────────────────────────────────────────────────────────
+    private void updateOfflineBanner(boolean offline) {
+        if (binding == null) return;
+        android.widget.TextView banner =
+                binding.getRoot().findViewById(R.id.tv_offline_banner);
+        if (banner != null) banner.setVisibility(offline ? View.VISIBLE : View.GONE);
+    }
 
     private void readIntentExtras() {
         Intent i    = getIntent();
@@ -512,21 +425,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         partnerThumb= i.getStringExtra("partnerThumb");
         currentName = i.getStringExtra("currentName");
 
-        com.google.firebase.auth.FirebaseUser fu = FirebaseAuth.getInstance().getCurrentUser();
+        com.google.firebase.auth.FirebaseUser fu =
+                FirebaseAuth.getInstance().getCurrentUser();
         currentUid = fu != null ? fu.getUid() : "";
-        chatId     = buildChatId(currentUid, partnerUid);
-        messagesRef= FirebaseUtils.getMessagesRef(chatId);
 
-        // Forward payload handling
+        chatId      = buildChatId(currentUid, partnerUid);
+        messagesRef = FirebaseUtils.getMessagesRef(chatId);
+
+        // Forward payload — ContactsActivity ne bheja tha
         String fwdText  = i.getStringExtra("forwardText");
         String fwdType  = i.getStringExtra("forwardType");
         String fwdMedia = i.getStringExtra("forwardMedia");
-        ArrayList<String> fwdTexts     = i.getStringArrayListExtra("forwardTexts");
-        ArrayList<String> fwdTypes     = i.getStringArrayListExtra("forwardTypes");
-        ArrayList<String> fwdMedias    = i.getStringArrayListExtra("forwardMedias");
-        ArrayList<String> fwdFileNames = i.getStringArrayListExtra("forwardFileNames");
+
+        // Multi-message forward payload
+        java.util.ArrayList<String> fwdTexts     = i.getStringArrayListExtra("forwardTexts");
+        java.util.ArrayList<String> fwdTypes     = i.getStringArrayListExtra("forwardTypes");
+        java.util.ArrayList<String> fwdMedias    = i.getStringArrayListExtra("forwardMedias");
+        java.util.ArrayList<String> fwdFileNames = i.getStringArrayListExtra("forwardFileNames");
 
         if (fwdTexts != null && !fwdTexts.isEmpty()) {
+            // Multiple messages forward: queue all messages with small delay
             binding.getRoot().post(() -> {
                 for (int idx = 0; idx < fwdTexts.size(); idx++) {
                     final int fi = idx;
@@ -537,22 +455,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         Message m2 = buildOutgoing();
                         m2.forwardedFrom = partnerName;
                         if ("text".equals(tp) || tp == null) {
-                            m2.type = "text"; m2.text = t;
+                            m2.type = "text";
+                            m2.text = t;
                             pushMessage(m2, t != null ? t : "");
                         } else if (mu != null && !mu.isEmpty()) {
-                            m2.type = tp; m2.mediaUrl = mu;
+                            m2.type     = tp;
+                            m2.mediaUrl = mu;
                             m2.imageUrl = "image".equals(tp) ? mu : null;
-                            m2.fileName = fwdFileNames != null && fi < fwdFileNames.size() ? fwdFileNames.get(fi) : null;
+                            m2.fileName = fwdFileNames != null && fi < fwdFileNames.size()
+                                    ? fwdFileNames.get(fi) : null;
                             String preview = "image".equals(tp) ? "\uD83D\uDCF7 Photo (forwarded)"
                                            : "video".equals(tp) ? "\uD83C\uDFAC Video (forwarded)"
                                            : "audio".equals(tp) ? "\uD83C\uDFA4 Voice (forwarded)"
                                            : "\uD83D\uDCCE File (forwarded)";
                             pushMessage(m2, preview);
                         }
-                    }, idx * 150L);
+                    }, idx * 150L);  // 150ms gap between messages
                 }
             });
         } else if (fwdText != null && !fwdText.isEmpty() && "text".equals(fwdType)) {
+            // Text forward: input bar mein pre-fill karo (user confirm kar sake)
             if (binding != null && binding.etMessage != null) {
                 binding.etMessage.post(() -> {
                     binding.etMessage.setText(fwdText);
@@ -560,18 +482,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 });
             }
         } else if (fwdMedia != null && !fwdMedia.isEmpty()) {
-            binding.getRoot().post(() -> {
-                Message m  = buildOutgoing();
-                m.type     = fwdType != null ? fwdType : "image";
-                m.mediaUrl = fwdMedia;
-                m.imageUrl = "image".equals(m.type) ? fwdMedia : null;
-                m.forwardedFrom = partnerName;
-                String preview = "image".equals(m.type) ? "\uD83D\uDCF7 Photo (forwarded)"
-                               : "video".equals(m.type) ? "\uD83C\uDFAC Video (forwarded)"
-                               : "audio".equals(m.type) ? "\uD83C\uDFA4 Voice (forwarded)"
-                               : "\uD83D\uDCCE File (forwarded)";
-                pushMessage(m, preview);
-            });
+            // Media forward: directly send (WhatsApp jaisa behavior)
+            if (binding != null) {
+                binding.getRoot().post(() -> {
+                    Message m  = buildOutgoing();
+                    m.type     = fwdType != null ? fwdType : "image";
+                    m.mediaUrl = fwdMedia;
+                    m.imageUrl = "image".equals(m.type) ? fwdMedia : null;
+                    m.forwardedFrom = partnerName;
+                    String preview = "image".equals(m.type) ? "\uD83D\uDCF7 Photo (forwarded)"
+                                   : "video".equals(m.type) ? "\uD83C\uDFAC Video (forwarded)"
+                                   : "audio".equals(m.type) ? "\uD83C\uDFA4 Voice (forwarded)"
+                                   : "\uD83D\uDCCE File (forwarded)";
+                    pushMessage(m, preview);
+                });
+            }
         }
     }
 
@@ -586,6 +511,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
 
     private void setupToolbar() {
+        // Custom WhatsApp-style header — no MaterialToolbar, no ActionBar needed
         binding.btnBack.setOnClickListener(v -> {
             if (pagingAdapter != null && pagingAdapter.isInMultiSelectMode()) {
                 pagingAdapter.exitMultiSelectMode();
@@ -595,63 +521,64 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         });
 
-        if (partnerName != null) binding.tvPartnerName.setText(partnerName);
-        binding.ivPartnerAvatar.setOnClickListener(v -> openAvatarZoom());
-
-        String headerAvatar = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
-        if (headerAvatar != null && !headerAvatar.isEmpty()) {
-            Glide.with(this).load(headerAvatar).placeholder(R.drawable.ic_person).circleCrop()
-                    .into(binding.ivPartnerAvatar);
-        } else {
-            FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot s) {
-                    String thumb = s.child("thumbUrl").getValue(String.class);
-                    String photo = s.child("photoUrl").getValue(String.class);
-                    String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                    if (url != null && !url.isEmpty()) {
-                        if (photo != null) partnerPhoto = photo;
-                        if (thumb != null) partnerThumb = thumb;
-                        Glide.with(ChatActivity.this).load(url).placeholder(R.drawable.ic_person)
-                                .circleCrop().into(binding.ivPartnerAvatar);
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+        if (partnerName != null) {
+            binding.tvPartnerName.setText(partnerName);
         }
 
+        binding.ivPartnerAvatar.setOnClickListener(v -> openAvatarZoom());
+
+        // Header avatar: thumbUrl → fast 100px load; fallback partnerPhoto
+        String headerAvatar = (partnerThumb != null && !partnerThumb.isEmpty())
+            ? partnerThumb : partnerPhoto;
+        if (headerAvatar != null && !headerAvatar.isEmpty()) {
+            Glide.with(this).load(headerAvatar)
+                    .placeholder(R.drawable.ic_person)
+                    .circleCrop()
+                    .into(binding.ivPartnerAvatar);
+        } else {
+            // Neither in intent — Firebase se fetch karo (thumbUrl pehle, photoUrl fallback)
+            FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(
+                    new ValueEventListener() {
+                        @Override public void onDataChange(@NonNull DataSnapshot s) {
+                            String thumb = s.child("thumbUrl").getValue(String.class);
+                            String photo = s.child("photoUrl").getValue(String.class);
+                            String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                            if (url != null && !url.isEmpty()) {
+                                if (photo != null) partnerPhoto = photo;
+                                if (thumb != null) partnerThumb = thumb;
+                                Glide.with(ChatActivity.this).load(url)
+                                        .placeholder(R.drawable.ic_person)
+                                        .circleCrop()
+                                        .into(binding.ivPartnerAvatar);
+                            }
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {}
+                    });
+        }
+
+        // Voice call button
         binding.btnToolbarVoiceCall.setOnClickListener(v -> startCall(false));
+
+        // Video call button
         binding.btnToolbarVideoCall.setOnClickListener(v -> startCall(true));
 
-        // Reel button
+        // ── Social profile buttons ────────────────────────────────────────────
+        // Reel profile button — open partner's reels profile
         binding.btnToolbarReel.setOnClickListener(v -> {
             if (partnerUid == null || partnerUid.isEmpty()) return;
             try {
                 Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
-                Intent in = new Intent(this, cls);
-                in.putExtra("uid",   partnerUid);
-                in.putExtra("name",  partnerName != null ? partnerName : "");
-                in.putExtra("photo", partnerPhoto != null ? partnerPhoto : "");
-                startActivity(in);
+                Intent i = new Intent(this, cls);
+                i.putExtra("uid",   partnerUid);
+                i.putExtra("name",  partnerName != null ? partnerName : "");
+                i.putExtra("photo", partnerPhoto != null ? partnerPhoto : "");
+                startActivity(i);
             } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "Reels profile not available", Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, "Reels profile not available", android.widget.Toast.LENGTH_SHORT).show();
             }
         });
 
-        // Hanging reel animation
-        LinearLayout reelHanging = binding.llReelHanging;
-        if (reelHanging != null) {
-            reelHanging.post(() -> {
-                RotateAnimation swing = new RotateAnimation(-12f, 12f,
-                        Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.0f);
-                swing.setDuration(1800);
-                swing.setRepeatCount(Animation.INFINITE);
-                swing.setRepeatMode(Animation.REVERSE);
-                swing.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
-                reelHanging.startAnimation(swing);
-            });
-        }
-
-        // X profile
+        // X profile button — open partner's X profile sheet
         binding.btnToolbarX.setOnClickListener(v -> {
             if (partnerUid == null || partnerUid.isEmpty()) return;
             try {
@@ -660,27 +587,28 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         androidx.fragment.app.FragmentManager.class, String.class);
                 method.invoke(null, getSupportFragmentManager(), partnerUid);
             } catch (Exception e) {
-                Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, "X profile not available", android.widget.Toast.LENGTH_SHORT).show();
             }
         });
 
-        // YouTube channel
+        // YouTube channel button — open partner's YouTube channel
         binding.btnToolbarYoutube.setOnClickListener(v -> {
             if (partnerUid == null || partnerUid.isEmpty()) return;
             try {
                 Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
-                Intent in = new Intent(this, cls);
-                in.putExtra("uid",  partnerUid);
-                in.putExtra("name", partnerName != null ? partnerName : "");
-                startActivity(in);
+                Intent i = new Intent(this, cls);
+                i.putExtra("uid",  partnerUid);
+                i.putExtra("name", partnerName != null ? partnerName : "");
+                startActivity(i);
             } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, "YouTube channel not available", android.widget.Toast.LENGTH_SHORT).show();
             }
         });
 
         binding.btnMoreOptions.setOnClickListener(v -> {
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
             popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
+            // Update mute title dynamically
             android.view.MenuItem muteItem = popup.getMenu().findItem(R.id.action_mute);
             if (muteItem != null) muteItem.setTitle(isMuted ? "\uD83D\uDD14 Unmute" : "\uD83D\uDD15 Mute");
             popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
@@ -693,18 +621,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         i.putExtra("partnerUid",   partnerUid);
         i.putExtra("partnerName",  partnerName);
         i.putExtra("partnerPhoto", partnerPhoto);
-        i.putExtra("partnerThumb", partnerThumb);
+        i.putExtra("partnerThumb", partnerThumb); // FIX-1: thumbnail pass karo taaki call screen pe fast avatar load ho
         i.putExtra("isCaller",     true);
         i.putExtra("video",        isVideo);
         startActivity(i);
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // PAGING 3 — RecyclerView + Adapter
+    // [FIX-1] PAGING 3 — RecyclerView + Adapter
     // ─────────────────────────────────────────────────────────────────────
 
     private void setupPagingRecyclerView() {
         pagingAdapter = new MessagePagingAdapter(currentUid, false);
+
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
             @Override public void onReply(Message m)               { startReply(m); }
             @Override public void onDelete(Message m)              { confirmDeleteMessage(m); }
@@ -712,39 +641,53 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onStar(Message m)                { toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
-            @Override public void onNavigateToOriginal(String mid) { navigateToOriginalMsg(mid); }
+            @Override public void onNavigateToOriginal(String messageId) { navigateToOriginal(messageId); }
             @Override public void onRetry(Message m) {
+                // Pending/failed message retry — re-push to Firebase
                 if (m.id == null) return;
-                String preview = m.text != null ? m.text : (m.type != null ? "[" + m.type + "]" : "[message]");
-                messageSender.firebasePushMessage(m, m.id, preview);
+                String previewText = m.text != null ? m.text
+                        : (m.type != null ? "[" + m.type + "]" : "[message]");
+                firebasePushMessage(m, m.id, previewText);
             }
-            @Override public void onEdit(Message m)                { editMessage(m); }
-            @Override public void onPin(Message m)                 { pinController.pinMessage(m); }
+            @Override public void onEdit(Message m) {
+                editMessage(m);
+            }
+            @Override public void onPin(Message m) {
+                pinMessage(m);
+            }
         });
 
+        // Multi-select: jab selection change ho, action bar update karo
         pagingAdapter.setMultiSelectListener(count -> {
-            if (count > 0) showMultiSelectBar(count);
-            else hideMultiSelectBar();
+            if (count > 0) {
+                showMultiSelectBar(count);
+            } else {
+                hideMultiSelectBar();
+            }
         });
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
-        llm.setStackFromEnd(true);
+        llm.setStackFromEnd(true);    // newest items at the bottom
         llm.setReverseLayout(false);
         binding.rvMessages.setLayoutManager(llm);
         binding.rvMessages.setAdapter(pagingAdapter);
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
 
+        // [FIX-5] Auto-scroll only when new item arrives at the very end
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
-            @Override public void onItemRangeInserted(int positionStart, int itemCount) {
+            @Override
+            public void onItemRangeInserted(int positionStart, int itemCount) {
                 super.onItemRangeInserted(positionStart, itemCount);
-                int total = pagingAdapter.getItemCount();
+                int total  = pagingAdapter.getItemCount();
                 int lastVis = llm.findLastVisibleItemPosition();
+                // Scroll to bottom only if user was already near the end
                 if (lastVis >= total - itemCount - 2) {
                     binding.rvMessages.scrollToPosition(total - 1);
                 }
             }
         });
 
+        // [FIX-4] Shimmer controlled by real LoadState, not a timeout
         pagingAdapter.addLoadStateListener(states -> {
             androidx.paging.LoadState refresh = states.getRefresh();
             if (refresh instanceof androidx.paging.LoadState.Loading) {
@@ -752,14 +695,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     binding.shimmerContainer.startShimmer();
                     binding.shimmerContainer.setVisibility(View.VISIBLE);
                 }
+                // FIX [P3-4]: Hide empty state while loading
                 binding.llEmptyChat.setVisibility(View.GONE);
             } else {
                 binding.shimmerContainer.stopShimmer();
                 binding.shimmerContainer.setVisibility(View.GONE);
                 if (refresh instanceof androidx.paging.LoadState.Error) {
-                    String msg = ((androidx.paging.LoadState.Error) refresh).getError().getMessage();
-                    Toast.makeText(this, "Failed to load messages: " + msg, Toast.LENGTH_SHORT).show();
+                    String msg = ((androidx.paging.LoadState.Error) refresh)
+                            .getError().getMessage();
+                    Toast.makeText(this,
+                            "Failed to load messages: " + msg,
+                            Toast.LENGTH_SHORT).show();
                 }
+                // FIX [P3-4]: Empty state — chat khali ho toh friendly message dikhao
                 boolean isEmpty = pagingAdapter.getItemCount() == 0;
                 binding.rvMessages.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
                 binding.llEmptyChat.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
@@ -768,58 +716,107 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // [FIX-2] PAGING 3 — Pager → LiveData → Adapter
+    //
+    // Uses Room's native PagingSource (MessageDao.getMessagesPagingSource).
+    // Room auto-invalidates the PagingSource whenever ANY insert/update
+    // touches the "messages" table — no manual invalidate() needed.
+    // ─────────────────────────────────────────────────────────────────────
+
     private void observePagedMessages() {
         Pager<Integer, MessageEntity> pager = new Pager<>(
-                new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
+                new PagingConfig(
+                        /* pageSize          */ PAGE_SIZE,
+                        /* prefetchDistance  */ PREFETCH_DIST,
+                        /* enablePlaceholders*/ false,
+                        /* initialLoadSize   */ INITIAL_LOAD
+                ),
                 () -> db.messageDao().getMessagesPagingSource(chatId)
         );
+
+        // Map PagingData<MessageEntity> → PagingData<Message> on ioExecutor
         Transformations.map(
                 PagingLiveData.getLiveData(pager),
-                pagingData -> PagingDataTransforms.map(pagingData, ioExecutor, ChatActivity::entityToModel)
-        ).observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
+                pagingData -> PagingDataTransforms.map(
+                        pagingData,
+                        ioExecutor,
+                        ChatActivity::entityToModel
+                )
+        ).observe(this, pagingData ->
+                pagingAdapter.submitData(getLifecycle(), pagingData)
+        );
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // [FIX-3] FIREBASE REAL-TIME LISTENER
+    //
+    // Inserts new messages into Room DB.
+    // Room's PagingSource auto-invalidates → Pager re-runs → RecyclerView
+    // updates with the new item. No notifyDataSetChanged() needed.
+    //
+    // Delta-sync: startAt(lastTs) so we only pull what we don't already have.
+    // ─────────────────────────────────────────────────────────────────────
+
     private void startRealtimeListener() {
+        // DB query MUST run on a background thread — Room forbids main-thread access.
         ioExecutor.execute(() -> {
             long lastTs = CacheManager.getInstance(this).getLastSyncTimestamp(chatId);
+            // Attach the Firebase listener back on the main thread.
             runOnUiThread(() -> attachFirebaseListener(lastTs));
         });
     }
 
     private void attachFirebaseListener(long lastTs) {
-        com.google.firebase.database.Query query = lastTs > 0
+        com.google.firebase.database.Query query =
+                lastTs > 0
                 ? messagesRef.orderByChild("timestamp").startAfter((double) lastTs)
                 : messagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
 
         messageListener = new ChildEventListener() {
-            @Override public void onChildAdded(DataSnapshot snapshot, String prev) {
+
+            @Override
+            public void onChildAdded(DataSnapshot snapshot, String previousChild) {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
                 saveToRoom(m, false);
-                presenceController.markRead(m);
+                markRead(m);
             }
-            @Override public void onChildChanged(DataSnapshot snapshot, String prev) {
+
+            @Override
+            public void onChildChanged(DataSnapshot snapshot, String previousChild) {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                saveToRoom(m, true);
+                saveToRoom(m, true); // update existing row (REPLACE strategy)
             }
-            @Override public void onChildRemoved(DataSnapshot snapshot) {
+
+            @Override
+            public void onChildRemoved(DataSnapshot snapshot) {
                 String key = snapshot.getKey();
                 if (key == null) return;
                 ioExecutor.execute(() -> db.messageDao().softDelete(key));
+                // Room change triggers PagingSource invalidation automatically
             }
+
             @Override public void onChildMoved(DataSnapshot s, String p) {}
             @Override public void onCancelled(DatabaseError error) {}
         };
+
         query.addChildEventListener(messageListener);
     }
 
+    /** Insert or update a Firebase message in Room. Room auto-invalidates PagingSource. */
     private void saveToRoom(Message m, boolean isUpdate) {
         ioExecutor.execute(() -> {
             MessageEntity entity = modelToEntity(m);
-            db.messageDao().insertMessage(entity);
+            if (isUpdate) {
+                db.messageDao().insertMessage(entity); // REPLACE strategy handles update
+            } else {
+                db.messageDao().insertMessage(entity);
+            }
+            // No manual invalidate needed — Room does it automatically
         });
     }
 
@@ -828,34 +825,71 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
 
     static Message entityToModel(MessageEntity e) {
-        Message m = new Message();
-        m.id = e.id; m.messageId = e.id; m.senderId = e.senderId; m.senderName = e.senderName;
-        m.senderPhoto = e.senderPhoto; m.text = e.text; m.type = e.type; m.mediaUrl = e.mediaUrl;
-        m.imageUrl = "image".equals(e.type) ? e.mediaUrl : null; m.thumbnailUrl = e.thumbnailUrl;
-        m.fileName = e.fileName; m.fileSize = e.fileSize; m.duration = e.duration;
-        m.timestamp = e.timestamp; m.status = e.status; m.replyToId = e.replyToId;
-        m.replyToText = e.replyToText; m.replyToSenderName = e.replyToSenderName;
-        m.replyToType = e.replyToType; m.replyToMediaUrl = e.replyToMediaUrl;
-        m.edited = e.edited; m.deleted = e.deleted; m.forwardedFrom = e.forwardedFrom;
-        m.starred = e.starred; m.pinned = e.pinned; m.reelId = e.reelId;
-        m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
+        Message m               = new Message();
+        m.id                    = e.id;
+        m.messageId             = e.id;
+        m.senderId              = e.senderId;
+        m.senderName            = e.senderName;
+        m.senderPhoto           = e.senderPhoto;  // FIX: status_seen bubble avatar
+        m.text                  = e.text;
+        m.type                  = e.type;
+        m.mediaUrl              = e.mediaUrl;
+        // imageUrl = mediaUrl for images (thumbnailUrl is the low-res version)
+        m.imageUrl              = "image".equals(e.type) ? e.mediaUrl : null;
+        m.thumbnailUrl          = e.thumbnailUrl;
+        m.fileName              = e.fileName;
+        m.fileSize              = e.fileSize;
+        m.duration              = e.duration;
+        m.timestamp             = e.timestamp;
+        m.status                = e.status;
+        m.replyToId             = e.replyToId;
+        m.replyToText           = e.replyToText;
+        m.replyToSenderName     = e.replyToSenderName;
+        m.replyToType           = e.replyToType;
+        m.replyToMediaUrl       = e.replyToMediaUrl;
+        m.edited                = e.edited;
+        m.deleted               = e.deleted;
+        m.forwardedFrom         = e.forwardedFrom;
+        m.starred               = e.starred;
+        m.pinned                = e.pinned;
+        m.reelId                = e.reelId;       // FIX: reel_seen bubble
+        m.reelThumbUrl          = e.reelThumbUrl; // FIX: reel_seen bubble thumbnail
+        m.fontStyle             = e.fontStyle;    // FIX: typing style — Room se load hone par preserve karo
+        m.expiresAt             = e.expiresAt;    // Disappearing messages
         return m;
     }
 
     private MessageEntity modelToEntity(Message m) {
-        MessageEntity e = new MessageEntity();
-        e.id = m.id != null ? m.id : ""; e.chatId = chatId; e.senderId = m.senderId;
-        e.senderName = m.senderName; e.senderPhoto = m.senderPhoto; e.text = m.text;
-        e.type = m.type != null ? m.type : "text"; e.mediaUrl = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
-        e.thumbnailUrl = m.thumbnailUrl; e.fileName = m.fileName; e.fileSize = m.fileSize;
-        e.duration = m.duration; e.timestamp = m.timestamp; e.status = m.status;
-        e.replyToId = m.replyToId; e.replyToText = m.replyToText;
-        e.replyToSenderName = m.replyToSenderName; e.replyToType = m.replyToType;
-        e.replyToMediaUrl = m.replyToMediaUrl; e.edited = m.edited; e.deleted = m.deleted;
-        e.forwardedFrom = m.forwardedFrom; e.starred = Boolean.TRUE.equals(m.starred);
-        e.pinned = Boolean.TRUE.equals(m.pinned); e.reelId = m.reelId;
-        e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
-        e.syncedAt = System.currentTimeMillis();
+        MessageEntity e           = new MessageEntity();
+        e.id                      = m.id != null ? m.id : "";
+        e.chatId                  = chatId;
+        e.senderId                = m.senderId;
+        e.senderName              = m.senderName;
+        e.senderPhoto             = m.senderPhoto;   // FIX: status_seen bubble avatar
+        e.text                    = m.text;
+        e.type                    = m.type != null ? m.type : "text";
+        e.mediaUrl                = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
+        e.thumbnailUrl            = m.thumbnailUrl;
+        e.fileName                = m.fileName;
+        e.fileSize                = m.fileSize;
+        e.duration                = m.duration;
+        e.timestamp               = m.timestamp;
+        e.status                  = m.status;
+        e.replyToId               = m.replyToId;
+        e.replyToText             = m.replyToText;
+        e.replyToSenderName       = m.replyToSenderName;
+        e.replyToType             = m.replyToType;       // FIX: was missing — thumbnail type not saved
+        e.replyToMediaUrl         = m.replyToMediaUrl;   // FIX: was missing — thumbnail URL not saved
+        e.edited                  = m.edited;
+        e.deleted                 = m.deleted;
+        e.forwardedFrom           = m.forwardedFrom;
+        e.starred                 = Boolean.TRUE.equals(m.starred);
+        e.pinned                  = Boolean.TRUE.equals(m.pinned);
+        e.reelId                  = m.reelId;           // FIX: reel_seen bubble
+        e.reelThumbUrl            = m.reelThumbUrl;      // FIX: reel_seen bubble thumbnail
+        e.fontStyle               = m.fontStyle;         // FIX: typing style preserve
+        e.expiresAt               = m.expiresAt;          // Disappearing messages
+        e.syncedAt                = System.currentTimeMillis();
         return e;
     }
 
@@ -872,289 +906,1287 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 binding.btnSend.setVisibility(hasText ? View.VISIBLE : View.GONE);
                 binding.btnMic.setVisibility(hasText ? View.GONE : View.VISIBLE);
 
+                // Character counter: 200 se kam bacha ho toh dikhao
                 int remaining = MAX_MESSAGE_LENGTH - s.length();
                 if (remaining <= 200) {
                     binding.etMessage.setError(remaining < 0
-                            ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
-                            : remaining + " characters remaining");
+                        ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
+                        : remaining + " characters remaining");
                 } else {
                     binding.etMessage.setError(null);
                 }
 
+                // Typing debounce: type karte waqt "typing" set karo,
+                // 2 sec baad koi input nahi toh auto-clear
                 if (hasText) {
-                    if (presenceController != null) presenceController.setOurTypingStatus(true);
+                    setOurTypingStatus(true);
                     typingHandler.removeCallbacks(stopTypingRunnable);
                     typingHandler.postDelayed(stopTypingRunnable, 2000);
                 } else {
                     typingHandler.removeCallbacks(stopTypingRunnable);
-                    if (presenceController != null) presenceController.setOurTypingStatus(false);
+                    setOurTypingStatus(false);
                 }
             }
         });
 
         binding.btnSend.setOnClickListener(v -> sendTextMessage());
-        binding.btnMic.setOnClickListener(v -> mediaController.toggleRecording());
-        binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
-        binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
+        binding.btnMic.setOnClickListener(v -> toggleRecording());
+        binding.btnAttach.setOnClickListener(v -> showAttachSheet());
+        binding.btnCamera.setOnClickListener(v -> launchCamera());
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
 
+        // GIF support: Google Keyboard se GIF aane par handle karo
         if (binding.etMessage instanceof GifAwareEditText) {
             ((GifAwareEditText) binding.etMessage).setGifReceivedListener(contentInfo -> {
+                // Permission lena zaroori hai URI access ke liye (Android 13+)
                 contentInfo.requestPermission();
-                mediaController.sendGifMessage(contentInfo.getContentUri(), contentInfo);
+                Uri gifUri = contentInfo.getContentUri();
+                // contentInfo bhi pass karo taaki upload ke BAAD permission release ho
+                sendGifMessage(gifUri, contentInfo);
             });
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // TYPING TIMEOUT CALLBACK
-    // ─────────────────────────────────────────────────────────────────────
-
-    private void onStopTypingTimeout() {
-        if (presenceController != null) presenceController.setOurTypingStatus(false);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // SEND TEXT MESSAGE
-    // ─────────────────────────────────────────────────────────────────────
+    private static final int MAX_MESSAGE_LENGTH = 4000;
 
     private void sendTextMessage() {
         String text = binding.etMessage.getText().toString().trim();
         if (text.isEmpty()) return;
         if (text.length() > MAX_MESSAGE_LENGTH) {
             binding.etMessage.setError("Message too long! Max " + MAX_MESSAGE_LENGTH + " characters allowed.");
-            Toast.makeText(this, "Message too long!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Message too long! Max " + MAX_MESSAGE_LENGTH + " characters.", Toast.LENGTH_SHORT).show();
             return;
         }
         binding.etMessage.setText("");
-        binding.etMessage.post(() -> TypingStyleManager.get(this).applyToInput(binding.etMessage));
-        if (presenceController != null) presenceController.clearOurTypingStatus();
+        // setText ke baad post() se style apply karo — setText typeface disturb karta hai
+        binding.etMessage.post(() ->
+            com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage)
+        );
+        clearOurTypingStatus();
+        // v18 IMPROVEMENT 2: Message bheja — draft clear karo
         Executors.newSingleThreadExecutor().execute(() -> {
             if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
         });
         Message m = buildOutgoing();
         m.type = "text";
-        m.fontStyle = TypingStyleManager.get(this).getCurrentStyle();
-        if (m.fontStyle == TypingStyleManager.STYLE_SAMSUNG_SCRIPT) {
-            text = UnicodeStyler.toScript(text);
+        m.fontStyle = com.callx.app.utils.TypingStyleManager.get(this).getCurrentStyle();
+        // Samsung Script style — text ko Unicode Mathematical Script mein convert karo
+        if (m.fontStyle == com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT) {
+            text = com.callx.app.utils.UnicodeStyler.toScript(text);
         }
         m.text = text;
         pushMessage(m, text);
         clearReply();
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // MARK READ
-    // ─────────────────────────────────────────────────────────────────────
-
-    private void markMessagesReadOnOpen() {
-        if (presenceController != null) presenceController.markMessagesRead();
+    private Message buildOutgoing() {
+        Message m    = new Message();
+        m.senderId   = currentUid;
+        m.senderName = currentName;
+        m.timestamp  = System.currentTimeMillis();
+        m.status     = "sent";
+        if (replyingTo != null) {
+            ReplyDataMapper.applyReplyFields(m, replyingTo, currentUid);
+        }
+        return m;
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // MESSAGE ACTIONS
+    // v15 FIX 2: Local-first message send — pehle Room save (status=pending),
+    //            phir Firebase push. Offline hone par message Room mein rehta
+    //            hai aur online hone par retryPendingMessages() bhejta hai.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void pushMessage(Message m, String previewText) {
+        // Firebase push key — offline hone par bhi getKey() kaam karta hai
+        String key = messagesRef.push().getKey();
+        if (key == null) return;
+        m.id = key;
+
+        // Disappearing messages — ChatPrivacyManager se disappear timer check karo
+        com.callx.app.utils.ChatPrivacyManager privMgr =
+                new com.callx.app.utils.ChatPrivacyManager(this, chatId, false);
+        long disappearMs = privMgr.getDisappearingMs();
+        if (disappearMs > 0) {
+            m.expiresAt = m.timestamp + disappearMs;
+        }
+
+        // Step 1: Room mein turant save karo (status = pending)
+        MessageEntity entity = messageToEntity(m, "pending");
+        Executors.newSingleThreadExecutor().execute(() ->
+            AppDatabase.getInstance(getApplicationContext()).messageDao().insertMessage(entity));
+
+        if (isOnline()) {
+            // Step 2a: Online → Firebase push + status update
+            firebasePushMessage(m, key, previewText);
+        } else {
+            // Step 2b: Offline → pending rehega, retry online hone par
+            Toast.makeText(this, "No connection — message queued", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Firebase par actual push karo aur Room status "sent" karo. */
+    private void firebasePushMessage(Message m, String key, String previewText) {
+        messagesRef.child(key).setValue(m)
+            .addOnSuccessListener(unused -> {
+                // Room mein status update karo: pending → sent
+                Executors.newSingleThreadExecutor().execute(() ->
+                    AppDatabase.getInstance(getApplicationContext())
+                        .messageDao().updateStatus(key, "sent"));
+            })
+            .addOnFailureListener(e -> {
+                // Firebase reject kiya — pending rakho, retry baad mein
+            });
+
+        long ts = m.timestamp;
+        Map<String, Object> myUpd = new HashMap<>();
+        myUpd.put("lastMessage", previewText);
+        myUpd.put("lastTs", ts);
+        FirebaseUtils.getContactsRef(currentUid).child(partnerUid).updateChildren(myUpd);
+
+        Map<String, Object> theirUpd = new HashMap<>();
+        theirUpd.put("lastMessage", previewText);
+        theirUpd.put("lastTs", ts);
+        FirebaseUtils.getContactsRef(partnerUid).child(currentUid).updateChildren(theirUpd);
+        FirebaseUtils.getContactsRef(partnerUid).child(currentUid).child("unread")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        Long cur = s.getValue(Long.class);
+                        s.getRef().setValue((cur != null ? cur : 0) + 1);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+
+        if (!isMuted)
+            PushNotify.notifyMessage(partnerUid, currentUid, currentName,
+                    chatId, m.id, previewText,
+                    m.type != null ? m.type : "text",
+                    m.mediaUrl != null ? m.mediaUrl : "");
+    }
+
+    /** Message model → MessageEntity converter. */
+    private MessageEntity messageToEntity(Message m, String status) {
+        MessageEntity e = new MessageEntity();
+        e.id             = m.id;
+        e.chatId         = chatId;
+        e.senderId       = m.senderId;
+        e.senderName     = m.senderName;
+        e.text           = m.text;
+        e.type           = m.type;
+        e.mediaUrl       = m.mediaUrl;
+        e.thumbnailUrl   = m.thumbnailUrl;
+        e.fileName       = m.fileName;
+        e.fileSize       = m.fileSize;
+        e.duration       = m.duration;
+        e.timestamp      = m.timestamp;
+        e.status         = status;
+        e.replyToId      = m.replyToId;
+        e.replyToText    = m.replyToText;
+        e.replyToSenderName = m.replyToSenderName;
+        e.replyToType       = m.replyToType;
+        e.replyToMediaUrl   = m.replyToMediaUrl;
+        e.isGroup        = false;
+        e.syncedAt       = System.currentTimeMillis();
+        e.fontStyle      = m.fontStyle;
+        e.expiresAt      = m.expiresAt;  // Disappearing messages
+        return e;
+    }
+
+    // v15 FIX 3: Send button offline hone par disable karo
+    private void updateSendButtonState(boolean online) {
+        if (binding == null) return;
+        binding.btnSend.setEnabled(online);
+        binding.btnSend.setAlpha(online ? 1.0f : 0.4f);
+        binding.btnMic.setEnabled(online);
+        binding.btnMic.setAlpha(online ? 1.0f : 0.4f);
+    }
+
+    // v15 FIX 2: Online hone par pending messages retry karo
+    private void retryPendingMessages() {
+        Executors.newSingleThreadExecutor().execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+            // Sirf is chat ke pending messages dhundho
+            List<MessageEntity> pending = db.messageDao().getPendingMessages(chatId);
+            if (pending == null || pending.isEmpty()) return;
+            for (MessageEntity pe : pending) {
+                Message m = new Message();
+                m.id         = pe.id;
+                m.senderId   = pe.senderId;
+                m.senderName = pe.senderName;
+                m.text       = pe.text;
+                m.type       = pe.type;
+                m.mediaUrl   = pe.mediaUrl;
+                m.thumbnailUrl = pe.thumbnailUrl;
+                m.fileName   = pe.fileName;
+                m.fileSize   = pe.fileSize;
+                m.duration   = pe.duration;
+                m.timestamp  = pe.timestamp;
+                m.status     = "sent";
+                m.replyToId  = pe.replyToId;
+                m.replyToText = pe.replyToText;
+                m.replyToSenderName = pe.replyToSenderName;
+                m.fontStyle  = pe.fontStyle;
+                String preview = pe.text != null ? pe.text : "[" + pe.type + "]";
+                runOnUiThread(() -> firebasePushMessage(m, pe.id, preview));
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // REPLY (N1)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void startReply(Message m) {
+        // Use ReplyController for undo support
+        if (replyController != null) {
+            replyController.onSwipeReply(m);
+        } else {
+            activateReplyDirect(m);
+        }
+    }
+
+    /** Directly activates reply (called by ReplyController after undo window). */
+    private void activateReplyDirect(Message m) {
+        replyingTo = m;
+        if (binding.llReplyBar == null) return;
+
+        // Sender name — 'You' for self messages
+        String senderName = (currentUid != null && currentUid.equals(m.senderId))
+                ? "You" : (m.senderName != null ? m.senderName : "");
+
+        // Content preview
+        String preview;
+        if (Boolean.TRUE.equals(m.deleted)) {
+            preview = "🚫  Original message unavailable";
+        } else if (m.text != null && !m.text.isEmpty()) {
+            preview = m.text;
+        } else {
+            preview = buildTypePreviewLocal(m);
+        }
+
+        if (binding.tvReplyBarName != null) binding.tvReplyBarName.setText(senderName);
+        if (binding.tvReplyBarText != null) binding.tvReplyBarText.setText(preview);
+
+        // Media thumbnail
+        if (binding.ivReplyBarThumb != null) {
+            String thumbUrl = null;
+            if ("image".equals(m.type)) thumbUrl = m.mediaUrl;
+            else if ("video".equals(m.type)) thumbUrl = m.thumbnailUrl;
+
+            if (thumbUrl != null && !thumbUrl.isEmpty()) {
+                binding.ivReplyBarThumb.setVisibility(View.VISIBLE);
+                Glide.with(this).load(thumbUrl).centerCrop().into(binding.ivReplyBarThumb);
+            } else {
+                binding.ivReplyBarThumb.setVisibility(View.GONE);
+            }
+        }
+
+        // Animate slide-up
+        binding.llReplyBar.setVisibility(View.VISIBLE);
+        binding.llReplyBar.setAlpha(0f);
+        binding.llReplyBar.setTranslationY(40f);
+        binding.llReplyBar.animate().alpha(1f).translationY(0f).setDuration(200).start();
+
+        binding.etMessage.requestFocus();
+
+        // Track analytics
+        ReplyAnalyticsTracker.get().onSwipeTriggered();
+    }
+
+    private String buildTypePreviewLocal(Message m) {
+        if (m.type == null) return "[message]";
+        switch (m.type) {
+            case "image":  return "📷 Photo";
+            case "gif":    return "🎞️ GIF";
+            case "video":  return "🎬 Video";
+            case "audio":  return "🎤 Voice message";
+            case "file":   return "📎 " + (m.fileName != null ? m.fileName : "File");
+            default:       return "[" + m.type + "]";
+        }
+    }
+
+    private void clearReply() {
+        replyingTo = null;
+        if (replyController != null) replyController.cancel();
+        if (binding.llReplyBar == null) return;
+        binding.llReplyBar.animate()
+                .alpha(0f).translationY(20f).setDuration(150)
+                .withEndAction(() -> {
+                    binding.llReplyBar.setVisibility(View.GONE);
+                    binding.llReplyBar.setAlpha(1f);
+                    binding.llReplyBar.setTranslationY(0f);
+                })
+                .start();
+        if (binding.ivReplyBarThumb != null) binding.ivReplyBarThumb.setVisibility(View.GONE);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // COPY (N4)
     // ─────────────────────────────────────────────────────────────────────
 
     private void copyText(Message m) {
         if (m.text == null || m.text.isEmpty()) return;
-        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipboardManager cm = (ClipboardManager)
+                getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) {
             cm.setPrimaryClip(ClipData.newPlainText("message", m.text));
             Toast.makeText(this, "Message copied", Toast.LENGTH_SHORT).show();
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // EDIT MESSAGE
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Shows an inline edit dialog for own text messages.
+     * Saves the updated text to Firebase and Room, marks edited=true.
+     * Only text messages can be edited (media captions are not surfaced here).
+     */
     private void editMessage(Message m) {
         if (m == null || m.id == null) return;
-        if (!currentUid.equals(m.senderId)) return;
+        if (!currentUid.equals(m.senderId)) return; // safety guard
+
         android.widget.EditText input = new android.widget.EditText(this);
         input.setText(m.text);
-        input.setSelection(input.getText().length());
+        input.setSelection(input.getText().length()); // cursor at end
         int pad = dp(16);
         input.setPadding(pad, pad / 2, pad, pad / 2);
-        input.setSingleLine(false); input.setMaxLines(6);
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+        input.setSingleLine(false);
+        input.setMaxLines(6);
+        input.setInputType(
+                android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+
         new AlertDialog.Builder(this)
-                .setTitle("Edit message").setView(input)
-                .setPositiveButton("Save", (d, w) -> {
-                    String newText = input.getText().toString().trim();
-                    if (newText.isEmpty()) { Toast.makeText(this, "Message cannot be empty", Toast.LENGTH_SHORT).show(); return; }
-                    if (newText.equals(m.text)) return;
-                    long editedAt = System.currentTimeMillis();
-                    messagesRef.child(m.id).child("text").setValue(newText);
-                    messagesRef.child(m.id).child("edited").setValue(true);
-                    messagesRef.child(m.id).child("editedAt").setValue(editedAt);
-                    ioExecutor.execute(() -> db.messageDao().updateText(m.id, newText, editedAt));
-                    Toast.makeText(this, "Message edited", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null).show();
+            .setTitle("Edit message")
+            .setView(input)
+            .setPositiveButton("Save", (d, w) -> {
+                String newText = input.getText().toString().trim();
+                if (newText.isEmpty()) {
+                    Toast.makeText(this, "Message cannot be empty", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (newText.equals(m.text)) return; // no change
+
+                long editedAt = System.currentTimeMillis();
+
+                // 1. Firebase — update text + set edited flag
+                messagesRef.child(m.id).child("text").setValue(newText);
+                messagesRef.child(m.id).child("edited").setValue(true);
+                messagesRef.child(m.id).child("editedAt").setValue(editedAt);
+
+                // 2. Room — update locally so offline view reflects edit
+                ioExecutor.execute(() ->
+                    db.messageDao().updateText(m.id, newText, editedAt));
+
+                Toast.makeText(this, "Message edited", Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // STAR
+    // ─────────────────────────────────────────────────────────────────────
 
     private void toggleStar(Message m) {
         boolean nowStarred = !Boolean.TRUE.equals(m.starred);
-        ioExecutor.execute(() -> db.messageDao().updateStarred(m.id, nowStarred));
+        ioExecutor.execute(() ->
+                db.messageDao().updateStarred(m.id, nowStarred));
         messagesRef.child(m.id).child("starred").setValue(nowStarred);
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // REACTION
+    // ─────────────────────────────────────────────────────────────────────
+
     private void sendReaction(Message m, String emoji) {
         if (m.id == null) return;
-        messagesRef.child(m.id).child("reactions").child(currentUid).setValue(emoji);
+        messagesRef.child(m.id)
+                .child("reactions")
+                .child(currentUid)
+                .setValue(emoji);
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // DELETE
+    // ─────────────────────────────────────────────────────────────────────
 
     private void confirmDeleteMessage(Message m) {
         boolean isMine = currentUid != null && currentUid.equals(m.senderId);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle("Delete message").setNegativeButton("Cancel", null);
+                .setTitle("Delete message")
+                .setNegativeButton("Cancel", null);
+
         if (isMine) {
+            // Sender sees both options
             builder.setPositiveButton("Delete for everyone", (d, w) -> {
                         messagesRef.child(m.id).child("deleted").setValue(true);
                         messagesRef.child(m.id).child("text").setValue("");
                         ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                     })
                     .setNeutralButton("Delete for me", (d, w) ->
-                            ioExecutor.execute(() -> db.messageDao().softDelete(m.id)));
+                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id)));
         } else {
+            // Receiver can only delete locally
             builder.setMessage("Delete this message for you only?")
                     .setPositiveButton("Delete for me", (d, w) ->
-                            ioExecutor.execute(() -> db.messageDao().softDelete(m.id)));
+                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id)));
         }
         builder.show();
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // FORWARD — single message (from bottom sheet)
+    // ─────────────────────────────────────────────────────────────────────
+
     private void forwardMessage(Message m) {
         Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
-        i.putExtra("forwardText", m.text); i.putExtra("forwardType", m.type != null ? m.type : "text");
-        i.putExtra("forwardMedia", m.mediaUrl); i.putExtra("forwardFileName", m.fileName);
+        i.putExtra("forwardText",     m.text);
+        i.putExtra("forwardType",     m.type != null ? m.type : "text");
+        i.putExtra("forwardMedia",    m.mediaUrl);
+        i.putExtra("forwardFileName", m.fileName);
         startActivity(i);
     }
 
+    // MULTI-SELECT FORWARD — multiple messages to multiple contacts
+    // ─────────────────────────────────────────────────────────────────────
+
     private void forwardSelectedMessages() {
-        List<Message> selected = pagingAdapter.getSelectedMessages();
-        if (selected.isEmpty()) { Toast.makeText(this, "Koi message select nahi", Toast.LENGTH_SHORT).show(); return; }
-        ArrayList<String> texts = new ArrayList<>(), types = new ArrayList<>(),
-                medias = new ArrayList<>(), fileNames = new ArrayList<>();
-        selected.sort((a, b) -> Long.compare(a.timestamp, b.timestamp));
-        for (Message m : selected) {
-            texts.add(m.text != null ? m.text : ""); types.add(m.type != null ? m.type : "text");
-            medias.add(m.mediaUrl != null ? m.mediaUrl : ""); fileNames.add(m.fileName != null ? m.fileName : "");
+        java.util.List<Message> selected = pagingAdapter.getSelectedMessages();
+        if (selected.isEmpty()) {
+            android.widget.Toast.makeText(this, "Koi message select nahi", android.widget.Toast.LENGTH_SHORT).show();
+            return;
         }
+
+        java.util.ArrayList<String> texts     = new java.util.ArrayList<>();
+        java.util.ArrayList<String> types     = new java.util.ArrayList<>();
+        java.util.ArrayList<String> medias    = new java.util.ArrayList<>();
+        java.util.ArrayList<String> fileNames = new java.util.ArrayList<>();
+
+        // Timestamp ke order mein sort karo
+        selected.sort((a, b) -> Long.compare(a.timestamp, b.timestamp));
+
+        for (Message m : selected) {
+            texts.add(m.text != null ? m.text : "");
+            types.add(m.type != null ? m.type : "text");
+            medias.add(m.mediaUrl != null ? m.mediaUrl : "");
+            fileNames.add(m.fileName != null ? m.fileName : "");
+        }
+
         Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
-        i.putStringArrayListExtra("forwardTexts", texts); i.putStringArrayListExtra("forwardTypes", types);
-        i.putStringArrayListExtra("forwardMedias", medias); i.putStringArrayListExtra("forwardFileNames", fileNames);
+        i.putStringArrayListExtra("forwardTexts",     texts);
+        i.putStringArrayListExtra("forwardTypes",     types);
+        i.putStringArrayListExtra("forwardMedias",    medias);
+        i.putStringArrayListExtra("forwardFileNames", fileNames);
         startActivity(i);
         pagingAdapter.exitMultiSelectMode();
     }
 
+    // MULTI-SELECT BAR — toolbar ke neeche forward/cancel bar
     // ─────────────────────────────────────────────────────────────────────
-    // SELECTION TOOLBAR
-    // ─────────────────────────────────────────────────────────────────────
+
+    // ── WhatsApp-style selection toolbar (XML: ll_selection_toolbar) ──────
+    private boolean selectionToolbarSetup = false;
 
     private void setupSelectionToolbar() {
         if (selectionToolbarSetup) return;
         selectionToolbarSetup = true;
 
-        View btnClose = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_close);
-        if (btnClose != null) btnClose.setOnClickListener(v -> { pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar(); });
-        View btnFwd = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_forward);
+        // Close / Cancel selection
+        android.view.View btnClose = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_close);
+        if (btnClose != null) btnClose.setOnClickListener(v -> {
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
+        });
+
+        // Forward button
+        android.view.View btnFwd = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_forward);
         if (btnFwd != null) btnFwd.setOnClickListener(v -> forwardSelectedMessages());
-        View btnDel = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_delete);
+
+        // Delete button — bulk delete all selected messages
+        android.view.View btnDel = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_delete);
         if (btnDel != null) btnDel.setOnClickListener(v -> {
-            List<Message> sel = pagingAdapter.getSelectedMessages();
+            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
             if (sel.isEmpty()) return;
-            String msg = sel.size() == 1 ? "Delete this message?" : "Delete " + sel.size() + " messages?";
-            new AlertDialog.Builder(this).setTitle("Delete messages").setMessage(msg)
-                    .setPositiveButton("Delete for everyone", (d, w) -> {
-                        for (Message m : sel) {
-                            messagesRef.child(m.id).child("deleted").setValue(true);
-                            messagesRef.child(m.id).child("text").setValue("");
-                            final String mid = m.id;
-                            ioExecutor.execute(() -> db.messageDao().softDelete(mid));
-                        }
-                        pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
-                    })
-                    .setNeutralButton("Delete for me", (d, w) -> {
-                        for (Message m : sel) { final String mid = m.id; ioExecutor.execute(() -> db.messageDao().softDelete(mid)); }
-                        pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
-                    })
-                    .setNegativeButton("Cancel", null).show();
+            int count = sel.size();
+            String msg = count == 1
+                    ? "Delete this message?"
+                    : "Delete " + count + " messages?";
+            new AlertDialog.Builder(this)
+                .setTitle("Delete messages")
+                .setMessage(msg)
+                .setPositiveButton("Delete for everyone", (d, w) -> {
+                    for (Message m : sel) {
+                        messagesRef.child(m.id).child("deleted").setValue(true);
+                        messagesRef.child(m.id).child("text").setValue("");
+                        final String mid = m.id;
+                        ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                    }
+                    pagingAdapter.exitMultiSelectMode();
+                    hideMultiSelectBar();
+                })
+                .setNeutralButton("Delete for me", (d, w) -> {
+                    for (Message m : sel) {
+                        final String mid = m.id;
+                        ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                    }
+                    pagingAdapter.exitMultiSelectMode();
+                    hideMultiSelectBar();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
         });
-        View btnStar = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_star);
+
+        // Star button
+        android.view.View btnStar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_star);
         if (btnStar != null) btnStar.setOnClickListener(v -> {
-            for (Message m : pagingAdapter.getSelectedMessages()) toggleStar(m);
-            pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
+            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
+            for (Message m : sel) toggleStar(m);
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
         });
-        View btnReply = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_reply);
+
+        // Reply button — only first selected
+        android.view.View btnReply = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_reply);
         if (btnReply != null) btnReply.setOnClickListener(v -> {
-            List<Message> sel = pagingAdapter.getSelectedMessages();
+            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
             if (!sel.isEmpty()) startReply(sel.get(0));
-            pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
         });
-        View btnInfo = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_info);
+
+        // Info — only for single select (shows message delivery details)
+        android.view.View btnInfo = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_info);
         if (btnInfo != null) btnInfo.setOnClickListener(v -> {
-            List<Message> sel = pagingAdapter.getSelectedMessages();
-            if (sel.size() == 1) showMessageInfoDialog(sel.get(0));
-            pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
+            java.util.List<Message> sel = pagingAdapter.getSelectedMessages();
+            if (sel.size() == 1) {
+                Message infoMsg = sel.get(0);
+                showMessageInfoDialog(infoMsg);
+            }
+            pagingAdapter.exitMultiSelectMode();
+            hideMultiSelectBar();
         });
     }
 
     private void showMultiSelectBar(int count) {
         setupSelectionToolbar();
-        binding.toolbar.setVisibility(View.GONE);
-        View selBar = binding.getRoot().findViewById(com.callx.app.chat.R.id.ll_selection_toolbar);
-        if (selBar != null) selBar.setVisibility(View.VISIBLE);
-        android.widget.TextView tvCount = binding.getRoot().findViewById(com.callx.app.chat.R.id.tv_selection_count);
+        // Hide normal toolbar elements, show selection toolbar
+        binding.toolbar.setVisibility(android.view.View.GONE);
+        android.view.View selBar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_selection_toolbar);
+        if (selBar != null) selBar.setVisibility(android.view.View.VISIBLE);
+        // Update count
+        android.widget.TextView tvCount = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.tv_selection_count);
         if (tvCount != null) tvCount.setText(String.valueOf(count));
-        View btnInfo = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_info);
-        if (btnInfo != null) btnInfo.setVisibility(count == 1 ? View.VISIBLE : View.GONE);
+        // Info button: only visible when exactly 1 selected
+        android.view.View btnInfo = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.btn_selection_info);
+        if (btnInfo != null) btnInfo.setVisibility(count == 1 ? android.view.View.VISIBLE : android.view.View.GONE);
     }
 
     private void hideMultiSelectBar() {
-        binding.toolbar.setVisibility(View.VISIBLE);
-        View selBar = binding.getRoot().findViewById(com.callx.app.chat.R.id.ll_selection_toolbar);
-        if (selBar != null) selBar.setVisibility(View.GONE);
+        binding.toolbar.setVisibility(android.view.View.VISIBLE);
+        android.view.View selBar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_selection_toolbar);
+        if (selBar != null) selBar.setVisibility(android.view.View.GONE);
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MESSAGE INFO DIALOG — FIX: was calling onForward() as placeholder
+    // Now shows real delivery info: sent time, status, and recipient details.
+    // ─────────────────────────────────────────────────────────────────────
 
     private void showMessageInfoDialog(Message m) {
         if (m == null) return;
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault());
-        String sentTime = (m.timestamp != null && m.timestamp > 0) ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
-        String statusLabel = m.status != null ? m.status : "unknown";
-        String typeLabel   = m.type   != null ? m.type   : "text";
-        String info = "Sent:  " + sentTime + "\nStatus:  " + statusLabel
-                + "\nType:  " + typeLabel + "\nTo:  " + (partnerName != null ? partnerName : partnerUid);
-        new AlertDialog.Builder(this).setTitle("\u2139 Message Info").setMessage(info)
-                .setPositiveButton("OK", null).show();
+        java.text.SimpleDateFormat sdf =
+            new java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault());
+        String sentTime = m.timestamp != null && m.timestamp > 0
+                ? sdf.format(new java.util.Date(m.timestamp)) : "Unknown";
+
+        String statusLabel;
+        switch (m.status != null ? m.status : "sent") {
+            case "read":
+            case "seen":   statusLabel = "✓✓  Read";       break;
+            case "delivered": statusLabel = "✓✓  Delivered"; break;
+            case "pending":   statusLabel = "🕐  Pending";   break;
+            case "failed":    statusLabel = "⚠  Failed";    break;
+            default:          statusLabel = "✓   Sent";      break;
+        }
+
+        String typeLabel = m.type != null ? m.type.substring(0, 1).toUpperCase()
+                + m.type.substring(1) : "Text";
+
+        String info = "Sent:  " + sentTime + "\n"
+                    + "Status:  " + statusLabel + "\n"
+                    + "Type:  " + typeLabel + "\n"
+                    + "To:  " + (partnerName != null ? partnerName : partnerUid);
+
+        new AlertDialog.Builder(this)
+            .setTitle("ℹ Message Info")
+            .setMessage(info)
+            .setPositiveButton("OK", null)
+            .show();
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // NAVIGATION
+    // MARK READ
     // ─────────────────────────────────────────────────────────────────────
 
-    private void openAvatarZoom() {
-        if (partnerUid == null || partnerUid.isEmpty()) return;
-        Intent intent = new Intent().setClassName(this, "com.callx.app.activities.UserProfileActivity");
-        intent.putExtra("uid",    partnerUid);
-        intent.putExtra("name",   partnerName  != null ? partnerName  : "");
-        intent.putExtra("photo",  partnerPhoto != null ? partnerPhoto : "");
-        intent.putExtra("chatId", chatId       != null ? chatId       : "");
-        startActivity(intent);
-    }
-
-    private void openEditProfile() {
-        try {
-            Class<?> cls = Class.forName("com.callx.app.activities.ProfileActivity");
-            startActivity(new Intent(this, cls));
-        } catch (ClassNotFoundException e) {
-            Toast.makeText(this, "Edit Profile unavailable", Toast.LENGTH_SHORT).show();
+    private void markMessagesRead() {
+        // v18 IMPROVEMENT 4: Offline mein markRead fail hota tha silently.
+        // Ab Room mein unread=0 turant set karo, aur online hone par Firebase push karo.
+        ioExecutor.execute(() -> {
+            if (db != null && chatId != null) {
+                db.chatDao().updateUnread(chatId, 0);  // Room badge turant reset
+            }
+        });
+        if (isOnline()) {
+            FirebaseUtils.getContactsRef(currentUid)
+                    .child(partnerUid).child("unread").setValue(0);
+        } else {
+            // Offline: queue karo — SyncWorker online hone par push karega
+            ioExecutor.execute(() -> {
+                if (db != null && chatId != null) {
+                    db.chatDao().queueMarkRead(chatId);
+                }
+            });
         }
     }
 
+    private void markRead(Message m) {
+        if (m == null || m.id == null) return;
+        // Only mark received messages (not our own), and skip if already read
+        if (!currentUid.equals(m.senderId) && !"read".equals(m.status)) {
+            // Check OUR own readReceipts setting — agar off hai toh "read" mat bhejo
+            com.callx.app.utils.SecurityManager secMgr =
+                new com.callx.app.utils.SecurityManager(this);
+            if (!secMgr.isReadReceiptsEnabled()) return;
+            messagesRef.child(m.id).child("status").setValue("read");
+            ioExecutor.execute(() -> db.messageDao().updateStatus(m.id, "read"));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // TYPING INDICATOR
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void setOurTypingStatus(boolean typing) {
+        FirebaseUtils.db().getReference("typing")
+                .child(chatId).child(currentUid).setValue(typing);
+    }
+
+    private void clearOurTypingStatus() {
+        FirebaseUtils.db().getReference("typing")
+                .child(chatId).child(currentUid).setValue(false);
+    }
+
+    private void watchTyping() {
+        typingListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                boolean typing = false;
+                for (DataSnapshot child : s.getChildren()) {
+                    if (child.getKey() != null && !child.getKey().equals(currentUid)
+                            && Boolean.TRUE.equals(child.getValue(Boolean.class))) {
+                        typing = true;
+                        break;
+                    }
+                }
+                if (binding.tvTyping == null || binding.tvStatus == null) return;
+                if (typing) {
+                    // typing... show karo, status hide karo
+                    binding.tvTyping.setVisibility(View.VISIBLE);
+                    binding.tvStatus.setVisibility(View.GONE);
+                } else {
+                    // typing band — status wapas dikhao
+                    binding.tvTyping.setVisibility(View.GONE);
+                    binding.tvStatus.setVisibility(
+                            binding.tvStatus.getText().length() > 0 ? View.VISIBLE : View.GONE);
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.db().getReference("typing").child(chatId)
+                .addValueEventListener(typingListener);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // ONLINE / LAST-SEEN STATUS
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void watchPartnerStatus() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        onlineListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                if (binding.tvStatus == null) return;
+
+                // ── Privacy checks ────────────────────────────────────────
+                // Partner ka ghost mode check — ghost ON hai toh online/lastSeen bilkul mat dikhao
+                Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
+                if (Boolean.TRUE.equals(partnerGhost)) {
+                    binding.tvStatus.setVisibility(View.GONE);
+                    return;
+                }
+
+                // Partner ka lastSeenVisibility check
+                String lastSeenVis = s.child("privacy").child("lastSeenVisibility").getValue(String.class);
+                // "Nobody" = kisi ko bhi mat dikhao
+                boolean hideLastSeen = com.callx.app.utils.SecurityManager.VIS_NOBODY.equals(lastSeenVis);
+
+                Boolean online  = s.child("online").getValue(Boolean.class);
+                Long lastSeen   = s.child("lastSeen").getValue(Long.class);
+
+                String statusText;
+                if (Boolean.TRUE.equals(online)) {
+                    // Incognito check — incognito ON hai toh "online" mat dikhao
+                    Boolean partnerIncognito = s.child("privacy").child("incognito").getValue(Boolean.class);
+                    if (Boolean.TRUE.equals(partnerIncognito)) {
+                        statusText = "";
+                    } else {
+                        statusText = "online";
+                    }
+                } else if (!hideLastSeen && lastSeen != null && lastSeen > 0) {
+                    statusText = formatLastSeenRelative(lastSeen);
+                } else {
+                    statusText = "";
+                }
+
+                binding.tvStatus.setText(statusText);
+
+                // Typing indicator already visible ho toh status hide rakho
+                boolean typingVisible = binding.tvTyping != null
+                        && binding.tvTyping.getVisibility() == View.VISIBLE;
+                binding.tvStatus.setVisibility(
+                        (!typingVisible && statusText.length() > 0) ? View.VISIBLE : View.GONE);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.getUserRef(partnerUid).addValueEventListener(onlineListener);
+    }
+
+    /**
+     * Accurate relative last seen:
+     *   < 1 min   → "last seen just now"
+     *   < 1 hour  → "last seen X min ago"
+     *   < 24 hrs  → "last seen X hours ago" / "last seen at HH:mm"
+     *   older     → "last seen DD MMM"
+     */
+    private String formatLastSeenRelative(long ts) {
+        long diff = System.currentTimeMillis() - ts;
+        if (diff < 0) diff = 0; // clock skew guard
+
+        if (diff < 60_000L) {
+            return "last seen just now";
+        } else if (diff < 3_600_000L) {
+            long mins = diff / 60_000L;
+            return "last seen " + mins + " min" + (mins == 1 ? "" : "s") + " ago";
+        } else if (diff < 86_400_000L) {
+            // Same day — show time
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault());
+            return "last seen at " + sdf.format(new java.util.Date(ts));
+        } else if (diff < 7 * 86_400_000L) {
+            // Within a week — show day + time
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("EEE, hh:mm a", java.util.Locale.getDefault());
+            return "last seen " + sdf.format(new java.util.Date(ts));
+        } else {
+            // Older — show date
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault());
+            return "last seen " + sdf.format(new java.util.Date(ts));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MUTE (N8)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void watchMute() {
+        if (currentUid == null || currentUid.isEmpty() || partnerUid == null || partnerUid.isEmpty()) return;
+        FirebaseUtils.db().getReference("muted")
+                .child(currentUid).child(partnerUid)
+                .addValueEventListener(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        isMuted = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                        invalidateOptionsMenu();
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+    }
+
+    private void toggleMute() {
+        FirebaseUtils.db().getReference("muted")
+                .child(currentUid).child(partnerUid)
+                .setValue(!isMuted);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // BLOCK (N8)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void watchBlock() {
+        if (currentUid == null || currentUid.isEmpty() || partnerUid == null || partnerUid.isEmpty()) return;
+        blockListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                isBlocked = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                applyBlockUi();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.getBlocksRef(currentUid)
+                .child(partnerUid)
+                .addValueEventListener(blockListener);
+    }
+
+    // Watch if I have already permanently blocked this partner
+    private void watchMyPermaBlock() {
+        if (currentUid == null || currentUid.isEmpty() || partnerUid == null || partnerUid.isEmpty()) return;
+        myPermaBlockListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                iPermaBlockedPartner = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                // Re-apply block UI so button shows/hides correctly
+                applyBlockUi();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.db().getReference("permaBlocked")
+                .child(currentUid).child(partnerUid)
+                .addValueEventListener(myPermaBlockListener);
+    }
+
+    private void applyBlockUi() {
+        binding.etMessage.setEnabled(!isBlocked);
+        if (isBlocked) {
+            binding.etMessage.setHint("You have blocked " + partnerName);
+            binding.btnSend.setVisibility(View.GONE);
+            binding.btnMic.setVisibility(View.GONE);
+            // Show block banner with Permanent Block button
+            binding.llBlockBanner.setVisibility(View.VISIBLE);
+            binding.tvBlockBannerText.setText("You have blocked " + partnerName);
+            // Agar already permanently blocked hai to button mat dikhao
+            if (iPermaBlockedPartner) {
+                binding.btnPermanentBlock.setVisibility(View.GONE);
+                binding.tvBlockBannerText.setText("You have permanently blocked " + partnerName);
+            } else {
+                binding.btnPermanentBlock.setVisibility(View.VISIBLE);
+                binding.btnPermanentBlock.setOnClickListener(v -> confirmPermanentBlock());
+            }
+        } else {
+            binding.etMessage.setHint(getString(R.string.hint_message));
+            binding.btnMic.setVisibility(View.VISIBLE);
+            binding.llBlockBanner.setVisibility(View.GONE);
+        }
+    }
+
+    private void confirmBlockUser() {
+        String label = isBlocked ? "Unblock" : "Block";
+        new AlertDialog.Builder(this)
+                .setTitle(label + " " + partnerName + "?")
+                .setPositiveButton(label, (d, w) -> {
+                    FirebaseUtils.getBlocksRef(currentUid)
+                            .child(partnerUid)
+                            .setValue(!isBlocked);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void confirmPermanentBlock() {
+        new AlertDialog.Builder(this)
+                .setTitle("⛔ Permanently Block " + partnerName + "?")
+                .setMessage(partnerName + " will be permanently blocked. They will NOT be able to send you any requests or contact you ever again.\n\nThis action cannot be undone.")
+                .setPositiveButton("Permanent Block", (d, w) -> {
+                    // Set permaBlocked node — yeh partner pe apply hota hai (watchPartnerPermaBlock)
+                    FirebaseUtils.db().getReference("permaBlocked")
+                            .child(currentUid).child(partnerUid)
+                            .setValue(true);
+                    // Ensure normal block bhi set hai
+                    FirebaseUtils.getBlocksRef(currentUid)
+                            .child(partnerUid)
+                            .setValue(true);
+                    Toast.makeText(this,
+                            partnerName + " has been permanently blocked.",
+                            Toast.LENGTH_LONG).show();
+                    // Banner hide karo — permaBlock state se UI alag handle hogi
+                    binding.llBlockBanner.setVisibility(View.GONE);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // UNBLOCK JOY SHEET — blocked user ko dikhao jab unblock ho jaye
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void checkAndShowUnblockJoy() {
+        if (currentUid == null || partnerUid == null) return;
+        boolean fromNotif = getIntent().getBooleanExtra("show_unblock_joy", false);
+
+        FirebaseUtils.db().getReference("unblockEvents")
+                .child(currentUid).child(partnerUid)
+                .get().addOnSuccessListener(snap -> {
+                    if (!snap.exists()) return;
+                    String unblockName = snap.child("unblockedBy").getValue(String.class);
+                    if (unblockName == null) unblockName = partnerName;
+                    // Node delete karo — ek baar hi dikhana hai
+                    snap.getRef().removeValue();
+                    final String displayName = unblockName;
+                    binding.getRoot().postDelayed(
+                            () -> showUnblockJoySheet(displayName),
+                            fromNotif ? 400 : 800);
+                });
+    }
+
+    private void showUnblockJoySheet(String unblockerName) {
+        if (isFinishing() || isDestroyed()) return;
+        android.view.View sheet = LayoutInflater.from(this)
+                .inflate(R.layout.dialog_unblock_joy, null);
+
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+                sheet.findViewById(R.id.iv_joy_avatar);
+        android.widget.TextView tvName  = sheet.findViewById(R.id.tv_joy_name);
+        com.callx.app.views.EmojiRainView rain = sheet.findViewById(R.id.emoji_rain_joy);
+        com.google.android.material.button.MaterialButton btnOpen  = sheet.findViewById(R.id.btn_joy_open_chat);
+        com.google.android.material.button.MaterialButton btnLater = sheet.findViewById(R.id.btn_joy_later);
+
+        tvName.setText(unblockerName);
+
+        // Partner avatar load
+        if (partnerPhoto != null && !partnerPhoto.isEmpty()) {
+            com.bumptech.glide.Glide.with(this).load(partnerPhoto).into(ivAvatar);
+        } else if (partnerThumb != null && !partnerThumb.isEmpty()) {
+            com.bumptech.glide.Glide.with(this).load(partnerThumb).into(ivAvatar);
+        }
+
+        // Happy emoji mode — 🎉🎊✨
+        rain.setHappyMode(true);
+        rain.startRain();
+
+        final BottomSheetDialog dlg = new BottomSheetDialog(this,
+                com.google.android.material.R.style.Theme_Material3_Dark_BottomSheetDialog);
+        dlg.setContentView(sheet);
+        dlg.setCancelable(true);
+        dlg.setOnDismissListener(d -> rain.stopRain());
+
+        btnOpen.setOnClickListener(v -> dlg.dismiss());   // Already in chat — dismiss kafi hai
+        btnLater.setOnClickListener(v -> dlg.dismiss());
+        dlg.show();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // SPECIAL REQUEST — blocker ki chat open hone pe check karo
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void checkAndShowPendingSpecialRequest() {
+        if (currentUid == null || partnerUid == null) return;
+
+        DatabaseReference reqRef  = FirebaseUtils.db()
+                .getReference("specialRequests").child(currentUid).child(partnerUid);
+        DatabaseReference seenRef = FirebaseUtils.db()
+                .getReference("seenRequests").child(currentUid).child(partnerUid);
+
+        reqRef.get().addOnSuccessListener(reqSnap -> {
+            if (!reqSnap.exists()) return; // koi request nahi hai
+
+            Long reqTs = reqSnap.child("ts").getValue(Long.class);
+            if (reqTs == null) return;
+
+            seenRef.get().addOnSuccessListener(seenSnap -> {
+                Long seenAt = seenSnap.exists() ? seenSnap.getValue(Long.class) : 0L;
+                if (seenAt == null) seenAt = 0L;
+
+                if (reqTs <= seenAt) return; // yeh request pehle dekh chuka hai
+
+                // Nayi request hai — seenAt update karo phir sheet dikhao
+                final long finalSeenAt = seenAt;
+                seenRef.setValue(reqTs).addOnSuccessListener(v -> {
+                    String fromName  = reqSnap.child("fromName").getValue(String.class);
+                    String fromPhoto = reqSnap.child("fromPhoto").getValue(String.class);
+                    String text      = reqSnap.child("text").getValue(String.class);
+
+                    Intent popup = new Intent();
+                    popup.setClassName(getPackageName(),
+                            "com.callx.app.activities.SpecialRequestPopupActivity");
+                    popup.putExtra("fromUid",   partnerUid);
+                    popup.putExtra("fromName",  fromName  != null ? fromName  : partnerName);
+                    popup.putExtra("fromPhoto", fromPhoto != null ? fromPhoto : "");
+                    popup.putExtra("text",      text      != null ? text      : "Please unblock me");
+                    startActivity(popup);
+                });
+            });
+        });
+    }
+
+    // PERMA-BLOCK
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void watchPartnerPermaBlock() {
+        if (partnerUid == null || partnerUid.isEmpty() || currentUid == null || currentUid.isEmpty()) return;
+        permaBlockListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                partnerPermaBlockedMe = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                applyPermaBlockUi();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.db().getReference("permaBlocked")
+                .child(partnerUid).child(currentUid)
+                .addValueEventListener(permaBlockListener);
+    }
+
+    private static final int MAX_SPECIAL_REQUESTS = 3;
+
+    private void applyPermaBlockUi() {
+        if (!partnerPermaBlockedMe) {
+            binding.etMessage.setEnabled(true);
+            binding.etMessage.setHint(getString(R.string.hint_message));
+            return;
+        }
+        binding.etMessage.setEnabled(false);
+        binding.etMessage.setHint(partnerName + " has blocked you");
+        binding.btnSend.setVisibility(View.GONE);
+        binding.btnMic.setVisibility(View.GONE);
+
+        // Attempt count check karo pehle — 3 ho chuke hain to button nahi dikhana
+        FirebaseUtils.db().getReference("specialRequests")
+                .child(partnerUid).child(currentUid).child("attemptCount")
+                .get().addOnSuccessListener(snap -> {
+                    long count = snap.exists() ? (snap.getValue(Long.class) != null
+                            ? snap.getValue(Long.class) : 0L) : 0L;
+                    if (count >= MAX_SPECIAL_REQUESTS) {
+                        // Attempts khatam — sirf blocked message dikhao
+                        Snackbar.make(binding.getRoot(),
+                                partnerName + " has permanently blocked you. No more requests allowed.",
+                                Snackbar.LENGTH_LONG).show();
+                    } else {
+                        long remaining = MAX_SPECIAL_REQUESTS - count;
+                        Snackbar.make(binding.getRoot(),
+                                        partnerName + " has permanently blocked you",
+                                        Snackbar.LENGTH_INDEFINITE)
+                                .setAction("Send request (" + remaining + " left)",
+                                        v -> openSpecialRequestDialog())
+                                .show();
+                    }
+                });
+    }
+
+    private void openSpecialRequestDialog() {
+        FirebaseUtils.db().getReference("specialRequests")
+                .child(partnerUid).child(currentUid)
+                .get().addOnSuccessListener(snap -> {
+                    long count  = 0L;
+                    long lastTs = 0L;
+                    if (snap.exists()) {
+                        Long c = snap.child("attemptCount").getValue(Long.class);
+                        Long t = snap.child("ts").getValue(Long.class);
+                        if (c != null) count = c;
+                        if (t != null) lastTs = t;
+                    }
+
+                    if (count >= MAX_SPECIAL_REQUESTS) {
+                        FirebaseUtils.db().getReference("permaBlocked")
+                                .child(partnerUid).child(currentUid).setValue(true);
+                        Toast.makeText(this,
+                                "You have used all 3 attempts. You are now permanently blocked.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    // 24hr cooldown check
+                    long elapsed    = System.currentTimeMillis() - lastTs;
+                    long cooldownMs = 24L * 60 * 60 * 1000;
+                    if (lastTs > 0 && elapsed < cooldownMs) {
+                        long hoursLeft = (cooldownMs - elapsed) / (1000 * 60 * 60);
+                        long minsLeft  = ((cooldownMs - elapsed) % (1000 * 60 * 60)) / (1000 * 60);
+                        Toast.makeText(this,
+                                "Please wait " + hoursLeft + "h " + minsLeft + "m before sending another request.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    final long finalCount = count;
+                    showSendRequestSheet(finalCount);
+                });
+    }
+
+    private void showSendRequestSheet(long currentAttemptCount) {
+        android.view.View sheet = LayoutInflater.from(this)
+                .inflate(R.layout.dialog_send_unblock_request, null);
+
+        de.hdodenhof.circleimageview.CircleImageView ivBlocker =
+                sheet.findViewById(R.id.iv_blocker_avatar);
+        android.widget.TextView tvBlockerName  = sheet.findViewById(R.id.tv_blocker_name);
+        android.widget.TextView tvAttemptsLeft = sheet.findViewById(R.id.tv_attempts_left);
+        android.widget.TextView tvAttemptInfo  = sheet.findViewById(R.id.tv_attempt_info);
+        android.widget.TextView tvCharCount    = sheet.findViewById(R.id.tv_char_count);
+        android.widget.EditText etMsg          = sheet.findViewById(R.id.et_request_message);
+        com.callx.app.views.EmojiRainView rain = sheet.findViewById(R.id.emoji_rain_send);
+        com.google.android.material.button.MaterialButton btnSend   = sheet.findViewById(R.id.btn_send_request);
+        com.google.android.material.button.MaterialButton btnCancel = sheet.findViewById(R.id.btn_cancel_request);
+
+        // Blocker info
+        tvBlockerName.setText(partnerName);
+        long remaining = MAX_SPECIAL_REQUESTS - currentAttemptCount;
+        tvAttemptsLeft.setText("has blocked you • " + remaining + " attempt(s) left");
+        tvAttemptInfo.setText("Attempt " + (currentAttemptCount + 1) + " of " + MAX_SPECIAL_REQUESTS);
+
+        // Blocker avatar load
+        FirebaseUtils.getUserRef(partnerUid).child("photoUrl").get()
+                .addOnSuccessListener(photoSnap -> {
+                    String url = photoSnap.exists() ? photoSnap.getValue(String.class) : null;
+                    if (url != null && !url.isEmpty()) {
+                        com.bumptech.glide.Glide.with(this).load(url).into(ivBlocker);
+                    }
+                });
+
+        // Char counter
+        etMsg.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
+                tvCharCount.setText(s.length() + " / 300");
+            }
+            @Override public void afterTextChanged(android.text.Editable s) {}
+        });
+
+        // Start emoji rain
+        rain.startRain();
+
+        final BottomSheetDialog dlg = new BottomSheetDialog(this,
+                com.google.android.material.R.style.Theme_Material3_Dark_BottomSheetDialog);
+        dlg.setContentView(sheet);
+        dlg.setCancelable(true);
+        dlg.setOnDismissListener(d -> rain.stopRain());
+
+        btnCancel.setOnClickListener(v -> dlg.dismiss());
+
+        btnSend.setOnClickListener(v -> {
+            String txt = etMsg.getText().toString().trim();
+            if (txt.isEmpty()) txt = "Please unblock me 🙏";
+
+            com.google.firebase.auth.FirebaseUser me = FirebaseAuth.getInstance().getCurrentUser();
+            String myPhoto = (me != null && me.getPhotoUrl() != null)
+                    ? me.getPhotoUrl().toString() : "";
+
+            long newCount = currentAttemptCount + 1;
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("text",         txt);
+            entry.put("ts",           System.currentTimeMillis());
+            entry.put("fromName",     currentName);
+            entry.put("fromUid",      currentUid);
+            entry.put("fromPhoto",    myPhoto);
+            entry.put("attemptCount", newCount);
+
+            FirebaseUtils.db().getReference("specialRequests")
+                    .child(partnerUid).child(currentUid).setValue(entry);
+
+            if (newCount >= MAX_SPECIAL_REQUESTS) {
+                FirebaseUtils.db().getReference("permaBlocked")
+                        .child(partnerUid).child(currentUid).setValue(true);
+                Toast.makeText(this,
+                        "Last attempt used. You are now permanently blocked.",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this,
+                        "Request sent (" + newCount + "/" + MAX_SPECIAL_REQUESTS + ")",
+                        Toast.LENGTH_SHORT).show();
+            }
+
+            PushNotify.notifySpecialRequest(partnerUid, currentUid, currentName, myPhoto, txt);
+            dlg.dismiss();
+        });
+
+        dlg.show();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PINNED MESSAGE (N8)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void watchPinnedMessage() {
+        FirebaseUtils.db().getReference("pinnedMessages").child(chatId)
+                .addValueEventListener(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        pinnedMsgId   = s.child("id").getValue(String.class);
+                        pinnedMsgText = s.child("text").getValue(String.class);
+                        if (binding.llPinnedBanner == null) return;
+                        if (pinnedMsgId != null) {
+                            binding.llPinnedBanner.setVisibility(View.VISIBLE);
+                            if (binding.tvPinnedPreview != null)
+                                binding.tvPinnedPreview.setText(
+                                        pinnedMsgText != null ? pinnedMsgText : "Pinned message");
+                            // FIX: tapping banner navigates to the pinned message
+                            final String msgId = pinnedMsgId;
+                            binding.llPinnedBanner.setOnClickListener(v -> navigateToOriginal(msgId));
+                            if (binding.btnUnpin != null)
+                                binding.btnUnpin.setOnClickListener(v -> unpinMessage());
+                        } else {
+                            binding.llPinnedBanner.setVisibility(View.GONE);
+                            binding.llPinnedBanner.setOnClickListener(null);
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+    }
+
+    private void unpinMessage() {
+        FirebaseUtils.db().getReference("pinnedMessages").child(chatId).removeValue();
+    }
+
+    /**
+     * Toggles pin on a message.
+     * - If the message is already pinned → unpins it (clears banner).
+     * - Otherwise → writes {id, text} to pinnedMessages/{chatId}.
+     *   watchPinnedMessage() listener will pick up the change and show the banner.
+     */
+    private void pinMessage(Message m) {
+        if (m == null || m.id == null) return;
+        DatabaseReference pinRef =
+                FirebaseUtils.db().getReference("pinnedMessages").child(chatId);
+        if (Boolean.TRUE.equals(m.pinned)) {
+            // Already pinned → unpin
+            pinRef.removeValue();
+            messagesRef.child(m.id).child("pinned").setValue(false);
+        } else {
+            // Pin this message
+            String preview = m.text != null && !m.text.isEmpty()
+                    ? m.text
+                    : (m.type != null ? "[" + m.type + "]" : "Pinned message");
+            java.util.Map<String, Object> pinData = new java.util.HashMap<>();
+            pinData.put("id",   m.id);
+            pinData.put("text", preview);
+            pinRef.setValue(pinData);
+            messagesRef.child(m.id).child("pinned").setValue(true);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SEARCH (N6)
+    // ─────────────────────────────────────────────────────────────────────
+
+    // ─────────────────────────────────────────────────────────────────────
+    // IN-CHAT SEARCH — prev/next navigation + result count
+    // ─────────────────────────────────────────────────────────────────────
+
+    private final java.util.List<Integer> searchMatchPositions = new java.util.ArrayList<>();
+    private int searchCurrentIndex = -1;
+
+    /** Open WhatsApp-style Media, Links & Docs screen for this chat */
     private void openAllMediaLinksDocs() {
         try {
+            // AllMediaLinksDocsActivity app module mein hai, isliye Class.forName se intent banate hain
             Class<?> cls = Class.forName("com.callx.app.activities.AllMediaLinksDocsActivity");
             Intent i = new Intent(this, cls);
             i.putExtra("chatId",      chatId);
@@ -1162,181 +2194,861 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             i.putExtra("isGroup",     false);
             startActivity(i);
         } catch (ClassNotFoundException e) {
-            android.util.Log.e(TAG, "AllMediaLinksDocsActivity not found", e);
+            android.util.Log.e("ChatActivity", "AllMediaLinksDocsActivity not found", e);
         }
     }
 
-    private void openSmallWindow() {
-        Context appCtx = getApplicationContext();
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
-                && !android.provider.Settings.canDrawOverlays(appCtx)) {
-            Intent permIntent = new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + appCtx.getPackageName()));
-            startActivity(permIntent);
-            Toast.makeText(this, "'Display over other apps' permission dijiye phir Small Window use karo", Toast.LENGTH_LONG).show();
-            return;
-        }
-        try {
-            Class<?> svcClass = Class.forName("com.callx.app.smallwindow.SmallWindowService");
-            Intent svc = new Intent(appCtx, svcClass);
-            svc.putExtra("name",   partnerName != null ? partnerName : "Chat");
-            svc.putExtra("status", "CallX Small Window");
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                appCtx.startForegroundService(svc);
-            } else {
-                appCtx.startService(svc);
-            }
-            moveTaskToBack(true);
-        } catch (ClassNotFoundException e) {
-            Toast.makeText(this, "Small Window unavailable", Toast.LENGTH_SHORT).show();
-        }
-    }
+    private void openSearch() {
+        if (binding.llSearchBar == null) return;
+        binding.llSearchBar.setVisibility(View.VISIBLE);
+        if (binding.etSearch != null) {
+            binding.etSearch.requestFocus();
+            android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager)
+                    getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(binding.etSearch, 0);
 
-    // ─────────────────────────────────────────────────────────────────────
-    // NAVIGATE TO ORIGINAL (reply jump)
-    // ─────────────────────────────────────────────────────────────────────
-
-    private void navigateToOriginalMsg(String messageId) {
-        if (messageId == null || messageId.isEmpty()) return;
-        int pos = -1;
-        for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
-            Message m = pagingAdapter.peek(i);
-            if (m != null && (messageId.equals(m.id) || messageId.equals(m.messageId))) {
-                pos = i; break;
-            }
-        }
-        if (pos >= 0) {
-            MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, pos, binding.fabBackToLatest);
-        } else {
-            final String cId = chatId;
-            ioExecutor.execute(() -> {
-                if (db == null || cId == null) {
-                    runOnUiThread(() -> Toast.makeText(this, "Message not in view — scroll up to find it", Toast.LENGTH_SHORT).show());
-                    return;
-                }
-                MessageEntity target = db.messageDao().getMessageById(messageId);
-                if (target == null || target.timestamp == null) {
-                    runOnUiThread(() -> Toast.makeText(this, "Original message not found", Toast.LENGTH_SHORT).show());
-                    return;
-                }
-                int posFromBottom = db.messageDao().countMessagesAfterTimestamp(cId, target.timestamp);
-                int approxPos = pagingAdapter.getItemCount() - posFromBottom - 1;
-                final int safePos = Math.max(0, approxPos);
-                runOnUiThread(() -> {
-                    if (binding.fabBackToLatest != null) {
-                        binding.fabBackToLatest.setVisibility(View.VISIBLE);
-                        binding.fabBackToLatest.animate().alpha(1f).setDuration(200).start();
+            binding.etSearch.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+                @Override public void afterTextChanged(Editable s) {}
+                @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
+                    String query = s.toString().trim();
+                    if (query.length() < 2) {
+                        searchMatchPositions.clear();
+                        searchCurrentIndex = -1;
+                        updateSearchUI();
+                        return;
                     }
-                    binding.rvMessages.scrollToPosition(safePos);
-                    binding.rvMessages.postDelayed(() -> {
-                        RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(safePos);
-                        if (vh != null) MessageHighlightAnimator.flashHighlight(vh.itemView);
-                    }, 500);
-                });
+                    runSearchQuery(query);
+                }
+            });
+
+            binding.etSearch.setOnEditorActionListener((v, actionId, e) -> {
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                    navigateSearch(true); // next result
+                    return true;
+                }
+                return false;
             });
         }
+
+        // Prev / Next buttons
+        if (binding.btnSearchPrev != null)
+            binding.btnSearchPrev.setOnClickListener(v -> navigateSearch(false));
+        if (binding.btnSearchNext != null)
+            binding.btnSearchNext.setOnClickListener(v -> navigateSearch(true));
+
+        if (binding.btnCloseSearch != null)
+            binding.btnCloseSearch.setOnClickListener(v -> closeSearch());
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // SWIPE TO REPLY + FAB
-    // ─────────────────────────────────────────────────────────────────────
-
-    private void setupSwipeToReply() {
-        SwipeReplyHandler handler = new SwipeReplyHandler(this,
-                new java.util.AbstractList<Message>() {
-                    @Override public Message get(int index) { return pagingAdapter.peek(index); }
-                    @Override public int size() { return pagingAdapter.getItemCount(); }
-                },
-                currentUid,
-                (message, adapterPosition) -> {
-                    ReplyAnalyticsTracker.get().onSwipeAttempt(100f);
-                    startReply(message);
-                });
-
-        swipeHelper = new ItemTouchHelper(handler);
-        swipeHelper.attachToRecyclerView(binding.rvMessages);
-
-        replyController = new ReplyController(new ReplyController.Callback() {
-            @Override public void onReplyActivated(Message message) { activateReplyDirect(message); }
-            @Override public void onReplyCancelled() {}
-            @Override public void onPendingUndo(Message message, Runnable cancelAction) {
-                String senderName = (currentUid != null && currentUid.equals(message.senderId))
-                        ? "You" : (message.senderName != null ? message.senderName : "Unknown");
-                Snackbar.make(binding.getRoot(), "Replying to " + senderName + "\u2026", Snackbar.LENGTH_SHORT)
-                        .setAction("UNDO", v -> { cancelAction.run(); ReplyAnalyticsTracker.get().onUndoUsed(); })
-                        .show();
-            }
-            @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
-            @Override public void onUndoConfirmed() {}
-        });
-    }
-
-    private void setupFabBackToLatest() {
-        if (binding.fabBackToLatest == null) return;
-        binding.fabBackToLatest.setOnClickListener(v -> {
-            int last = pagingAdapter.getItemCount() - 1;
-            if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
-            MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
-        });
-        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                if (lm == null) return;
-                if (lm.findLastVisibleItemPosition() >= pagingAdapter.getItemCount() - 3) {
-                    MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+    private void runSearchQuery(String query) {
+        ioExecutor.execute(() -> {
+            // Load all messages for this chat from Room (up to 2000)
+            java.util.List<MessageEntity> all =
+                db.messageDao().getMessagesPaged(chatId, 2000, 0);
+            java.util.List<Integer> matches = new java.util.ArrayList<>();
+            String lq = query.toLowerCase(java.util.Locale.getDefault());
+            for (int i = 0; i < all.size(); i++) {
+                MessageEntity me = all.get(i);
+                if (me.text != null &&
+                    me.text.toLowerCase(java.util.Locale.getDefault()).contains(lq)) {
+                    matches.add(i);
                 }
             }
+            runOnUiThread(() -> {
+                searchMatchPositions.clear();
+                searchMatchPositions.addAll(matches);
+                searchCurrentIndex = matches.isEmpty() ? -1 : matches.size() - 1;
+                updateSearchUI();
+                if (!matches.isEmpty())
+                    binding.rvMessages.scrollToPosition(
+                        searchMatchPositions.get(searchCurrentIndex));
+            });
         });
+    }
+
+    private void navigateSearch(boolean forward) {
+        if (searchMatchPositions.isEmpty()) return;
+        if (forward) {
+            searchCurrentIndex = (searchCurrentIndex + 1) % searchMatchPositions.size();
+        } else {
+            searchCurrentIndex = (searchCurrentIndex - 1 + searchMatchPositions.size())
+                                  % searchMatchPositions.size();
+        }
+        updateSearchUI();
+        binding.rvMessages.scrollToPosition(
+            searchMatchPositions.get(searchCurrentIndex));
+    }
+
+    private void updateSearchUI() {
+        if (binding.tvSearchCount == null) return;
+        if (searchMatchPositions.isEmpty()) {
+            binding.tvSearchCount.setVisibility(View.GONE);
+            if (binding.btnSearchPrev != null) binding.btnSearchPrev.setVisibility(View.GONE);
+            if (binding.btnSearchNext != null) binding.btnSearchNext.setVisibility(View.GONE);
+        } else {
+            String label = (searchCurrentIndex + 1) + " / " + searchMatchPositions.size();
+            binding.tvSearchCount.setText(label);
+            binding.tvSearchCount.setVisibility(View.VISIBLE);
+            if (binding.btnSearchPrev != null) binding.btnSearchPrev.setVisibility(View.VISIBLE);
+            if (binding.btnSearchNext != null) binding.btnSearchNext.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void closeSearch() {
+        if (binding.llSearchBar != null)
+            binding.llSearchBar.setVisibility(View.GONE);
+        if (binding.etSearch != null) binding.etSearch.setText("");
+        searchMatchPositions.clear();
+        searchCurrentIndex = -1;
+        updateSearchUI();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // AVATAR ZOOM (N3)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void openEditProfile() {
+        // ProfileActivity is in :app module — use reflection to avoid cross-module dep
+        try {
+            Class<?> cls = Class.forName("com.callx.app.activities.ProfileActivity");
+            startActivity(new Intent(this, cls));
+        } catch (ClassNotFoundException e) {
+            android.widget.Toast.makeText(this, "Edit Profile unavailable", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openAvatarZoom() {
+        // Opens UserProfileActivity — from chat header avatar OR 3-dot View Profile
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        Intent intent = new Intent()
+            .setClassName(this, "com.callx.app.activities.UserProfileActivity");
+        intent.putExtra("uid",    partnerUid);
+        intent.putExtra("name",   partnerName  != null ? partnerName  : "");
+        intent.putExtra("photo",  partnerPhoto != null ? partnerPhoto : "");
+        intent.putExtra("chatId", chatId       != null ? chatId       : "");
+        startActivity(intent);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CAMERA (N5)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void launchCamera() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
+            return;
+        }
+        ContentValues cv = new ContentValues();
+        cv.put(MediaStore.Images.Media.DISPLAY_NAME,
+                "callx_" + System.currentTimeMillis() + ".jpg");
+        cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        cameraOutputUri = getContentResolver()
+                .insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+        if (cameraOutputUri != null) cameraCapturer.launch(cameraOutputUri);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MEDIA UPLOAD
+    // ─────────────────────────────────────────────────────────────────────
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GIF MESSAGE — Google Keyboard se aaya GIF send karo
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void sendGifMessage(Uri gifUri, androidx.core.view.inputmethod.InputContentInfoCompat contentInfo) {
+        if (gifUri == null) {
+            if (contentInfo != null) contentInfo.releasePermission();
+            return;
+        }
+        if (!isOnline()) {
+            if (contentInfo != null) contentInfo.releasePermission();
+            Toast.makeText(this, "No connection — GIF send nahi ho sakta", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+        Toast.makeText(this, "GIF bhej raha hai...", Toast.LENGTH_SHORT).show();
+        // URI ko local copy karo permission release se pehle safe rehne ke liye
+        final Uri finalUri = gifUri;
+        CloudinaryUploader.upload(this, finalUri, "callx/gif", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override
+                    public void onSuccess(CloudinaryUploader.Result r) {
+                        // Upload ho gaya — ab permission release karo
+                        if (contentInfo != null) contentInfo.releasePermission();
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Message m  = buildOutgoing();
+                        m.type     = "gif";
+                        // Cloudinary URL as-is use karo — m.type="gif" se Glide
+                        // asGif() use karega. URL pe .gif append karna GALAT tha —
+                        // Cloudinary URL break ho jaata tha, GIF blank dikhta tha.
+                        String gifUrl = r.secureUrl;
+                        m.mediaUrl = gifUrl;
+                        m.imageUrl = gifUrl;
+                        pushMessage(m, "🎞️ GIF");
+                        clearReply();
+                    }
+                    @Override
+                    public void onError(String err) {
+                        // Error par bhi release karo
+                        if (contentInfo != null) contentInfo.releasePermission();
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Toast.makeText(ChatActivity.this,
+                                err != null ? err : "GIF upload failed",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    private void uploadAndSend(Uri uri, String msgType,
+                               String resourceType, String fileName) {
+        // OFFLINE FIX: Media upload needs internet — check before starting
+        if (!isOnline()) {
+            Toast.makeText(this,
+                "No connection — media send kar'ne ke liye internet chahiye",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+
+        // IMAGE: compress first (5MB → ~400KB WebP), then upload
+        if ("image".equals(msgType)) {
+            ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
+                @Override
+                public void onSuccess(ImageCompressor.Result result) {
+                    // Upload full image to Cloudinary; store thumb URL separately
+                    Uri fullUri  = Uri.fromFile(result.fullFile);
+                    Uri thumbUri = Uri.fromFile(result.thumbFile);
+
+                    // First upload thumbnail (fast, ~30KB)
+                    CloudinaryUploader.upload(ChatActivity.this, thumbUri,
+                        "callx/thumb", "image",
+                        new CloudinaryUploader.UploadCallback() {
+                            @Override
+                            public void onSuccess(CloudinaryUploader.Result thumbResult) {
+                                String thumbUrl = thumbResult.secureUrl;
+                                // Now upload full image
+                                CloudinaryUploader.upload(ChatActivity.this, fullUri,
+                                    "callx/image", "image",
+                                    new CloudinaryUploader.UploadCallback() {
+                                        @Override
+                                        public void onSuccess(CloudinaryUploader.Result fullResult) {
+                                            binding.uploadProgress.setVisibility(View.GONE);
+                                            // Cleanup temp files
+                                            result.thumbFile.delete();
+                                            result.fullFile.delete();
+                                            // Build message with BOTH urls
+                                            Message m     = buildOutgoing();
+                                            m.type        = "image";
+                                            m.mediaUrl    = fullResult.secureUrl;
+                                            m.imageUrl    = fullResult.secureUrl;
+                                            m.thumbnailUrl = thumbUrl;
+                                            m.fileSize    = fullResult.bytes;
+                                            pushMessage(m, "📷 Photo");
+                                            clearReply();
+                                        }
+                                        @Override
+                                        public void onError(String err) {
+                                            binding.uploadProgress.setVisibility(View.GONE);
+                                            result.thumbFile.delete();
+                                            result.fullFile.delete();
+                                            Toast.makeText(ChatActivity.this,
+                                                err != null ? err : "Upload failed",
+                                                Toast.LENGTH_LONG).show();
+                                        }
+                                    });
+                            }
+                            @Override
+                            public void onError(String err) {
+                                // Thumb failed — still upload full (no thumb preview)
+                                CloudinaryUploader.upload(ChatActivity.this, fullUri,
+                                    "callx/image", "image",
+                                    new CloudinaryUploader.UploadCallback() {
+                                        @Override
+                                        public void onSuccess(CloudinaryUploader.Result r) {
+                                            binding.uploadProgress.setVisibility(View.GONE);
+                                            result.thumbFile.delete();
+                                            result.fullFile.delete();
+                                            Message m  = buildOutgoing();
+                                            m.type     = "image";
+                                            m.mediaUrl = r.secureUrl;
+                                            m.imageUrl = r.secureUrl;
+                                            pushMessage(m, "📷 Photo");
+                                            clearReply();
+                                        }
+                                        @Override
+                                        public void onError(String e) {
+                                            binding.uploadProgress.setVisibility(View.GONE);
+                                            result.thumbFile.delete();
+                                            result.fullFile.delete();
+                                            Toast.makeText(ChatActivity.this,
+                                                "Upload failed", Toast.LENGTH_LONG).show();
+                                        }
+                                    });
+                            }
+                        });
+                }
+                @Override
+                public void onError(Exception e) {
+                    // Compression failed — fallback to direct upload
+                    android.util.Log.w("ChatActivity", "Compression failed, uploading original", e);
+                    doUpload(uri, msgType, resourceType, fileName);
+                }
+            });
+            return;
+        }
+
+        // VIDEO: compress → dual Cloudinary upload (thumb + video)
+        if ("video".equals(msgType)) {
+            binding.uploadProgress.setVisibility(View.VISIBLE);
+            binding.uploadProgress.setIndeterminate(false);
+            binding.uploadProgress.setMax(100);
+            binding.uploadProgress.setProgress(0);
+
+            com.callx.app.utils.VideoCompressor.compress(
+                    this, uri, new com.callx.app.utils.VideoCompressor.Callback() {
+
+                @Override
+                public void onProgress(int percent) {
+                    binding.uploadProgress.setProgress(percent / 2); // 0–50% = compress
+                }
+
+                @Override
+                public void onSuccess(com.callx.app.utils.VideoCompressor.Result result) {
+                    // Compression done — upload thumb + video to Cloudinary
+                    com.callx.app.utils.VideoUploader.upload(
+                            ChatActivity.this, result,
+                            new com.callx.app.utils.VideoUploader.UploadCallback() {
+
+                        @Override
+                        public void onProgress(int percent) {
+                            // 50–100% = upload phase
+                            binding.uploadProgress.setProgress(50 + percent / 2);
+                        }
+
+                        @Override
+                        public void onSuccess(String thumbUrl, String videoUrl,
+                                              int durationMs, int width, int height) {
+                            binding.uploadProgress.setVisibility(View.GONE);
+                            Message m       = buildOutgoing();
+                            m.type          = "video";
+                            m.mediaUrl      = videoUrl;
+                            m.thumbnailUrl  = thumbUrl;
+                            m.duration      = (long) durationMs;
+                            pushMessage(m, "\uD83C\uDFAC Video");
+                            clearReply();
+                        }
+
+                        @Override
+                        public void onError(Exception e) {
+                            binding.uploadProgress.setVisibility(View.GONE);
+                            Toast.makeText(ChatActivity.this,
+                                    e != null ? e.getMessage() : "Video upload failed",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+
+                @Override
+                public void onError(Exception e) {
+                    // Compression failed — fallback to direct upload
+                    android.util.Log.w("ChatActivity", "Video compress failed, fallback", e);
+                    doUpload(uri, msgType, resourceType, fileName);
+                }
+            });
+            return;
+        }
+
+        // All other types (audio, file): upload directly
+        doUpload(uri, msgType, resourceType, fileName);
+    }
+
+    private void doUpload(Uri uri, String msgType, String resourceType, String fileName) {
+        long size = FileUtils.fileSize(this, uri);
+
+        // FIX [P3-2]: File size validation — upload shuru karne se pehle limit check karo
+        long limitBytes;
+        String limitLabel;
+        switch (msgType) {
+            case "image": limitBytes = 10L  * 1024 * 1024; limitLabel = "10 MB"; break;
+            case "video": limitBytes = 100L * 1024 * 1024; limitLabel = "100 MB"; break;
+            case "audio": limitBytes = 25L  * 1024 * 1024; limitLabel = "25 MB"; break;
+            default:      limitBytes = 50L  * 1024 * 1024; limitLabel = "50 MB"; break;
+        }
+        if (size > limitBytes) {
+            String typeName;
+            switch (msgType) {
+                case "image": typeName = "Image"; break;
+                case "video": typeName = "Video"; break;
+                case "audio": typeName = "Audio"; break;
+                default:      typeName = "File";  break;
+            }
+            Toast.makeText(this,
+                typeName + " too large — max " + limitLabel + " allowed",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        CloudinaryUploader.upload(this, uri, "callx/" + msgType, resourceType,
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result r) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Message m  = buildOutgoing();
+                        m.type     = msgType;
+                        m.mediaUrl = r.secureUrl;
+                        m.imageUrl = "image".equals(msgType) ? r.secureUrl : null;
+                        m.fileName = fileName;
+                        m.fileSize = r.bytes != null ? r.bytes : size;
+                        m.duration = r.durationMs;
+                        pushMessage(m, mediaPreview(msgType, fileName));
+                        clearReply();
+                    }
+                    @Override public void onError(String err) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Toast.makeText(ChatActivity.this,
+                                err != null ? err : "Upload failed",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    private static String mediaPreview(String type, String fileName) {
+        switch (type) {
+            case "image": return "\uD83D\uDCF7 Photo";
+            case "video": return "\uD83C\uDFAC Video";
+            case "audio": return "\uD83C\uDFA4 Voice message";
+            case "file":  return "\uD83D\uDCCE " + (fileName != null ? fileName : "File");
+            default:      return "Media";
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PICKERS
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void setupPickers() {
+        imagePicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) uploadAndSend(uri, "image", "image", null); });
+        videoPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) uploadAndSend(uri, "video", "video", null); });
+        audioPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> { if (uri != null) uploadAndSend(uri, "audio", "raw", null); });
+        filePicker  = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> {
+                    if (uri == null) return;
+                    uploadAndSend(uri, "file", "raw", FileUtils.fileName(this, uri));
+                });
+        wallpaperPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> {
+                    if (uri == null) return;
+                    // Take persistable permission so URI survives reboots
+                    try {
+                        getContentResolver().takePersistableUriPermission(
+                            uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    } catch (SecurityException ignored) {}
+                    showWallpaperScopeDialog(uri);
+                });
+        cameraCapturer = registerForActivityResult(
+                new ActivityResultContracts.TakePicture(),
+                success -> {
+                    if (success && cameraOutputUri != null)
+                        uploadAndSend(cameraOutputUri, "image", "image", null);
+                });
+    }
+
+    private void showAttachSheet() {
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
+        View v = LayoutInflater.from(this)
+                .inflate(R.layout.bottom_sheet_attach, null);
+        v.findViewById(R.id.opt_gallery)
+                .setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
+        v.findViewById(R.id.opt_video)
+                .setOnClickListener(x -> { sheet.dismiss(); videoPicker.launch("video/*"); });
+        v.findViewById(R.id.opt_audio)
+                .setOnClickListener(x -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
+        v.findViewById(R.id.opt_file)
+                .setOnClickListener(x -> { sheet.dismiss(); filePicker.launch("*/*"); });
+        sheet.setContentView(v);
+        sheet.show();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // VOICE RECORDING
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void toggleRecording() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+            return;
+        }
+        if (!isRecording) {
+            if (recorder.start(this)) {
+                isRecording = true;
+                binding.btnMic.setBackgroundResource(R.drawable.circle_reject);
+                Toast.makeText(this, "Recording\u2026 tap again to stop",
+                        Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            isRecording = false;
+            binding.btnMic.setBackgroundResource(R.drawable.circle_primary);
+            Uri uri = recorder.stop(this);
+            if (uri != null) uploadAndSend(uri, "audio", "raw", null);
+            else Toast.makeText(this, "Recording was empty",
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CLEAR CHAT (N8)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void confirmClearChat() {
+        new AlertDialog.Builder(this)
+                .setTitle("Clear chat?")
+                .setMessage("All messages will be deleted locally.")
+                .setPositiveButton("Clear", (d, w) -> {
+                    ioExecutor.execute(() ->
+                            db.messageDao().deleteAllForChat(chatId));
+                    CacheManager.getInstance(this).invalidateMessages(chatId);
+                    Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    // ── Apply Chat Screen Theme (toolbar, bg, input bar, buttons) ─────────
+    private void applyScreenTheme() {
+        com.callx.app.utils.ChatThemeManager mgr =
+                com.callx.app.utils.ChatThemeManager.get(this);
+
+        // Toolbar = the root LinearLayout id="toolbar"
+        android.view.View toolbar = binding.toolbar;
+
+        // Root layout (for chat background)
+        android.view.View chatRoot = binding.getRoot();
+
+        // Input row
+        android.view.View inputRow = binding.llInputRow;
+
+        // Reply bar accent stripe
+        android.view.View replyAccent = binding.viewReplyAccent;
+
+        // Also update tv_reply_bar_name color to match primary
+        if (binding.tvReplyBarName != null) {
+            binding.tvReplyBarName.setTextColor(mgr.getPrimaryColor());
+        }
+
+        mgr.applyScreenTheme(
+                toolbar,
+                chatRoot,
+                inputRow,
+                binding.btnSend,
+                binding.btnMic,
+                binding.fabBackToLatest,
+                replyAccent);
+
+        // Apply saved typing style to input box
+        com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage);
+
+        // Apply wallpaper
+        applyWallpaper();
+    }
+
+    // ── Wallpaper apply ───────────────────────────────────────────────────
+    private void applyWallpaper() {
+        android.widget.ImageView ivWall = binding.ivChatWallpaper;
+        if (ivWall == null) return;
+        String uriStr = com.callx.app.utils.ChatWallpaperManager.get(this)
+                            .getEffectiveWallpaper(chatId);
+        if (uriStr == null) {
+            ivWall.setVisibility(View.GONE);
+            ivWall.setImageDrawable(null);
+        } else {
+            ivWall.setVisibility(View.VISIBLE);
+            Glide.with(this)
+                 .load(android.net.Uri.parse(uriStr))
+                 .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                 .centerCrop()
+                 .into(ivWall);
+        }
+    }
+
+    // ── Wallpaper Picker ──────────────────────────────────────────────────
+    private void showWallpaperPicker() {
+        wallpaperPicker.launch("image/*");
+    }
+
+    /** After picking image — ask: This chat only OR All chats (global) */
+    private void showWallpaperScopeDialog(android.net.Uri uri) {
+        com.callx.app.utils.ChatWallpaperManager wm =
+                com.callx.app.utils.ChatWallpaperManager.get(this);
+        String[] options = {"🙋 This chat only", "🌐 All chats (Global)", "❌ Remove wallpaper"};
+        new AlertDialog.Builder(this)
+            .setTitle("🖼️ Set Wallpaper")
+            .setItems(options, (d, which) -> {
+                if (which == 0) {
+                    wm.setWallpaper(chatId, uri);
+                    applyWallpaper();
+                } else if (which == 1) {
+                    wm.setGlobalWallpaper(uri);
+                    applyWallpaper();
+                } else {
+                    // Remove both per-chat and global
+                    wm.clearWallpaper(chatId);
+                    wm.clearGlobalWallpaper();
+                    applyWallpaper();
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    // ── Typing Style Picker (10 styles for message input box) ─────────────
+    private void showTypingStylePicker() {
+        com.callx.app.chat.ui.TypingStyleBottomSheet sheet =
+                com.callx.app.chat.ui.TypingStyleBottomSheet.newInstance();
+        sheet.setOnStyleSelectedListener(which -> {
+            if (which == -1) {
+                // Samsung submenu signal
+                showSamsungStyleSubmenu(com.callx.app.utils.TypingStyleManager.get(this));
+                return;
+            }
+            binding.etMessage.post(() ->
+                com.callx.app.utils.TypingStyleManager.get(this).applyToInput(binding.etMessage)
+            );
+        });
+        sheet.show(getSupportFragmentManager(), com.callx.app.chat.ui.TypingStyleBottomSheet.TAG);
+    }
+
+    /** Samsung style ka submenu — Font vs Script choose karo */
+    private void showSamsungStyleSubmenu(com.callx.app.utils.TypingStyleManager mgr) {
+        String scriptPreview = com.callx.app.utils.UnicodeStyler.toScript("Samsung Style");
+        String[] options = {
+            "🅢 Samsung One (Font)",
+            scriptPreview + " (Script ✨)"
+        };
+        new AlertDialog.Builder(this)
+            .setTitle("🅢 Samsung Style — Choose")
+            .setItems(options, (dialog, which) -> {
+                if (which == 0) {
+                    mgr.setStyle(com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG);
+                } else {
+                    mgr.setStyle(com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT);
+                }
+                binding.etMessage.post(() ->
+                    mgr.applyToInput(binding.etMessage)
+                );
+            })
+            .setNegativeButton("Back", (d, w) -> showTypingStylePicker())
+            .show();
+    }
+
+    // ── Chat Bubble Theme Picker ──────────────────────────────────────────
+    private void showThemePicker() {
+        com.callx.app.chat.ui.ChatThemeBottomSheet sheet =
+                com.callx.app.chat.ui.ChatThemeBottomSheet.newInstance();
+        sheet.setOnThemeSelectedListener(which -> {
+            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+            applyScreenTheme();
+        });
+        sheet.show(getSupportFragmentManager(), com.callx.app.chat.ui.ChatThemeBottomSheet.TAG);
+    }
+
+    private void showBubbleShapePicker() {
+        com.callx.app.chat.ui.BubbleShapeBottomSheet sheet =
+                com.callx.app.chat.ui.BubbleShapeBottomSheet.newInstance();
+        sheet.setOnShapeSelectedListener(which -> {
+            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+        });
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.BubbleShapeBottomSheet.TAG);
+    }
+
+    // ── Chat Customization submenu ────────────────────────────────────────
+    private void showChatCustomizationMenu() {
+        com.callx.app.chat.ui.ChatCustomizationBottomSheet sheet =
+                com.callx.app.chat.ui.ChatCustomizationBottomSheet.newInstance();
+        sheet.setOnOptionSelectedListener(option -> {
+            switch (option) {
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_WALLPAPER:
+                    showWallpaperPicker();   break;
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_THEME:
+                    showThemePicker();       break;
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_BUBBLE:
+                    showBubbleShapePicker(); break;
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_TYPING:
+                    showTypingStylePicker(); break;
+                case com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_FONT_SIZE:
+                    showFontSizePicker();    break;
+            }
+        });
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.ChatCustomizationBottomSheet.TAG);
+    }
+
+    private void showChatSecuritySheet() {
+        com.callx.app.chat.ui.ChatSecurityBottomSheet sheet =
+                com.callx.app.chat.ui.ChatSecurityBottomSheet.newInstance();
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.ChatSecurityBottomSheet.TAG);
+    }
+
+    private void showChatPrivacySheet() {
+        // Main privacy menu — choose which setting to change
+        String displayName = partnerName != null ? partnerName : "Chat";
+        com.callx.app.utils.ChatPrivacyManager pm =
+                new com.callx.app.utils.ChatPrivacyManager(this, chatId, false);
+
+        String[] options = {
+            "⏳ Disappearing Messages  [" + pm.getDisappearingLabel() + "]",
+            "⏱ Message Timer  [" + pm.getMsgTimerLabel() + "]",
+            "🗑 Auto-Delete Old Messages  [" + pm.getAutoDeleteLabel() + "]"
+        };
+
+        new AlertDialog.Builder(this)
+            .setTitle("🛡 Chat Privacy — " + displayName)
+            .setItems(options, (d, which) -> {
+                if (which == 0) showDisappearingDialog(pm);
+                else if (which == 1) showMsgTimerDialog(pm);
+                else showAutoDeleteDialog(pm);
+            })
+            .setNegativeButton("Close", null)
+            .show();
+    }
+
+    private void showDisappearingDialog(com.callx.app.utils.ChatPrivacyManager pm) {
+        String[] labels = {"Off", "24 hours", "7 days", "30 days"};
+        long[]   values = {
+            com.callx.app.utils.ChatPrivacyManager.DISAPPEAR_OFF,
+            com.callx.app.utils.ChatPrivacyManager.DISAPPEAR_24H,
+            com.callx.app.utils.ChatPrivacyManager.DISAPPEAR_7D,
+            com.callx.app.utils.ChatPrivacyManager.DISAPPEAR_30D
+        };
+        long cur = pm.getDisappearingMs();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
+        final int[] sel = {checked};
+        new AlertDialog.Builder(this)
+            .setTitle("⏳ Disappearing Messages")
+            .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
+            .setPositiveButton("Set", (d, w) -> {
+                pm.setDisappearingMs(values[sel[0]]);
+                android.widget.Toast.makeText(this, "Disappearing: " + labels[sel[0]], android.widget.Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void showMsgTimerDialog(com.callx.app.utils.ChatPrivacyManager pm) {
+        String[] labels = {"Off", "10 seconds", "30 seconds", "1 minute", "5 minutes", "1 hour"};
+        long[]   values = {
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_OFF,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_10S,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_30S,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_1M,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_5M,
+            com.callx.app.utils.ChatPrivacyManager.MSG_TIMER_1H
+        };
+        long cur = pm.getMsgTimerMs();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
+        final int[] sel = {checked};
+        new AlertDialog.Builder(this)
+            .setTitle("⏱ Message Timer")
+            .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
+            .setPositiveButton("Set", (d, w) -> {
+                pm.setMsgTimerMs(values[sel[0]]);
+                android.widget.Toast.makeText(this, "Timer: " + labels[sel[0]], android.widget.Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void showAutoDeleteDialog(com.callx.app.utils.ChatPrivacyManager pm) {
+        String[] labels = {"Never", "After 7 days", "After 30 days", "After 90 days", "After 6 months"};
+        long[]   values = {
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_OFF,
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_7D,
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_30D,
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_90D,
+            com.callx.app.utils.ChatPrivacyManager.AUTO_DELETE_180D
+        };
+        long cur = pm.getAutoDeleteDays();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
+        final int[] sel = {checked};
+        new AlertDialog.Builder(this)
+            .setTitle("🗑 Auto-Delete Old Messages")
+            .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
+            .setPositiveButton("Set", (d, w) -> {
+                pm.setAutoDeleteDays(values[sel[0]]);
+                android.widget.Toast.makeText(this, "Auto-delete: " + labels[sel[0]], android.widget.Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void showFontSizePicker() {
+        com.callx.app.chat.ui.MessageFontSizeBottomSheet sheet =
+                com.callx.app.chat.ui.MessageFontSizeBottomSheet.newInstance();
+        sheet.setOnSizeSelectedListener(which -> {
+            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+        });
+        sheet.show(getSupportFragmentManager(),
+                com.callx.app.chat.ui.MessageFontSizeBottomSheet.TAG);
     }
 
     // ─────────────────────────────────────────────────────────────────────
     // MENU
     // ─────────────────────────────────────────────────────────────────────
 
-    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
-        getMenuInflater().inflate(R.menu.chat_menu, menu); return true;
+    @Override
+    public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        getMenuInflater().inflate(R.menu.chat_menu, menu);
+        return true;
     }
 
-    @Override public boolean onPrepareOptionsMenu(android.view.Menu menu) {
+    @Override
+    public boolean onPrepareOptionsMenu(android.view.Menu menu) {
         MenuItem muteItem = menu.findItem(R.id.action_mute);
-        if (muteItem != null) muteItem.setTitle(isMuted ? "\uD83D\uDD14 Unmute" : "\uD83D\uDD15 Mute");
+        if (muteItem != null)
+            muteItem.setTitle(isMuted ? "\uD83D\uDD14 Unmute" : "\uD83D\uDD15 Mute");
         return super.onPrepareOptionsMenu(menu);
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
-        if (id == R.id.action_view_profile)          { openAvatarZoom();                          return true; }
-        if (id == R.id.action_edit_profile)           { openEditProfile();                          return true; }
+        if (id == R.id.action_view_profile)  { openAvatarZoom();     return true; }
+        if (id == R.id.action_edit_profile)   { openEditProfile();    return true; }
         if (id == R.id.action_starred) {
-            Intent i = new Intent(this, StarredMessagesActivity.class);
-            i.putExtra("chatId", chatId); i.putExtra("isGroup", false); startActivity(i); return true;
+            Intent i = new Intent(this, com.callx.app.starred.StarredMessagesActivity.class);
+            i.putExtra("chatId",  chatId);
+            i.putExtra("isGroup", false);
+            startActivity(i);
+            return true;
         }
-        if (id == R.id.action_search)                { searchController.openSearch();             return true; }
-        if (id == R.id.action_mute)                  { presenceController.toggleMute();           return true; }
-        if (id == R.id.action_block)                 { blockController.confirmBlockUser();        return true; }
-        if (id == R.id.action_clear_chat)            { confirmClearChat();                         return true; }
-        if (id == R.id.action_chat_customization)    { themeController.showChatCustomizationMenu(); return true; }
-        if (id == R.id.action_media_links_docs)      { openAllMediaLinksDocs();                   return true; }
-        if (id == R.id.action_security)              { themeController.showChatSecuritySheet();   return true; }
-        if (id == R.id.action_chat_privacy)          { themeController.showChatPrivacySheet();    return true; }
-        if (id == R.id.action_small_window)          { openSmallWindow();                          return true; }
+        if (id == R.id.action_search)      { openSearch();          return true; }
+        if (id == R.id.action_mute)        { toggleMute();          return true; }
+        if (id == R.id.action_block)       { confirmBlockUser();    return true; }
+        if (id == R.id.action_clear_chat)  { confirmClearChat();    return true; }
+        if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
+        if (id == R.id.action_media_links_docs) { openAllMediaLinksDocs(); return true; }
+        if (id == R.id.action_security) { showChatSecuritySheet(); return true; }
+        if (id == R.id.action_chat_privacy) { showChatPrivacySheet(); return true; }
+        if (id == R.id.action_small_window) { openSmallWindow();      return true; }
         return super.onOptionsItemSelected(item);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // CLEAR CHAT
-    // ─────────────────────────────────────────────────────────────────────
-
-    private void confirmClearChat() {
-        new AlertDialog.Builder(this)
-                .setTitle("Clear chat?").setMessage("All messages will be deleted locally.")
-                .setPositiveButton("Clear", (d, w) -> {
-                    ioExecutor.execute(() -> db.messageDao().deleteAllForChat(chatId));
-                    CacheManager.getInstance(this).invalidateMessages(chatId);
-                    Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null).show();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1347,15 +3059,59 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     public void onRequestPermissionsResult(int requestCode,
             @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == ChatMediaController.REQ_CAMERA
+        if (requestCode == REQ_CAMERA
                 && grantResults.length > 0
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            mediaController.launchCamera();
+            launchCamera();
         }
-        if (requestCode == ChatMediaController.REQ_AUDIO
+        if (requestCode == REQ_AUDIO
                 && grantResults.length > 0
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            mediaController.toggleRecording();
+            toggleRecording();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SMALL WINDOW (v32.5)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Chat ko floating small window mein open karo.
+     * SmallWindowService ko Class.forName se start karte hain (cross-module safe).
+     */
+    private void openSmallWindow() {
+        android.content.Context appCtx = getApplicationContext();
+
+        // SYSTEM_ALERT_WINDOW permission check
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
+                && !android.provider.Settings.canDrawOverlays(appCtx)) {
+            Intent permIntent = new Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:" + appCtx.getPackageName()));
+            startActivity(permIntent);
+            Toast.makeText(this,
+                "'Display over other apps' permission dijiye phir Small Window use karo",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        String name   = partnerName != null ? partnerName : "Chat";
+        String status = "CallX Small Window";
+
+        try {
+            Class<?> svcClass = Class.forName("com.callx.app.smallwindow.SmallWindowService");
+            Intent svc = new Intent(appCtx, svcClass);
+            svc.putExtra("name",   name);
+            svc.putExtra("status", status);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                appCtx.startForegroundService(svc);
+            } else {
+                appCtx.startService(svc);
+            }
+            // Move app to background so small window is visible
+            moveTaskToBack(true);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(this, "Small Window unavailable", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1367,15 +3123,150 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         return (int) (dp * getResources().getDisplayMetrics().density);
     }
 
-    private String buildTypePreviewLocal(Message m) {
-        if (m.type == null) return "[message]";
-        switch (m.type) {
-            case "image":  return "\uD83D\uDCF7 Photo";
-            case "gif":    return "\uD83C\uDEDF\uFE0F GIF";
-            case "video":  return "\uD83C\uDFAC Video";
-            case "audio":  return "\uD83C\uDFA4 Voice message";
-            case "file":   return "\uD83D\uDCCE " + (m.fileName != null ? m.fileName : "File");
-            default:       return "[" + m.type + "]";
+    // ─────────────────────────────────────────────────────────────────────
+    // SWIPE-TO-REPLY SYSTEM (SwipeReplySystem v1)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Attaches SwipeReplyHandler to the RecyclerView.
+     * Initializes ReplyController with undo support.
+     */
+    private void setupSwipeToReply() {
+        // Build message supplier that reads from paging adapter
+        SwipeReplyHandler.OnSwipeReplyListener swipeListener = (message, adapterPosition) -> {
+            ReplyAnalyticsTracker.get().onSwipeAttempt(100f); // rough estimate
+            startReply(message);
+        };
+
+        // Create adapter-bridged handler (uses peek for PagingDataAdapter)
+        SwipeReplyHandler handler = new SwipeReplyHandler(this,
+                new java.util.AbstractList<com.callx.app.models.Message>() {
+                    @Override public com.callx.app.models.Message get(int index) {
+                        return pagingAdapter.peek(index);
+                    }
+                    @Override public int size() { return pagingAdapter.getItemCount(); }
+                },
+                currentUid, swipeListener);
+
+        swipeHelper = new ItemTouchHelper(handler);
+        swipeHelper.attachToRecyclerView(binding.rvMessages);
+
+        // Initialize ReplyController
+        replyController = new ReplyController(new ReplyController.Callback() {
+            @Override public void onReplyActivated(com.callx.app.models.Message message) {
+                activateReplyDirect(message);
+            }
+            @Override public void onReplyCancelled() {
+                // Already handled by clearReply()
+            }
+            @Override public void onPendingUndo(
+                    com.callx.app.models.Message message, Runnable cancelAction) {
+                // Show undo snackbar for 2 seconds
+                String senderName = (currentUid != null && currentUid.equals(message.senderId))
+                        ? "You" : (message.senderName != null ? message.senderName : "Unknown");
+                Snackbar.make(binding.getRoot(),
+                                "Replying to " + senderName + "…",
+                                Snackbar.LENGTH_SHORT)
+                        .setAction("UNDO", v -> {
+                            cancelAction.run();
+                            ReplyAnalyticsTracker.get().onUndoUsed();
+                        })
+                        .show();
+            }
+            @Override public void onNavigateToOriginal(String messageId) {
+                navigateToOriginal(messageId);
+            }
+            @Override public void onUndoConfirmed() {
+                // Nothing extra needed — state already reset
+            }
+        });
+    }
+
+    /**
+     * Sets up the "Back to latest" FAB.
+     * Shown when navigating to an original message, hidden when back at bottom.
+     */
+    private void setupFabBackToLatest() {
+        if (binding.fabBackToLatest == null) return;
+        binding.fabBackToLatest.setOnClickListener(v -> {
+            int last = pagingAdapter.getItemCount() - 1;
+            if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+            MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+        });
+        // Auto-hide when user scrolls back to bottom
+        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                androidx.recyclerview.widget.LinearLayoutManager lm =
+                        (androidx.recyclerview.widget.LinearLayoutManager) rv.getLayoutManager();
+                if (lm == null) return;
+                int last    = lm.findLastVisibleItemPosition();
+                int total   = pagingAdapter.getItemCount();
+                if (last >= total - 3) {
+                    MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+                }
+            }
+        });
+    }
+
+    /**
+     * Scrolls to and highlights the original message a reply references.
+     * Falls back gracefully if message not in current page.
+     */
+    private void navigateToOriginal(String messageId) {
+        if (messageId == null || messageId.isEmpty()) return;
+        // Search in current paged items
+        int pos = -1;
+        for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
+            com.callx.app.models.Message m = pagingAdapter.peek(i);
+            if (m != null && (messageId.equals(m.id) || messageId.equals(m.messageId))) {
+                pos = i; break;
+            }
+        }
+        if (pos >= 0) {
+            MessageHighlightAnimator.scrollAndHighlight(
+                    binding.rvMessages, pos, binding.fabBackToLatest);
+        } else {
+            // POLISH: Not in current paging window — look up from Room DB and jump by position
+            final String cId = chatId;
+            ioExecutor.execute(() -> {
+                if (db == null || cId == null) {
+                    runOnUiThread(() -> Toast.makeText(this,
+                            "Message not in view — scroll up to find it",
+                            Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                com.callx.app.db.entity.MessageEntity target =
+                        db.messageDao().getMessageById(messageId);
+                if (target == null || target.timestamp == null) {
+                    runOnUiThread(() -> Toast.makeText(this,
+                            "Original message not found", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                // Count how many messages are NEWER than the target (i.e., below it)
+                int posFromBottom = db.messageDao()
+                        .countMessagesAfterTimestamp(cId, target.timestamp);
+                // Approximate adapter position (older msgs are at lower indices — ASC order)
+                int approxPos = pagingAdapter.getItemCount() - posFromBottom - 1;
+                final int safePos = Math.max(0, approxPos);
+                runOnUiThread(() -> {
+                    // Show FAB so user can return to latest easily
+                    if (binding.fabBackToLatest != null) {
+                        binding.fabBackToLatest.setVisibility(View.VISIBLE);
+                        binding.fabBackToLatest.animate().alpha(1f).setDuration(200).start();
+                    }
+                    // scrollToPosition triggers Paging 3 to load the surrounding page
+                    binding.rvMessages.scrollToPosition(safePos);
+                    // Attempt highlight after scroll settles
+                    binding.rvMessages.postDelayed(() -> {
+                        RecyclerView.ViewHolder vh2 =
+                                binding.rvMessages.findViewHolderForAdapterPosition(safePos);
+                        if (vh2 != null) {
+                            MessageHighlightAnimator.flashHighlight(vh2.itemView);
+                        }
+                    }, 500);
+                });
+            });
         }
     }
 }
+
