@@ -933,6 +933,14 @@ public class ChatActivity extends AppCompatActivity {
         binding.btnMic.setOnClickListener(v -> toggleRecording());
         binding.btnAttach.setOnClickListener(v -> showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> launchCamera());
+        binding.btnEmoji.setOnClickListener(v -> {
+            android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                binding.etMessage.requestFocus();
+                imm.showSoftInput(binding.etMessage, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            }
+        });
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());

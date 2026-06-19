@@ -613,6 +613,14 @@ public class GroupChatActivity extends AppCompatActivity {
         binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
         binding.btnSend.setOnClickListener(v -> sendText());
         binding.btnMic.setOnClickListener(v -> toggleRecording());
+        binding.btnEmoji.setOnClickListener(v -> {
+            android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                binding.etMessage.requestFocus();
+                imm.showSoftInput(binding.etMessage, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            }
+        });
 
         // GIF support: Google Keyboard se GIF aane par handle karo
         if (binding.etMessage instanceof GifAwareEditText) {
