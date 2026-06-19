@@ -9,17 +9,20 @@
       tv_call_entry_time   — formatted timestamp (hh:mm a)
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ll_call_entry_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:gravity="center_horizontal"
+    android:gravity="end"
     android:paddingTop="4dp"
     android:paddingBottom="4dp">
 
-    <!-- Centered pill bubble -->
+    <!-- Pill bubble — aligned to caller's side (right if I called, left if they called) -->
     <LinearLayout
+        android:id="@+id/ll_call_entry_pill"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_gravity="end"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:background="@drawable/bubble_status_seen"

@@ -245,10 +245,24 @@ public class MessagePagingAdapter
         android.widget.TextView tvIcon  = h.itemView.findViewById(R.id.tv_call_entry_icon);
         android.widget.TextView tvLabel = h.itemView.findViewById(R.id.tv_call_entry_label);
         android.widget.TextView tvTime  = h.itemView.findViewById(R.id.tv_call_entry_time);
+        android.view.View llRoot = h.itemView.findViewById(R.id.ll_call_entry_root);
+        android.view.View llPill = h.itemView.findViewById(R.id.ll_call_entry_pill);
 
         boolean isVideoCall = "video".equals(m.fileName);
         boolean isMissed    = "missed".equals(m.text);
         boolean iAmCaller   = currentUid != null && currentUid.equals(m.senderId);
+
+        // Align bubble to the caller's side — right if I called, left if they called.
+        if (llRoot instanceof android.widget.LinearLayout) {
+            ((android.widget.LinearLayout) llRoot).setGravity(
+                    iAmCaller ? android.view.Gravity.END : android.view.Gravity.START);
+        }
+        if (llPill != null) {
+            android.widget.LinearLayout.LayoutParams lp =
+                    (android.widget.LinearLayout.LayoutParams) llPill.getLayoutParams();
+            lp.gravity = iAmCaller ? android.view.Gravity.END : android.view.Gravity.START;
+            llPill.setLayoutParams(lp);
+        }
 
         // Icon
         if (tvIcon != null) tvIcon.setText(isVideoCall ? "📹" : "📞");
