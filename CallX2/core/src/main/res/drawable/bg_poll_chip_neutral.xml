@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Poll feature (modernized) — small pill chip used for the "Anonymous" tag. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#26FFFFFF"/>
+    <corners android:radius="20dp"/>
+</shape>

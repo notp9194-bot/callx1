@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Poll feature (modernized) — circular chip behind the small bar-chart icon
+     in the poll card header. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#2BFFFFFF"/>
+</shape>

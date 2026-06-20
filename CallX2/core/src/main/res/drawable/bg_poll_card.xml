@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Poll feature (modernized) — frosted "glass card" that sits on top of the
+     bubble gradient. A light translucent overlay + soft border keeps the
+     poll readable and visually distinct no matter which bubble/theme color
+     is active (sent gradient, received gradient, or any ChatTheme). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#1FFFFFFF"/>
+    <stroke android:width="1dp" android:color="#30FFFFFF"/>
+    <corners android:radius="18dp"/>
+</shape>

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Poll feature (modernized) — one editable option row in the Create Poll
+     sheet. Bordered field to match bg_poll_input_field used elsewhere in
+     the sheet; remove button is a quiet circular icon rather than a bare X. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -17,17 +20,18 @@
         android:textSize="14sp"
         android:maxLines="1"
         android:inputType="textCapSentences"
-        android:background="@drawable/bg_search_field"
-        android:padding="10dp"/>
+        android:background="@drawable/bg_poll_input_field"
+        android:padding="11dp"/>
 
     <ImageView
         android:id="@+id/btn_remove_poll_option"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
         android:layout_marginStart="6dp"
-        android:padding="6dp"
+        android:padding="8dp"
         android:src="@drawable/ic_close"
-        android:background="?attr/selectableItemBackground"
+        android:background="@drawable/bg_poll_icon_badge"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Remove option"/>
 
 </LinearLayout>

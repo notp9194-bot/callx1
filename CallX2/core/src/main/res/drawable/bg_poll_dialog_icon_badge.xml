@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Poll feature (modernized) — circular brand-tinted badge behind the
+     bar-chart icon in the "Create Poll" sheet header. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#1A5B5BF6"/>
+</shape>

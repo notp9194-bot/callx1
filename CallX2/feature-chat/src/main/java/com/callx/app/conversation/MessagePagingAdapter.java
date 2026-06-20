@@ -1014,14 +1014,27 @@ public class MessagePagingAdapter
     }
 
     // ──────────────────────────────────────────────────────────────
-    // POLL BUBBLE — question + tappable options with live vote bars.
-    // Layout (per-bubble): ll_poll > tv_poll_question, ll_poll_options,
+    // POLL BUBBLE (modernized) — icon-badge header, frosted card,
+    // radio-style vote indicator, animated fill bars, leading-option
+    // highlight, and a status chip for Closed/Anonymous polls.
+    // Layout (per-bubble): ll_poll > header(iv_poll_icon, tv_poll_icon_label,
+    // tv_poll_status_badge), tv_poll_question, ll_poll_options,
     // tv_poll_total_votes. Each option row is item_poll_option_row.xml,
     // inflated dynamically since option count is variable (2–10).
     // ──────────────────────────────────────────────────────────────
     private void bindPoll(@NonNull VH h, @NonNull Message m, boolean sent) {
         Context ctx = h.itemView.getContext();
         h.llPoll.setVisibility(View.VISIBLE);
+
+        int textColor = sent
+                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_sent_text)
+                : androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_received_text);
+
+        // Recolor the fixed-white header icon to match the bubble's text color
+        // so it stays legible on both light and dark bubble/theme combinations.
+        if (h.ivPollIcon != null) {
+            h.ivPollIcon.setColorFilter(textColor, android.graphics.PorterDuff.Mode.SRC_IN);
+        }
 
         if (h.tvPollQuestion != null) {
             h.tvPollQuestion.setText(m.pollQuestion != null ? m.pollQuestion : "");
@@ -1035,10 +1048,19 @@ public class MessagePagingAdapter
         int total = com.callx.app.utils.PollJsonUtil.totalVotes(votes);
         Integer myVote = currentUid != null ? votes.get(currentUid) : null;
         boolean closed = Boolean.TRUE.equals(m.pollClosed);
+        boolean anonymous = Boolean.TRUE.equals(m.pollAnonymous);
 
-        int textColor = sent
-                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_sent_text)
-                : androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_received_text);
+        // Identify the leading option(s) so we can give them a subtle bold
+        // treatment — but only when there IS a clear leader (skip when every
+        // option is tied, including the all-zero-votes case).
+        int maxCount = 0;
+        for (int c : counts) if (c > maxCount) maxCount = c;
+        boolean hasClearLeader = maxCount > 0;
+        if (hasClearLeader) {
+            int countAtMax = 0;
+            for (int c : counts) if (c == maxCount) countAtMax++;
+            if (countAtMax == options.size()) hasClearLeader = false;
+        }
 
         if (h.llPollOptions != null) {
             h.llPollOptions.removeAllViews();
@@ -1046,33 +1068,68 @@ public class MessagePagingAdapter
                 final int optionIndex = i;
                 View row = LayoutInflater.from(ctx)
                         .inflate(R.layout.item_poll_option_row, h.llPollOptions, false);
-                TextView tvText  = row.findViewById(R.id.tv_poll_option_text);
-                TextView tvPct   = row.findViewById(R.id.tv_poll_option_pct);
-                TextView tvCheck = row.findViewById(R.id.tv_poll_option_check);
-                View     vFill   = row.findViewById(R.id.v_poll_option_fill);
+                TextView  tvText  = row.findViewById(R.id.tv_poll_option_text);
+                TextView  tvPct   = row.findViewById(R.id.tv_poll_option_pct);
+                ImageView ivCheck = row.findViewById(R.id.iv_poll_option_check);
+                View      vFill   = row.findViewById(R.id.v_poll_option_fill);
 
                 int pct = total > 0 ? Math.round((counts[i] * 100f) / total) : 0;
-                boolean isMyVote = myVote != null && myVote == optionIndex;
+                boolean isMyVote  = myVote != null && myVote == optionIndex;
+                boolean isLeading = hasClearLeader && counts[i] == maxCount;
 
                 if (tvText != null) {
                     tvText.setText(options.get(i));
                     tvText.setTextColor(textColor);
+                    tvText.setTypeface(null, isLeading ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
                 }
                 if (tvPct != null) {
                     tvPct.setText(total > 0 ? (pct + "%") : "");
                     tvPct.setTextColor(textColor);
                 }
-                if (tvCheck != null) {
-                    tvCheck.setVisibility(isMyVote ? View.VISIBLE : View.INVISIBLE);
+                if (ivCheck != null) {
+                    if (isMyVote) {
+                        ivCheck.clearColorFilter();
+                        ivCheck.setImageResource(R.drawable.ic_poll_check_filled);
+                    } else {
+                        ivCheck.setImageResource(R.drawable.ic_poll_radio_unselected);
+                        // Dim the ring relative to the bubble's text color so it
+                        // recedes behind the option the user actually picked.
+                        int ringColor = (textColor & 0x00FFFFFF) | 0x80000000;
+                        ivCheck.setColorFilter(ringColor, android.graphics.PorterDuff.Mode.SRC_IN);
+                    }
                 }
+
+                // Row + fill-bar background reflect voted state.
+                row.setBackgroundResource(isMyVote
+                        ? R.drawable.bg_poll_option_voted
+                        : R.drawable.bg_poll_option);
                 if (vFill != null) {
-                    // Animate the fill width as a fraction of the row width once laid out.
+                    vFill.setBackgroundResource(isMyVote
+                            ? R.drawable.bg_poll_option_fill_voted
+                            : R.drawable.bg_poll_option_fill);
+
+                    // Animate the fill width as a fraction of the row width once laid out,
+                    // smoothly growing/shrinking from whatever it last showed.
+                    final View fillView = vFill;
                     final int fPct = pct;
                     vFill.post(() -> {
-                        int parentWidth = ((View) vFill.getParent()).getWidth();
-                        android.view.ViewGroup.LayoutParams lp = vFill.getLayoutParams();
-                        lp.width = Math.round(parentWidth * (fPct / 100f));
-                        vFill.setLayoutParams(lp);
+                        Object parentObj = fillView.getParent();
+                        if (!(parentObj instanceof View)) return;
+                        int parentWidth = ((View) parentObj).getWidth();
+                        if (parentWidth <= 0) return;
+                        int targetWidth = Math.round(parentWidth * (fPct / 100f));
+                        Object tag = fillView.getTag();
+                        int startWidth = (tag instanceof Integer) ? (Integer) tag : fillView.getWidth();
+                        android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofInt(startWidth, targetWidth);
+                        anim.setDuration(320);
+                        anim.setInterpolator(new android.view.animation.DecelerateInterpolator());
+                        anim.addUpdateListener(a -> {
+                            android.view.ViewGroup.LayoutParams lp = fillView.getLayoutParams();
+                            lp.width = (Integer) a.getAnimatedValue();
+                            fillView.setLayoutParams(lp);
+                        });
+                        anim.start();
+                        fillView.setTag(targetWidth);
                     });
                 }
 
@@ -1089,10 +1146,24 @@ public class MessagePagingAdapter
         }
 
         if (h.tvPollTotalVotes != null) {
-            String label = closed ? "Poll closed" :
-                    (total == 0 ? "No votes yet" : total + (total == 1 ? " vote" : " votes"));
-            if (Boolean.TRUE.equals(m.pollAnonymous)) label = label + " • Anonymous";
+            String label = total == 0 ? "No votes yet" : total + (total == 1 ? " vote" : " votes");
             h.tvPollTotalVotes.setText(label);
+        }
+
+        // Status chip — shows the single most relevant state: Closed takes
+        // priority over Anonymous since it affects whether the user can vote.
+        if (h.tvPollStatusBadge != null) {
+            if (closed) {
+                h.tvPollStatusBadge.setText("🔒 Closed");
+                h.tvPollStatusBadge.setBackgroundResource(R.drawable.bg_poll_chip_closed);
+                h.tvPollStatusBadge.setVisibility(View.VISIBLE);
+            } else if (anonymous) {
+                h.tvPollStatusBadge.setText("🙈 Anonymous");
+                h.tvPollStatusBadge.setBackgroundResource(R.drawable.bg_poll_chip_neutral);
+                h.tvPollStatusBadge.setVisibility(View.VISIBLE);
+            } else {
+                h.tvPollStatusBadge.setVisibility(View.GONE);
+            }
         }
     }
 
@@ -1592,7 +1663,8 @@ public class MessagePagingAdapter
         android.os.CountDownTimer activeCountDown;
         // ── Polls ──
         LinearLayout llPoll, llPollOptions;
-        TextView     tvPollQuestion, tvPollTotalVotes;
+        TextView     tvPollQuestion, tvPollTotalVotes, tvPollStatusBadge;
+        ImageView    ivPollIcon;
 
         VH(@NonNull View v) {
             super(v);
@@ -1634,6 +1706,8 @@ public class MessagePagingAdapter
             llPollOptions    = v.findViewById(R.id.ll_poll_options);
             tvPollQuestion   = v.findViewById(R.id.tv_poll_question);
             tvPollTotalVotes = v.findViewById(R.id.tv_poll_total_votes);
+            tvPollStatusBadge = v.findViewById(R.id.tv_poll_status_badge);
+            ivPollIcon        = v.findViewById(R.id.iv_poll_icon);
         }
     }
 }

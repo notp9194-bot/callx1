@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Poll feature (modernized) — single tappable option row inside a poll
+     bubble. Structure: translucent fill bar (vote %) behind a row of
+     [radio indicator | option text | percentage]. Ripple foreground gives
+     clear tap feedback; radius/colors are theme-agnostic (see bg_poll_*). -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/fl_poll_option_row"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="6dp"
+    android:layout_marginBottom="8dp"
     android:background="@drawable/bg_poll_option"
+    android:foreground="?attr/selectableItemBackground"
     android:clickable="true"
     android:focusable="true">
 
@@ -21,36 +26,36 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="10dp"
-        android:paddingEnd="10dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp">
+        android:paddingStart="11dp"
+        android:paddingEnd="11dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp">
 
-        <TextView
-            android:id="@+id/tv_poll_option_check"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="✓"
-            android:textColor="@color/brand_primary"
-            android:textStyle="bold"
-            android:textSize="13sp"
-            android:layout_marginEnd="6dp"
-            android:visibility="invisible"/>
+        <!-- Radio indicator: empty ring (not voted) ↔ filled brand check (my vote) -->
+        <ImageView
+            android:id="@+id/iv_poll_option_check"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_marginEnd="9dp"
+            android:src="@drawable/ic_poll_radio_unselected"
+            android:contentDescription="@null"/>
 
         <TextView
             android:id="@+id/tv_poll_option_text"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textSize="13sp"
+            android:textSize="13.5sp"
             android:maxLines="3"/>
 
         <TextView
             android:id="@+id/tv_poll_option_pct"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:layout_marginStart="6dp"/>
+            android:layout_marginStart="8dp"
+            android:minWidth="32dp"
+            android:gravity="end"
+            android:textSize="12.5sp"
+            android:textStyle="bold"/>
     </LinearLayout>
 </FrameLayout>

@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Poll feature (modernized) — "Create Poll" bottom sheet. Adds a drag
+     handle + icon-badge header and bordered fields to match the modernized
+     poll card now shown in the chat bubble. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:maxHeight="520dp"
+    android:maxHeight="560dp"
     android:background="@color/surface_card">
 
     <LinearLayout
@@ -11,14 +14,41 @@
         android:orientation="vertical"
         android:padding="20dp">
 
-        <TextView
+        <!-- Drag handle -->
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@drawable/bg_drag_handle"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Header: icon badge + title -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="📊 Create Poll"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="16dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="18dp">
+
+            <ImageView
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:padding="8dp"
+                android:background="@drawable/bg_poll_dialog_icon_badge"
+                android:src="@drawable/ic_poll"
+                android:tint="@color/brand_primary"
+                android:contentDescription="@null"/>
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:text="Create Poll"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:textStyle="bold"/>
+        </LinearLayout>
 
         <!-- Question -->
         <EditText
@@ -29,11 +59,11 @@
             android:textColorHint="@color/text_secondary"
             android:textColor="@color/text_primary"
             android:textSize="15sp"
-            android:background="@drawable/bg_search_field"
-            android:padding="12dp"
+            android:background="@drawable/bg_poll_input_field"
+            android:padding="13dp"
             android:maxLines="3"
             android:inputType="textCapSentences|textMultiLine"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="18dp"/>
 
         <TextView
             android:layout_width="match_parent"
@@ -43,6 +73,7 @@
             android:textSize="12sp"
             android:textStyle="bold"
             android:textAllCaps="true"
+            android:letterSpacing="0.04"
             android:layout_marginBottom="8dp"/>
 
         <!-- Dynamic option rows go here -->
@@ -58,11 +89,11 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:padding="10dp"
-            android:background="?attr/selectableItemBackground"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="8dp">
+            android:gravity="center"
+            android:padding="11dp"
+            android:background="@drawable/bg_poll_add_option_dashed"
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="10dp">
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -78,13 +109,13 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp">
+            android:background="@drawable/bg_poll_input_field"
+            android:padding="12dp">
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Anonymous voting"
+                android:text="🙈  Anonymous voting"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp"/>
             <androidx.appcompat.widget.SwitchCompat
