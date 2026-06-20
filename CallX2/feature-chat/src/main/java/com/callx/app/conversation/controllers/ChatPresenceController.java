@@ -1,9 +1,13 @@
 package com.callx.app.conversation.controllers;
 
 import android.view.View;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 
 import androidx.annotation.NonNull;
 
+import com.bumptech.glide.Glide;
+import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.models.Message;
 import com.callx.app.utils.FirebaseUtils;
@@ -19,9 +23,11 @@ import java.util.Locale;
 
 /**
  * Handles typing indicator, online/last-seen status, mute, mark-read logic,
- * and "in-chat-screen" presence (whether the partner currently has THIS
- * chat screen open and in foreground, vs having left it for another
- * screen/app).
+ * and the "watching banner" — an animated avatar + name strip that pops in
+ * when the partner currently has THIS chat screen open & foregrounded
+ * (as opposed to having navigated away to another screen/app). This is
+ * fully separate from — and never overrides — the normal online/last-seen
+ * status line.
  */
 public class ChatPresenceController {
 
@@ -33,11 +39,6 @@ public class ChatPresenceController {
     private ValueEventListener typingListener;
     private ValueEventListener onlineListener;
     private ValueEventListener inChatListener;
-
-    // Header-line render state — combined to decide what tv_status / tv_typing / tv_in_chat show.
-    private boolean partnerTyping     = false;
-    private boolean partnerInChat     = false;
-    private String  lastStatusText    = "";
 
     public ChatPresenceController(ChatActivityDelegate delegate) {
         this.delegate = delegate;
@@ -77,8 +78,16 @@ public class ChatPresenceController {
                         break;
                     }
                 }
-                partnerTyping = typing;
-                renderHeaderStatus();
+                ActivityChatBinding binding = delegate.getBinding();
+                if (binding.tvTyping == null || binding.tvStatus == null) return;
+                if (typing) {
+                    binding.tvTyping.setVisibility(View.VISIBLE);
+                    binding.tvStatus.setVisibility(View.GONE);
+                } else {
+                    binding.tvTyping.setVisibility(View.GONE);
+                    binding.tvStatus.setVisibility(
+                            binding.tvStatus.getText().length() > 0 ? View.VISIBLE : View.GONE);
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -86,10 +95,70 @@ public class ChatPresenceController {
                 .addValueEventListener(typingListener);
     }
 
-    // ── In-chat-screen presence ──────────────────────────────────────────
+    // ── Online / last-seen status ─────────────────────────────────────────
+
+    private void watchPartnerStatus() {
+        String partnerUid = delegate.getPartnerUid();
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+
+        onlineListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                ActivityChatBinding binding = delegate.getBinding();
+                if (binding.tvStatus == null) return;
+
+                Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
+                if (Boolean.TRUE.equals(partnerGhost)) {
+                    binding.tvStatus.setVisibility(View.GONE);
+                    return;
+                }
+
+                String lastSeenVis = s.child("privacy").child("lastSeenVisibility").getValue(String.class);
+                boolean hideLastSeen = SecurityManager.VIS_NOBODY.equals(lastSeenVis);
+
+                Boolean online   = s.child("online").getValue(Boolean.class);
+                Long lastSeen    = s.child("lastSeen").getValue(Long.class);
+
+                String statusText;
+                if (Boolean.TRUE.equals(online)) {
+                    Boolean partnerIncognito = s.child("privacy").child("incognito").getValue(Boolean.class);
+                    statusText = Boolean.TRUE.equals(partnerIncognito) ? "" : "online";
+                } else if (!hideLastSeen && lastSeen != null && lastSeen > 0) {
+                    statusText = formatLastSeenRelative(lastSeen);
+                } else {
+                    statusText = "";
+                }
+
+                binding.tvStatus.setText(statusText);
+                boolean typingVisible = binding.tvTyping != null
+                        && binding.tvTyping.getVisibility() == View.VISIBLE;
+                binding.tvStatus.setVisibility(
+                        (!typingVisible && statusText.length() > 0) ? View.VISIBLE : View.GONE);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.getUserRef(partnerUid).addValueEventListener(onlineListener);
+    }
+
+    private String formatLastSeenRelative(long ts) {
+        long diff = System.currentTimeMillis() - ts;
+        if (diff < 0) diff = 0;
+        if (diff < 60_000L) {
+            return "last seen just now";
+        } else if (diff < 3_600_000L) {
+            long mins = diff / 60_000L;
+            return "last seen " + mins + " min" + (mins == 1 ? "" : "s") + " ago";
+        } else if (diff < 86_400_000L) {
+            return "last seen at " + new SimpleDateFormat("hh:mm a", Locale.getDefault()).format(new Date(ts));
+        } else if (diff < 7 * 86_400_000L) {
+            return "last seen " + new SimpleDateFormat("EEE, hh:mm a", Locale.getDefault()).format(new Date(ts));
+        } else {
+            return "last seen " + new SimpleDateFormat("dd MMM", Locale.getDefault()).format(new Date(ts));
+        }
+    }
+
+    // ── In-chat-screen presence ("watching banner") ───────────────────────
     // Tracks whether the partner currently has THIS chat screen open & in
-    // foreground (as opposed to having navigated to another screen in the
-    // app, or having left the app entirely).
+    // foreground. Purely additive — never touches tv_status / tv_typing.
 
     /** Called by the Activity on resume/pause to publish our own in-chat presence. */
     public void setOurInChatScreen(boolean active) {
@@ -116,8 +185,9 @@ public class ChatPresenceController {
 
         inChatListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
-                partnerInChat = Boolean.TRUE.equals(s.getValue(Boolean.class));
-                renderHeaderStatus();
+                boolean inChat = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                if (inChat) showWatchingBanner();
+                else hideWatchingBanner();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -126,90 +196,44 @@ public class ChatPresenceController {
                 .addValueEventListener(inChatListener);
     }
 
-    // ── Header line renderer ──────────────────────────────────────────────
-    // Priority shown in the chat header (top to bottom wins):
-    //   1) "typing…"                (partnerTyping)
-    //   2) "active in this chat"    (partnerInChat, partner has this screen open)
-    //   3) "online" / "last seen…"  (lastStatusText, from watchPartnerStatus)
-
-    private void renderHeaderStatus() {
+    private void showWatchingBanner() {
         ActivityChatBinding binding = delegate.getBinding();
-        if (binding.tvStatus == null || binding.tvTyping == null || binding.tvInChat == null) return;
+        if (binding.llWatchingBanner == null) return;
 
-        if (partnerTyping) {
-            binding.tvTyping.setVisibility(View.VISIBLE);
-            binding.tvInChat.setVisibility(View.GONE);
-            binding.tvStatus.setVisibility(View.GONE);
-        } else if (partnerInChat) {
-            binding.tvTyping.setVisibility(View.GONE);
-            binding.tvInChat.setVisibility(View.VISIBLE);
-            binding.tvStatus.setVisibility(View.GONE);
-        } else {
-            binding.tvTyping.setVisibility(View.GONE);
-            binding.tvInChat.setVisibility(View.GONE);
-            binding.tvStatus.setVisibility(lastStatusText.length() > 0 ? View.VISIBLE : View.GONE);
+        String name = delegate.getPartnerName();
+        binding.tvWatchingName.setText((name != null ? name : "") + " aapko dekh rha hai");
+
+        String photo = delegate.getPartnerPhoto();
+        if (photo != null && !photo.isEmpty() && delegate.getActivity() != null) {
+            Glide.with(delegate.getActivity())
+                    .load(photo)
+                    .placeholder(R.drawable.ic_person)
+                    .into(binding.ivWatchingAvatar);
         }
+
+        if (binding.llWatchingBanner.getVisibility() == View.VISIBLE) return; // already showing
+
+        binding.ivWatchingAvatar.setScaleX(0f);
+        binding.ivWatchingAvatar.setScaleY(0f);
+        binding.llWatchingBanner.setVisibility(View.VISIBLE);
+        binding.ivWatchingAvatar.animate()
+                .scaleX(1f).scaleY(1f)
+                .setDuration(380)
+                .setInterpolator(new OvershootInterpolator(2.2f))
+                .start();
     }
 
-    // ── Online / last-seen status ─────────────────────────────────────────
+    private void hideWatchingBanner() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding.llWatchingBanner == null) return;
+        if (binding.llWatchingBanner.getVisibility() != View.VISIBLE) return;
 
-    private void watchPartnerStatus() {
-        String partnerUid = delegate.getPartnerUid();
-        if (partnerUid == null || partnerUid.isEmpty()) return;
-
-        onlineListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                ActivityChatBinding binding = delegate.getBinding();
-                if (binding.tvStatus == null) return;
-
-                Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
-                if (Boolean.TRUE.equals(partnerGhost)) {
-                    lastStatusText = "";
-                    binding.tvStatus.setText("");
-                    renderHeaderStatus();
-                    return;
-                }
-
-                String lastSeenVis = s.child("privacy").child("lastSeenVisibility").getValue(String.class);
-                boolean hideLastSeen = SecurityManager.VIS_NOBODY.equals(lastSeenVis);
-
-                Boolean online   = s.child("online").getValue(Boolean.class);
-                Long lastSeen    = s.child("lastSeen").getValue(Long.class);
-
-                String statusText;
-                if (Boolean.TRUE.equals(online)) {
-                    Boolean partnerIncognito = s.child("privacy").child("incognito").getValue(Boolean.class);
-                    statusText = Boolean.TRUE.equals(partnerIncognito) ? "" : "online";
-                } else if (!hideLastSeen && lastSeen != null && lastSeen > 0) {
-                    statusText = formatLastSeenRelative(lastSeen);
-                } else {
-                    statusText = "";
-                }
-
-                lastStatusText = statusText;
-                binding.tvStatus.setText(statusText);
-                renderHeaderStatus();
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getUserRef(partnerUid).addValueEventListener(onlineListener);
-    }
-
-    private String formatLastSeenRelative(long ts) {
-        long diff = System.currentTimeMillis() - ts;
-        if (diff < 0) diff = 0;
-        if (diff < 60_000L) {
-            return "last seen just now";
-        } else if (diff < 3_600_000L) {
-            long mins = diff / 60_000L;
-            return "last seen " + mins + " min" + (mins == 1 ? "" : "s") + " ago";
-        } else if (diff < 86_400_000L) {
-            return "last seen at " + new SimpleDateFormat("hh:mm a", Locale.getDefault()).format(new Date(ts));
-        } else if (diff < 7 * 86_400_000L) {
-            return "last seen " + new SimpleDateFormat("EEE, hh:mm a", Locale.getDefault()).format(new Date(ts));
-        } else {
-            return "last seen " + new SimpleDateFormat("dd MMM", Locale.getDefault()).format(new Date(ts));
-        }
+        binding.ivWatchingAvatar.animate()
+                .scaleX(0f).scaleY(0f)
+                .setDuration(200)
+                .setInterpolator(new AccelerateInterpolator())
+                .withEndAction(() -> binding.llWatchingBanner.setVisibility(View.GONE))
+                .start();
     }
 
     // ── Mute ─────────────────────────────────────────────────────────────
