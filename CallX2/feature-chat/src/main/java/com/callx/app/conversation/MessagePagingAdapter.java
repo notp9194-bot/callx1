@@ -1760,5 +1760,6 @@ public class MessagePagingAdapter
             tvPollSubtitle    = v.findViewById(R.id.tv_poll_subtitle);
             ivPollIcon        = v.findViewById(R.id.iv_poll_icon);
             viewSeenDot       = v.findViewById(R.id.view_seen_dot);
+        }
     }
 }
