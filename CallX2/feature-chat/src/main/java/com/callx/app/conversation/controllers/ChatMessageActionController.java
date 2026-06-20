@@ -94,6 +94,24 @@ public class ChatMessageActionController {
             .child(d.getCurrentUid()).setValue(emoji);
     }
 
+    // ── Poll vote ────────────────────────────────────────────────────────
+
+    /**
+     * Cast or change the current user's vote on a poll message.
+     * Tapping the same option again removes the vote (toggle).
+     */
+    public void votePoll(Message m, int optionIndex) {
+        if (m.id == null || d.getCurrentUid() == null) return;
+        Integer existing = m.pollVotes != null ? m.pollVotes.get(d.getCurrentUid()) : null;
+        com.google.firebase.database.DatabaseReference voteRef =
+                d.getMessagesRef().child(m.id).child("pollVotes").child(d.getCurrentUid());
+        if (existing != null && existing == optionIndex) {
+            voteRef.removeValue();
+        } else {
+            voteRef.setValue(optionIndex);
+        }
+    }
+
     // ── Delete single ─────────────────────────────────────────────────────
 
     public void confirmDeleteMessage(Message m) {

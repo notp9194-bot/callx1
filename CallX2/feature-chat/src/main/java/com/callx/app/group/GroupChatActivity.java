@@ -403,6 +403,7 @@ public class GroupChatActivity extends AppCompatActivity {
                     "Original message not loaded — scroll up to find it",
                     android.widget.Toast.LENGTH_SHORT).show();
             }
+            @Override public void onVote(Message m, int optionIndex) { votePoll(m, optionIndex); }
         });
 
         // Multi-select: selection bar show/hide
@@ -788,6 +789,19 @@ public class GroupChatActivity extends AppCompatActivity {
     private void sendReaction(Message m, String emoji) {
         if (m.id == null) return;
         groupMessagesRef.child(m.id).child("reactions").child(currentUid).setValue(emoji);
+    }
+
+    // ── Poll vote (toggle) ──────────────────────────────────────────────
+    private void votePoll(Message m, int optionIndex) {
+        if (m.id == null || currentUid == null) return;
+        Integer existing = m.pollVotes != null ? m.pollVotes.get(currentUid) : null;
+        com.google.firebase.database.DatabaseReference voteRef =
+                groupMessagesRef.child(m.id).child("pollVotes").child(currentUid);
+        if (existing != null && existing == optionIndex) {
+            voteRef.removeValue();
+        } else {
+            voteRef.setValue(optionIndex);
+        }
     }
 
     private void toggleStar(Message m) {
@@ -1189,7 +1203,29 @@ public class GroupChatActivity extends AppCompatActivity {
         v.findViewById(R.id.opt_video).setOnClickListener(x  -> { sheet.dismiss(); videoPicker.launch("video/*"); });
         v.findViewById(R.id.opt_audio).setOnClickListener(x  -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
         v.findViewById(R.id.opt_file).setOnClickListener(x   -> { sheet.dismiss(); filePicker.launch("*/*"); });
+        v.findViewById(R.id.opt_poll).setOnClickListener(x   -> { sheet.dismiss(); showCreatePollSheet(); });
         sheet.setContentView(v); sheet.show();
+    }
+
+    // ── Poll ──────────────────────────────────────────────────────────────
+
+    private void showCreatePollSheet() {
+        com.callx.app.chat.ui.PollCreateBottomSheet.show(this,
+                (question, options) -> sendPollMessage(question, options));
+    }
+
+    private void sendPollMessage(String question, java.util.List<String> options) {
+        if (!isOnline()) {
+            Toast.makeText(this, "No connection — poll nahi bhej sakte", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Message m = buildOutgoing();
+        m.type = "poll";
+        m.pollQuestion = question;
+        m.pollOptions = options;
+        m.pollVotes = new java.util.HashMap<>();
+        m.text = "\uD83D\uDCCA " + question;
+        pushMessage(m, m.text);
     }
 
     // ─────────────────────────────────────────────────────────────────────

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/surface_card"
+    android:maxHeight="480dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Create poll"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="14dp"/>
+
+        <EditText
+            android:id="@+id/et_poll_question"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Ask a question"
+            android:textColorHint="#888888"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="15sp"
+            android:maxLines="2"
+            android:padding="12dp"
+            android:background="@drawable/bg_comment_input"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Options"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="6dp"/>
+
+        <!-- Option rows get added here programmatically (starts with 2) -->
+        <LinearLayout
+            android:id="@+id/ll_poll_options_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"/>
+
+        <TextView
+            android:id="@+id/btn_add_poll_option"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="+ Add option"
+            android:textColor="@color/brand_primary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:padding="10dp"
+            android:background="?attr/selectableItemBackground"
+            android:layout_marginBottom="10dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:id="@+id/btn_cancel_poll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cancel"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="14sp"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/bg_btn_outline"/>
+
+            <TextView
+                android:id="@+id/btn_create_poll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Create poll"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:background="@drawable/bg_btn_primary"/>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

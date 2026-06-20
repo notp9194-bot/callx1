@@ -112,6 +112,8 @@ public class MessagePagingAdapter
         default void onEdit(Message m) {}
         /** Called when user pins or unpins a message from the action sheet. */
         default void onPin(Message m) {}
+        /** Called when user taps a poll option to cast/change their vote. */
+        default void onVote(Message m, int optionIndex) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -241,6 +243,76 @@ public class MessagePagingAdapter
     //   tv_call_entry_time  — formatted timestamp (hh:mm a)
     // No long-press / reactions — it's a system event.
     // ──────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────
+    // POLL — renders question + tappable options with live vote %.
+    // Layout containers: ll_poll / tv_poll_question / ll_poll_options /
+    // tv_poll_votes_total (present in both item_message_sent/received).
+    // Tapping an option calls actionListener.onVote(message, optionIndex).
+    // ──────────────────────────────────────────────────────────────
+    private void bindPollOptions(@NonNull VH h, @NonNull Message m, android.content.Context ctx) {
+        if (h.llPoll == null || h.llPollOptions == null) {
+            // Fallback if layout doesn't have poll views
+            h.tvMessage.setVisibility(View.VISIBLE);
+            h.tvMessage.setText("\uD83D\uDCCA " + (m.pollQuestion != null ? m.pollQuestion : "Poll"));
+            return;
+        }
+        h.llPoll.setVisibility(View.VISIBLE);
+        if (h.tvPollQuestion != null)
+            h.tvPollQuestion.setText(m.pollQuestion != null ? m.pollQuestion : "");
+
+        java.util.List<String> options = m.pollOptions != null
+                ? m.pollOptions : java.util.Collections.emptyList();
+        java.util.Map<String, Integer> votes = m.pollVotes != null
+                ? m.pollVotes : java.util.Collections.emptyMap();
+
+        int totalVotes = votes.size();
+        Integer myVote = currentUid != null ? votes.get(currentUid) : null;
+
+        // Tally votes per option index
+        int[] counts = new int[options.size()];
+        for (Integer idx : votes.values()) {
+            if (idx != null && idx >= 0 && idx < counts.length) counts[idx]++;
+        }
+
+        h.llPollOptions.removeAllViews();
+        for (int i = 0; i < options.size(); i++) {
+            final int optionIndex = i;
+            View row = LayoutInflater.from(ctx)
+                    .inflate(R.layout.item_poll_option_display, h.llPollOptions, false);
+            View vFill          = row.findViewById(R.id.v_poll_option_fill);
+            TextView tvLabel    = row.findViewById(R.id.tv_poll_option_label);
+            TextView tvPct      = row.findViewById(R.id.tv_poll_option_pct);
+            TextView tvCheck    = row.findViewById(R.id.tv_poll_option_check);
+
+            int pct = totalVotes > 0 ? Math.round(counts[i] * 100f / totalVotes) : 0;
+            tvLabel.setText(options.get(i));
+            tvPct.setText(totalVotes > 0 ? (pct + "%") : "");
+            boolean isMine = myVote != null && myVote == optionIndex;
+            if (tvCheck != null) tvCheck.setVisibility(isMine ? View.VISIBLE : View.INVISIBLE);
+
+            // Animate/measure fill bar width as a % of row width after layout pass
+            if (vFill != null) {
+                final int finalPct = pct;
+                row.post(() -> {
+                    int rowWidth = row.getWidth();
+                    android.view.ViewGroup.LayoutParams lp = vFill.getLayoutParams();
+                    lp.width = Math.round(rowWidth * (finalPct / 100f));
+                    vFill.setLayoutParams(lp);
+                });
+            }
+
+            row.setOnClickListener(v -> {
+                if (actionListener != null) actionListener.onVote(m, optionIndex);
+            });
+            h.llPollOptions.addView(row);
+        }
+
+        if (h.tvPollVotesTotal != null) {
+            h.tvPollVotesTotal.setText(totalVotes == 0 ? "No votes yet"
+                    : totalVotes + (totalVotes == 1 ? " vote" : " votes"));
+        }
+    }
+
     private void bindCallEntryBubble(@NonNull VH h, @NonNull Message m) {
         android.widget.TextView tvIcon  = h.itemView.findViewById(R.id.tv_call_entry_icon);
         android.widget.TextView tvLabel = h.itemView.findViewById(R.id.tv_call_entry_label);
@@ -556,6 +628,7 @@ public class MessagePagingAdapter
         if (h.ivImage    != null) h.ivImage.setVisibility(View.GONE);
         if (h.llAudio    != null) h.llAudio.setVisibility(View.GONE);
         if (h.llFile     != null) h.llFile.setVisibility(View.GONE);
+        if (h.llPoll     != null) h.llPoll.setVisibility(View.GONE);
         if (h.tvTime     != null) h.tvTime.setVisibility(View.VISIBLE);
 
         // Timestamp — append "(edited)" when applicable
@@ -820,6 +893,9 @@ public class MessagePagingAdapter
                     h.tvMessage.setVisibility(View.VISIBLE);
                     h.tvMessage.setText(m.fileName != null ? m.fileName : "File");
                 }
+                break;
+            case "poll":
+                bindPollOptions(h, m, ctx);
                 break;
             default: // "text", "emoji", etc.
                 // POLISH: hide link preview by default before checking for URL
@@ -1478,6 +1554,9 @@ public class MessagePagingAdapter
         // ── Disappearing messages ──
         TextView                  tvExpiry;
         android.os.CountDownTimer activeCountDown;
+        // ── Poll / Voting ──
+        LinearLayout llPoll, llPollOptions;
+        TextView     tvPollQuestion, tvPollVotesTotal;
 
         VH(@NonNull View v) {
             super(v);
@@ -1514,6 +1593,11 @@ public class MessagePagingAdapter
             ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
             // Disappearing messages
             tvExpiry       = v.findViewById(R.id.tv_expiry);
+            // Poll / Voting
+            llPoll           = v.findViewById(R.id.ll_poll);
+            llPollOptions    = v.findViewById(R.id.ll_poll_options);
+            tvPollQuestion   = v.findViewById(R.id.tv_poll_question);
+            tvPollVotesTotal = v.findViewById(R.id.tv_poll_votes_total);
         }
     }
 }

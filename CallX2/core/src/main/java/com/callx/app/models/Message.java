@@ -96,5 +96,16 @@ public class Message {
      */
     public int fontStyle;
 
+    // ── Feature 12: Poll / Voting ─────────────────────────
+    /** Poll question text. Set when type = "poll". */
+    public String pollQuestion;
+    /** Poll option labels, in display order. */
+    public java.util.List<String> pollOptions;
+    /**
+     * Votes — map of uid → option index.
+     * Firebase path: messages/{id}/pollVotes/{uid} = optionIndex (Integer)
+     */
+    public Map<String, Integer> pollVotes;
+
     public Message() {}
 }

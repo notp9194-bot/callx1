@@ -87,6 +87,7 @@ public class ChatPagingController {
             }
             @Override public void onEdit(Message m)  { actionCtrl.editMessage(m); }
             @Override public void onPin(Message m)   { pinController.pinMessage(m); }
+            @Override public void onVote(Message m, int optionIndex) { actionCtrl.votePoll(m, optionIndex); }
         });
 
         // Store adapter reference back in delegate (via interface)

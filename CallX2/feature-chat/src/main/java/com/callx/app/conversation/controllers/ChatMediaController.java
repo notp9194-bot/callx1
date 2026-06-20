@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat;
 
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.chat.ui.PollCreateBottomSheet;
 import com.callx.app.models.Message;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FileUtils;
@@ -115,8 +116,30 @@ public class ChatMediaController {
                 .setOnClickListener(x -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
         v.findViewById(R.id.opt_file)
                 .setOnClickListener(x -> { sheet.dismiss(); filePicker.launch("*/*"); });
+        v.findViewById(R.id.opt_poll)
+                .setOnClickListener(x -> { sheet.dismiss(); showCreatePollSheet(); });
         sheet.setContentView(v);
         sheet.show();
+    }
+
+    // ── Poll ──────────────────────────────────────────────────────────────
+
+    public void showCreatePollSheet() {
+        PollCreateBottomSheet.show(activity, (question, options) -> sendPollMessage(question, options));
+    }
+
+    private void sendPollMessage(String question, java.util.List<String> options) {
+        if (!delegate.isOnline()) {
+            Toast.makeText(activity, "No connection — poll nahi bhej sakte", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Message m = delegate.buildOutgoing();
+        m.type = "poll";
+        m.pollQuestion = question;
+        m.pollOptions = options;
+        m.pollVotes = new java.util.HashMap<>();
+        m.text = "\uD83D\uDCCA " + question; // 📊 — used as chat-list preview text
+        delegate.pushMessage(m, m.text);
     }
 
     // ── Camera ────────────────────────────────────────────────────────────
