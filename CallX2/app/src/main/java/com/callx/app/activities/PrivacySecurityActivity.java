@@ -193,6 +193,13 @@ public class PrivacySecurityActivity extends AppCompatActivity {
         swReceipts.setChecked(secMgr.isReadReceiptsEnabled());
         swReceipts.setOnCheckedChangeListener((b, on) -> secMgr.setReadReceipts(on));
 
+        // ── Watching presence (chat-screen activity) ────────────────────
+        configToggleRow(binding.rowWatchingPresence.getRoot(), R.drawable.ic_status_notification,
+            "Chat Activity Status", "Let others see when you're viewing their chat");
+        SwitchCompat swWatching = binding.rowWatchingPresence.getRoot().findViewById(R.id.sw_toggle);
+        swWatching.setChecked(secMgr.isWatchingPresenceEnabled());
+        swWatching.setOnCheckedChangeListener((b, on) -> secMgr.setWatchingPresenceEnabled(on));
+
         // ── Last seen ─────────────────────────────────────────────────────
         configRow(binding.rowLastSeen.getRoot(), R.drawable.ic_status_notification,
             "Last Seen", secMgr.getLastSeenVisibility());

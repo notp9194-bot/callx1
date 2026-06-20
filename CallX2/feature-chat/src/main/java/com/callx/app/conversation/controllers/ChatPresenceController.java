@@ -160,11 +160,48 @@ public class ChatPresenceController {
     // Tracks whether the partner currently has THIS chat screen open & in
     // foreground. Purely additive — never touches tv_status / tv_typing.
 
+    private final android.os.Handler presenceDebounceHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pendingOffWrite;
+    /** Quick away-and-back navigation (e.g. rotation, brief app-switch) within
+     *  this window won't flicker the "watching" banner for the partner. */
+    private static final long PRESENCE_OFF_DEBOUNCE_MS = 1500;
+
     /** Called by the Activity on resume/pause to publish our own in-chat presence. */
     public void setOurInChatScreen(boolean active) {
+        // Cancel any pending "going offline" write — we either just came back
+        // (active=true) or we're scheduling a fresh one below (active=false).
+        if (pendingOffWrite != null) {
+            presenceDebounceHandler.removeCallbacks(pendingOffWrite);
+            pendingOffWrite = null;
+        }
+
+        if (active) {
+            // Becoming active: publish immediately so the banner shows promptly.
+            writePresence(true);
+        } else {
+            // Becoming inactive: debounce. If the user comes right back
+            // (e.g. screen rotation, quick app-switcher peek) before this
+            // fires, it gets cancelled above and the partner never sees a flicker.
+            pendingOffWrite = () -> {
+                writePresence(false);
+                pendingOffWrite = null;
+            };
+            presenceDebounceHandler.postDelayed(pendingOffWrite, PRESENCE_OFF_DEBOUNCE_MS);
+        }
+    }
+
+    private void writePresence(boolean active) {
         String chatId = delegate.getChatId();
         String uid = delegate.getCurrentUid();
         if (chatId == null || uid == null) return;
+
+        // Respect the "Chat Activity Status" privacy toggle — if the user has
+        // turned this off, we never publish true (always clear instead).
+        if (active && delegate.getActivity() != null) {
+            SecurityManager secMgr = new SecurityManager(delegate.getActivity());
+            if (!secMgr.isWatchingPresenceEnabled()) active = false;
+        }
 
         DatabaseReference ref = FirebaseUtils.db().getReference(CHAT_PRESENCE_NODE)
                 .child(chatId).child(uid);
@@ -308,6 +345,11 @@ public class ChatPresenceController {
                     .removeEventListener(inChatListener);
         }
         clearOurTypingStatus();
-        setOurInChatScreen(false);
+        // Activity is being destroyed for good — flush immediately, skip debounce.
+        if (pendingOffWrite != null) {
+            presenceDebounceHandler.removeCallbacks(pendingOffWrite);
+            pendingOffWrite = null;
+        }
+        writePresence(false);
     }
 }

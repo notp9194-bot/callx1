@@ -36,6 +36,7 @@ public class SecurityManager {
     private static final String KEY_LAST_SEEN         = "lastSeen";
     private static final String KEY_PROFILE_PHOTO     = "profilePhoto";
     private static final String KEY_READ_RECEIPTS     = "readReceipts";
+    private static final String KEY_WATCHING_PRESENCE = "watchingPresenceEnabled";
     private static final String KEY_SCREENSHOT_LOCK   = "screenshotLock";
     private static final String KEY_SILENCE_UNKNOWN   = "silenceUnknownCallers";
 
@@ -108,6 +109,14 @@ public class SecurityManager {
     public void setReadReceipts(boolean v) {
         prefs.edit().putBoolean(KEY_READ_RECEIPTS, v).apply();
         pushPrivacy("readReceipts", v);
+    }
+
+    /** "Chat Activity Status" — whether others can see you're currently
+     *  viewing their chat screen (the watching-banner feature). Default on. */
+    public boolean isWatchingPresenceEnabled()    { return prefs.getBoolean(KEY_WATCHING_PRESENCE, true); }
+    public void setWatchingPresenceEnabled(boolean v) {
+        prefs.edit().putBoolean(KEY_WATCHING_PRESENCE, v).apply();
+        pushPrivacy("watchingPresenceEnabled", v);
     }
 
     public boolean isScreenshotLockEnabled()      { return prefs.getBoolean(KEY_SCREENSHOT_LOCK, false); }
@@ -281,6 +290,7 @@ public class SecurityManager {
         if (ref == null) return;
         Map<String, Object> map = new HashMap<>();
         map.put("readReceipts",           isReadReceiptsEnabled());
+        map.put("watchingPresenceEnabled", isWatchingPresenceEnabled());
         map.put("lastSeenVisibility",     getLastSeenVisibility());
         map.put("profilePhotoVisibility", getProfilePhotoVisibility());
         map.put("incognito",              isIncognitoMode());
