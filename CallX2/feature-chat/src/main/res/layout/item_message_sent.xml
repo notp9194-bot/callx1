@@ -503,6 +503,19 @@
                 android:paddingStart="3dp"
                 android:visibility="gone"/>
         </LinearLayout>
+
+        <!-- "Partner is viewing this message right now" dot — per-message
+             granularity watching indicator, independent of the chat-level
+             watching banner. Sits on the bubble's top-end corner. -->
+        <View
+            android:id="@+id/view_seen_dot"
+            android:layout_width="9dp"
+            android:layout_height="9dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="-3dp"
+            android:layout_marginEnd="-3dp"
+            android:background="@drawable/dot_watching_msg"
+            android:visibility="gone"/>
         </FrameLayout>
 
         <!-- Reactions -->

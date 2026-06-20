@@ -137,6 +137,30 @@ public class MessagePagingAdapter
     // ── Multi-select state ────────────────────────────────────────
     private boolean multiSelectMode = false;
     private final java.util.Set<String> selectedMessageIds = new java.util.HashSet<>();
+
+    // ── "Currently viewing this message" live dots ──────────────────────
+    // Set of messageIds that some OTHER participant currently has scrolled
+    // into view, fed by ChatPresenceController / GroupWatchingController
+    // listening on chatViewing/{chatOrGroupId}/*. Purely additive — never
+    // touches tv_status (delivered/read ticks).
+    private java.util.Set<String> currentlyViewedMessageIds = java.util.Collections.emptySet();
+
+    /** Replaces the set of "being viewed right now" message ids and
+     *  refreshes only the rows whose dot state actually changed. */
+    public void setViewingMessageIds(java.util.Set<String> newIds) {
+        if (newIds == null) newIds = java.util.Collections.emptySet();
+        java.util.Set<String> old = currentlyViewedMessageIds;
+        if (old.equals(newIds)) return;
+        java.util.Set<String> changed = new java.util.HashSet<>(old);
+        changed.addAll(newIds);
+        currentlyViewedMessageIds = newIds;
+        for (int i = 0; i < getItemCount(); i++) {
+            Message m = getItem(i);
+            if (m == null) continue;
+            String id = m.messageId != null ? m.messageId : m.id;
+            if (id != null && changed.contains(id)) notifyItemChanged(i);
+        }
+    }
     private MultiSelectListener multiSelectListener;
 
     public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
@@ -533,6 +557,13 @@ public class MessagePagingAdapter
     private void bindMessage(@NonNull VH h, @NonNull Message m, int position) {
         Context ctx = h.itemView.getContext();
         boolean sent = currentUid.equals(m.senderId);
+
+        // ── "Someone is viewing this message right now" dot ───────────────
+        if (h.viewSeenDot != null) {
+            String mid = m.messageId != null ? m.messageId : m.id;
+            boolean viewing = mid != null && currentlyViewedMessageIds.contains(mid);
+            h.viewSeenDot.setVisibility(viewing ? View.VISIBLE : View.GONE);
+        }
 
         // ── Date separator chip ───────────────────────────────────────────
         if (h.tvDateHeader != null && m.timestamp != null && m.timestamp > 0) {
@@ -1682,6 +1713,8 @@ public class MessagePagingAdapter
         LinearLayout llPoll, llPollOptions;
         TextView     tvPollQuestion, tvPollTotalVotes, tvPollStatusBadge, tvPollSubtitle;
         ImageView    ivPollIcon;
+        // "Currently viewing this message" live dot (per-message granularity)
+        View         viewSeenDot;
 
         VH(@NonNull View v) {
             super(v);
@@ -1726,6 +1759,6 @@ public class MessagePagingAdapter
             tvPollStatusBadge = v.findViewById(R.id.tv_poll_status_badge);
             tvPollSubtitle    = v.findViewById(R.id.tv_poll_subtitle);
             ivPollIcon        = v.findViewById(R.id.iv_poll_icon);
-        }
+            viewSeenDot       = v.findViewById(R.id.view_seen_dot);
     }
 }

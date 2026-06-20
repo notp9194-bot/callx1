@@ -251,6 +251,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // We've left this chat screen (backgrounded app, or navigated to
             // another screen) — partner should no longer see "active in this chat".
             presenceController.setOurInChatScreen(false);
+            presenceController.clearViewingMessage();
         }
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
@@ -1416,6 +1417,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (lm.findLastVisibleItemPosition() >= pagingAdapter.getItemCount() - 3) {
                     MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
                 }
+            }
+
+            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
+                if (presenceController == null) return;
+                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                if (lm == null) return;
+                int pos = lm.findLastCompletelyVisibleItemPosition();
+                if (pos < 0) pos = lm.findLastVisibleItemPosition();
+                if (pos < 0 || pos >= pagingAdapter.getItemCount()) return;
+                com.callx.app.models.Message m = pagingAdapter.getItem(pos);
+                if (m == null) return;
+                String mid = m.messageId != null ? m.messageId : m.id;
+                presenceController.publishViewingMessage(mid);
             }
         });
     }

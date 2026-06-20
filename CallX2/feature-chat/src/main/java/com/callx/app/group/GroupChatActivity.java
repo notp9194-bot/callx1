@@ -240,7 +240,10 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     protected void onPause() {
         typingHandler.removeCallbacks(stopTyping);
         setMyTyping(false);
-        if (watchingController != null) watchingController.setOurInChatScreen(false);
+        if (watchingController != null) {
+            watchingController.setOurInChatScreen(false);
+            watchingController.clearViewingMessage();
+        }
         super.onPause();
     }
 
@@ -435,6 +438,20 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
         llm.setStackFromEnd(true);
         binding.rvMessages.setLayoutManager(llm);
         binding.rvMessages.setAdapter(pagingAdapter);
+
+        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
+                if (watchingController == null) return;
+                int pos = llm.findLastCompletelyVisibleItemPosition();
+                if (pos < 0) pos = llm.findLastVisibleItemPosition();
+                if (pos < 0 || pos >= pagingAdapter.getItemCount()) return;
+                com.callx.app.models.Message m = pagingAdapter.getItem(pos);
+                if (m == null) return;
+                String mid = m.messageId != null ? m.messageId : m.id;
+                watchingController.publishViewingMessage(mid);
+            }
+        });
 
         // Auto-scroll when new message arrives at tail
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
@@ -1156,6 +1173,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     @Override public String getCurrentUid() { return currentUid; }
     @Override public Map<String, String> getMemberNames() { return memberNames; }
     @Override public Map<String, String> getMemberPhotos() { return memberPhotos; }
+    @Override public MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
 
     private void setMyTyping(boolean typing) {
         if (typing == amTyping) return;

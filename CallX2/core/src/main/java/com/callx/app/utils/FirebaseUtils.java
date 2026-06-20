@@ -122,6 +122,18 @@ public class FirebaseUtils {
         return db().getReference("chatPresence").child(chatOrGroupId);
     }
 
+    /**
+     * Per-message "currently viewing" node — finer-grained than
+     * chatPresence above. chatViewing/{chatIdOrGroupId}/{uid} = messageId
+     * of whichever message is presently scrolled into view on that user's
+     * screen (cleared/removed when they leave the chat). Lets a bubble show
+     * a tiny live dot exactly while the other person is looking at it,
+     * instead of only knowing the screen is open.
+     */
+    public static DatabaseReference getChatViewingRef(String chatOrGroupId) {
+        return db().getReference("chatViewing").child(chatOrGroupId);
+    }
+
     // ── Reels ─────────────────────────────────────────────────────────────
 
     /** Root reels node: reels/{reelId}/ */

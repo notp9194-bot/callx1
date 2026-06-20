@@ -486,6 +486,7 @@
             android:paddingTop="10dp"
             android:paddingBottom="10dp"
             android:elevation="6dp"
+            android:foreground="?attr/selectableItemBackground"
             android:visibility="gone">
 
             <LinearLayout
