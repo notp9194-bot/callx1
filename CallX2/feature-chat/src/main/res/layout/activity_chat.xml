@@ -271,47 +271,6 @@
 
     </LinearLayout>
 
-    <!-- ══════════════════════════════════════════════════════════════
-         PARTNER "WATCHING" BANNER — appears when the partner currently
-         has THIS chat screen open & foregrounded. Avatar zooms in
-         0dp → 48dp, name shown below in a vibrant highlight strip.
-         Does NOT touch the normal online/last-seen status line.
-         ══════════════════════════════════════════════════════════════ -->
-    <LinearLayout
-        android:id="@+id/ll_watching_banner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center_horizontal"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
-        android:visibility="gone">
-
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/iv_watching_avatar"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@drawable/ic_person"
-            app:civ_border_width="2dp"
-            app:civ_border_color="#22C55E"/>
-
-        <TextView
-            android:id="@+id/tv_watching_name"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/bg_watching_strip"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="5dp"
-            android:paddingBottom="5dp"
-            android:text="aapko dekh rha hai"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:textStyle="bold"/>
-
-    </LinearLayout>
-
     <!-- Offline banner -->
     <TextView
         android:id="@+id/tv_offline_banner"
@@ -498,6 +457,52 @@
                 android:textColor="@color/text_secondary"
                 android:layout_marginTop="4dp"
                 android:gravity="center"/>
+        </LinearLayout>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             PARTNER "WATCHING" BANNER — appears when the partner currently
+             has THIS chat screen open & foregrounded. Avatar zooms in
+             0dp → 48dp, name shown below in a vibrant highlight strip.
+             Does NOT touch the normal online/last-seen status line.
+             Floats ON TOP of the message list (instead of its own row above
+             it) so the chat area behind it stays full height — messages
+             don't get squeezed when the banner pops in/out.
+             ══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:id="@+id/ll_watching_banner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:elevation="6dp"
+            android:visibility="gone">
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_watching_avatar"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="2dp"
+                app:civ_border_color="#22C55E"/>
+
+            <TextView
+                android:id="@+id/tv_watching_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_watching_strip"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:text="aapko dekh rha hai"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"/>
+
         </LinearLayout>
 
         <!-- "Back to latest" FAB — shown when navigating to original message -->
