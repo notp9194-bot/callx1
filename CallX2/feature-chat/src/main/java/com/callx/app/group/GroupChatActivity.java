@@ -550,6 +550,7 @@ public class GroupChatActivity extends AppCompatActivity {
         m.pollVotes         = com.callx.app.utils.PollJsonUtil.votesFromJson(e.pollVotesJson);
         m.pollAnonymous     = e.pollAnonymous;
         m.pollClosed        = e.pollClosed;
+        m.pollMultiChoice   = e.pollMultiChoice;
         return m;
     }
 
@@ -585,6 +586,7 @@ public class GroupChatActivity extends AppCompatActivity {
         e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);
         e.pollAnonymous         = m.pollAnonymous;
         e.pollClosed            = m.pollClosed;
+        e.pollMultiChoice       = m.pollMultiChoice;
         return e;
     }
 
@@ -685,7 +687,7 @@ public class GroupChatActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
 
     private void showCreatePollDialog() {
-        com.callx.app.chat.ui.CreatePollDialog.show(this, (question, options, anonymous) -> {
+        com.callx.app.chat.ui.CreatePollDialog.show(this, (question, options, anonymous, multiChoice) -> {
             Message m = buildOutgoing();
             m.type = "poll";
             m.pollQuestion = question;
@@ -693,13 +695,18 @@ public class GroupChatActivity extends AppCompatActivity {
             m.pollVotes = new java.util.HashMap<>();
             m.pollAnonymous = anonymous;
             m.pollClosed = false;
+            m.pollMultiChoice = multiChoice;
             m.text = "\uD83D\uDCCA " + question;
             pushMessage(m, "\uD83D\uDCCA Poll: " + question);
             clearReply();
         });
     }
 
-    /** Casts/changes the current user's vote — same Firebase + Room sync pattern as 1:1 chat. */
+    /**
+     * Casts/toggles the current user's vote(s) — same Firebase + Room sync
+     * pattern as 1:1 chat. Multi-choice polls tick/un-tick individual
+     * options; single-choice polls replace the previous vote.
+     */
     private void castPollVote(Message m, int optionIndex) {
         if (m == null || groupMessagesRef == null) return;
         String id = m.messageId != null ? m.messageId : m.id;
@@ -708,11 +715,32 @@ public class GroupChatActivity extends AppCompatActivity {
             Toast.makeText(this, "This poll is closed", Toast.LENGTH_SHORT).show();
             return;
         }
-        groupMessagesRef.child(id).child("pollVotes").child(currentUid).setValue(optionIndex);
 
-        java.util.Map<String, Integer> votes = m.pollVotes != null
+        boolean multiChoice = Boolean.TRUE.equals(m.pollMultiChoice);
+        java.util.Map<String, java.util.List<Integer>> votes = m.pollVotes != null
                 ? new java.util.HashMap<>(m.pollVotes) : new java.util.HashMap<>();
-        votes.put(currentUid, optionIndex);
+        java.util.List<Integer> mine = votes.get(currentUid);
+        java.util.List<Integer> updatedMine = new java.util.ArrayList<>(mine != null ? mine : java.util.Collections.emptyList());
+
+        if (multiChoice) {
+            if (updatedMine.contains(optionIndex)) {
+                updatedMine.remove(Integer.valueOf(optionIndex));
+            } else {
+                updatedMine.add(optionIndex);
+            }
+        } else {
+            updatedMine.clear();
+            updatedMine.add(optionIndex);
+        }
+
+        if (updatedMine.isEmpty()) {
+            votes.remove(currentUid);
+            groupMessagesRef.child(id).child("pollVotes").child(currentUid).removeValue();
+        } else {
+            votes.put(currentUid, updatedMine);
+            groupMessagesRef.child(id).child("pollVotes").child(currentUid).setValue(updatedMine);
+        }
+
         m.pollVotes = votes;
         ioExecutor.execute(() -> {
             try {

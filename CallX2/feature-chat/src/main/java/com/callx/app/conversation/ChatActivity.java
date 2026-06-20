@@ -338,13 +338,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             Toast.makeText(this, "Can't send messages to this contact", Toast.LENGTH_SHORT).show();
             return;
         }
-        com.callx.app.chat.ui.CreatePollDialog.show(this, (question, options, anonymous) -> {
-            sendPollMessage(question, options, anonymous);
+        com.callx.app.chat.ui.CreatePollDialog.show(this, (question, options, anonymous, multiChoice) -> {
+            sendPollMessage(question, options, anonymous, multiChoice);
         });
     }
 
     /** Builds and sends a poll message via the standard outgoing pipeline. */
-    private void sendPollMessage(String question, java.util.List<String> options, boolean anonymous) {
+    private void sendPollMessage(String question, java.util.List<String> options, boolean anonymous, boolean multiChoice) {
         Message m = buildOutgoing();
         m.type = "poll";
         m.pollQuestion = question;
@@ -352,13 +352,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.pollVotes = new java.util.HashMap<>();
         m.pollAnonymous = anonymous;
         m.pollClosed = false;
+        m.pollMultiChoice = multiChoice;
         // text mirrors the question so chat-list previews and search show something sensible
         m.text = "\uD83D\uDCCA " + question;
         pushMessage(m, "\uD83D\uDCCA Poll: " + question);
     }
 
     /**
-     * Casts (or changes) the current user's vote on a poll message.
+     * Casts/toggles the current user's vote(s) on a poll message.
+     * Single-choice polls: tapping any option replaces the previous vote.
+     * Multi-choice polls: tapping an option ticks/un-ticks just that option,
+     * leaving the rest of the voter's selections untouched.
      * Writes directly to Firebase (messages/{id}/pollVotes/{uid}) — the existing
      * real-time listener + Room sync pipeline picks up the change and refreshes the UI,
      * same as reactions.
@@ -374,13 +378,36 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (!isOnline()) {
             Toast.makeText(this, "You're offline — vote will sync once you're back online", Toast.LENGTH_SHORT).show();
         }
-        messagesRef.child(id).child("pollVotes").child(currentUid).setValue(optionIndex);
+
+        boolean multiChoice = Boolean.TRUE.equals(m.pollMultiChoice);
+        java.util.Map<String, java.util.List<Integer>> votes = m.pollVotes != null
+                ? new java.util.HashMap<>(m.pollVotes) : new java.util.HashMap<>();
+        java.util.List<Integer> mine = votes.get(currentUid);
+        java.util.List<Integer> updatedMine = new java.util.ArrayList<>(mine != null ? mine : java.util.Collections.emptyList());
+
+        if (multiChoice) {
+            // Tick/un-tick just this option, keeping any other ticks intact.
+            if (updatedMine.contains(optionIndex)) {
+                updatedMine.remove(Integer.valueOf(optionIndex));
+            } else {
+                updatedMine.add(optionIndex);
+            }
+        } else {
+            // Single-choice: this option becomes the only vote.
+            updatedMine.clear();
+            updatedMine.add(optionIndex);
+        }
+
+        if (updatedMine.isEmpty()) {
+            votes.remove(currentUid);
+            messagesRef.child(id).child("pollVotes").child(currentUid).removeValue();
+        } else {
+            votes.put(currentUid, updatedMine);
+            messagesRef.child(id).child("pollVotes").child(currentUid).setValue(updatedMine);
+        }
 
         // Optimistic local update so the bar/tick reflects immediately even before
         // the Firebase round-trip / Room sync completes.
-        java.util.Map<String, Integer> votes = m.pollVotes != null
-                ? new java.util.HashMap<>(m.pollVotes) : new java.util.HashMap<>();
-        votes.put(currentUid, optionIndex);
         m.pollVotes = votes;
         ioExecutor.execute(() -> {
             try {
@@ -923,6 +950,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.pollVotes    = com.callx.app.utils.PollJsonUtil.votesFromJson(e.pollVotesJson);
         m.pollAnonymous = e.pollAnonymous;
         m.pollClosed    = e.pollClosed;
+        m.pollMultiChoice = e.pollMultiChoice;
         return m;
     }
 
@@ -944,6 +972,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.pollVotesJson   = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);
         e.pollAnonymous   = m.pollAnonymous;
         e.pollClosed      = m.pollClosed;
+        e.pollMultiChoice = m.pollMultiChoice;
         e.syncedAt = System.currentTimeMillis();
         return e;
     }

@@ -19,9 +19,11 @@ import java.util.List;
  * Poll feature — bottom sheet for composing a new poll.
  *
  * Lets the user type a question, add/remove answer options (min 2, max 10),
- * optionally mark the poll as anonymous, and submit. The resulting
- * question + option list is handed back via {@link OnPollCreatedListener}
- * so the caller (ChatActivity) can build and send the Message.
+ * optionally mark the poll as anonymous, optionally allow voters to tick
+ * more than one option ("advanced"/multi-choice polls), and submit. The
+ * resulting question + option list is handed back via
+ * {@link OnPollCreatedListener} so the caller (ChatActivity / GroupChatActivity)
+ * can build and send the Message.
  */
 public class CreatePollDialog {
 
@@ -29,7 +31,11 @@ public class CreatePollDialog {
     private static final int MAX_OPTIONS = 10;
 
     public interface OnPollCreatedListener {
-        void onPollCreated(String question, List<String> options, boolean anonymous);
+        /**
+         * @param multiChoice true if voters may tick more than one option
+         *                     (checkbox-style poll); false = single choice (radio).
+         */
+        void onPollCreated(String question, List<String> options, boolean anonymous, boolean multiChoice);
     }
 
     private CreatePollDialog() {}
@@ -43,6 +49,7 @@ public class CreatePollDialog {
         EditText etQuestion = sheet.findViewById(R.id.et_poll_question);
         LinearLayout optionsContainer = sheet.findViewById(R.id.ll_poll_options_container);
         View btnAddOption = sheet.findViewById(R.id.btn_add_poll_option);
+        SwitchCompat switchMultiChoice = sheet.findViewById(R.id.switch_poll_multi_choice);
         SwitchCompat switchAnonymous = sheet.findViewById(R.id.switch_poll_anonymous);
         View btnCancel = sheet.findViewById(R.id.btn_cancel_poll);
         View btnSend = sheet.findViewById(R.id.btn_send_poll);
@@ -81,9 +88,10 @@ public class CreatePollDialog {
                 return;
             }
 
+            boolean multiChoice = switchMultiChoice != null && switchMultiChoice.isChecked();
             boolean anonymous = switchAnonymous.isChecked();
             dlg.dismiss();
-            if (listener != null) listener.onPollCreated(question, options, anonymous);
+            if (listener != null) listener.onPollCreated(question, options, anonymous, multiChoice);
         });
 
         dlg.show();

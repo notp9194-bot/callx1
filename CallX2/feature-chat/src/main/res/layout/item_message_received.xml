@@ -443,6 +443,15 @@
                         android:lineSpacingExtra="2dp"
                         android:layout_marginBottom="12dp"/>
 
+                    <TextView
+                        android:id="@+id/tv_poll_subtitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Select one answer"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:layout_marginBottom="8dp"/>
+
                     <LinearLayout
                         android:id="@+id/ll_poll_options"
                         android:layout_width="match_parent"

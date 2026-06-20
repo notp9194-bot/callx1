@@ -62,8 +62,8 @@ public class MessagePagingAdapter
 
             private String asStr(Boolean b) { return b == null ? "null" : b.toString(); }
 
-            private boolean pollVotesEqual(java.util.Map<String, Integer> x,
-                                            java.util.Map<String, Integer> y) {
+            private boolean pollVotesEqual(java.util.Map<String, java.util.List<Integer>> x,
+                                            java.util.Map<String, java.util.List<Integer>> y) {
                 if (x == null && y == null) return true;
                 if (x == null || y == null) return false;
                 return x.equals(y);
@@ -1014,13 +1014,20 @@ public class MessagePagingAdapter
     }
 
     // ──────────────────────────────────────────────────────────────
-    // POLL BUBBLE (modernized) — icon-badge header, frosted card,
-    // radio-style vote indicator, animated fill bars, leading-option
-    // highlight, and a status chip for Closed/Anonymous polls.
+    // POLL BUBBLE (advanced) — icon-badge header, frosted card,
+    // radio OR checkbox vote indicator (single- vs multi-choice),
+    // animated fill bars, leading-option highlight, and a status chip
+    // for Closed/Anonymous polls.
     // Layout (per-bubble): ll_poll > header(iv_poll_icon, tv_poll_icon_label,
-    // tv_poll_status_badge), tv_poll_question, ll_poll_options,
-    // tv_poll_total_votes. Each option row is item_poll_option_row.xml,
-    // inflated dynamically since option count is variable (2–10).
+    // tv_poll_status_badge), tv_poll_question, tv_poll_subtitle,
+    // ll_poll_options, tv_poll_total_votes. Each option row is
+    // item_poll_option_row.xml, inflated dynamically since option count
+    // is variable (2–10).
+    //
+    // Multi-choice polls (Message#pollMultiChoice == true) let a voter
+    // tick any number of options — tapping a ticked option un-ticks it,
+    // tapping an un-ticked one adds it. Single-choice polls keep the
+    // original radio behaviour: tapping any option replaces your vote.
     // ──────────────────────────────────────────────────────────────
     private void bindPoll(@NonNull VH h, @NonNull Message m, boolean sent) {
         Context ctx = h.itemView.getContext();
@@ -1040,13 +1047,21 @@ public class MessagePagingAdapter
             h.tvPollQuestion.setText(m.pollQuestion != null ? m.pollQuestion : "");
         }
 
+        boolean multiChoice = Boolean.TRUE.equals(m.pollMultiChoice);
+
+        if (h.tvPollSubtitle != null) {
+            h.tvPollSubtitle.setText(multiChoice ? "Select one or more answers" : "Select one answer");
+            h.tvPollSubtitle.setTextColor((textColor & 0x00FFFFFF) | 0xAA000000);
+        }
+
         java.util.List<String> options = m.pollOptions != null
                 ? m.pollOptions : java.util.Collections.emptyList();
-        java.util.Map<String, Integer> votes = m.pollVotes != null
+        java.util.Map<String, java.util.List<Integer>> votes = m.pollVotes != null
                 ? m.pollVotes : java.util.Collections.emptyMap();
         int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votes, options.size());
         int total = com.callx.app.utils.PollJsonUtil.totalVotes(votes);
-        Integer myVote = currentUid != null ? votes.get(currentUid) : null;
+        java.util.List<Integer> myVotes = currentUid != null ? votes.get(currentUid) : null;
+        if (myVotes == null) myVotes = java.util.Collections.emptyList();
         boolean closed = Boolean.TRUE.equals(m.pollClosed);
         boolean anonymous = Boolean.TRUE.equals(m.pollAnonymous);
 
@@ -1074,7 +1089,7 @@ public class MessagePagingAdapter
                 View      vFill   = row.findViewById(R.id.v_poll_option_fill);
 
                 int pct = total > 0 ? Math.round((counts[i] * 100f) / total) : 0;
-                boolean isMyVote  = myVote != null && myVote == optionIndex;
+                boolean isMyVote  = myVotes.contains(optionIndex);
                 boolean isLeading = hasClearLeader && counts[i] == maxCount;
 
                 if (tvText != null) {
@@ -1087,13 +1102,15 @@ public class MessagePagingAdapter
                     tvPct.setTextColor(textColor);
                 }
                 if (ivCheck != null) {
+                    int filledRes     = multiChoice ? R.drawable.ic_poll_checkbox_filled     : R.drawable.ic_poll_check_filled;
+                    int unselectedRes = multiChoice ? R.drawable.ic_poll_checkbox_unselected  : R.drawable.ic_poll_radio_unselected;
                     if (isMyVote) {
                         ivCheck.clearColorFilter();
-                        ivCheck.setImageResource(R.drawable.ic_poll_check_filled);
+                        ivCheck.setImageResource(filledRes);
                     } else {
-                        ivCheck.setImageResource(R.drawable.ic_poll_radio_unselected);
-                        // Dim the ring relative to the bubble's text color so it
-                        // recedes behind the option the user actually picked.
+                        ivCheck.setImageResource(unselectedRes);
+                        // Dim the ring/box relative to the bubble's text color so it
+                        // recedes behind the option(s) the user actually picked.
                         int ringColor = (textColor & 0x00FFFFFF) | 0x80000000;
                         ivCheck.setColorFilter(ringColor, android.graphics.PorterDuff.Mode.SRC_IN);
                     }
@@ -1146,7 +1163,7 @@ public class MessagePagingAdapter
         }
 
         if (h.tvPollTotalVotes != null) {
-            String label = total == 0 ? "No votes yet" : total + (total == 1 ? " vote" : " votes");
+            String label = total == 0 ? "No votes yet" : total + (total == 1 ? " person voted" : " people voted");
             h.tvPollTotalVotes.setText(label);
         }
 
@@ -1663,7 +1680,7 @@ public class MessagePagingAdapter
         android.os.CountDownTimer activeCountDown;
         // ── Polls ──
         LinearLayout llPoll, llPollOptions;
-        TextView     tvPollQuestion, tvPollTotalVotes, tvPollStatusBadge;
+        TextView     tvPollQuestion, tvPollTotalVotes, tvPollStatusBadge, tvPollSubtitle;
         ImageView    ivPollIcon;
 
         VH(@NonNull View v) {
@@ -1707,6 +1724,7 @@ public class MessagePagingAdapter
             tvPollQuestion   = v.findViewById(R.id.tv_poll_question);
             tvPollTotalVotes = v.findViewById(R.id.tv_poll_total_votes);
             tvPollStatusBadge = v.findViewById(R.id.tv_poll_status_badge);
+            tvPollSubtitle    = v.findViewById(R.id.tv_poll_subtitle);
             ivPollIcon        = v.findViewById(R.id.iv_poll_icon);
         }
     }

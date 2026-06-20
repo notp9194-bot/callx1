@@ -103,6 +103,28 @@
                 android:textSize="14sp"/>
         </LinearLayout>
 
+        <!-- Allow multiple selection toggle (advanced polls) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_poll_input_field"
+            android:padding="12dp"
+            android:layout_marginBottom="10dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="✅  Allow multiple answers"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"/>
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_poll_multi_choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
         <!-- Anonymous voting toggle -->
         <LinearLayout
             android:layout_width="match_parent"

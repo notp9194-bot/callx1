@@ -101,12 +101,17 @@ public class Message {
     public String pollQuestion;
     /** Poll answer options, in display order. Firebase path: messages/{id}/pollOptions */
     public java.util.List<String> pollOptions;
-    /** Map of uid → selected option index (as String, Firebase-friendly). */
-    public Map<String, Integer> pollVotes;
+    /** Map of uid → list of ticked option indices. A single-choice poll just
+     *  keeps a one-element list per voter; a multi-choice poll (see
+     *  {@link #pollMultiChoice}) can have several indices per voter. */
+    public Map<String, java.util.List<Integer>> pollVotes;
     /** If true, voter identities + results are hidden until the poll creator reveals them. */
     public Boolean pollAnonymous;
     /** If true, voting is closed — no further votes accepted. */
     public Boolean pollClosed;
+    /** Advanced polls: if true, voters may tick more than one option (checkbox
+     *  style); if false/null, voting is single-choice (radio style, default). */
+    public Boolean pollMultiChoice;
 
     public Message() {}
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Poll feature (advanced) — empty rounded-square checkbox shown on every
+     option the current user has NOT ticked in a multi-choice poll. Drawn as
+     a plain white stroke; the adapter applies a runtime color filter so it
+     reads correctly against both light and dark bubble text colors. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="18dp"
+    android:height="18dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:pathData="M5,3L19,3A2,2 0,0 1,21 5L21,19A2,2 0,0 1,19 21L5,21A2,2 0,0 1,3 19L3,5A2,2 0,0 1,5 3Z"/>
+</vector>

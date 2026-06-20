@@ -91,10 +91,13 @@ public class MessageEntity {
     public String pollQuestion;
     /** Poll options serialized as JSON array string, e.g. ["Yes","No"]. */
     public String pollOptionsJson;
-    /** Poll votes serialized as JSON object string, e.g. {"uid1":0,"uid2":1}. */
+    /** Poll votes serialized as JSON object string, e.g. {"uid1":[0],"uid2":[0,2]}
+     *  — each voter maps to a list of ticked option indices (see PollJsonUtil). */
     public String pollVotesJson;
     public Boolean pollAnonymous;
     public Boolean pollClosed;
+    /** Advanced polls: true = voters may tick multiple options (checkbox style). */
+    public Boolean pollMultiChoice;
 
     public MessageEntity() {}
 }

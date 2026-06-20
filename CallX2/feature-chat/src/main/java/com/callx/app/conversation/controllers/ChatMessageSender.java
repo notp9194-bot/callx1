@@ -142,6 +142,7 @@ public class ChatMessageSender {
                 m.pollVotes       = com.callx.app.utils.PollJsonUtil.votesFromJson(pe.pollVotesJson);
                 m.pollAnonymous   = pe.pollAnonymous;
                 m.pollClosed      = pe.pollClosed;
+                m.pollMultiChoice = pe.pollMultiChoice;
                 String preview = pe.text != null ? pe.text : "[" + pe.type + "]";
                 delegate.runOnMain(() -> firebasePushMessage(m, pe.id, preview));
             }
@@ -179,6 +180,7 @@ public class ChatMessageSender {
         e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);
         e.pollAnonymous         = m.pollAnonymous;
         e.pollClosed            = m.pollClosed;
+        e.pollMultiChoice       = m.pollMultiChoice;
         return e;
     }
 }
