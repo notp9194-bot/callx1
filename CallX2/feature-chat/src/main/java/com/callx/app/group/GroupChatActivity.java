@@ -1,6 +1,7 @@
 package com.callx.app.group;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -77,7 +78,7 @@ import com.callx.app.chat.ui.MessageHighlightAnimator;
  *   - Feature 10: Group Invite Link
  *   + Typing indicator, online member count, voice/media messages
  */
-public class GroupChatActivity extends AppCompatActivity {
+public class GroupChatActivity extends AppCompatActivity implements GroupWatchingController.Delegate {
 
     private static final String TAG           = "GroupChatActivity";
     private static final int    PAGE_SIZE     = 20;
@@ -111,9 +112,14 @@ public class GroupChatActivity extends AppCompatActivity {
     private final Map<String, String> memberNames = new HashMap<>();
     private final Map<String, String> memberRoles = new HashMap<>();
     private final Map<String, Long>   memberLastSeen = new HashMap<>();
+    private final Map<String, String> memberPhotos   = new HashMap<>();
     private final Map<String, String> typingNames    = new HashMap<>();
     private int   totalMembers = 0;
     private boolean amTyping   = false;
+
+    // ── "Watching banner" — overlapping avatars for members who currently
+    //    have this group's chat screen open & foregrounded ────────────────
+    private GroupWatchingController watchingController;
 
     // ── Handlers ───────────────────────────────────────────────────────────
     private final android.os.Handler typingHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -179,6 +185,7 @@ public class GroupChatActivity extends AppCompatActivity {
         setupPinnedBanner();
         setupReplyCancel();
         setupRealtimeHeader();
+        setupGroupWatching();
         checkAdminStatus();
         watchPinnedMessage();
 
@@ -202,6 +209,12 @@ public class GroupChatActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        if (watchingController != null) watchingController.setOurInChatScreen(true);
+    }
+
+    @Override
     protected void onDestroy() {
         subtitleHandler.removeCallbacks(subtitleTick);
         typingHandler.removeCallbacks(stopTyping);
@@ -216,6 +229,7 @@ public class GroupChatActivity extends AppCompatActivity {
         for (Map.Entry<String, ValueEventListener> e : presenceListeners.entrySet())
             FirebaseUtils.getUserRef(e.getKey()).removeEventListener(e.getValue());
         presenceListeners.clear();
+        if (watchingController != null) watchingController.release();
         if (connMgr != null && netCallback != null) {
             try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
         }
@@ -226,6 +240,7 @@ public class GroupChatActivity extends AppCompatActivity {
     protected void onPause() {
         typingHandler.removeCallbacks(stopTyping);
         setMyTyping(false);
+        if (watchingController != null) watchingController.setOurInChatScreen(false);
         super.onPause();
     }
 
@@ -1118,6 +1133,8 @@ public class GroupChatActivity extends AppCompatActivity {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 Long ls = snap.child("lastSeen").getValue(Long.class);
                 memberLastSeen.put(uid, ls != null ? ls : 0L);
+                String photo = snap.child("photoUrl").getValue(String.class);
+                if (photo != null) memberPhotos.put(uid, photo);
                 refreshSubtitle();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -1125,6 +1142,20 @@ public class GroupChatActivity extends AppCompatActivity {
         presenceListeners.put(uid, l);
         FirebaseUtils.getUserRef(uid).addValueEventListener(l);
     }
+
+    // ── "Watching banner" (overlapping avatars for in-chat-screen members) ──
+
+    private void setupGroupWatching() {
+        watchingController = new GroupWatchingController(this);
+        watchingController.init();
+    }
+
+    @Override public Activity getActivity() { return this; }
+    @Override public ActivityChatBinding getBinding() { return binding; }
+    @Override public String getGroupId() { return groupId; }
+    @Override public String getCurrentUid() { return currentUid; }
+    @Override public Map<String, String> getMemberNames() { return memberNames; }
+    @Override public Map<String, String> getMemberPhotos() { return memberPhotos; }
 
     private void setMyTyping(boolean typing) {
         if (typing == amTyping) return;

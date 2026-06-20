@@ -111,6 +111,17 @@ public class FirebaseUtils {
         return ids[0] + "_" + ids[1];
     }
 
+    /**
+     * "Watching banner" presence node — shared by 1:1 chats AND group chats:
+     * chatPresence/{chatIdOrGroupId}/{uid} = true while that user has the
+     * given chat screen open & foregrounded. 1:1 chatIds are "uidA_uidB"
+     * (see getChatId above); group ids are Firebase push keys — the two
+     * never collide, so both can safely share this one node.
+     */
+    public static DatabaseReference getChatPresenceRef(String chatOrGroupId) {
+        return db().getReference("chatPresence").child(chatOrGroupId);
+    }
+
     // ── Reels ─────────────────────────────────────────────────────────────
 
     /** Root reels node: reels/{reelId}/ */

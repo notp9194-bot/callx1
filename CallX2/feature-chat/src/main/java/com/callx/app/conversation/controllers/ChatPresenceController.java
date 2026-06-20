@@ -31,8 +31,9 @@ import java.util.Locale;
  */
 public class ChatPresenceController {
 
-    /** Firebase node: chatPresence/{chatId}/{uid} = true while that user has this chat screen open & foregrounded. */
-    private static final String CHAT_PRESENCE_NODE = "chatPresence";
+    // Presence path is centralized in FirebaseUtils.getChatPresenceRef(id) —
+    // shared with GroupWatchingController so both 1:1 and group chats use
+    // the same chatPresence/{id}/{uid}=true node.
 
     private final ChatActivityDelegate delegate;
 
@@ -203,8 +204,7 @@ public class ChatPresenceController {
             if (!secMgr.isWatchingPresenceEnabled()) active = false;
         }
 
-        DatabaseReference ref = FirebaseUtils.db().getReference(CHAT_PRESENCE_NODE)
-                .child(chatId).child(uid);
+        DatabaseReference ref = FirebaseUtils.getChatPresenceRef(chatId).child(uid);
         ref.setValue(active);
         if (active) {
             // Safety net: if the app/connection dies without onPause firing
@@ -228,8 +228,8 @@ public class ChatPresenceController {
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
-        FirebaseUtils.db().getReference(CHAT_PRESENCE_NODE)
-                .child(chatId).child(partnerUid)
+        FirebaseUtils.getChatPresenceRef(chatId)
+                .child(partnerUid)
                 .addValueEventListener(inChatListener);
     }
 
@@ -340,8 +340,8 @@ public class ChatPresenceController {
                     .removeEventListener(onlineListener);
         }
         if (inChatListener != null && delegate.getChatId() != null && delegate.getPartnerUid() != null) {
-            FirebaseUtils.db().getReference(CHAT_PRESENCE_NODE)
-                    .child(delegate.getChatId()).child(delegate.getPartnerUid())
+            FirebaseUtils.getChatPresenceRef(delegate.getChatId())
+                    .child(delegate.getPartnerUid())
                     .removeEventListener(inChatListener);
         }
         clearOurTypingStatus();

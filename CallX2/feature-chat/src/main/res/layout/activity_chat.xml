@@ -460,13 +460,21 @@
         </LinearLayout>
 
         <!-- ══════════════════════════════════════════════════════════════
-             PARTNER "WATCHING" BANNER — appears when the partner currently
-             has THIS chat screen open & foregrounded. Avatar zooms in
-             0dp → 48dp, name shown below in a vibrant highlight strip.
-             Does NOT touch the normal online/last-seen status line.
+             PARTNER / MEMBERS "WATCHING" BANNER — appears when someone
+             currently has THIS chat screen open & foregrounded. Avatar(s)
+             zoom in 0dp → 48dp, name(s) shown below in a vibrant highlight
+             strip. Does NOT touch the normal online/last-seen status line.
              Floats ON TOP of the message list (instead of its own row above
              it) so the chat area behind it stays full height — messages
              don't get squeezed when the banner pops in/out.
+
+             1:1 chats (ChatPresenceController) only ever touch
+             iv_watching_avatar + tv_watching_name — iv_watching_avatar2 and
+             tv_watching_more stay gone, so the banner looks identical to
+             before. Group chats (GroupWatchingController) additionally use
+             iv_watching_avatar2 (2nd watcher, overlapping) and
+             tv_watching_more ("+N" badge) for 3+ watchers, e.g.
+             "Asha, Ravi aur 2 others dekh rahe hain".
              ══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:id="@+id/ll_watching_banner"
@@ -480,13 +488,46 @@
             android:elevation="6dp"
             android:visibility="gone">
 
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_watching_avatar"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="2dp"
-                app:civ_border_color="#22C55E"/>
+            <LinearLayout
+                android:id="@+id/ll_watching_avatars"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_watching_avatar"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@drawable/ic_person"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="#22C55E"/>
+
+                <!-- Group only: 2nd watcher's avatar, overlaps 1st -->
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_watching_avatar2"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="-14dp"
+                    android:src="@drawable/ic_person"
+                    android:visibility="gone"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="#22C55E"/>
+
+                <!-- Group only: "+N" badge when 3+ members are watching -->
+                <TextView
+                    android:id="@+id/tv_watching_more"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="-14dp"
+                    android:background="@drawable/bg_watching_more_badge"
+                    android:gravity="center"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"/>
+
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/tv_watching_name"
