@@ -55,7 +55,18 @@ public class MessagePagingAdapter
                     && a.edited == b.edited
                     && a.deleted == b.deleted
                     && a.fontStyle == b.fontStyle
-                    && reactionsEqual(a.reactions, b.reactions);  // FIX: reactions change pe rebind trigger
+                    && reactionsEqual(a.reactions, b.reactions)  // FIX: reactions change pe rebind trigger
+                    && pollVotesEqual(a.pollVotes, b.pollVotes)
+                    && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed));
+            }
+
+            private String asStr(Boolean b) { return b == null ? "null" : b.toString(); }
+
+            private boolean pollVotesEqual(java.util.Map<String, Integer> x,
+                                            java.util.Map<String, Integer> y) {
+                if (x == null && y == null) return true;
+                if (x == null || y == null) return false;
+                return x.equals(y);
             }
 
             private boolean safeEquals(String x, String y) {
@@ -113,7 +124,9 @@ public class MessagePagingAdapter
         /** Called when user pins or unpins a message from the action sheet. */
         default void onPin(Message m) {}
         /** Called when user taps a poll option to cast/change their vote. */
-        default void onVote(Message m, int optionIndex) {}
+        default void onPollVote(Message m, int optionIndex) {}
+        /** Called when poll creator chooses Close/Reopen poll from the action sheet. */
+        default void onPollToggleClose(Message m) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -243,76 +256,6 @@ public class MessagePagingAdapter
     //   tv_call_entry_time  — formatted timestamp (hh:mm a)
     // No long-press / reactions — it's a system event.
     // ──────────────────────────────────────────────────────────────
-    // ──────────────────────────────────────────────────────────────
-    // POLL — renders question + tappable options with live vote %.
-    // Layout containers: ll_poll / tv_poll_question / ll_poll_options /
-    // tv_poll_votes_total (present in both item_message_sent/received).
-    // Tapping an option calls actionListener.onVote(message, optionIndex).
-    // ──────────────────────────────────────────────────────────────
-    private void bindPollOptions(@NonNull VH h, @NonNull Message m, android.content.Context ctx) {
-        if (h.llPoll == null || h.llPollOptions == null) {
-            // Fallback if layout doesn't have poll views
-            h.tvMessage.setVisibility(View.VISIBLE);
-            h.tvMessage.setText("\uD83D\uDCCA " + (m.pollQuestion != null ? m.pollQuestion : "Poll"));
-            return;
-        }
-        h.llPoll.setVisibility(View.VISIBLE);
-        if (h.tvPollQuestion != null)
-            h.tvPollQuestion.setText(m.pollQuestion != null ? m.pollQuestion : "");
-
-        java.util.List<String> options = m.pollOptions != null
-                ? m.pollOptions : java.util.Collections.emptyList();
-        java.util.Map<String, Integer> votes = m.pollVotes != null
-                ? m.pollVotes : java.util.Collections.emptyMap();
-
-        int totalVotes = votes.size();
-        Integer myVote = currentUid != null ? votes.get(currentUid) : null;
-
-        // Tally votes per option index
-        int[] counts = new int[options.size()];
-        for (Integer idx : votes.values()) {
-            if (idx != null && idx >= 0 && idx < counts.length) counts[idx]++;
-        }
-
-        h.llPollOptions.removeAllViews();
-        for (int i = 0; i < options.size(); i++) {
-            final int optionIndex = i;
-            View row = LayoutInflater.from(ctx)
-                    .inflate(R.layout.item_poll_option_display, h.llPollOptions, false);
-            View vFill          = row.findViewById(R.id.v_poll_option_fill);
-            TextView tvLabel    = row.findViewById(R.id.tv_poll_option_label);
-            TextView tvPct      = row.findViewById(R.id.tv_poll_option_pct);
-            TextView tvCheck    = row.findViewById(R.id.tv_poll_option_check);
-
-            int pct = totalVotes > 0 ? Math.round(counts[i] * 100f / totalVotes) : 0;
-            tvLabel.setText(options.get(i));
-            tvPct.setText(totalVotes > 0 ? (pct + "%") : "");
-            boolean isMine = myVote != null && myVote == optionIndex;
-            if (tvCheck != null) tvCheck.setVisibility(isMine ? View.VISIBLE : View.INVISIBLE);
-
-            // Animate/measure fill bar width as a % of row width after layout pass
-            if (vFill != null) {
-                final int finalPct = pct;
-                row.post(() -> {
-                    int rowWidth = row.getWidth();
-                    android.view.ViewGroup.LayoutParams lp = vFill.getLayoutParams();
-                    lp.width = Math.round(rowWidth * (finalPct / 100f));
-                    vFill.setLayoutParams(lp);
-                });
-            }
-
-            row.setOnClickListener(v -> {
-                if (actionListener != null) actionListener.onVote(m, optionIndex);
-            });
-            h.llPollOptions.addView(row);
-        }
-
-        if (h.tvPollVotesTotal != null) {
-            h.tvPollVotesTotal.setText(totalVotes == 0 ? "No votes yet"
-                    : totalVotes + (totalVotes == 1 ? " vote" : " votes"));
-        }
-    }
-
     private void bindCallEntryBubble(@NonNull VH h, @NonNull Message m) {
         android.widget.TextView tvIcon  = h.itemView.findViewById(R.id.tv_call_entry_icon);
         android.widget.TextView tvLabel = h.itemView.findViewById(R.id.tv_call_entry_label);
@@ -895,7 +838,12 @@ public class MessagePagingAdapter
                 }
                 break;
             case "poll":
-                bindPollOptions(h, m, ctx);
+                if (h.llPoll != null) {
+                    bindPoll(h, m, sent);
+                } else {
+                    h.tvMessage.setVisibility(View.VISIBLE);
+                    h.tvMessage.setText("\uD83D\uDCCA " + (m.pollQuestion != null ? m.pollQuestion : "Poll"));
+                }
                 break;
             default: // "text", "emoji", etc.
                 // POLISH: hide link preview by default before checking for URL
@@ -1063,6 +1011,89 @@ public class MessagePagingAdapter
             }
         });
         applySelectionHighlight(h, m);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // POLL BUBBLE — question + tappable options with live vote bars.
+    // Layout (per-bubble): ll_poll > tv_poll_question, ll_poll_options,
+    // tv_poll_total_votes. Each option row is item_poll_option_row.xml,
+    // inflated dynamically since option count is variable (2–10).
+    // ──────────────────────────────────────────────────────────────
+    private void bindPoll(@NonNull VH h, @NonNull Message m, boolean sent) {
+        Context ctx = h.itemView.getContext();
+        h.llPoll.setVisibility(View.VISIBLE);
+
+        if (h.tvPollQuestion != null) {
+            h.tvPollQuestion.setText(m.pollQuestion != null ? m.pollQuestion : "");
+        }
+
+        java.util.List<String> options = m.pollOptions != null
+                ? m.pollOptions : java.util.Collections.emptyList();
+        java.util.Map<String, Integer> votes = m.pollVotes != null
+                ? m.pollVotes : java.util.Collections.emptyMap();
+        int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votes, options.size());
+        int total = com.callx.app.utils.PollJsonUtil.totalVotes(votes);
+        Integer myVote = currentUid != null ? votes.get(currentUid) : null;
+        boolean closed = Boolean.TRUE.equals(m.pollClosed);
+
+        int textColor = sent
+                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_sent_text)
+                : androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_received_text);
+
+        if (h.llPollOptions != null) {
+            h.llPollOptions.removeAllViews();
+            for (int i = 0; i < options.size(); i++) {
+                final int optionIndex = i;
+                View row = LayoutInflater.from(ctx)
+                        .inflate(R.layout.item_poll_option_row, h.llPollOptions, false);
+                TextView tvText  = row.findViewById(R.id.tv_poll_option_text);
+                TextView tvPct   = row.findViewById(R.id.tv_poll_option_pct);
+                TextView tvCheck = row.findViewById(R.id.tv_poll_option_check);
+                View     vFill   = row.findViewById(R.id.v_poll_option_fill);
+
+                int pct = total > 0 ? Math.round((counts[i] * 100f) / total) : 0;
+                boolean isMyVote = myVote != null && myVote == optionIndex;
+
+                if (tvText != null) {
+                    tvText.setText(options.get(i));
+                    tvText.setTextColor(textColor);
+                }
+                if (tvPct != null) {
+                    tvPct.setText(total > 0 ? (pct + "%") : "");
+                    tvPct.setTextColor(textColor);
+                }
+                if (tvCheck != null) {
+                    tvCheck.setVisibility(isMyVote ? View.VISIBLE : View.INVISIBLE);
+                }
+                if (vFill != null) {
+                    // Animate the fill width as a fraction of the row width once laid out.
+                    final int fPct = pct;
+                    vFill.post(() -> {
+                        int parentWidth = ((View) vFill.getParent()).getWidth();
+                        android.view.ViewGroup.LayoutParams lp = vFill.getLayoutParams();
+                        lp.width = Math.round(parentWidth * (fPct / 100f));
+                        vFill.setLayoutParams(lp);
+                    });
+                }
+
+                row.setOnClickListener(v -> {
+                    if (closed) {
+                        android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (actionListener != null) actionListener.onPollVote(m, optionIndex);
+                });
+
+                h.llPollOptions.addView(row);
+            }
+        }
+
+        if (h.tvPollTotalVotes != null) {
+            String label = closed ? "Poll closed" :
+                    (total == 0 ? "No votes yet" : total + (total == 1 ? " vote" : " votes"));
+            if (Boolean.TRUE.equals(m.pollAnonymous)) label = label + " • Anonymous";
+            h.tvPollTotalVotes.setText(label);
+        }
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -1361,6 +1392,8 @@ public class MessagePagingAdapter
         boolean isStarred    = Boolean.TRUE.equals(m.starred);
 
         boolean isPinned = Boolean.TRUE.equals(m.pinned);
+        boolean isPoll   = "poll".equals(m.type);
+        boolean isPollClosed = Boolean.TRUE.equals(m.pollClosed);
 
         java.util.List<String> optList = new java.util.ArrayList<>();
         optList.add("Reply");
@@ -1369,6 +1402,7 @@ public class MessagePagingAdapter
         optList.add(isPinned ? "Unpin" : "Pin");
         optList.add("Forward");
         if (canEdit) optList.add("Edit");
+        if (isPoll && isOwnMsg) optList.add(isPollClosed ? "Reopen Poll" : "Close Poll");
         optList.add("Delete");
         String[] options = optList.toArray(new String[0]);
 
@@ -1386,6 +1420,8 @@ public class MessagePagingAdapter
                             case "Unpin":   actionListener.onPin(m);     break;
                             case "Forward": actionListener.onForward(m); break;
                             case "Edit":    actionListener.onEdit(m);    break;
+                            case "Close Poll":  // fall-through
+                            case "Reopen Poll": actionListener.onPollToggleClose(m); break;
                             case "Delete":  actionListener.onDelete(m);  break;
                         }
                     });
@@ -1554,9 +1590,9 @@ public class MessagePagingAdapter
         // ── Disappearing messages ──
         TextView                  tvExpiry;
         android.os.CountDownTimer activeCountDown;
-        // ── Poll / Voting ──
+        // ── Polls ──
         LinearLayout llPoll, llPollOptions;
-        TextView     tvPollQuestion, tvPollVotesTotal;
+        TextView     tvPollQuestion, tvPollTotalVotes;
 
         VH(@NonNull View v) {
             super(v);
@@ -1593,11 +1629,11 @@ public class MessagePagingAdapter
             ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
             // Disappearing messages
             tvExpiry       = v.findViewById(R.id.tv_expiry);
-            // Poll / Voting
+            // Polls
             llPoll           = v.findViewById(R.id.ll_poll);
             llPollOptions    = v.findViewById(R.id.ll_poll_options);
             tvPollQuestion   = v.findViewById(R.id.tv_poll_question);
-            tvPollVotesTotal = v.findViewById(R.id.tv_poll_votes_total);
+            tvPollTotalVotes = v.findViewById(R.id.tv_poll_total_votes);
         }
     }
 }

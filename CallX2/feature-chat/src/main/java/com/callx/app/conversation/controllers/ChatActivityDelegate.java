@@ -83,7 +83,6 @@ public interface ChatActivityDelegate {
     // ── Wallpaper picker launcher ─────────────────────────────────────────
     void launchWallpaperPicker();
 
-    // ── Multi-select toolbar ──────────────────────────────────────────────
-    void showMultiSelectBar(int count);
-    void hideMultiSelectBar();
+    // ── Poll creation ─────────────────────────────────────────────────────
+    void launchPollCreator();
 }

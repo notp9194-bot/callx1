@@ -96,16 +96,17 @@ public class Message {
      */
     public int fontStyle;
 
-    // ── Feature 12: Poll / Voting ─────────────────────────
-    /** Poll question text. Set when type = "poll". */
+    // ── Feature 12: Polls ─────────────────────────────────────────
+    /** Set when type = "poll". The poll question text. */
     public String pollQuestion;
-    /** Poll option labels, in display order. */
+    /** Poll answer options, in display order. Firebase path: messages/{id}/pollOptions */
     public java.util.List<String> pollOptions;
-    /**
-     * Votes — map of uid → option index.
-     * Firebase path: messages/{id}/pollVotes/{uid} = optionIndex (Integer)
-     */
+    /** Map of uid → selected option index (as String, Firebase-friendly). */
     public Map<String, Integer> pollVotes;
+    /** If true, voter identities + results are hidden until the poll creator reveals them. */
+    public Boolean pollAnonymous;
+    /** If true, voting is closed — no further votes accepted. */
+    public Boolean pollClosed;
 
     public Message() {}
 }

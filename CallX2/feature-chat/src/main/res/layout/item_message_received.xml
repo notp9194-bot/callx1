@@ -386,11 +386,10 @@
                     android:visibility="gone">
                     <TextView
                         android:id="@+id/tv_poll_icon_label"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="\uD83D\uDCCA POLL"
-                        android:textColor="@color/bubble_received_text"
-                        android:alpha="0.7"
+                        android:text="📊 POLL"
+                        android:textColor="@color/text_secondary"
                         android:textSize="10sp"
                         android:textStyle="bold"
                         android:layout_marginBottom="4dp"/>
@@ -401,14 +400,14 @@
                         android:textColor="@color/bubble_received_text"
                         android:textSize="15sp"
                         android:textStyle="bold"
-                        android:layout_marginBottom="10dp"/>
+                        android:layout_marginBottom="8dp"/>
                     <LinearLayout
                         android:id="@+id/ll_poll_options"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"/>
                     <TextView
-                        android:id="@+id/tv_poll_votes_total"
+                        android:id="@+id/tv_poll_total_votes"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textColor="@color/text_secondary"

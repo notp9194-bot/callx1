@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:maxHeight="520dp"
+    android:background="@color/surface_card">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📊 Create Poll"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Question -->
+        <EditText
+            android:id="@+id/et_poll_question"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Ask a question"
+            android:textColorHint="@color/text_secondary"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"
+            android:background="@drawable/bg_search_field"
+            android:padding="12dp"
+            android:maxLines="3"
+            android:inputType="textCapSentences|textMultiLine"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Options"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textAllCaps="true"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Dynamic option rows go here -->
+        <LinearLayout
+            android:id="@+id/ll_poll_options_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"/>
+
+        <!-- Add option -->
+        <LinearLayout
+            android:id="@+id/btn_add_poll_option"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="10dp"
+            android:background="?attr/selectableItemBackground"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="8dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="➕  Add option"
+                android:textColor="@color/brand_primary"
+                android:textStyle="bold"
+                android:textSize="14sp"/>
+        </LinearLayout>
+
+        <!-- Anonymous voting toggle -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Anonymous voting"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"/>
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_poll_anonymous"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <!-- Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end"
+            android:layout_marginTop="18dp">
+            <TextView
+                android:id="@+id/btn_cancel_poll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cancel"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:padding="12dp"
+                android:background="?attr/selectableItemBackground"/>
+            <Button
+                android:id="@+id/btn_send_poll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Send Poll"
+                android:textColor="@color/text_on_primary"
+                android:textAllCaps="false"
+                android:textSize="14sp"
+                android:background="@drawable/bg_btn_primary"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:layout_marginStart="12dp"/>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

@@ -389,6 +389,8 @@ public class GroupChatActivity extends AppCompatActivity {
             @Override public void onStar(Message m)                { toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
+            @Override public void onPollVote(Message m, int idx)   { castPollVote(m, idx); }
+            @Override public void onPollToggleClose(Message m)    { togglePollClosed(m); }
             @Override public void onNavigateToOriginal(String messageId) {
                 if (messageId == null || messageId.isEmpty()) return;
                 for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
@@ -403,7 +405,6 @@ public class GroupChatActivity extends AppCompatActivity {
                     "Original message not loaded — scroll up to find it",
                     android.widget.Toast.LENGTH_SHORT).show();
             }
-            @Override public void onVote(Message m, int optionIndex) { votePoll(m, optionIndex); }
         });
 
         // Multi-select: selection bar show/hide
@@ -544,6 +545,11 @@ public class GroupChatActivity extends AppCompatActivity {
         m.pinned            = e.pinned;
         m.fontStyle         = e.fontStyle;  // FIX: typing style — Room se load hone par preserve karo
         m.expiresAt         = e.expiresAt;  // Disappearing messages
+        m.pollQuestion      = e.pollQuestion;
+        m.pollOptions       = com.callx.app.utils.PollJsonUtil.optionsFromJson(e.pollOptionsJson);
+        m.pollVotes         = com.callx.app.utils.PollJsonUtil.votesFromJson(e.pollVotesJson);
+        m.pollAnonymous     = e.pollAnonymous;
+        m.pollClosed        = e.pollClosed;
         return m;
     }
 
@@ -574,6 +580,11 @@ public class GroupChatActivity extends AppCompatActivity {
         e.syncedAt              = System.currentTimeMillis();
         e.fontStyle             = m.fontStyle;
         e.expiresAt             = m.expiresAt;  // Disappearing messages
+        e.pollQuestion          = m.pollQuestion;
+        e.pollOptionsJson       = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
+        e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);
+        e.pollAnonymous         = m.pollAnonymous;
+        e.pollClosed            = m.pollClosed;
         return e;
     }
 
@@ -667,6 +678,62 @@ public class GroupChatActivity extends AppCompatActivity {
             m.replyToSenderName = replyingTo.senderName;
         }
         return m;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // POLLS
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void showCreatePollDialog() {
+        com.callx.app.chat.ui.CreatePollDialog.show(this, (question, options, anonymous) -> {
+            Message m = buildOutgoing();
+            m.type = "poll";
+            m.pollQuestion = question;
+            m.pollOptions = options;
+            m.pollVotes = new java.util.HashMap<>();
+            m.pollAnonymous = anonymous;
+            m.pollClosed = false;
+            m.text = "\uD83D\uDCCA " + question;
+            pushMessage(m, "\uD83D\uDCCA Poll: " + question);
+            clearReply();
+        });
+    }
+
+    /** Casts/changes the current user's vote — same Firebase + Room sync pattern as 1:1 chat. */
+    private void castPollVote(Message m, int optionIndex) {
+        if (m == null || groupMessagesRef == null) return;
+        String id = m.messageId != null ? m.messageId : m.id;
+        if (id == null || id.isEmpty()) return;
+        if (Boolean.TRUE.equals(m.pollClosed)) {
+            Toast.makeText(this, "This poll is closed", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        groupMessagesRef.child(id).child("pollVotes").child(currentUid).setValue(optionIndex);
+
+        java.util.Map<String, Integer> votes = m.pollVotes != null
+                ? new java.util.HashMap<>(m.pollVotes) : new java.util.HashMap<>();
+        votes.put(currentUid, optionIndex);
+        m.pollVotes = votes;
+        ioExecutor.execute(() -> {
+            try {
+                MessageEntity e = db.messageDao().getMessageById(id);
+                if (e != null) {
+                    e.pollVotesJson = com.callx.app.utils.PollJsonUtil.votesToJson(votes);
+                    db.messageDao().updateMessage(e);
+                }
+            } catch (Exception ignored) {}
+        });
+    }
+
+    /** Poll creator closes/reopens voting. */
+    private void togglePollClosed(Message m) {
+        if (m == null || groupMessagesRef == null) return;
+        String id = m.messageId != null ? m.messageId : m.id;
+        if (id == null || id.isEmpty()) return;
+        boolean newClosed = !Boolean.TRUE.equals(m.pollClosed);
+        groupMessagesRef.child(id).child("pollClosed").setValue(newClosed);
+        ioExecutor.execute(() -> db.messageDao().updatePollClosed(id, newClosed));
+        Toast.makeText(this, newClosed ? "Poll closed" : "Poll reopened", Toast.LENGTH_SHORT).show();
     }
 
     // v17: Local-first push — pehle Room (pending), phir Firebase
@@ -789,19 +856,6 @@ public class GroupChatActivity extends AppCompatActivity {
     private void sendReaction(Message m, String emoji) {
         if (m.id == null) return;
         groupMessagesRef.child(m.id).child("reactions").child(currentUid).setValue(emoji);
-    }
-
-    // ── Poll vote (toggle) ──────────────────────────────────────────────
-    private void votePoll(Message m, int optionIndex) {
-        if (m.id == null || currentUid == null) return;
-        Integer existing = m.pollVotes != null ? m.pollVotes.get(currentUid) : null;
-        com.google.firebase.database.DatabaseReference voteRef =
-                groupMessagesRef.child(m.id).child("pollVotes").child(currentUid);
-        if (existing != null && existing == optionIndex) {
-            voteRef.removeValue();
-        } else {
-            voteRef.setValue(optionIndex);
-        }
     }
 
     private void toggleStar(Message m) {
@@ -1203,29 +1257,11 @@ public class GroupChatActivity extends AppCompatActivity {
         v.findViewById(R.id.opt_video).setOnClickListener(x  -> { sheet.dismiss(); videoPicker.launch("video/*"); });
         v.findViewById(R.id.opt_audio).setOnClickListener(x  -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
         v.findViewById(R.id.opt_file).setOnClickListener(x   -> { sheet.dismiss(); filePicker.launch("*/*"); });
-        v.findViewById(R.id.opt_poll).setOnClickListener(x   -> { sheet.dismiss(); showCreatePollSheet(); });
-        sheet.setContentView(v); sheet.show();
-    }
-
-    // ── Poll ──────────────────────────────────────────────────────────────
-
-    private void showCreatePollSheet() {
-        com.callx.app.chat.ui.PollCreateBottomSheet.show(this,
-                (question, options) -> sendPollMessage(question, options));
-    }
-
-    private void sendPollMessage(String question, java.util.List<String> options) {
-        if (!isOnline()) {
-            Toast.makeText(this, "No connection — poll nahi bhej sakte", Toast.LENGTH_SHORT).show();
-            return;
+        View optPoll = v.findViewById(R.id.opt_poll);
+        if (optPoll != null) {
+            optPoll.setOnClickListener(x -> { sheet.dismiss(); showCreatePollDialog(); });
         }
-        Message m = buildOutgoing();
-        m.type = "poll";
-        m.pollQuestion = question;
-        m.pollOptions = options;
-        m.pollVotes = new java.util.HashMap<>();
-        m.text = "\uD83D\uDCCA " + question;
-        pushMessage(m, m.text);
+        sheet.setContentView(v); sheet.show();
     }
 
     // ─────────────────────────────────────────────────────────────────────

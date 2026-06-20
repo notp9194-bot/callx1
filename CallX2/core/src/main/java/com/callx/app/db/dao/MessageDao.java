@@ -160,6 +160,16 @@ public interface MessageDao {
     @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
     void updateText(String messageId, String newText, long editedAt);
 
+    /** Poll: update the votes JSON blob for a poll message. */
+    @WorkerThread
+    @Query("UPDATE messages SET pollVotesJson = :votesJson WHERE id = :messageId")
+    void updatePollVotes(String messageId, String votesJson);
+
+    /** Poll: mark a poll as closed (no further votes accepted). */
+    @WorkerThread
+    @Query("UPDATE messages SET pollClosed = :closed WHERE id = :messageId")
+    void updatePollClosed(String messageId, boolean closed);
+
     // ─────────────────────────────────────────────────────────────
     // PRUNING / CLEANUP
     // ─────────────────────────────────────────────────────────────

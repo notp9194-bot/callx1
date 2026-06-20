@@ -12,20 +12,22 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:hint="Option"
-        android:textColorHint="#888888"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColorHint="@color/text_secondary"
+        android:textColor="@color/text_primary"
         android:textSize="14sp"
         android:maxLines="1"
-        android:padding="10dp"
-        android:background="@drawable/bg_comment_input"/>
+        android:inputType="textCapSentences"
+        android:background="@drawable/bg_search_field"
+        android:padding="10dp"/>
 
     <ImageView
         android:id="@+id/btn_remove_poll_option"
         android:layout_width="36dp"
         android:layout_height="36dp"
-        android:padding="8dp"
         android:layout_marginStart="6dp"
+        android:padding="6dp"
         android:src="@drawable/ic_close"
         android:background="?attr/selectableItemBackground"
-        android:visibility="gone"/>
+        android:contentDescription="Remove option"/>
+
 </LinearLayout>

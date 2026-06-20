@@ -66,7 +66,7 @@ import net.sqlcipher.database.SupportFactory;
         GroupEntity.class,
         StatusEntity.class     // v17: status cache
     },
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -92,6 +92,18 @@ public abstract class AppDatabase extends RoomDatabase {
         public void migrate(@NonNull SupportSQLiteDatabase db) {
             db.execSQL("ALTER TABLE messages ADD COLUMN reelId TEXT DEFAULT NULL");
             db.execSQL("ALTER TABLE messages ADD COLUMN reelThumbUrl TEXT DEFAULT NULL");
+        }
+    };
+
+    /** v10 → v11: poll fields — question, options/votes (JSON), anonymous, closed. */
+    static final Migration MIGRATION_10_11 = new Migration(10, 11) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN pollQuestion TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN pollOptionsJson TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN pollVotesJson TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN pollAnonymous INTEGER DEFAULT NULL");
+            db.execSQL("ALTER TABLE messages ADD COLUMN pollClosed INTEGER DEFAULT NULL");
         }
     };
 
@@ -279,7 +291,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt) v25(polls)
                 .fallbackToDestructiveMigration()
                 .build();
 

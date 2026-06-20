@@ -86,5 +86,15 @@ public class MessageEntity {
      */
     public Long expiresAt;
 
+    // ── Feature 12: Polls ─────────────────────────────────────────
+    /** Set when type = "poll". The poll question text. */
+    public String pollQuestion;
+    /** Poll options serialized as JSON array string, e.g. ["Yes","No"]. */
+    public String pollOptionsJson;
+    /** Poll votes serialized as JSON object string, e.g. {"uid1":0,"uid2":1}. */
+    public String pollVotesJson;
+    public Boolean pollAnonymous;
+    public Boolean pollClosed;
+
     public MessageEntity() {}
 }
