@@ -446,7 +446,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
                 int pos = llm.findLastCompletelyVisibleItemPosition();
                 if (pos < 0) pos = llm.findLastVisibleItemPosition();
                 if (pos < 0 || pos >= pagingAdapter.getItemCount()) return;
-                com.callx.app.models.Message m = pagingAdapter.getItem(pos);
+                com.callx.app.models.Message m = pagingAdapter.peek(pos);
                 if (m == null) return;
                 String mid = m.messageId != null ? m.messageId : m.id;
                 watchingController.publishViewingMessage(mid);

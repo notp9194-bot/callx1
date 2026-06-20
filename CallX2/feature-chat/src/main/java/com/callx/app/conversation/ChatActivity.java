@@ -1427,7 +1427,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 int pos = lm.findLastCompletelyVisibleItemPosition();
                 if (pos < 0) pos = lm.findLastVisibleItemPosition();
                 if (pos < 0 || pos >= pagingAdapter.getItemCount()) return;
-                com.callx.app.models.Message m = pagingAdapter.getItem(pos);
+                com.callx.app.models.Message m = pagingAdapter.peek(pos);
                 if (m == null) return;
                 String mid = m.messageId != null ? m.messageId : m.id;
                 presenceController.publishViewingMessage(mid);
