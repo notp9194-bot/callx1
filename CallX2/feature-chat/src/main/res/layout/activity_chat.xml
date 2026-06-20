@@ -82,6 +82,17 @@
                 android:textSize="10sp"
                 android:textStyle="italic"
                 android:visibility="gone"/>
+
+            <!-- Shown when partner is currently open on THIS chat screen (in-app presence) -->
+            <TextView
+                android:id="@+id/tv_in_chat"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="active in this chat"
+                android:textColor="#86EFAC"
+                android:textSize="10sp"
+                android:textStyle="italic"
+                android:visibility="gone"/>
         </LinearLayout>
 
         <!-- Reel button — patli rassi se latakta hua, hawa mein jhulta -->

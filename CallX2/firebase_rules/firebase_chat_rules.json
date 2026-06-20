@@ -93,6 +93,16 @@
       }
     },
 
+    "chatPresence": {
+      "$chatId": {
+        ".read":  "auth != null && $chatId.contains(auth.uid)",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && $chatId.contains(auth.uid)",
+          ".validate": "newData.isBoolean() || !newData.exists()"
+        }
+      }
+    },
+
     "users": {
       "$uid": {
         ".read":  "auth != null",

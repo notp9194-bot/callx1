@@ -10,22 +10,34 @@ import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.SecurityManager;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.Executors;
 
 /**
- * Handles typing indicator, online/last-seen status, mute, and mark-read logic.
+ * Handles typing indicator, online/last-seen status, mute, mark-read logic,
+ * and "in-chat-screen" presence (whether the partner currently has THIS
+ * chat screen open and in foreground, vs having left it for another
+ * screen/app).
  */
 public class ChatPresenceController {
+
+    /** Firebase node: chatPresence/{chatId}/{uid} = true while that user has this chat screen open & foregrounded. */
+    private static final String CHAT_PRESENCE_NODE = "chatPresence";
 
     private final ChatActivityDelegate delegate;
 
     private ValueEventListener typingListener;
     private ValueEventListener onlineListener;
+    private ValueEventListener inChatListener;
+
+    // Header-line render state — combined to decide what tv_status / tv_typing / tv_in_chat show.
+    private boolean partnerTyping     = false;
+    private boolean partnerInChat     = false;
+    private String  lastStatusText    = "";
 
     public ChatPresenceController(ChatActivityDelegate delegate) {
         this.delegate = delegate;
@@ -36,6 +48,7 @@ public class ChatPresenceController {
     public void init() {
         watchPartnerStatus();
         watchTyping();
+        watchPartnerInChatScreen();
         watchMute();
         markMessagesRead();
     }
@@ -64,21 +77,78 @@ public class ChatPresenceController {
                         break;
                     }
                 }
-                ActivityChatBinding binding = delegate.getBinding();
-                if (binding.tvTyping == null || binding.tvStatus == null) return;
-                if (typing) {
-                    binding.tvTyping.setVisibility(View.VISIBLE);
-                    binding.tvStatus.setVisibility(View.GONE);
-                } else {
-                    binding.tvTyping.setVisibility(View.GONE);
-                    binding.tvStatus.setVisibility(
-                            binding.tvStatus.getText().length() > 0 ? View.VISIBLE : View.GONE);
-                }
+                partnerTyping = typing;
+                renderHeaderStatus();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.db().getReference("typing").child(delegate.getChatId())
                 .addValueEventListener(typingListener);
+    }
+
+    // ── In-chat-screen presence ──────────────────────────────────────────
+    // Tracks whether the partner currently has THIS chat screen open & in
+    // foreground (as opposed to having navigated to another screen in the
+    // app, or having left the app entirely).
+
+    /** Called by the Activity on resume/pause to publish our own in-chat presence. */
+    public void setOurInChatScreen(boolean active) {
+        String chatId = delegate.getChatId();
+        String uid = delegate.getCurrentUid();
+        if (chatId == null || uid == null) return;
+
+        DatabaseReference ref = FirebaseUtils.db().getReference(CHAT_PRESENCE_NODE)
+                .child(chatId).child(uid);
+        ref.setValue(active);
+        if (active) {
+            // Safety net: if the app/connection dies without onPause firing
+            // (process killed, network drop), Firebase clears this for us.
+            ref.onDisconnect().setValue(false);
+        } else {
+            ref.onDisconnect().cancel();
+        }
+    }
+
+    private void watchPartnerInChatScreen() {
+        String chatId = delegate.getChatId();
+        String partnerUid = delegate.getPartnerUid();
+        if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
+
+        inChatListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                partnerInChat = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                renderHeaderStatus();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.db().getReference(CHAT_PRESENCE_NODE)
+                .child(chatId).child(partnerUid)
+                .addValueEventListener(inChatListener);
+    }
+
+    // ── Header line renderer ──────────────────────────────────────────────
+    // Priority shown in the chat header (top to bottom wins):
+    //   1) "typing…"                (partnerTyping)
+    //   2) "active in this chat"    (partnerInChat, partner has this screen open)
+    //   3) "online" / "last seen…"  (lastStatusText, from watchPartnerStatus)
+
+    private void renderHeaderStatus() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding.tvStatus == null || binding.tvTyping == null || binding.tvInChat == null) return;
+
+        if (partnerTyping) {
+            binding.tvTyping.setVisibility(View.VISIBLE);
+            binding.tvInChat.setVisibility(View.GONE);
+            binding.tvStatus.setVisibility(View.GONE);
+        } else if (partnerInChat) {
+            binding.tvTyping.setVisibility(View.GONE);
+            binding.tvInChat.setVisibility(View.VISIBLE);
+            binding.tvStatus.setVisibility(View.GONE);
+        } else {
+            binding.tvTyping.setVisibility(View.GONE);
+            binding.tvInChat.setVisibility(View.GONE);
+            binding.tvStatus.setVisibility(lastStatusText.length() > 0 ? View.VISIBLE : View.GONE);
+        }
     }
 
     // ── Online / last-seen status ─────────────────────────────────────────
@@ -94,7 +164,9 @@ public class ChatPresenceController {
 
                 Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
                 if (Boolean.TRUE.equals(partnerGhost)) {
-                    binding.tvStatus.setVisibility(View.GONE);
+                    lastStatusText = "";
+                    binding.tvStatus.setText("");
+                    renderHeaderStatus();
                     return;
                 }
 
@@ -114,11 +186,9 @@ public class ChatPresenceController {
                     statusText = "";
                 }
 
+                lastStatusText = statusText;
                 binding.tvStatus.setText(statusText);
-                boolean typingVisible = binding.tvTyping != null
-                        && binding.tvTyping.getVisibility() == View.VISIBLE;
-                binding.tvStatus.setVisibility(
-                        (!typingVisible && statusText.length() > 0) ? View.VISIBLE : View.GONE);
+                renderHeaderStatus();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -208,6 +278,12 @@ public class ChatPresenceController {
             FirebaseUtils.getUserRef(delegate.getPartnerUid())
                     .removeEventListener(onlineListener);
         }
+        if (inChatListener != null && delegate.getChatId() != null && delegate.getPartnerUid() != null) {
+            FirebaseUtils.db().getReference(CHAT_PRESENCE_NODE)
+                    .child(delegate.getChatId()).child(delegate.getPartnerUid())
+                    .removeEventListener(inChatListener);
+        }
         clearOurTypingStatus();
+        setOurInChatScreen(false);
     }
 }

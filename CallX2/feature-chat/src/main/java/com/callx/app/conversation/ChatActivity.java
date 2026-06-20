@@ -87,7 +87,7 @@ import java.util.concurrent.Executors;
  *
  * All heavy logic is delegated to controller classes:
  *   • ChatBlockController    — block / perma-block / unblock-joy / special-request
- *   • ChatPresenceController — typing, online-status, mute, mark-read
+ *   • ChatPresenceController — typing, online-status, in-chat-screen presence, mute, mark-read
  *   • ChatPinController      — pin / unpin
  *   • ChatSearchController   — in-chat search
  *   • ChatThemeController    — theme, wallpaper, customization, privacy dialogs
@@ -235,10 +235,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // Publish that we currently have THIS chat screen open & foregrounded,
+        // so the partner's chat header can show "active in this chat".
+        if (presenceController != null) presenceController.setOurInChatScreen(true);
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         saveDraft();
-        if (presenceController != null) presenceController.clearOurTypingStatus();
+        if (presenceController != null) {
+            presenceController.clearOurTypingStatus();
+            // We've left this chat screen (backgrounded app, or navigated to
+            // another screen) — partner should no longer see "active in this chat".
+            presenceController.setOurInChatScreen(false);
+        }
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
 
