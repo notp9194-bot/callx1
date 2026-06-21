@@ -1,5 +1,6 @@
 package com.callx.app.conversation.controllers;
 
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
@@ -380,6 +381,7 @@ public class ChatPresenceController {
         binding.ivWatchingAvatar.setScaleX(0f);
         binding.ivWatchingAvatar.setScaleY(0f);
         binding.llWatchingBanner.setVisibility(View.VISIBLE);
+        binding.ivWatchingAvatar.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
         binding.ivWatchingAvatar.animate()
                 .scaleX(1f).scaleY(1f)
                 .setDuration(380)

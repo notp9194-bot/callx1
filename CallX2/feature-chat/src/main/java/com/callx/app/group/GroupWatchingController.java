@@ -1,6 +1,7 @@
 package com.callx.app.group;
 
 import android.app.Activity;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
@@ -95,6 +96,11 @@ public class GroupWatchingController {
      *  set pushed to the adapter). Lets a single watcher's avatar/row jump
      *  to exactly what THAT person is looking at, not just "someone is". */
     private final Map<String, String> lastViewingByUid = new java.util.HashMap<>();
+    /** Watcher count from the previous banner render — lets us tell a
+     *  genuinely NEW watcher joining (count went up) apart from a refresh
+     *  of who's already there, so the join "pulse" + haptic only fires
+     *  once per arrival instead of on every Firebase tick. */
+    private int lastWatcherCount = 0;
 
     /** Call from the Activity's RecyclerView scroll-idle callback with the
      *  messageId of the topmost (or otherwise "focused") visible message. */
@@ -427,8 +433,24 @@ public class GroupWatchingController {
         }
         binding.tvWatchingName.setText(label);
 
+        boolean isNewJoin = total > lastWatcherCount;
+        lastWatcherCount = total;
+
         if (binding.llWatchingBanner.getVisibility() == View.VISIBLE) {
-            return; // already showing — content/avatars above are refreshed in place, no re-animation
+            // Already showing — content/avatars above are refreshed in place.
+            // If headcount went UP (someone new joined mid-session) give a
+            // quick pulse + haptic tick so it doesn't pass unnoticed; if it's
+            // just a refresh of the same people, stay silent.
+            if (isNewJoin) {
+                binding.llWatchingBanner.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                OvershootInterpolator pulseInterp = new OvershootInterpolator(2.2f);
+                binding.ivWatchingAvatar.animate().cancel();
+                binding.ivWatchingAvatar.setScaleX(0.85f);
+                binding.ivWatchingAvatar.setScaleY(0.85f);
+                binding.ivWatchingAvatar.animate().scaleX(1f).scaleY(1f)
+                        .setDuration(260).setInterpolator(pulseInterp).start();
+            }
+            return;
         }
 
         binding.ivWatchingAvatar.setScaleX(0f);
@@ -438,6 +460,7 @@ public class GroupWatchingController {
         binding.tvWatchingMore.setScaleX(0f);
         binding.tvWatchingMore.setScaleY(0f);
         binding.llWatchingBanner.setVisibility(View.VISIBLE);
+        binding.llWatchingBanner.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
 
         OvershootInterpolator interp = new OvershootInterpolator(2.2f);
         binding.ivWatchingAvatar.animate().scaleX(1f).scaleY(1f).setDuration(380).setInterpolator(interp).start();
@@ -458,6 +481,7 @@ public class GroupWatchingController {
     private void hideWatchingBanner() {
         cancelJustLeftWindow();
         ActivityChatBinding binding = delegate.getBinding();
+        lastWatcherCount = 0;
         if (binding.llWatchingBanner == null) return;
         if (binding.llWatchingBanner.getVisibility() != View.VISIBLE) return;
 
@@ -488,6 +512,7 @@ public class GroupWatchingController {
             pendingOffWrite = null;
         }
         lastViewingByUid.clear();
+        lastWatcherCount = 0;
         clearViewingMessage();
         writePresence(false);
     }
