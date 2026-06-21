@@ -160,6 +160,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Controllers ────────────────────────────────────────────────────────
     private ChatBlockController    blockController;
     private ChatPresenceController presenceController;
+    private ChatLiveTypingController liveTypingController;
     private ChatPinController      pinController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
@@ -192,6 +193,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // ── Create all remaining controllers ──
         blockController    = new ChatBlockController(this);
         presenceController = new ChatPresenceController(this);
+        liveTypingController = new ChatLiveTypingController(this);
         pinController      = new ChatPinController(this);
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
@@ -213,7 +215,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         // ── Controller init (Firebase listeners) ──
         presenceController.init();
-        blockController.init();
+        liveTypingController.init();
         pinController.init();
 
         markMessagesReadOnOpen();
@@ -259,6 +261,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // a strip nobody can see while we're backgrounded.
             presenceController.onScreenPaused();
         }
+        if (liveTypingController != null) liveTypingController.clearOurPreview();
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
 
@@ -279,6 +282,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (replyController != null) replyController.release();
 
         if (presenceController != null) presenceController.release();
+        if (liveTypingController != null) liveTypingController.destroy();
         if (blockController    != null) blockController.release();
     }
 
@@ -1035,6 +1039,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     typingHandler.removeCallbacks(stopTypingRunnable);
                     if (presenceController != null) presenceController.setOurTypingStatus(false);
                 }
+                if (liveTypingController != null) liveTypingController.onOurTextChanged(s.toString());
             }
         });
 
@@ -1077,6 +1082,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.etMessage.setText("");
         binding.etMessage.post(() -> TypingStyleManager.get(this).applyToInput(binding.etMessage));
         if (presenceController != null) presenceController.clearOurTypingStatus();
+        if (liveTypingController != null) liveTypingController.clearOurPreview();
         Executors.newSingleThreadExecutor().execute(() -> {
             if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
         });
