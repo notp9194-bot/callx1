@@ -1103,6 +1103,9 @@ public class CallActivity extends AppCompatActivity {
         binding.tvCallStatus.setText("Connected \u2022 0:00");
         if (isVideo) binding.ivCallAvatar.setVisibility(View.GONE);
 
+        // Mark ourselves as "on a call" so chat partners see the strip
+        com.callx.app.utils.PresenceManager.getInstance().setOnCall(true, isVideo ? "video" : "voice");
+
         Intent fg = new Intent(this, CallForegroundService.class);
         fg.putExtra("name",         partnerName  != null ? partnerName  : "");
         fg.putExtra("callId",       callId       != null ? callId       : "");
@@ -1178,6 +1181,9 @@ public class CallActivity extends AppCompatActivity {
 
         try { stopService(new Intent(this, CallForegroundService.class)); }
         catch (Exception ignored) {}
+
+        // Clear "on a call" presence — chat partners' strip will hide
+        com.callx.app.utils.PresenceManager.getInstance().setOnCall(false, null);
 
         final String myUid = FirebaseUtils.getCurrentUid();
 

@@ -57,6 +57,7 @@ public class ChatPresenceController {
         watchPartnerInChatScreen();
         watchPartnerViewingMessage();
         watchPartnerRecording();
+        watchPartnerOnCall();
         watchMute();
         markMessagesRead();
         setupBannerTap();
@@ -844,6 +845,159 @@ public class ChatPresenceController {
                 .start();
     }
 
+    // ── "On a Call" Strip ─────────────────────────────────────────────────
+    // ── On-Call Strip ─────────────────────────────────────────────────────
+    // Listens to users/{partnerUid}/onCall (Boolean) AND
+    // users/{partnerUid}/onCallType ("voice" | "video").
+    // When onCall=true: shows a green pill strip below the toolbar alongside
+    // (never replacing) the normal online/last-seen tv_status in the header.
+    // Emoji + label differ by call type:
+    //   voice → "📞 <Name> is on a call"
+    //   video → "📹 <Name> is on a video call"
+    // A pulsing green dot (dot_on_call_pulse) animates alpha 0.3 ↔ 1.0
+    // while the strip is visible, matching the "live" feel of the typing strip.
+    // Firebase paths written by PresenceManager.setOnCall(bool, type) from
+    // CallActivity + GroupCallActivity.
+
+    private ValueEventListener onCallListener;
+    private ValueEventListener onCallTypeListener;
+    private String             lastOnCallType = null;   // "voice" | "video" | null
+    private boolean            onCallStripVisible = false;
+
+    // Pulsing-dot animation state
+    private final android.os.Handler callDotHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable callDotRunnable;
+    private boolean  callDotAnimRunning = false;
+
+    private void watchPartnerOnCall() {
+        String partnerUid = delegate.getPartnerUid();
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+
+        // Watch onCallType first so it's ready before onCall fires
+        onCallTypeListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                lastOnCallType = s.getValue(String.class);
+                if (onCallStripVisible) refreshOnCallStripLabel(); // update label live
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.getUserRef(partnerUid).child("onCallType")
+                .addValueEventListener(onCallTypeListener);
+
+        onCallListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                boolean onCall = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                if (onCall) showOnCallStrip(); else hideOnCallStrip();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.getUserRef(partnerUid).child("onCall")
+                .addValueEventListener(onCallListener);
+    }
+
+    /** Updates the label text without re-animating the strip. */
+    private void refreshOnCallStripLabel() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding == null) return;
+        android.widget.TextView tvName = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.tv_on_call_name);
+        if (tvName == null) return;
+        String name = delegate.getPartnerName();
+        String label = buildOnCallLabel(name);
+        tvName.setText(label);
+    }
+
+    /** Builds label string based on current call type. */
+    private String buildOnCallLabel(String name) {
+        String n = name != null ? name : "";
+        if ("video".equals(lastOnCallType)) {
+            return "\uD83D\uDCF9 " + n + " is on a video call";  // 📹
+        }
+        return "\uD83D\uDCDE " + n + " is on a call";             // 📞
+    }
+
+    private void showOnCallStrip() {
+        onCallStripVisible = true;
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding == null) return;
+        android.view.View strip = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.ll_on_call_strip);
+        if (strip == null) return;
+
+        // Always refresh the label (callType may have arrived before/after onCall)
+        refreshOnCallStripLabel();
+
+        if (strip.getVisibility() == View.VISIBLE) return; // already showing
+
+        strip.setAlpha(0f);
+        strip.setTranslationY(-60f);
+        strip.setVisibility(View.VISIBLE);
+        strip.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(260)
+                .setInterpolator(new OvershootInterpolator(1.4f))
+                .start();
+
+        // Start pulsing the green dot
+        startCallDotPulse(binding.getRoot());
+    }
+
+    private void hideOnCallStrip() {
+        onCallStripVisible = false;
+        stopCallDotPulse();
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding == null) return;
+        android.view.View strip = binding.getRoot()
+                .findViewById(com.callx.app.chat.R.id.ll_on_call_strip);
+        if (strip == null || strip.getVisibility() != View.VISIBLE) return;
+
+        strip.animate()
+                .alpha(0f)
+                .translationY(-60f)
+                .setDuration(200)
+                .setInterpolator(new AccelerateInterpolator())
+                .withEndAction(() -> {
+                    strip.setVisibility(View.GONE);
+                    strip.setAlpha(1f);
+                    strip.setTranslationY(0f);
+                })
+                .start();
+    }
+
+    /** Slow alpha pulse on the green dot: 0.3 ↔ 1.0, 700ms per phase. */
+    private void startCallDotPulse(android.view.View root) {
+        if (callDotAnimRunning) return;
+        android.view.View dot = root.findViewById(com.callx.app.chat.R.id.dot_on_call_pulse);
+        if (dot == null) return;
+        callDotAnimRunning = true;
+        dot.setAlpha(1f);
+        pulseCallDot(dot, true);
+    }
+
+    private void pulseCallDot(android.view.View dot, boolean fadeOut) {
+        if (!callDotAnimRunning) {
+            dot.animate().cancel();
+            dot.setAlpha(1f);
+            return;
+        }
+        dot.animate()
+                .alpha(fadeOut ? 0.3f : 1.0f)
+                .setDuration(700)
+                .setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator())
+                .withEndAction(() -> pulseCallDot(dot, !fadeOut))
+                .start();
+    }
+
+    private void stopCallDotPulse() {
+        callDotAnimRunning = false;
+        if (callDotRunnable != null) {
+            callDotHandler.removeCallbacks(callDotRunnable);
+            callDotRunnable = null;
+        }
+    }
+
     // ── Mute ─────────────────────────────────────────────────────────────
 
     private void watchMute() {
@@ -930,6 +1084,15 @@ public class ChatPresenceController {
                     .child(delegate.getPartnerUid())
                     .removeEventListener(recordingListener);
         }
+        if (onCallListener != null && delegate.getPartnerUid() != null) {
+            FirebaseUtils.getUserRef(delegate.getPartnerUid()).child("onCall")
+                    .removeEventListener(onCallListener);
+        }
+        if (onCallTypeListener != null && delegate.getPartnerUid() != null) {
+            FirebaseUtils.getUserRef(delegate.getPartnerUid()).child("onCallType")
+                    .removeEventListener(onCallTypeListener);
+        }
+        stopCallDotPulse();
         if (typingDotsAnimator != null) {
             typingDotsAnimator.stop();
             typingDotsAnimator = null;

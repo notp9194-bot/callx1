@@ -118,6 +118,40 @@ public class PresenceManager {
         isOnline  = false;
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Call from CallActivity.onCallConnected() (true) and endCall() (false).
+    // Writes users/{uid}/onCall = true/false so chat partners can show
+    // a "📞 On a call" strip instead of (or alongside) "online".
+    // callType = "voice" or "video" (null when clearing).
+    // onDisconnect clears it automatically if the process is killed mid-call.
+    // ──────────────────────────────────────────────────────────────────────
+    public void setOnCall(boolean onCall, @androidx.annotation.Nullable String callType) {
+        String uid = cachedUid != null ? cachedUid : getUid();
+        if (uid == null) return;
+        DatabaseReference userRef = FirebaseUtils.getUserRef(uid);
+        DatabaseReference onCallRef = userRef.child("onCall");
+        DatabaseReference typeRef   = userRef.child("onCallType");
+        if (onCall) {
+            onCallRef.setValue(true);
+            onCallRef.onDisconnect().setValue(false); // safety net: killed mid-call
+            if (callType != null) {
+                typeRef.setValue(callType);
+                typeRef.onDisconnect().removeValue();
+            }
+        } else {
+            onCallRef.setValue(false);
+            onCallRef.onDisconnect().cancel();
+            typeRef.removeValue();
+            typeRef.onDisconnect().cancel();
+        }
+        Log.d(TAG, "setOnCall: " + onCall + " type=" + callType + " uid=" + uid);
+    }
+
+    /** Legacy no-type overload — kept for backward compat if any caller omits type. */
+    public void setOnCall(boolean onCall) {
+        setOnCall(onCall, null);
+    }
+
     private String getUid() {
         try {
             com.google.firebase.auth.FirebaseUser u =

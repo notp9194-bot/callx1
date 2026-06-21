@@ -745,6 +745,9 @@ public class GroupCallActivity extends AppCompatActivity {
                     callStartedAt = System.currentTimeMillis();
                     // Also update foreground service for kill-cleanup accuracy
                     GroupCallForegroundService.connectedAt = callStartedAt;
+                    // Mark ourselves as "on a call" — chat partners will see the strip
+                    com.callx.app.utils.PresenceManager.getInstance()
+                            .setOnCall(true, isVideo ? "video" : "voice");
                 }
                 // Quality: good unless we needed restarts to get here
                 updateParticipantQuality(uid, 3);
@@ -1104,6 +1107,9 @@ public class GroupCallActivity extends AppCompatActivity {
         finishing = true;
 
         if (ticker != null) tick.removeCallbacks(ticker);
+
+        // Clear "on a call" presence so chat partners' strip hides
+        com.callx.app.utils.PresenceManager.getInstance().setOnCall(false, null);
 
         // BUG-5 FIX: Agar caller koi nahi aaya toh group members ko missed notification bhejo
         // callStartedAt == 0 means call kabhi connected nahi hua (koi nahi aaya)
