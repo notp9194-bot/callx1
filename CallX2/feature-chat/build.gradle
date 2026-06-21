@@ -56,4 +56,8 @@ dependencies {
 
     // WorkManager — ChatScheduledMessageWorker (scheduled message send)
     implementation 'androidx.work:work-runtime:2.9.0'
+    // Required alongside work-runtime — without it javac can't resolve
+    // ListenableFuture on Worker's supertype chain (same fix already
+    // applied in :app and :feature-reels for the same error).
+    implementation 'com.google.guava:guava:31.1-android'
 }
