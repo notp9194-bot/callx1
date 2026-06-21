@@ -899,13 +899,9 @@ public class ChatPresenceController {
     /** Updates the label text without re-animating the strip. */
     private void refreshOnCallStripLabel() {
         ActivityChatBinding binding = delegate.getBinding();
-        if (binding == null) return;
-        android.widget.TextView tvName = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.tv_on_call_name);
-        if (tvName == null) return;
+        if (binding == null || binding.tvOnCallName == null) return;
         String name = delegate.getPartnerName();
-        String label = buildOnCallLabel(name);
-        tvName.setText(label);
+        binding.tvOnCallName.setText(buildOnCallLabel(name));
     }
 
     /** Builds label string based on current call type. */
@@ -920,20 +916,17 @@ public class ChatPresenceController {
     private void showOnCallStrip() {
         onCallStripVisible = true;
         ActivityChatBinding binding = delegate.getBinding();
-        if (binding == null) return;
-        android.view.View strip = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.ll_on_call_strip);
-        if (strip == null) return;
+        if (binding == null || binding.llOnCallStrip == null) return;
 
         // Always refresh the label (callType may have arrived before/after onCall)
         refreshOnCallStripLabel();
 
-        if (strip.getVisibility() == View.VISIBLE) return; // already showing
+        if (binding.llOnCallStrip.getVisibility() == View.VISIBLE) return; // already showing
 
-        strip.setAlpha(0f);
-        strip.setTranslationY(-60f);
-        strip.setVisibility(View.VISIBLE);
-        strip.animate()
+        binding.llOnCallStrip.setAlpha(0f);
+        binding.llOnCallStrip.setTranslationY(-60f);
+        binding.llOnCallStrip.setVisibility(View.VISIBLE);
+        binding.llOnCallStrip.animate()
                 .alpha(1f)
                 .translationY(0f)
                 .setDuration(260)
@@ -941,35 +934,32 @@ public class ChatPresenceController {
                 .start();
 
         // Start pulsing the green dot
-        startCallDotPulse(binding.getRoot());
+        if (binding.dotOnCallPulse != null) startCallDotPulse(binding.dotOnCallPulse);
     }
 
     private void hideOnCallStrip() {
         onCallStripVisible = false;
         stopCallDotPulse();
         ActivityChatBinding binding = delegate.getBinding();
-        if (binding == null) return;
-        android.view.View strip = binding.getRoot()
-                .findViewById(com.callx.app.chat.R.id.ll_on_call_strip);
-        if (strip == null || strip.getVisibility() != View.VISIBLE) return;
+        if (binding == null || binding.llOnCallStrip == null) return;
+        if (binding.llOnCallStrip.getVisibility() != View.VISIBLE) return;
 
-        strip.animate()
+        binding.llOnCallStrip.animate()
                 .alpha(0f)
                 .translationY(-60f)
                 .setDuration(200)
                 .setInterpolator(new AccelerateInterpolator())
                 .withEndAction(() -> {
-                    strip.setVisibility(View.GONE);
-                    strip.setAlpha(1f);
-                    strip.setTranslationY(0f);
+                    binding.llOnCallStrip.setVisibility(View.GONE);
+                    binding.llOnCallStrip.setAlpha(1f);
+                    binding.llOnCallStrip.setTranslationY(0f);
                 })
                 .start();
     }
 
     /** Slow alpha pulse on the green dot: 0.3 ↔ 1.0, 700ms per phase. */
-    private void startCallDotPulse(android.view.View root) {
+    private void startCallDotPulse(android.view.View dot) {
         if (callDotAnimRunning) return;
-        android.view.View dot = root.findViewById(com.callx.app.chat.R.id.dot_on_call_pulse);
         if (dot == null) return;
         callDotAnimRunning = true;
         dot.setAlpha(1f);
