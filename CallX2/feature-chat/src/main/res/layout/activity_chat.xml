@@ -494,8 +494,63 @@
         </LinearLayout>
 
         <!-- ══════════════════════════════════════════════════════════════
+             SCREENSHOT BANNER — Snapchat-style red pill that slides in
+             from the top when the partner takes a screenshot of this chat.
+             Shows: [avatar] "Rahul ne screenshot liya 📸"
+             Auto-hides after 3 s with a slide-up + fade-out.
+             Driven by ChatScreenshotNotifier#showScreenshotBanner.
+             ══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:id="@+id/ll_screenshot_banner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_screenshot_banner"
+            android:paddingStart="8dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="7dp"
+            android:paddingBottom="7dp"
+            android:elevation="10dp"
+            android:visibility="gone">
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_screenshot_avatar"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="#FFCCCC"/>
+
+            <!-- Camera flash icon -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="7dp"
+                android:text="📸"
+                android:textSize="13sp"
+                android:importantForAccessibility="no"/>
+
+            <TextView
+                android:id="@+id/tv_screenshot_msg"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:maxWidth="200dp"
+                android:text="ne screenshot liya"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"/>
+
+        </LinearLayout>
+
+        <!-- ══════════════════════════════════════════════════════════════
              PARTNER / MEMBERS "WATCHING" BANNER — appears when someone
-             currently has THIS chat screen open & foregrounded. Avatar(s)
+             currently has THIS chat screen open &amp; foregrounded. Avatar(s)
              zoom in 0dp → 48dp, name(s) shown below in a vibrant highlight
              strip. Does NOT touch the normal online/last-seen status line.
              Floats ON TOP of the message list (instead of its own row above

@@ -65,6 +65,7 @@ import com.callx.app.conversation.controllers.MessageEditHistoryController;
 import com.callx.app.conversation.controllers.ChatPresenceController;
 import com.callx.app.conversation.controllers.ChatPlaybackPresenceController;
 import com.callx.app.conversation.controllers.ChatScheduledSendController;
+import com.callx.app.conversation.controllers.ChatScreenshotNotifier;
 import com.callx.app.conversation.controllers.ChatSearchController;
 import com.callx.app.conversation.controllers.ChatThemeController;
 import com.callx.app.db.AppDatabase;
@@ -183,6 +184,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatThemeController    themeController;
     private ChatMediaController    mediaController;
     private ChatMessageSender      messageSender;
+    private ChatScreenshotNotifier screenshotNotifier;
 
     // ─────────────────────────────────────────────────────────────────────
     // LIFECYCLE
@@ -222,6 +224,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
         messageSender      = new ChatMessageSender(this);
+        screenshotNotifier = new ChatScreenshotNotifier(this);
 
         // ── Core setup ──
         setupToolbar();
@@ -243,6 +246,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         liveTypingController.init();
         pinController.init();
         scheduledSendController.init();
+        screenshotNotifier.init();
 
         markMessagesReadOnOpen();
         setupNetworkMonitor();
@@ -271,6 +275,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.setOurInChatScreen(true);
             presenceController.onScreenResumed();
         }
+        if (screenshotNotifier != null) screenshotNotifier.onScreenResumed();
     }
 
     @Override
@@ -289,6 +294,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // If we left mid-recording, clear the recording badge on the partner's screen.
             if (isRecording) presenceController.publishOurRecordingState(false);
         }
+        if (screenshotNotifier != null) screenshotNotifier.onScreenPaused();
         if (liveTypingController != null) liveTypingController.clearOurPreview();
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
@@ -315,6 +321,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (emojiBurstController != null) emojiBurstController.release();
         if (blockController    != null) blockController.release();
         if (scheduledSendController != null) scheduledSendController.release();
+        if (screenshotNotifier != null) screenshotNotifier.release();
     }
 
     // ─────────────────────────────────────────────────────────────────────

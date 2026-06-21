@@ -182,6 +182,17 @@ public class FirebaseUtils {
         return db().getReference("chatRecording").child(chatOrGroupId);
     }
 
+    /**
+     * Screenshot notification node — Snapchat-style.
+     * chatScreenshot/{chatIdOrGroupId}/{uid} = serverTimestamp()
+     * Written once when the user takes a screenshot; the partner's listener
+     * fires, shows the animated red banner, then the node is removed so the
+     * same screenshot never triggers a second notification on re-open.
+     */
+    public static DatabaseReference getChatScreenshotRef(String chatOrGroupId) {
+        return db().getReference("chatScreenshot").child(chatOrGroupId);
+    }
+
     // ── Reels ─────────────────────────────────────────────────────────────
 
     /** Root reels node: reels/{reelId}/ */
