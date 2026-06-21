@@ -55,6 +55,30 @@ public class ChatPresenceController {
         watchPartnerViewingMessage();
         watchMute();
         markMessagesRead();
+        setupBannerTap();
+    }
+
+    // ── Tap banner → jump to whatever message the partner is currently
+    // viewing ("scroll-to-their-position"). Falls back to a toast if we
+    // don't have a specific message yet (they just have the screen open,
+    // haven't settled on a bubble, or are on a chat with no messages). ──
+
+    private void setupBannerTap() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding.llWatchingBanner == null) return;
+        binding.llWatchingBanner.setClickable(true);
+        binding.llWatchingBanner.setFocusable(true);
+        binding.llWatchingBanner.setOnClickListener(v -> jumpToPartnerPosition());
+    }
+
+    private void jumpToPartnerPosition() {
+        if (lastPartnerViewingMessageId == null || lastPartnerViewingMessageId.isEmpty()) {
+            String name = delegate.getPartnerName();
+            delegate.showToast((name != null ? name : "Partner")
+                    + " has the chat open but isn't on a specific message yet");
+            return;
+        }
+        delegate.navigateToOriginal(lastPartnerViewingMessageId);
     }
 
     // ── Typing ────────────────────────────────────────────────────────────
@@ -258,6 +282,11 @@ public class ChatPresenceController {
     private Runnable pendingViewingWrite;
     private static final long VIEWING_DEBOUNCE_MS = 400;
     private String lastPublishedViewingId;
+    /** Partner's most recently published "currently viewing" messageId —
+     *  what the watching-banner tap jumps to. Null until they settle on
+     *  a bubble (or once they scroll away / leave, depending on the last
+     *  event received). */
+    private String lastPartnerViewingMessageId;
 
     /** Call from the Activity's RecyclerView scroll-idle callback with the
      *  messageId of the topmost (or otherwise "focused") visible message. */
@@ -312,6 +341,7 @@ public class ChatPresenceController {
         viewingListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
                 String messageId = s.getValue(String.class);
+                lastPartnerViewingMessageId = messageId;
                 java.util.Set<String> ids = messageId == null
                         ? java.util.Collections.emptySet()
                         : java.util.Collections.singleton(messageId);

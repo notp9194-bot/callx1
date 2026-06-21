@@ -56,6 +56,11 @@ public class GroupWatchingController {
         /** Adapter backing the message list — used to push per-message
          *  "currently being viewed" dots. */
         com.callx.app.conversation.MessagePagingAdapter getPagingAdapter();
+        /** Scroll-and-highlight to the given messageId ("jump to their
+         *  position"), loading it from local DB first if it's not in the
+         *  currently-paged-in adapter window. No-op / toasts internally if
+         *  the message can't be found at all. */
+        void navigateToMessage(String messageId);
     }
 
     private final Delegate delegate;
@@ -86,6 +91,10 @@ public class GroupWatchingController {
     private Runnable pendingViewingWrite;
     private static final long VIEWING_DEBOUNCE_MS = 400;
     private String lastPublishedViewingId;
+    /** uid -> messageId, raw per-member snapshot (unlike the aggregated dot
+     *  set pushed to the adapter). Lets a single watcher's avatar/row jump
+     *  to exactly what THAT person is looking at, not just "someone is". */
+    private final Map<String, String> lastViewingByUid = new java.util.HashMap<>();
 
     /** Call from the Activity's RecyclerView scroll-idle callback with the
      *  messageId of the topmost (or otherwise "focused") visible message. */
@@ -138,11 +147,12 @@ public class GroupWatchingController {
         viewingListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
                 java.util.Set<String> ids = new java.util.HashSet<>();
+                lastViewingByUid.clear();
                 for (DataSnapshot child : s.getChildren()) {
                     String uid = child.getKey();
                     if (uid == null || uid.equals(delegate.getCurrentUid())) continue;
                     String mid = child.getValue(String.class);
-                    if (mid != null) ids.add(mid);
+                    if (mid != null) { ids.add(mid); lastViewingByUid.put(uid, mid); }
                 }
                 if (delegate.getPagingAdapter() != null) {
                     delegate.getPagingAdapter().setViewingMessageIds(ids);
@@ -165,6 +175,44 @@ public class GroupWatchingController {
         binding.llWatchingBanner.setClickable(true);
         binding.llWatchingBanner.setFocusable(true);
         binding.llWatchingBanner.setOnClickListener(v -> showWatchersSheet());
+
+        // Avatars are clickable in their own right (consumes the tap before
+        // it bubbles to llWatchingBanner above), so tapping a specific face
+        // jumps straight to THAT person's current position — no need to
+        // open the sheet first. The "+N" badge still opens the sheet since
+        // it represents multiple people at once.
+        if (binding.ivWatchingAvatar != null) {
+            binding.ivWatchingAvatar.setOnClickListener(v -> jumpToWatcherAt(0));
+        }
+        if (binding.ivWatchingAvatar2 != null) {
+            binding.ivWatchingAvatar2.setOnClickListener(v -> jumpToWatcherAt(1));
+        }
+        if (binding.tvWatchingMore != null) {
+            binding.tvWatchingMore.setOnClickListener(v -> showWatchersSheet());
+        }
+    }
+
+    /** Jump to whatever message the Nth currently-shown watcher avatar
+     *  (0 = first/main avatar, 1 = second overlapping avatar) is looking
+     *  at. Falls back to a toast if that person hasn't settled on a
+     *  specific bubble yet. */
+    private void jumpToWatcherAt(int index) {
+        if (index < 0 || index >= lastWatcherUids.size()) return;
+        jumpToWatcher(lastWatcherUids.get(index));
+    }
+
+    private void jumpToWatcher(String uid) {
+        Activity activity = delegate.getActivity();
+        String messageId = lastViewingByUid.get(uid);
+        if (messageId == null || messageId.isEmpty()) {
+            if (activity == null) return;
+            String name = delegate.getMemberNames().getOrDefault(uid, "They");
+            android.widget.Toast.makeText(activity,
+                    name + " has the chat open but isn't on a specific message yet",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        delegate.navigateToMessage(messageId);
     }
 
     private void showWatchersSheet() {
@@ -195,6 +243,12 @@ public class GroupWatchingController {
             row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
             row.setPadding(0, pad / 2, 0, pad / 2);
+            row.setClickable(true);
+            row.setFocusable(true);
+            android.util.TypedValue outValue = new android.util.TypedValue();
+            activity.getTheme().resolveAttribute(
+                    android.R.attr.selectableItemBackground, outValue, true);
+            row.setForeground(activity.getDrawable(outValue.resourceId));
 
             de.hdodenhof.circleimageview.CircleImageView avatar =
                     new de.hdodenhof.circleimageview.CircleImageView(activity);
@@ -206,10 +260,23 @@ public class GroupWatchingController {
             loadAvatar(avatar, photos.get(uid));
             row.addView(avatar);
 
+            android.widget.LinearLayout textCol = new android.widget.LinearLayout(activity);
+            textCol.setOrientation(android.widget.LinearLayout.VERTICAL);
+
             android.widget.TextView name = new android.widget.TextView(activity);
             name.setText(names.getOrDefault(uid, "Member"));
             name.setTextSize(15);
-            row.addView(name);
+            textCol.addView(name);
+
+            boolean hasTarget = lastViewingByUid.get(uid) != null;
+            android.widget.TextView subtitle = new android.widget.TextView(activity);
+            subtitle.setText(hasTarget ? "Viewing a message \u00b7 tap to jump" : "Has the chat open");
+            subtitle.setTextSize(12);
+            subtitle.setAlpha(0.6f);
+            textCol.addView(subtitle);
+
+            row.addView(textCol);
+            row.setOnClickListener(v -> { sheet.dismiss(); jumpToWatcher(uid); });
 
             root.addView(row);
         }
@@ -420,6 +487,7 @@ public class GroupWatchingController {
             presenceDebounceHandler.removeCallbacks(pendingOffWrite);
             pendingOffWrite = null;
         }
+        lastViewingByUid.clear();
         clearViewingMessage();
         writePresence(false);
     }

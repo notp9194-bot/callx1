@@ -410,18 +410,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
             @Override public void onPollVote(Message m, int idx)   { castPollVote(m, idx); }
             @Override public void onPollToggleClose(Message m)    { togglePollClosed(m); }
             @Override public void onNavigateToOriginal(String messageId) {
-                if (messageId == null || messageId.isEmpty()) return;
-                for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
-                    com.callx.app.models.Message m = pagingAdapter.peek(i);
-                    if (m != null && (messageId.equals(m.id) || messageId.equals(m.messageId))) {
-                        com.callx.app.chat.ui.MessageHighlightAnimator.scrollAndHighlight(
-                            binding.rvMessages, i, null);
-                        return;
-                    }
-                }
-                android.widget.Toast.makeText(GroupChatActivity.this,
-                    "Original message not loaded — scroll up to find it",
-                    android.widget.Toast.LENGTH_SHORT).show();
+                scrollToMessageId(messageId);
             }
         });
 
@@ -1171,9 +1160,58 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     @Override public ActivityChatBinding getBinding() { return binding; }
     @Override public String getGroupId() { return groupId; }
     @Override public String getCurrentUid() { return currentUid; }
-    @Override public Map<String, String> getMemberNames() { return memberNames; }
-    @Override public Map<String, String> getMemberPhotos() { return memberPhotos; }
-    @Override public MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+    // ─────────────────────────────────────────────────────────────────────
+    // SCROLL TO MESSAGE BY ID — shared by reply "jump to original" and the
+    // watching-banner "jump to their position" feature. If the message
+    // isn't currently loaded in the paging adapter's window, falls back to
+    // a Room lookup (same approach as ChatActivity's 1:1 equivalent) to
+    // compute an approximate position and scroll there.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void scrollToMessageId(String messageId) {
+        if (messageId == null || messageId.isEmpty()) return;
+        for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
+            com.callx.app.models.Message m = pagingAdapter.peek(i);
+            if (m != null && (messageId.equals(m.id) || messageId.equals(m.messageId))) {
+                com.callx.app.chat.ui.MessageHighlightAnimator.scrollAndHighlight(
+                    binding.rvMessages, i, binding.fabBackToLatest);
+                return;
+            }
+        }
+        final String gId = groupId;
+        ioExecutor.execute(() -> {
+            if (db == null || gId == null) {
+                runOnUiThread(() -> android.widget.Toast.makeText(GroupChatActivity.this,
+                        "Message not in view — scroll up to find it", android.widget.Toast.LENGTH_SHORT).show());
+                return;
+            }
+            MessageEntity target = db.messageDao().getMessageById(messageId);
+            if (target == null || target.timestamp == null) {
+                runOnUiThread(() -> android.widget.Toast.makeText(GroupChatActivity.this,
+                        "Original message not found", android.widget.Toast.LENGTH_SHORT).show());
+                return;
+            }
+            int posFromBottom = db.messageDao().countMessagesAfterTimestamp(gId, target.timestamp);
+            int approxPos = pagingAdapter.getItemCount() - posFromBottom - 1;
+            final int safePos = Math.max(0, approxPos);
+            runOnUiThread(() -> {
+                if (binding.fabBackToLatest != null) {
+                    binding.fabBackToLatest.setVisibility(View.VISIBLE);
+                    binding.fabBackToLatest.animate().alpha(1f).setDuration(200).start();
+                }
+                binding.rvMessages.scrollToPosition(safePos);
+                binding.rvMessages.postDelayed(() -> {
+                    RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(safePos);
+                    if (vh != null) com.callx.app.chat.ui.MessageHighlightAnimator.flashHighlight(vh.itemView);
+                }, 500);
+            });
+        });
+    }
+
+    /** GroupWatchingController.Delegate — "jump to their position" entry point. */
+    @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
+
+
 
     private void setMyTyping(boolean typing) {
         if (typing == amTyping) return;
