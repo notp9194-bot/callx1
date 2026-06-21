@@ -183,6 +183,18 @@ public interface MessageDao {
     @Query("UPDATE messages SET pollClosed = :closed WHERE id = :messageId")
     void updatePollClosed(String messageId, boolean closed);
 
+    /** Reactions: overwrite the reactions JSON blob for a message — see
+     *  ReactionJsonUtil / ChatReactionController. */
+    @WorkerThread
+    @Query("UPDATE messages SET reactionsJson = :reactionsJson WHERE id = :messageId")
+    void updateReactions(String messageId, String reactionsJson);
+
+    /** Fetch just the reactions JSON blob — used to read-modify-write a
+     *  single uid's reaction without needing the whole MessageEntity. */
+    @WorkerThread
+    @Query("SELECT reactionsJson FROM messages WHERE id = :messageId")
+    String getReactionsJson(String messageId);
+
     // ─────────────────────────────────────────────────────────────
     // PRUNING / CLEANUP
     // ─────────────────────────────────────────────────────────────

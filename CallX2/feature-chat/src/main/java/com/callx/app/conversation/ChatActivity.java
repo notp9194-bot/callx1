@@ -58,6 +58,7 @@ import com.callx.app.conversation.controllers.ChatLiveTypingController;
 import com.callx.app.conversation.controllers.ChatMediaController;
 import com.callx.app.conversation.controllers.ChatMessageSender;
 import com.callx.app.conversation.controllers.ChatPinController;
+import com.callx.app.conversation.controllers.ChatReactionController;
 import com.callx.app.conversation.controllers.MessageEditHistoryController;
 import com.callx.app.conversation.controllers.ChatPresenceController;
 import com.callx.app.conversation.controllers.ChatScheduledSendController;
@@ -170,6 +171,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatEmojiBurstController emojiBurstController;
     private ChatPinController      pinController;
     private MessageEditHistoryController editHistoryController;
+    private ChatReactionController reactionController;
     private ChatScheduledSendController scheduledSendController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
@@ -206,6 +208,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         emojiBurstController = new ChatEmojiBurstController(this);
         pinController      = new ChatPinController(this);
         editHistoryController = new MessageEditHistoryController(this);
+        reactionController = new ChatReactionController(this);
         scheduledSendController = new ChatScheduledSendController(this);
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
@@ -859,7 +862,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
             @Override public void onReply(Message m)               { startReply(m); }
             @Override public void onDelete(Message m)              { confirmDeleteMessage(m); }
-            @Override public void onReact(Message m, String emoji) { sendReaction(m, emoji); }
+            @Override public void onReact(Message m, String emoji) { reactionController.toggleReaction(m, emoji); }
+            @Override public void onReactionTap(Message m)        { reactionController.showReactedUsers(m); }
             @Override public void onStar(Message m)                { toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
@@ -994,6 +998,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.edited = e.edited; m.editedAt = e.editedAt; m.deleted = e.deleted; m.forwardedFrom = e.forwardedFrom;
         m.editHistory = com.callx.app.utils.EditHistoryJsonUtil.historyFromJson(e.editHistoryJson);
         m.starred = e.starred; m.pinned = e.pinned; m.reelId = e.reelId;
+        m.reactions = com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(e.reactionsJson);
         m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
         m.pollQuestion = e.pollQuestion;
         m.pollOptions  = com.callx.app.utils.PollJsonUtil.optionsFromJson(e.pollOptionsJson);
@@ -1016,6 +1021,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.replyToMediaUrl = m.replyToMediaUrl; e.edited = m.edited; e.editedAt = m.editedAt; e.deleted = m.deleted;
         e.editHistoryJson = com.callx.app.utils.EditHistoryJsonUtil.historyToJson(m.editHistory);
         e.forwardedFrom = m.forwardedFrom; e.starred = Boolean.TRUE.equals(m.starred);
+        e.reactionsJson = com.callx.app.utils.ReactionJsonUtil.reactionsToJson(m.reactions);
         e.pinned = Boolean.TRUE.equals(m.pinned); e.reelId = m.reelId;
         e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
         e.pollQuestion    = m.pollQuestion;
@@ -1159,10 +1165,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         messagesRef.child(m.id).child("starred").setValue(nowStarred);
     }
 
-    private void sendReaction(Message m, String emoji) {
-        if (m.id == null) return;
-        messagesRef.child(m.id).child("reactions").child(currentUid).setValue(emoji);
-    }
+    // sendReaction() moved to ChatReactionController#toggleReaction — now
+    // also writes through to Room (reactionsJson) and supports un-reacting
+    // by tapping the same emoji again.
 
     private void confirmDeleteMessage(Message m) {
         boolean isMine = currentUid != null && currentUid.equals(m.senderId);

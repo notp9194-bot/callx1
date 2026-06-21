@@ -54,6 +54,11 @@ public class MessageEntity {
     public Boolean pinned;
     public Boolean isGroup;
 
+    /** Map<uid, emoji> serialized as JSON object string — see
+     *  ReactionJsonUtil / ChatReactionController. Null = no reactions yet. */
+    public String reactionsJson;
+
+
     /** Last delta sync timestamp — used for incremental sync. */
     public long syncedAt;
 

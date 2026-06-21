@@ -69,7 +69,7 @@ import net.sqlcipher.database.SupportFactory;
         StatusEntity.class,    // v17: status cache
         ScheduledMessageEntity.class  // v28: scheduled chat messages
     },
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -96,6 +96,16 @@ public abstract class AppDatabase extends RoomDatabase {
         public void migrate(@NonNull SupportSQLiteDatabase db) {
             db.execSQL("ALTER TABLE messages ADD COLUMN reelId TEXT DEFAULT NULL");
             db.execSQL("ALTER TABLE messages ADD COLUMN reelThumbUrl TEXT DEFAULT NULL");
+        }
+    };
+
+    /** v14 → v15: reactionsJson — per-message emoji reactions cache (see
+     *  ReactionJsonUtil / ChatReactionController). Mirrors the
+     *  editHistoryJson migration shape (v12→v13) above. */
+    static final Migration MIGRATION_14_15 = new Migration(14, 15) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN reactionsJson TEXT DEFAULT NULL");
         }
     };
 
@@ -340,7 +350,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt) v25(polls) v26(multiChoicePolls) v27(editHistory) v28(scheduledMessages)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt) v25(polls) v26(multiChoicePolls) v27(editHistory) v28(scheduledMessages) v29(reactions)
                 .fallbackToDestructiveMigration()
                 .build();
 

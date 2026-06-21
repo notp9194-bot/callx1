@@ -131,6 +131,9 @@ public class MessagePagingAdapter
         default void onPin(Message m) {}
         /** Called when user taps a poll option to cast/change their vote. */
         default void onPollVote(Message m, int optionIndex) {}
+        /** Called when user taps a message's existing reactions row (the small
+         *  "❤️2 👍1" chip under a bubble) to see who reacted with what. */
+        default void onReactionTap(Message m) {}
         /** Called when poll creator chooses Close/Reopen poll from the action sheet. */
         default void onPollToggleClose(Message m) {}
     }
@@ -719,8 +722,12 @@ public class MessagePagingAdapter
                 }
                 h.tvReactions.setText(sb.toString().trim());
                 h.llReactions.setVisibility(View.VISIBLE);
+                h.llReactions.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onReactionTap(m);
+                });
             } else {
                 h.llReactions.setVisibility(View.GONE);
+                h.llReactions.setOnClickListener(null);
             }
         }
 
@@ -1536,6 +1543,13 @@ public class MessagePagingAdapter
             tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 28);
             int btnPad = (int)(10 * ctx.getResources().getDisplayMetrics().density);
             tv.setPadding(btnPad, btnPad / 2, btnPad, btnPad / 2);
+            // Highlight whichever emoji the current user already reacted with —
+            // tapping it again removes the reaction (see ChatReactionController#toggleReaction).
+            boolean already = currentUid != null && m.reactions != null
+                    && emoji.equals(m.reactions.get(currentUid));
+            tv.setAlpha(already ? 1.0f : 0.7f);
+            tv.setScaleX(already ? 1.25f : 1.0f);
+            tv.setScaleY(already ? 1.25f : 1.0f);
             tv.setOnClickListener(v -> {
                 actionListener.onReact(m, emoji);
                 if (holder[0] != null) holder[0].dismiss();
