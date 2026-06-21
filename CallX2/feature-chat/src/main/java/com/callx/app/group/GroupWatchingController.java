@@ -194,7 +194,122 @@ public class GroupWatchingController {
             binding.ivWatchingAvatar2.setOnClickListener(v -> jumpToWatcherAt(1));
         }
         if (binding.tvWatchingMore != null) {
-            binding.tvWatchingMore.setOnClickListener(v -> showWatchersSheet());
+            binding.tvWatchingMore.setOnClickListener(v -> fanOutThenShowSheet());
+        }
+    }
+
+    // ── "+N" badge tap → quick fan-out flourish, then bottom sheet ─────────
+    // Purely cosmetic pre-roll: the 3 overlapping avatar views nudge apart
+    // (translate + slight rotate + scale) so the stack visibly "opens up"
+    // right before the sheet slides in, instead of the sheet just appearing
+    // out of nowhere. Views snap back to their resting (overlapped) position
+    // once the sheet is showing, so the banner looks untouched if the user
+    // dismisses the sheet and the banner stays/refreshes later.
+
+    private static final long FAN_OUT_DURATION_MS = 170;
+    private static final long FAN_OUT_SHEET_DELAY_MS = 130;
+    private boolean fanOutInProgress = false;
+
+    private void fanOutThenShowSheet() {
+        if (fanOutInProgress) return; // guard against double-tap re-trigger
+
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding.llWatchingBanner == null || lastWatcherUids.isEmpty()) {
+            showWatchersSheet();
+            return;
+        }
+
+        Activity activity = delegate.getActivity();
+        float density = activity != null ? activity.getResources().getDisplayMetrics().density : 1f;
+        float spread = 10f * density;
+
+        de.hdodenhof.circleimageview.CircleImageView a1 = binding.ivWatchingAvatar;
+        de.hdodenhof.circleimageview.CircleImageView a2 = binding.ivWatchingAvatar2;
+        android.widget.TextView badge = binding.tvWatchingMore;
+
+        boolean a2Visible = a2 != null && a2.getVisibility() == View.VISIBLE;
+        boolean badgeVisible = badge != null && badge.getVisibility() == View.VISIBLE;
+
+        fanOutInProgress = true;
+        android.view.animation.DecelerateInterpolator outInterp =
+                new android.view.animation.DecelerateInterpolator();
+
+        // First avatar drifts back-left and tilts slightly counter-clockwise.
+        if (a1 != null) {
+            a1.animate().cancel();
+            a1.animate()
+                    .translationX(-spread).translationY(-spread * 0.4f)
+                    .rotation(-8f)
+                    .setDuration(FAN_OUT_DURATION_MS)
+                    .setInterpolator(outInterp)
+                    .start();
+        }
+        // Second avatar stays roughly centered but lifts slightly — reads as
+        // the "middle" card of the fan.
+        if (a2Visible) {
+            a2.animate().cancel();
+            a2.animate()
+                    .translationY(-spread * 0.7f)
+                    .scaleX(1.05f).scaleY(1.05f)
+                    .setDuration(FAN_OUT_DURATION_MS)
+                    .setInterpolator(outInterp)
+                    .start();
+        }
+        // "+N" badge drifts forward-right and tilts clockwise — the badge
+        // itself is what got tapped, so it gets the most pronounced motion.
+        if (badgeVisible) {
+            badge.animate().cancel();
+            badge.animate()
+                    .translationX(spread * 1.3f).translationY(-spread * 0.2f)
+                    .rotation(10f)
+                    .scaleX(1.12f).scaleY(1.12f)
+                    .setDuration(FAN_OUT_DURATION_MS)
+                    .setInterpolator(outInterp)
+                    .start();
+        }
+
+        binding.llWatchingBanner.postDelayed(() -> {
+            showWatchersSheet();
+            snapFanBackToRest();
+        }, FAN_OUT_SHEET_DELAY_MS);
+    }
+
+    /** Restores the avatar stack to its normal overlapped resting position.
+     *  Called right after the sheet is launched — by the time it's visible
+     *  the user's attention is on the sheet, so this resolves invisibly
+     *  underneath it with no jarring snap-back on screen. */
+    private void snapFanBackToRest() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding == null || binding.llWatchingBanner == null) {
+            fanOutInProgress = false;
+            return;
+        }
+        android.view.animation.DecelerateInterpolator backInterp =
+                new android.view.animation.DecelerateInterpolator();
+
+        if (binding.ivWatchingAvatar != null) {
+            binding.ivWatchingAvatar.animate().cancel();
+            binding.ivWatchingAvatar.animate()
+                    .translationX(0f).translationY(0f).rotation(0f)
+                    .setDuration(FAN_OUT_DURATION_MS).setInterpolator(backInterp).start();
+        }
+        if (binding.ivWatchingAvatar2 != null) {
+            binding.ivWatchingAvatar2.animate().cancel();
+            binding.ivWatchingAvatar2.animate()
+                    .translationX(0f).translationY(0f)
+                    .scaleX(1f).scaleY(1f)
+                    .setDuration(FAN_OUT_DURATION_MS).setInterpolator(backInterp).start();
+        }
+        if (binding.tvWatchingMore != null) {
+            binding.tvWatchingMore.animate().cancel();
+            binding.tvWatchingMore.animate()
+                    .translationX(0f).translationY(0f).rotation(0f)
+                    .scaleX(1f).scaleY(1f)
+                    .setDuration(FAN_OUT_DURATION_MS).setInterpolator(backInterp)
+                    .withEndAction(() -> fanOutInProgress = false)
+                    .start();
+        } else {
+            fanOutInProgress = false;
         }
     }
 
@@ -511,6 +626,11 @@ public class GroupWatchingController {
             presenceDebounceHandler.removeCallbacks(pendingOffWrite);
             pendingOffWrite = null;
         }
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding != null && binding.llWatchingBanner != null) {
+            binding.llWatchingBanner.removeCallbacks(null); // cancels pending fan-out → sheet delay
+        }
+        fanOutInProgress = false;
         lastViewingByUid.clear();
         lastWatcherCount = 0;
         clearViewingMessage();
