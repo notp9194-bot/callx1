@@ -230,6 +230,10 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
             FirebaseUtils.getUserRef(e.getKey()).removeEventListener(e.getValue());
         presenceListeners.clear();
         if (watchingController != null) watchingController.release();
+        if (typingDotsAnimator != null) {
+            typingDotsAnimator.stop();
+            typingDotsAnimator = null;
+        }
         if (connMgr != null && netCallback != null) {
             try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
         }
@@ -1104,6 +1108,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
                     typingNames.put(uid, name);
                 }
                 refreshSubtitle();
+                refreshTypingStrip();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -1231,14 +1236,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
 
     private void refreshSubtitle() {
         if (getSupportActionBar() == null) return;
-        if (!typingNames.isEmpty()) {
-            int n = typingNames.size();
-            String sub;
-            if (n == 1) sub = typingNames.values().iterator().next() + " is typing…";
-            else        sub = n + " people are typing…";
-            getSupportActionBar().setSubtitle(sub);
-            return;
-        }
+        // Typing no longer shown in the subtitle — see ll_typing_strip
+        // (floating bottom-left pill, driven by refreshTypingStrip()).
         long now = System.currentTimeMillis();
         int online = 0;
         for (Long ls : memberLastSeen.values())
@@ -1247,6 +1246,81 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
         String sub = total + (total == 1 ? " member" : " members");
         if (online > 0) sub = online + " online, " + sub;
         getSupportActionBar().setSubtitle(sub);
+    }
+
+    // ── Typing strip (floating bottom-left, avatar + name + animated dots) ──
+    // Mirrors ChatPresenceController's 1:1 typing strip, but aggregates
+    // potentially multiple simultaneous typers from typingNames (uid -> name,
+    // populated by the existing typingListener in setupRealtimeHeader()).
+
+    private com.callx.app.chat.ui.TypingDotsAnimator typingDotsAnimator;
+
+    private void refreshTypingStrip() {
+        if (binding.llTypingStrip == null) return;
+        if (typingNames.isEmpty()) {
+            hideTypingStrip();
+            return;
+        }
+
+        int n = typingNames.size();
+        java.util.Iterator<Map.Entry<String, String>> it = typingNames.entrySet().iterator();
+        Map.Entry<String, String> first = it.next();
+        String label;
+        if (n == 1) {
+            label = first.getValue() + " typing";
+        } else if (n == 2) {
+            Map.Entry<String, String> second = it.next();
+            label = first.getValue() + ", " + second.getValue() + " typing";
+        } else {
+            label = first.getValue() + " +" + (n - 1) + " typing";
+        }
+        binding.tvTypingName.setText(label);
+
+        String photo = memberPhotos.get(first.getKey());
+        if (photo != null && !photo.isEmpty()) {
+            com.bumptech.glide.Glide.with(this)
+                    .load(photo)
+                    .placeholder(com.callx.app.chat.R.drawable.ic_person)
+                    .into(binding.ivTypingAvatar);
+        } else {
+            binding.ivTypingAvatar.setImageResource(com.callx.app.chat.R.drawable.ic_person);
+        }
+
+        if (typingDotsAnimator == null) {
+            typingDotsAnimator = new com.callx.app.chat.ui.TypingDotsAnimator(
+                    binding.dotTyping1, binding.dotTyping2, binding.dotTyping3);
+        }
+        typingDotsAnimator.start();
+
+        if (binding.llTypingStrip.getVisibility() == View.VISIBLE) return; // already showing, just refreshed label/avatar
+
+        binding.llTypingStrip.setAlpha(0f);
+        binding.llTypingStrip.setScaleX(0.85f);
+        binding.llTypingStrip.setScaleY(0.85f);
+        binding.llTypingStrip.setVisibility(View.VISIBLE);
+        binding.llTypingStrip.animate()
+                .alpha(1f).scaleX(1f).scaleY(1f)
+                .setDuration(220)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(1.8f))
+                .start();
+    }
+
+    private void hideTypingStrip() {
+        if (binding.llTypingStrip == null) return;
+        if (binding.llTypingStrip.getVisibility() != View.VISIBLE) return;
+
+        if (typingDotsAnimator != null) typingDotsAnimator.stop();
+        binding.llTypingStrip.animate()
+                .alpha(0f).scaleX(0.85f).scaleY(0.85f)
+                .setDuration(160)
+                .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .withEndAction(() -> {
+                    binding.llTypingStrip.setVisibility(View.GONE);
+                    binding.llTypingStrip.setAlpha(1f);
+                    binding.llTypingStrip.setScaleX(1f);
+                    binding.llTypingStrip.setScaleY(1f);
+                })
+                .start();
     }
 
     // ─────────────────────────────────────────────────────────────────────

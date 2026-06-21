@@ -64,23 +64,14 @@
                 android:maxLines="1"
                 android:ellipsize="end"/>
 
-            <!-- Status shown normally; typing shown when active -->
+            <!-- Online / last-seen status only — typing no longer shown here,
+                 see ll_typing_strip floating banner over the message list. -->
             <TextView
                 android:id="@+id/tv_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#C7D2FE"
                 android:textSize="10sp"
-                android:visibility="gone"/>
-
-            <TextView
-                android:id="@+id/tv_typing"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="typing…"
-                android:textColor="#C7D2FE"
-                android:textSize="10sp"
-                android:textStyle="italic"
                 android:visibility="gone"/>
         </LinearLayout>
 
@@ -544,6 +535,93 @@
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
                 android:textStyle="bold"/>
+
+        </LinearLayout>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             TYPING STRIP — floats bottom-left over the message list while
+             the partner (1:1) or any member (group) is typing. Same vibrant
+             gradient pill language as ll_watching_banner above, but anchored
+             bottom|start instead of top|center so it never collides with it,
+             and carries its own avatar + animated 3-dot indicator instead of
+             reusing the toolbar's old plain-text tv_typing line.
+
+             1:1 chats: iv_typing_avatar + tv_typing_name show the partner.
+             Group chats: same views, but tv_typing_name renders either
+             "Asha typing…" (1 typer) or "Asha, Ravi typing…" (2+, names
+             joined — GroupTypingController truncates/pluralizes for 3+).
+             ══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:id="@+id/ll_typing_strip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_watching_strip"
+            android:paddingStart="6dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:elevation="6dp"
+            android:visibility="gone">
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_typing_avatar"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1dp"
+                app:civ_border_color="#80FFFFFF"/>
+
+            <TextView
+                android:id="@+id/tv_typing_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="6dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:maxWidth="180dp"
+                android:text="typing"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"/>
+
+            <!-- Animated 3-dot indicator — each dot's alpha/translationY is
+                 pulsed on a staggered loop from TypingDotsAnimator. -->
+            <LinearLayout
+                android:id="@+id/ll_typing_dots"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <View
+                    android:id="@+id/dot_typing_1"
+                    android:layout_width="5dp"
+                    android:layout_height="5dp"
+                    android:background="@drawable/circle_primary"
+                    android:backgroundTint="#FFFFFF"/>
+
+                <View
+                    android:id="@+id/dot_typing_2"
+                    android:layout_width="5dp"
+                    android:layout_height="5dp"
+                    android:layout_marginStart="3dp"
+                    android:background="@drawable/circle_primary"
+                    android:backgroundTint="#FFFFFF"/>
+
+                <View
+                    android:id="@+id/dot_typing_3"
+                    android:layout_width="5dp"
+                    android:layout_height="5dp"
+                    android:layout_marginStart="3dp"
+                    android:background="@drawable/circle_primary"
+                    android:backgroundTint="#FFFFFF"/>
+
+            </LinearLayout>
 
         </LinearLayout>
 

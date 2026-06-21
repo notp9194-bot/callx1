@@ -83,6 +83,12 @@ public class ChatPresenceController {
     }
 
     // ── Typing ────────────────────────────────────────────────────────────
+    // Drives ll_typing_strip — a floating bottom-left pill (partner's avatar
+    // + name + animated dots) over the message list. Fully independent of
+    // tv_status now: online/last-seen always stays visible in the header,
+    // typing never hides it and never shares a view with it.
+
+    private com.callx.app.chat.ui.TypingDotsAnimator typingDotsAnimator;
 
     public void setOurTypingStatus(boolean typing) {
         FirebaseUtils.db().getReference("typing")
@@ -106,21 +112,65 @@ public class ChatPresenceController {
                         break;
                     }
                 }
-                ActivityChatBinding binding = delegate.getBinding();
-                if (binding.tvTyping == null || binding.tvStatus == null) return;
-                if (typing) {
-                    binding.tvTyping.setVisibility(View.VISIBLE);
-                    binding.tvStatus.setVisibility(View.GONE);
-                } else {
-                    binding.tvTyping.setVisibility(View.GONE);
-                    binding.tvStatus.setVisibility(
-                            binding.tvStatus.getText().length() > 0 ? View.VISIBLE : View.GONE);
-                }
+                if (typing) showTypingStrip(); else hideTypingStrip();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.db().getReference("typing").child(delegate.getChatId())
                 .addValueEventListener(typingListener);
+    }
+
+    private void showTypingStrip() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding.llTypingStrip == null) return;
+
+        binding.tvTypingName.setText(
+                (delegate.getPartnerName() != null ? delegate.getPartnerName() : "") + " typing");
+
+        String photo = delegate.getPartnerPhoto();
+        if (photo != null && !photo.isEmpty() && delegate.getActivity() != null) {
+            Glide.with(delegate.getActivity())
+                    .load(photo)
+                    .placeholder(R.drawable.ic_person)
+                    .into(binding.ivTypingAvatar);
+        }
+
+        if (typingDotsAnimator == null) {
+            typingDotsAnimator = new com.callx.app.chat.ui.TypingDotsAnimator(
+                    binding.dotTyping1, binding.dotTyping2, binding.dotTyping3);
+        }
+        typingDotsAnimator.start();
+
+        if (binding.llTypingStrip.getVisibility() == View.VISIBLE) return; // already showing
+
+        binding.llTypingStrip.setAlpha(0f);
+        binding.llTypingStrip.setScaleX(0.85f);
+        binding.llTypingStrip.setScaleY(0.85f);
+        binding.llTypingStrip.setVisibility(View.VISIBLE);
+        binding.llTypingStrip.animate()
+                .alpha(1f).scaleX(1f).scaleY(1f)
+                .setDuration(220)
+                .setInterpolator(new OvershootInterpolator(1.8f))
+                .start();
+    }
+
+    private void hideTypingStrip() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding.llTypingStrip == null) return;
+        if (binding.llTypingStrip.getVisibility() != View.VISIBLE) return;
+
+        if (typingDotsAnimator != null) typingDotsAnimator.stop();
+        binding.llTypingStrip.animate()
+                .alpha(0f).scaleX(0.85f).scaleY(0.85f)
+                .setDuration(160)
+                .setInterpolator(new AccelerateInterpolator())
+                .withEndAction(() -> {
+                    binding.llTypingStrip.setVisibility(View.GONE);
+                    binding.llTypingStrip.setAlpha(1f);
+                    binding.llTypingStrip.setScaleX(1f);
+                    binding.llTypingStrip.setScaleY(1f);
+                })
+                .start();
     }
 
     // ── Online / last-seen status ─────────────────────────────────────────
@@ -157,10 +207,7 @@ public class ChatPresenceController {
                 }
 
                 binding.tvStatus.setText(statusText);
-                boolean typingVisible = binding.tvTyping != null
-                        && binding.tvTyping.getVisibility() == View.VISIBLE;
-                binding.tvStatus.setVisibility(
-                        (!typingVisible && statusText.length() > 0) ? View.VISIBLE : View.GONE);
+                binding.tvStatus.setVisibility(statusText.length() > 0 ? View.VISIBLE : View.GONE);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -186,7 +233,8 @@ public class ChatPresenceController {
 
     // ── In-chat-screen presence ("watching banner") ───────────────────────
     // Tracks whether the partner currently has THIS chat screen open & in
-    // foreground. Purely additive — never touches tv_status / tv_typing.
+    // foreground. Purely additive — never touches tv_status or the
+    // separate ll_typing_strip.
 
     private final android.os.Handler presenceDebounceHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
@@ -525,6 +573,10 @@ public class ChatPresenceController {
             FirebaseUtils.getChatViewingRef(delegate.getChatId())
                     .child(delegate.getPartnerUid())
                     .removeEventListener(viewingListener);
+        }
+        if (typingDotsAnimator != null) {
+            typingDotsAnimator.stop();
+            typingDotsAnimator = null;
         }
         cancelJustLeftWindow();
         clearOurTypingStatus();
