@@ -96,6 +96,12 @@ public class MessagePagingAdapter
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
     private final boolean isGroup;
+    /** Set by the Activity right after construction (setChatId). Threaded
+     *  through to MediaViewerActivity (video) so it can publish playback
+     *  presence on chatPlayback/{chatId}/{uid} — audio playback presence
+     *  doesn't need this since it goes through ActionListener instead,
+     *  but video opens a separate full-screen Activity. */
+    private String chatId;
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private final SimpleDateFormat dateLabelFmt =
@@ -136,6 +142,11 @@ public class MessagePagingAdapter
         default void onReactionTap(Message m) {}
         /** Called when poll creator chooses Close/Reopen poll from the action sheet. */
         default void onPollToggleClose(Message m) {}
+        /** Called whenever OUR OWN audio/video playback for this message
+         *  starts or stops (play, pause, finish, error, or switching to a
+         *  different bubble) — lets ChatPlaybackPresenceController publish
+         *  a real-time "listening…/watching…" badge to the partner. */
+        default void onPlaybackStateChanged(Message m, boolean playing) {}
     }
 
     // ── Multi-select interface ────────────────────────────────────
@@ -195,10 +206,38 @@ public class MessagePagingAdapter
             if (id != null && changed.contains(id)) notifyItemChanged(i);
         }
     }
+
+    // ── "Someone is currently playing this voice note / video" badge ───────
+    // Sibling of currentlyViewedMessageIds, but for actual audio/video
+    // PLAYBACK rather than scroll position. Fed by ChatPlaybackPresenceController
+    // listening on chatPlayback/{chatOrGroupId}/{uid} = messageId | null.
+    private java.util.Set<String> currentlyPlayingMessageIds = java.util.Collections.emptySet();
+
+    /** Replaces the set of "being played right now" message ids and
+     *  refreshes only the rows whose badge state actually changed. */
+    public void setPlayingMessageIds(java.util.Set<String> newIds) {
+        if (newIds == null) newIds = java.util.Collections.emptySet();
+        java.util.Set<String> old = currentlyPlayingMessageIds;
+        if (old.equals(newIds)) return;
+        java.util.Set<String> changed = new java.util.HashSet<>(old);
+        changed.addAll(newIds);
+        currentlyPlayingMessageIds = newIds;
+        for (int i = 0; i < getItemCount(); i++) {
+            Message m = getItem(i);
+            if (m == null) continue;
+            String id = m.messageId != null ? m.messageId : m.id;
+            if (id != null && changed.contains(id)) notifyItemChanged(i);
+        }
+    }
     private MultiSelectListener multiSelectListener;
 
     public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
     public ActionListener getActionListener() { return actionListener; }
+
+    /** Called once by the Activity right after construction — threads chatId
+     *  through to the video tap-to-view Intent so MediaViewerActivity can
+     *  publish playback presence (see class-level field doc above). */
+    public void setChatId(String chatId) { this.chatId = chatId; }
 
     public void enterMultiSelectMode(Message firstMessage) {
         multiSelectMode = true;
@@ -599,6 +638,21 @@ public class MessagePagingAdapter
             h.viewSeenDot.setVisibility(viewing ? View.VISIBLE : View.GONE);
         }
 
+        // ── "Someone is currently playing this voice note / video" badge ──
+        // Instagram-DM-style live indicator — independent of the dot above
+        // (that one means "scrolled into view", this one means "actually
+        // pressed play right now"). Audio/video only; harmless no-op for
+        // text/image/poll bubbles since the badge just stays hidden.
+        if (h.tvListeningBadge != null) {
+            String mid = m.messageId != null ? m.messageId : m.id;
+            boolean playing = mid != null && currentlyPlayingMessageIds.contains(mid);
+            if (playing) {
+                boolean isVideoMsg = "video".equals(m.type);
+                h.tvListeningBadge.setText(isVideoMsg ? "▶ watching…" : "🎧 listening…");
+            }
+            h.tvListeningBadge.setVisibility(playing ? View.VISIBLE : View.GONE);
+        }
+
         // ── Date separator chip ───────────────────────────────────────────
         if (h.tvDateHeader != null && m.timestamp != null && m.timestamp > 0) {
             boolean showHeader;
@@ -823,9 +877,10 @@ public class MessagePagingAdapter
                     });
                 }
                 break;
-            case "video":
+            case "video": {
                 // POLISH: Use fl_video + iv_video_thumb (thumbnail + play overlay)
                 // Prefer thumbnailUrl (Cloudinary thumb) over raw video URL for preview
+                final String vMid = m.messageId != null ? m.messageId : m.id;
                 if (h.flVideo != null && h.ivVideoThumb != null) {
                     h.flVideo.setVisibility(View.VISIBLE);
                     if (h.ivImage != null) h.ivImage.setVisibility(View.GONE);
@@ -851,6 +906,11 @@ public class MessagePagingAdapter
                                 "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url", vUrl);
                         i.putExtra("type", "video");
+                        // Lets MediaViewerActivity publish playback presence
+                        // (chatPlayback/{chatId}/{uid}=messageId) while the
+                        // video is actually playing — null-safe extras.
+                        i.putExtra("chatId", chatId);
+                        i.putExtra("messageId", vMid);
                         ctx.startActivity(i);
                     });
                 } else if (h.ivImage != null) {
@@ -868,10 +928,13 @@ public class MessagePagingAdapter
                                 "com.callx.app.activities.MediaViewerActivity");
                         i.putExtra("url", vUrl);
                         i.putExtra("type", "video");
+                        i.putExtra("chatId", chatId);
+                        i.putExtra("messageId", vMid);
                         ctx.startActivity(i);
                     });
                 }
                 break;
+            }
             case "audio":
                 if (h.llAudio != null && h.btnPlayPause != null) {
                     h.llAudio.setVisibility(View.VISIBLE);
@@ -1282,7 +1345,14 @@ public class MessagePagingAdapter
         if (playingPos == position && player != null && player.isPlaying()) {
             player.pause();
             if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
+            notifyPlaybackChanged(getItem(position), false);
             return;
+        }
+        if (playingPos != -1 && playingPos != position) {
+            // Switching to a different bubble mid-playback — tell the
+            // partner we stopped listening to the OLD one before the new
+            // one's "started playing" callback fires.
+            notifyPlaybackChanged(getItem(playingPos), false);
         }
         if (player != null) {
             try { player.stop(); player.release(); } catch (Exception ignored) {}
@@ -1351,6 +1421,7 @@ public class MessagePagingAdapter
             player.setOnPreparedListener(mp -> {
                 mp.start();
                 if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_pause);
+                notifyPlaybackChanged(getItem(position), true);
                 // FIX: SeekBar live progress update — runs every 250ms while playing
                 if (h.seekAudio != null) {
                     h.seekAudio.setMax(mp.getDuration());
@@ -1382,6 +1453,7 @@ public class MessagePagingAdapter
                 }
             });
             player.setOnCompletionListener(mp -> {
+                notifyPlaybackChanged(getItem(position), false);
                 playingPos = -1;
                 seekHandler.removeCallbacks(seekUpdater);
                 if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
@@ -1391,6 +1463,7 @@ public class MessagePagingAdapter
             });
             player.setOnErrorListener((mp, what, extra) -> {
                 android.util.Log.e("AudioPlay", "Error: " + what + " extra: " + extra + " path: " + path);
+                notifyPlaybackChanged(getItem(position), false);
                 playingPos = -1;
                 if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
                 return true;
@@ -1399,6 +1472,13 @@ public class MessagePagingAdapter
             android.util.Log.e("AudioPlay", "playAudioFromPath error: " + e.getMessage() + " path: " + path);
             if (player != null) { try { player.release(); } catch (Exception ignored) {} player = null; }
         }
+    }
+
+    /** Funnels a local audio play/pause/finish/error event out through
+     *  ActionListener#onPlaybackStateChanged so ChatPlaybackPresenceController
+     *  can publish (or clear) the chatPlayback/{chatId}/{uid} node. */
+    private void notifyPlaybackChanged(Message m, boolean playing) {
+        if (actionListener != null && m != null) actionListener.onPlaybackStateChanged(m, playing);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -1785,6 +1865,9 @@ public class MessagePagingAdapter
         ImageView    ivPollIcon;
         // "Currently viewing this message" live dot (per-message granularity)
         View         viewSeenDot;
+        // "Currently playing this voice note / video" live badge (sibling
+        // of viewSeenDot above, but for playback instead of scroll position)
+        TextView     tvListeningBadge;
 
         VH(@NonNull View v) {
             super(v);
@@ -1830,6 +1913,7 @@ public class MessagePagingAdapter
             tvPollSubtitle    = v.findViewById(R.id.tv_poll_subtitle);
             ivPollIcon        = v.findViewById(R.id.iv_poll_icon);
             viewSeenDot       = v.findViewById(R.id.view_seen_dot);
+            tvListeningBadge  = v.findViewById(R.id.tv_listening_badge);
         }
     }
 }

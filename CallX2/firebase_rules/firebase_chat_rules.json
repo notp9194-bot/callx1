@@ -239,6 +239,16 @@
         }
       }
     },
+    "chatPlayback": {
+      "_comment": "ChatPlaybackPresenceController — chatPlayback/{chatId}/{uid} = messageId of the voice note/video that user currently has playing, removed the instant playback stops. Powers the per-bubble 'listening…/watching…' badge.",
+      "$chatId": {
+        ".read": "auth != null && $chatId.contains(auth.uid)",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && $chatId.contains(auth.uid)",
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        }
+      }
+    },
     "scheduledMessages": {
       "_comment": "ChatScheduledSendController — queued messages waiting for ChatScheduledMessageWorker to fire. Only the sender can read/write/cancel their own queued entries; the recipient never sees this node until the worker publishes into messages/{chatId}.",
       "$chatId": {

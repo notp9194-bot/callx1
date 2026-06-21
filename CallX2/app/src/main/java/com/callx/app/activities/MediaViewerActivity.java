@@ -12,13 +12,16 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.github.chrisbanes.photoview.PhotoView;
 import com.callx.app.databinding.ActivityMediaViewerBinding;
+import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MediaCache;
+import com.google.firebase.database.DatabaseReference;
 
 import java.io.File;
 
@@ -31,6 +34,11 @@ import java.io.File;
  *  • Swipe down gesture → dismiss (via PhotoView scale + back)
  *  • Video with ExoPlayer (cache-first)
  *  • Share button in top bar
+ *  • Video playback presence — while a video opened FROM a chat is actually
+ *    playing, publishes chatPlayback/{chatId}/{uid}=messageId (same node
+ *    ChatPlaybackPresenceController watches) so the partner's chat list
+ *    shows a live "▶ watching…" badge on that bubble. No-op if this viewer
+ *    was opened without chatId/messageId extras (e.g. from a non-chat caller).
  */
 public class MediaViewerActivity extends AppCompatActivity {
 
@@ -38,6 +46,12 @@ public class MediaViewerActivity extends AppCompatActivity {
     private ExoPlayer player;
     private boolean uiVisible = true;
     private String sharedUrl;
+
+    // ── Video playback presence (see class doc above) ───────────────────
+    private String playbackChatId;
+    private String playbackMessageId;
+    private DatabaseReference playbackRef;
+    private boolean playbackPublished = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,6 +70,12 @@ public class MediaViewerActivity extends AppCompatActivity {
         String type = getIntent().getStringExtra("type");
         sharedUrl   = url;
         if (url == null) { finish(); return; }
+
+        // Optional — only present when opened from a chat bubble. Both
+        // null is the normal/expected case for other callers (status
+        // viewer, all-media grid, etc.) and simply disables presence.
+        playbackChatId    = getIntent().getStringExtra("chatId");
+        playbackMessageId = getIntent().getStringExtra("messageId");
 
         // Close button
         binding.btnClose.setOnClickListener(v -> finish());
@@ -166,6 +186,40 @@ public class MediaViewerActivity extends AppCompatActivity {
         player.setMediaItem(MediaItem.fromUri(uri));
         player.prepare();
         player.setPlayWhenReady(true);
+
+        // Mirror actual play/pause state into chatPlayback — onIsPlayingChanged
+        // fires for user pause/resume AND for buffering stalls, which is
+        // exactly the granularity we want for a "watching…" badge.
+        if (playbackChatId != null && messageIdPresent()) {
+            player.addListener(new Player.Listener() {
+                @Override public void onIsPlayingChanged(boolean isPlaying) {
+                    publishPlaybackPresence(isPlaying);
+                }
+            });
+        }
+    }
+
+    private boolean messageIdPresent() {
+        return playbackMessageId != null && !playbackMessageId.isEmpty();
+    }
+
+    private void publishPlaybackPresence(boolean playing) {
+        if (playbackChatId == null || !messageIdPresent()) return;
+        String uid = FirebaseUtils.getCurrentUid();
+        if (uid == null || uid.isEmpty()) return;
+        if (playbackRef == null) {
+            playbackRef = FirebaseUtils.getChatPlaybackRef(playbackChatId).child(uid);
+        }
+        if (playing == playbackPublished) return;
+        playbackPublished = playing;
+        if (playing) {
+            playbackRef.setValue(playbackMessageId);
+            // Safety net: if the app dies mid-playback, Firebase clears it for us.
+            playbackRef.onDisconnect().removeValue();
+        } else {
+            playbackRef.removeValue();
+            playbackRef.onDisconnect().cancel();
+        }
     }
 
     // ── Share ─────────────────────────────────────────────────────
@@ -192,6 +246,9 @@ public class MediaViewerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         if (player != null) { player.release(); player = null; }
+        // Viewer is closing — clear the "watching…" badge immediately rather
+        // than waiting on onDisconnect (that's only the crash/kill safety net).
+        publishPlaybackPresence(false);
         super.onDestroy();
     }
 }

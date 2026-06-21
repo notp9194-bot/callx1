@@ -63,6 +63,7 @@ import com.callx.app.conversation.controllers.ChatStarredController;
 import com.callx.app.conversation.controllers.ChatReactionController;
 import com.callx.app.conversation.controllers.MessageEditHistoryController;
 import com.callx.app.conversation.controllers.ChatPresenceController;
+import com.callx.app.conversation.controllers.ChatPlaybackPresenceController;
 import com.callx.app.conversation.controllers.ChatScheduledSendController;
 import com.callx.app.conversation.controllers.ChatSearchController;
 import com.callx.app.conversation.controllers.ChatThemeController;
@@ -94,6 +95,7 @@ import java.util.concurrent.Executors;
  * All heavy logic is delegated to controller classes:
  *   • ChatBlockController    — block / perma-block / unblock-joy / special-request
  *   • ChatPresenceController — typing, online-status, in-chat-screen presence, mute, mark-read
+ *   • ChatPlaybackPresenceController — "listening…/watching…" badge while partner plays a voice note/video
  *   • ChatPinController      — pin / unpin
  *   • MessageEditHistoryController — edit message text + view prior versions
  *   • ChatScheduledSendController — schedule a message to auto-send later (WorkManager)
@@ -168,6 +170,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Controllers ────────────────────────────────────────────────────────
     private ChatBlockController    blockController;
     private ChatPresenceController presenceController;
+    private ChatPlaybackPresenceController playbackPresenceController;
     private ChatLiveTypingController liveTypingController;
     private ChatEmojiBurstController emojiBurstController;
     private ChatPinController      pinController;
@@ -207,6 +210,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // ── Create all remaining controllers ──
         blockController    = new ChatBlockController(this);
         presenceController = new ChatPresenceController(this);
+        playbackPresenceController = new ChatPlaybackPresenceController(this);
         liveTypingController = new ChatLiveTypingController(this);
         emojiBurstController = new ChatEmojiBurstController(this);
         pinController      = new ChatPinController(this);
@@ -235,6 +239,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         // ── Controller init (Firebase listeners) ──
         presenceController.init();
+        playbackPresenceController.init();
         liveTypingController.init();
         pinController.init();
         scheduledSendController.init();
@@ -303,6 +308,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (replyController != null) replyController.release();
 
         if (presenceController != null) presenceController.release();
+        if (playbackPresenceController != null) playbackPresenceController.release();
         if (liveTypingController != null) liveTypingController.destroy();
         if (emojiBurstController != null) emojiBurstController.release();
         if (blockController    != null) blockController.release();
@@ -767,6 +773,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void setupPagingRecyclerView() {
         pagingAdapter = new MessagePagingAdapter(currentUid, false);
+        pagingAdapter.setChatId(chatId);
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
             @Override public void onReply(Message m)               { startReply(m); }
             @Override public void onDelete(Message m)              { confirmDeleteMessage(m); }
@@ -786,6 +793,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onPin(Message m)                 { pinController.pinMessage(m); }
             @Override public void onPollVote(Message m, int idx)   { pollController.castVote(m, idx); }
             @Override public void onPollToggleClose(Message m)    { pollController.toggleClosed(m); }
+            @Override public void onPlaybackStateChanged(Message m, boolean playing) {
+                if (playbackPresenceController != null && m != null) {
+                    String mid = m.messageId != null ? m.messageId : m.id;
+                    playbackPresenceController.publishPlaybackState(mid, playing);
+                }
+            }
         });
 
         pagingAdapter.setMultiSelectListener(count -> {

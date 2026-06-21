@@ -157,6 +157,20 @@ public class FirebaseUtils {
         return db().getReference("chatTypingReply").child(chatOrGroupId);
     }
 
+    /**
+     * Per-message "currently playing" node — sibling of chatViewing above,
+     * but for audio/video playback instead of scroll position:
+     * chatPlayback/{chatIdOrGroupId}/{uid} = messageId of whichever voice
+     * note / video that user currently has playing (removed the instant
+     * playback pauses, finishes, errors out, or they leave the screen).
+     * Lets a single bubble show a "listening…" / "watching…" badge exactly
+     * while the other person is playing THAT message — same shared-node
+     * trick as chatPresence/chatViewing, safe for both 1:1 and group chats.
+     */
+    public static DatabaseReference getChatPlaybackRef(String chatOrGroupId) {
+        return db().getReference("chatPlayback").child(chatOrGroupId);
+    }
+
     // ── Reels ─────────────────────────────────────────────────────────────
 
     /** Root reels node: reels/{reelId}/ */
