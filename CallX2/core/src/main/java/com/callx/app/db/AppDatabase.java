@@ -12,12 +12,14 @@ import com.callx.app.db.dao.CallLogDao;
 import com.callx.app.db.dao.ChatDao;
 import com.callx.app.db.dao.GroupDao;
 import com.callx.app.db.dao.MessageDao;
+import com.callx.app.db.dao.ScheduledMessageDao;
 import com.callx.app.db.dao.StatusDao;
 import com.callx.app.db.dao.UserDao;
 import com.callx.app.db.entity.CallLogEntity;
 import com.callx.app.db.entity.ChatEntity;
 import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.db.entity.MessageEntity;
+import com.callx.app.db.entity.ScheduledMessageEntity;
 import com.callx.app.db.entity.StatusEntity;
 import com.callx.app.db.entity.UserEntity;
 
@@ -64,9 +66,10 @@ import net.sqlcipher.database.SupportFactory;
         ChatEntity.class,
         CallLogEntity.class,
         GroupEntity.class,
-        StatusEntity.class     // v17: status cache
+        StatusEntity.class,    // v17: status cache
+        ScheduledMessageEntity.class  // v28: scheduled chat messages
     },
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -75,12 +78,13 @@ public abstract class AppDatabase extends RoomDatabase {
     private static final String DB_NAME = "callx_cache.db";
     private static volatile AppDatabase sInstance;
 
-    public abstract MessageDao messageDao();
-    public abstract UserDao    userDao();
-    public abstract ChatDao    chatDao();
-    public abstract CallLogDao callLogDao();
-    public abstract GroupDao   groupDao();
-    public abstract StatusDao  statusDao();    // v17
+    public abstract MessageDao           messageDao();
+    public abstract UserDao              userDao();
+    public abstract ChatDao              chatDao();
+    public abstract CallLogDao           callLogDao();
+    public abstract GroupDao             groupDao();
+    public abstract StatusDao            statusDao();    // v17
+    public abstract ScheduledMessageDao  scheduledMessageDao();  // v28
 
     // ──────────────────────────────────────────────────────────────
     // MIGRATIONS
@@ -92,6 +96,34 @@ public abstract class AppDatabase extends RoomDatabase {
         public void migrate(@NonNull SupportSQLiteDatabase db) {
             db.execSQL("ALTER TABLE messages ADD COLUMN reelId TEXT DEFAULT NULL");
             db.execSQL("ALTER TABLE messages ADD COLUMN reelThumbUrl TEXT DEFAULT NULL");
+        }
+    };
+
+    /** v13 → v14: scheduled_messages table — local cache of pending
+     *  scheduled chat messages (see ChatScheduledSendController /
+     *  ChatScheduledMessageWorker). Mirrors the statuses-table migration
+     *  shape (v2→v3) above. */
+    static final Migration MIGRATION_13_14 = new Migration(13, 14) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `scheduled_messages` (" +
+                "`id` TEXT NOT NULL, " +
+                "`chatId` TEXT, " +
+                "`senderId` TEXT, " +
+                "`senderName` TEXT, " +
+                "`partnerUid` TEXT, " +
+                "`text` TEXT, " +
+                "`type` TEXT, " +
+                "`fontStyle` INTEGER NOT NULL DEFAULT 0, " +
+                "`sendAt` INTEGER NOT NULL DEFAULT 0, " +
+                "`createdAt` INTEGER NOT NULL DEFAULT 0, " +
+                "PRIMARY KEY(`id`))"
+            );
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_scheduled_messages_chatId_sendAt` " +
+                "ON `scheduled_messages` (`chatId`, `sendAt`)"
+            );
         }
     };
 
@@ -308,7 +340,7 @@ public abstract class AppDatabase extends RoomDatabase {
 
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt) v25(polls) v26(multiChoicePolls) v27(editHistory)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt) v25(polls) v26(multiChoicePolls) v27(editHistory) v28(scheduledMessages)
                 .fallbackToDestructiveMigration()
                 .build();
 

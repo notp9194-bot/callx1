@@ -27,6 +27,16 @@ public class FirebaseUtils {
         return db().getReference("users").child(uid);
     }
 
+    /**
+     * Scheduled chat messages queue: scheduledMessages/{chatOrGroupId}/{scheduleId}/
+     * Stores pending scheduled message metadata (text, sendAt, senderId, etc).
+     * Never mixed into the live messages/{chatId} node — ChatScheduledMessageWorker
+     * moves an entry here into the real chat thread once it fires.
+     */
+    public static DatabaseReference getScheduledMessagesRef(String chatOrGroupId) {
+        return db().getReference("scheduledMessages").child(chatOrGroupId);
+    }
+
     public static DatabaseReference getMessagesRef(String chatId) {
         return db().getReference("messages").child(chatId);
     }

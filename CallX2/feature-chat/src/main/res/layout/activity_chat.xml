@@ -386,6 +386,49 @@
             android:contentDescription="Unpin"/>
     </LinearLayout>
 
+    <!-- Scheduled messages banner — shows count of pending scheduled sends -->
+    <LinearLayout
+        android:id="@+id/ll_scheduled_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@color/surface_card"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:gravity="center_vertical"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⏱ Scheduled"
+                android:textColor="#1565C0"
+                android:textSize="11sp"
+                android:textStyle="bold"/>
+            <TextView
+                android:id="@+id/tv_scheduled_preview"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#555555"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_timer"
+            app:tint="#1565C0"/>
+    </LinearLayout>
+
     <!-- FrameLayout wraps shimmer + RecyclerView + FAB "back to latest" -->
     <FrameLayout
         android:layout_width="match_parent"

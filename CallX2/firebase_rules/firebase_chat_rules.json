@@ -238,6 +238,16 @@
           ".validate": "newData.isString() && newData.val().length <= 1000"
         }
       }
+    },
+    "scheduledMessages": {
+      "_comment": "ChatScheduledSendController — queued messages waiting for ChatScheduledMessageWorker to fire. Only the sender can read/write/cancel their own queued entries; the recipient never sees this node until the worker publishes into messages/{chatId}.",
+      "$chatId": {
+        ".read": "auth != null && $chatId.contains(auth.uid)",
+        "$scheduleId": {
+          ".write": "auth != null && $chatId.contains(auth.uid) && (!data.exists() || data.child('senderId').val() === auth.uid) && (!newData.exists() || newData.child('senderId').val() === auth.uid)",
+          ".validate": "!newData.exists() || (newData.hasChildren(['senderId','chatId','sendAt']) && newData.child('sendAt').val() > now)"
+        }
+      }
     }
   }
 }

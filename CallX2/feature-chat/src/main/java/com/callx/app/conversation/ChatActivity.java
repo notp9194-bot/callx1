@@ -60,6 +60,7 @@ import com.callx.app.conversation.controllers.ChatMessageSender;
 import com.callx.app.conversation.controllers.ChatPinController;
 import com.callx.app.conversation.controllers.MessageEditHistoryController;
 import com.callx.app.conversation.controllers.ChatPresenceController;
+import com.callx.app.conversation.controllers.ChatScheduledSendController;
 import com.callx.app.conversation.controllers.ChatSearchController;
 import com.callx.app.conversation.controllers.ChatThemeController;
 import com.callx.app.db.AppDatabase;
@@ -93,6 +94,7 @@ import java.util.concurrent.Executors;
  *   • ChatPresenceController — typing, online-status, in-chat-screen presence, mute, mark-read
  *   • ChatPinController      — pin / unpin
  *   • MessageEditHistoryController — edit message text + view prior versions
+ *   • ChatScheduledSendController — schedule a message to auto-send later (WorkManager)
  *   • ChatSearchController   — in-chat search
  *   • ChatThemeController    — theme, wallpaper, customization, privacy dialogs
  *   • ChatMediaController    — media pickers, upload, camera, GIF, voice
@@ -168,6 +170,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatEmojiBurstController emojiBurstController;
     private ChatPinController      pinController;
     private MessageEditHistoryController editHistoryController;
+    private ChatScheduledSendController scheduledSendController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
     private ChatMediaController    mediaController;
@@ -203,6 +206,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         emojiBurstController = new ChatEmojiBurstController(this);
         pinController      = new ChatPinController(this);
         editHistoryController = new MessageEditHistoryController(this);
+        scheduledSendController = new ChatScheduledSendController(this);
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
         messageSender      = new ChatMessageSender(this);
@@ -225,6 +229,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         presenceController.init();
         liveTypingController.init();
         pinController.init();
+        scheduledSendController.init();
 
         markMessagesReadOnOpen();
         setupNetworkMonitor();
@@ -293,6 +298,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (liveTypingController != null) liveTypingController.destroy();
         if (emojiBurstController != null) emojiBurstController.release();
         if (blockController    != null) blockController.release();
+        if (scheduledSendController != null) scheduledSendController.release();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1057,6 +1063,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
 
         binding.btnSend.setOnClickListener(v -> sendTextMessage());
+        binding.btnSend.setOnLongClickListener(v -> {
+            v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            String text = binding.etMessage.getText().toString().trim();
+            scheduledSendController.showSchedulePicker(text, () -> {
+                binding.etMessage.setText("");
+                if (presenceController != null) presenceController.clearOurTypingStatus();
+                if (liveTypingController != null) liveTypingController.clearOurPreview();
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
+                });
+            });
+            return true;
+        });
         binding.btnMic.setOnClickListener(v -> mediaController.toggleRecording());
         binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
