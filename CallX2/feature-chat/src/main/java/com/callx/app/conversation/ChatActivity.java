@@ -53,6 +53,7 @@ import com.callx.app.chat.ui.GifAwareEditText;
 import com.callx.app.chat.ui.MessageHighlightAnimator;
 import com.callx.app.conversation.controllers.ChatActivityDelegate;
 import com.callx.app.conversation.controllers.ChatBlockController;
+import com.callx.app.conversation.controllers.ChatEmojiBurstController;
 import com.callx.app.conversation.controllers.ChatLiveTypingController;
 import com.callx.app.conversation.controllers.ChatMediaController;
 import com.callx.app.conversation.controllers.ChatMessageSender;
@@ -162,6 +163,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatBlockController    blockController;
     private ChatPresenceController presenceController;
     private ChatLiveTypingController liveTypingController;
+    private ChatEmojiBurstController emojiBurstController;
     private ChatPinController      pinController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
@@ -195,6 +197,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         blockController    = new ChatBlockController(this);
         presenceController = new ChatPresenceController(this);
         liveTypingController = new ChatLiveTypingController(this);
+        emojiBurstController = new ChatEmojiBurstController(this);
         pinController      = new ChatPinController(this);
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
@@ -284,6 +287,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         if (presenceController != null) presenceController.release();
         if (liveTypingController != null) liveTypingController.destroy();
+        if (emojiBurstController != null) emojiBurstController.release();
         if (blockController    != null) blockController.release();
     }
 
@@ -937,6 +941,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 m.id = snapshot.getKey();
                 saveToRoom(m, false);
                 presenceController.markRead(m);
+                if (emojiBurstController != null) emojiBurstController.onMessageReceived(m);
             }
             @Override public void onChildChanged(DataSnapshot snapshot, String prev) {
                 Message m = snapshot.getValue(Message.class);

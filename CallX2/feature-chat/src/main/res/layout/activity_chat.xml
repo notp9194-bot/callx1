@@ -671,6 +671,26 @@
 
         </LinearLayout>
 
+        <!-- ══════════════════════════════════════════════════════════════
+             EMOJI BURST OVERLAY — when the partner sends an emoji-only
+             message, it pops up HUGE in the center, overlapping the chat
+             area, with a scale+fade animation, then auto-vanishes after a
+             short delay. Driven by ChatEmojiBurstController, which also
+             enforces a 4-second cooldown so the partner can't spam it.
+             Centered + ignores touches so it never blocks the chat list. ─ -->
+        <TextView
+            android:id="@+id/tv_emoji_burst"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:textSize="96sp"
+            android:gravity="center"
+            android:clickable="false"
+            android:focusable="false"
+            android:elevation="20dp"
+            android:visibility="gone"
+            android:alpha="0"/>
+
         <!-- "Back to latest" FAB — shown when navigating to original message -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_back_to_latest"
