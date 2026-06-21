@@ -91,6 +91,14 @@ public class ChatPresenceController {
     // typing never hides it and never shares a view with it.
 
     private com.callx.app.chat.ui.TypingDotsAnimator typingDotsAnimator;
+    /** Last known "is the partner typing" state from Firebase, independent of
+     *  whether the strip/animator is currently running — lets onResume()
+     *  know whether to restart the dots loop without re-querying Firebase. */
+    private boolean lastPartnerTypingState = false;
+    /** True while this screen is paused/backgrounded — the dots loop is kept
+     *  stopped during this window even if lastPartnerTypingState is true, so
+     *  it never burns battery animating a view nobody can see. */
+    private boolean screenPaused = false;
 
     /** Last value we actually wrote to Firebase for OUR typing/{chatId}/{uid}
      *  node. ChatActivity's TextWatcher calls setOurTypingStatus(true) on
@@ -133,12 +141,40 @@ public class ChatPresenceController {
                         break;
                     }
                 }
+                lastPartnerTypingState = typing;
                 if (typing) showTypingStrip(); else hideTypingStrip();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.db().getReference("typing").child(delegate.getChatId())
                 .addValueEventListener(typingListener);
+    }
+
+    /** Call from the Activity's onPause(). Stops the dots loop (the strip
+     *  itself stays visible/laid out — only the bouncing animation halts) so
+     *  it isn't burning frames while the screen is invisible. We deliberately
+     *  do NOT touch the underlying Firebase listener or lastPartnerTypingState
+     *  here — that keeps tracking in the background exactly like the watching
+     *  banner does, so the strip is correctly shown/hidden the instant we
+     *  resume, just without an animation loop running while paused. */
+    public void onScreenPaused() {
+        screenPaused = true;
+        if (typingDotsAnimator != null) typingDotsAnimator.stop();
+    }
+
+    /** Call from the Activity's onResume(). Restarts the dots loop if the
+     *  partner is (still) typing — covers the common case of "they were
+     *  typing when I backgrounded the app and are still typing now". */
+    public void onScreenResumed() {
+        screenPaused = false;
+        if (lastPartnerTypingState) {
+            ActivityChatBinding binding = delegate.getBinding();
+            if (binding.llTypingStrip != null
+                    && binding.llTypingStrip.getVisibility() == View.VISIBLE
+                    && typingDotsAnimator != null) {
+                typingDotsAnimator.start();
+            }
+        }
     }
 
     private void showTypingStrip() {
@@ -160,9 +196,18 @@ public class ChatPresenceController {
             typingDotsAnimator = new com.callx.app.chat.ui.TypingDotsAnimator(
                     binding.dotTyping1, binding.dotTyping2, binding.dotTyping3);
         }
-        typingDotsAnimator.start();
+        // Don't start the bounce loop while the screen is paused/backgrounded
+        // — onScreenResumed() will start it once we're visible again.
+        if (!screenPaused) typingDotsAnimator.start();
 
-        if (binding.llTypingStrip.getVisibility() == View.VISIBLE) return; // already showing
+        if (binding.llTypingStrip.getVisibility() == View.VISIBLE) {
+            // Already showing — still make sure the watching banner reflects
+            // current priority (e.g. it could have freshly appeared after
+            // typing started).
+            com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripShown(
+                    binding.llWatchingBanner, binding.llTypingStrip);
+            return;
+        }
 
         binding.llTypingStrip.setAlpha(0f);
         binding.llTypingStrip.setScaleX(0.85f);
@@ -173,6 +218,8 @@ public class ChatPresenceController {
                 .setDuration(220)
                 .setInterpolator(new OvershootInterpolator(1.8f))
                 .start();
+        com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripShown(
+                binding.llWatchingBanner, binding.llTypingStrip);
     }
 
     private void hideTypingStrip() {
@@ -190,6 +237,8 @@ public class ChatPresenceController {
                     binding.llTypingStrip.setAlpha(1f);
                     binding.llTypingStrip.setScaleX(1f);
                     binding.llTypingStrip.setScaleY(1f);
+                    com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripHidden(
+                            binding.llWatchingBanner);
                 })
                 .start();
     }
@@ -507,7 +556,6 @@ public class ChatPresenceController {
 
         String name = delegate.getPartnerName();
         binding.tvWatchingName.setText((name != null ? name : "") + " aapko dekh rha hai");
-        binding.llWatchingBanner.setAlpha(1f);
 
         String photo = delegate.getPartnerPhoto();
         if (photo != null && !photo.isEmpty() && delegate.getActivity() != null) {
@@ -517,7 +565,22 @@ public class ChatPresenceController {
                     .into(binding.ivWatchingAvatar);
         }
 
-        if (binding.llWatchingBanner.getVisibility() == View.VISIBLE) return; // already showing
+        boolean alreadyShowing = binding.llWatchingBanner.getVisibility() == View.VISIBLE;
+        if (!alreadyShowing) {
+            // Fresh pop-in: alpha/scale belong to the entrance animation below,
+            // not the priority system — full prominence by default, then
+            // immediately deferred to applyCurrentPriority() if typing is
+            // already active (avoids a one-frame flash at full opacity).
+            binding.llWatchingBanner.setAlpha(1f);
+            binding.llWatchingBanner.setScaleX(1f);
+            binding.llWatchingBanner.setScaleY(1f);
+        }
+
+        if (alreadyShowing) {
+            // Already on screen — just a content refresh, leave whatever
+            // alpha/scale the priority coordinator currently has it at.
+            return;
+        }
 
         binding.ivWatchingAvatar.setScaleX(0f);
         binding.ivWatchingAvatar.setScaleY(0f);
@@ -528,6 +591,11 @@ public class ChatPresenceController {
                 .setDuration(380)
                 .setInterpolator(new OvershootInterpolator(2.2f))
                 .start();
+
+        // New arrival — immediately yield to typing if it's already showing,
+        // instead of waiting for the next typing Firebase tick.
+        com.callx.app.chat.ui.BannerPriorityCoordinator.applyCurrentPriority(
+                binding.llWatchingBanner, binding.llTypingStrip);
     }
 
     /**

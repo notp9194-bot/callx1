@@ -520,7 +520,14 @@ public class GroupWatchingController {
         Map<String, String> names  = delegate.getMemberNames();
         Map<String, String> photos = delegate.getMemberPhotos();
         int total = watcherUids.size();
-        binding.llWatchingBanner.setAlpha(1f);
+        boolean alreadyShowing = binding.llWatchingBanner.getVisibility() == View.VISIBLE;
+        if (!alreadyShowing) {
+            // Fresh pop-in only — if already showing, leave whatever
+            // alpha/scale BannerPriorityCoordinator currently has it at.
+            binding.llWatchingBanner.setAlpha(1f);
+            binding.llWatchingBanner.setScaleX(1f);
+            binding.llWatchingBanner.setScaleY(1f);
+        }
 
         String name1 = names.getOrDefault(watcherUids.get(0), "Member");
         loadAvatar(binding.ivWatchingAvatar, photos.get(watcherUids.get(0)));
@@ -581,6 +588,11 @@ public class GroupWatchingController {
         binding.ivWatchingAvatar.animate().scaleX(1f).scaleY(1f).setDuration(380).setInterpolator(interp).start();
         binding.ivWatchingAvatar2.animate().scaleX(1f).scaleY(1f).setDuration(380).setStartDelay(40).setInterpolator(interp).start();
         binding.tvWatchingMore.animate().scaleX(1f).scaleY(1f).setDuration(380).setStartDelay(80).setInterpolator(interp).start();
+
+        // New arrival — immediately yield to typing if it's already showing,
+        // instead of waiting for the next typing Firebase tick.
+        com.callx.app.chat.ui.BannerPriorityCoordinator.applyCurrentPriority(
+                binding.llWatchingBanner, binding.llTypingStrip);
     }
 
     private void loadAvatar(de.hdodenhof.circleimageview.CircleImageView iv, String photoUrl) {

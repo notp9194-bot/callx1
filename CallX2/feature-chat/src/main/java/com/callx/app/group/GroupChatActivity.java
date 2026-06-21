@@ -214,6 +214,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     protected void onResume() {
         super.onResume();
         if (watchingController != null) watchingController.setOurInChatScreen(true);
+        onTypingStripScreenResumed();
     }
 
     @Override
@@ -252,6 +253,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
             watchingController.setOurInChatScreen(false);
             watchingController.clearViewingMessage();
         }
+        onTypingStripScreenPaused();
         super.onPause();
     }
 
@@ -1315,6 +1317,29 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     // populated by the existing typingListener in setupRealtimeHeader()).
 
     private com.callx.app.chat.ui.TypingDotsAnimator typingDotsAnimator;
+    /** Mirrors ChatPresenceController's same-named flag — true while this
+     *  screen is paused/backgrounded, so the dots loop stays stopped even
+     *  if typingNames is non-empty. */
+    private boolean screenPaused = false;
+
+    /** Call from onPause(). Stops the dots loop only — the strip itself
+     *  stays as-is (visible/hidden), and the underlying typingListener
+     *  keeps tracking typingNames in the background exactly like before. */
+    private void onTypingStripScreenPaused() {
+        screenPaused = true;
+        if (typingDotsAnimator != null) typingDotsAnimator.stop();
+    }
+
+    /** Call from onResume(). Restarts the dots loop if someone is (still)
+     *  typing — covers backgrounding the app mid-typing-burst. */
+    private void onTypingStripScreenResumed() {
+        screenPaused = false;
+        if (!typingNames.isEmpty() && binding.llTypingStrip != null
+                && binding.llTypingStrip.getVisibility() == View.VISIBLE
+                && typingDotsAnimator != null) {
+            typingDotsAnimator.start();
+        }
+    }
 
     private void refreshTypingStrip() {
         if (binding.llTypingStrip == null) return;
@@ -1351,9 +1376,17 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
             typingDotsAnimator = new com.callx.app.chat.ui.TypingDotsAnimator(
                     binding.dotTyping1, binding.dotTyping2, binding.dotTyping3);
         }
-        typingDotsAnimator.start();
+        // Don't start the bounce loop while backgrounded — onTypingStripScreenResumed()
+        // will pick it back up once we're visible again.
+        if (!screenPaused) typingDotsAnimator.start();
 
-        if (binding.llTypingStrip.getVisibility() == View.VISIBLE) return; // already showing, just refreshed label/avatar
+        if (binding.llTypingStrip.getVisibility() == View.VISIBLE) {
+            // Already showing — still make sure the watching banner reflects
+            // current priority.
+            com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripShown(
+                    binding.llWatchingBanner, binding.llTypingStrip);
+            return;
+        }
 
         binding.llTypingStrip.setAlpha(0f);
         binding.llTypingStrip.setScaleX(0.85f);
@@ -1364,6 +1397,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
                 .setDuration(220)
                 .setInterpolator(new android.view.animation.OvershootInterpolator(1.8f))
                 .start();
+        com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripShown(
+                binding.llWatchingBanner, binding.llTypingStrip);
     }
 
     private void hideTypingStrip() {
@@ -1380,6 +1415,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
                     binding.llTypingStrip.setAlpha(1f);
                     binding.llTypingStrip.setScaleX(1f);
                     binding.llTypingStrip.setScaleY(1f);
+                    com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripHidden(
+                            binding.llWatchingBanner);
                 })
                 .start();
     }

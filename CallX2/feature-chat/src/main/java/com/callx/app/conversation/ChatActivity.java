@@ -239,7 +239,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         super.onResume();
         // Publish that we currently have THIS chat screen open & foregrounded,
         // so the partner's chat header can show "active in this chat".
-        if (presenceController != null) presenceController.setOurInChatScreen(true);
+        if (presenceController != null) {
+            presenceController.setOurInChatScreen(true);
+            presenceController.onScreenResumed();
+        }
     }
 
     @Override
@@ -252,6 +255,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // another screen) — partner should no longer see "active in this chat".
             presenceController.setOurInChatScreen(false);
             presenceController.clearViewingMessage();
+            // Stop the partner's typing-dots bounce loop — no point animating
+            // a strip nobody can see while we're backgrounded.
+            presenceController.onScreenPaused();
         }
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
