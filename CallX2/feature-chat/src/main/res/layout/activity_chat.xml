@@ -709,7 +709,7 @@
                 android:layout_height="14dp"
                 android:layout_marginStart="7dp"
                 android:src="@drawable/ic_mic"
-                android:colorFilter="#FFFFFF"
+                android:tint="#FFFFFF"
                 android:importantForAccessibility="no"/>
 
             <TextView
