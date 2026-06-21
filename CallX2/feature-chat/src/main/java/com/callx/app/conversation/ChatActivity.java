@@ -59,6 +59,7 @@ import com.callx.app.conversation.controllers.ChatMediaController;
 import com.callx.app.conversation.controllers.ChatMessageSender;
 import com.callx.app.conversation.controllers.ChatPinController;
 import com.callx.app.conversation.controllers.ChatPollController;
+import com.callx.app.conversation.controllers.ChatStarredController;
 import com.callx.app.conversation.controllers.ChatReactionController;
 import com.callx.app.conversation.controllers.MessageEditHistoryController;
 import com.callx.app.conversation.controllers.ChatPresenceController;
@@ -69,7 +70,6 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
 import com.callx.app.repository.ChatRepository;
-import com.callx.app.starred.StarredMessagesActivity;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.TypingStyleManager;
 import com.callx.app.utils.UnicodeStyler;
@@ -174,6 +174,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private MessageEditHistoryController editHistoryController;
     private ChatReactionController reactionController;
     private ChatPollController     pollController;
+    private ChatStarredController  starredController;
     private ChatScheduledSendController scheduledSendController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
@@ -212,6 +213,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         editHistoryController = new MessageEditHistoryController(this);
         reactionController = new ChatReactionController(this);
         pollController     = new ChatPollController(this);
+        starredController  = new ChatStarredController(this);
         scheduledSendController = new ChatScheduledSendController(this);
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
@@ -770,7 +772,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onDelete(Message m)              { confirmDeleteMessage(m); }
             @Override public void onReact(Message m, String emoji) { reactionController.toggleReaction(m, emoji); }
             @Override public void onReactionTap(Message m)        { reactionController.showReactedUsers(m); }
-            @Override public void onStar(Message m)                { toggleStar(m); }
+            @Override public void onStar(Message m)                { starredController.toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
             @Override public void onNavigateToOriginal(String mid) { navigateToOriginalMsg(mid); }
@@ -1065,11 +1067,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // editMessage() moved to MessageEditHistoryController#editMessage —
     // now also pushes the pre-edit text into editHistory (see controller).
 
-    private void toggleStar(Message m) {
-        boolean nowStarred = !Boolean.TRUE.equals(m.starred);
-        ioExecutor.execute(() -> db.messageDao().updateStarred(m.id, nowStarred));
-        messagesRef.child(m.id).child("starred").setValue(nowStarred);
-    }
+    // toggleStar() moved to ChatStarredController#toggleStar — same
+    // Firebase + Room write, just no longer inline on the Activity.
 
     // sendReaction() moved to ChatReactionController#toggleReaction — now
     // also writes through to Room (reactionsJson) and supports un-reacting
@@ -1154,7 +1153,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
         View btnStar = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_star);
         if (btnStar != null) btnStar.setOnClickListener(v -> {
-            for (Message m : pagingAdapter.getSelectedMessages()) toggleStar(m);
+            for (Message m : pagingAdapter.getSelectedMessages()) starredController.toggleStar(m);
             pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
         });
         View btnReply = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_reply);
@@ -1393,8 +1392,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (id == R.id.action_view_profile)          { openAvatarZoom();                          return true; }
         if (id == R.id.action_edit_profile)           { openEditProfile();                          return true; }
         if (id == R.id.action_starred) {
-            Intent i = new Intent(this, StarredMessagesActivity.class);
-            i.putExtra("chatId", chatId); i.putExtra("isGroup", false); startActivity(i); return true;
+            starredController.openManageList();
+            return true;
         }
         if (id == R.id.action_search)                { searchController.openSearch();             return true; }
         if (id == R.id.action_mute)                  { presenceController.toggleMute();           return true; }
