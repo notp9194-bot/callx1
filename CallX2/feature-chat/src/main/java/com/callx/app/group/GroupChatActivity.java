@@ -52,7 +52,6 @@ import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
-import com.callx.app.starred.StarredMessagesActivity;
 import com.callx.app.chat.ui.GifAwareEditText;
 import androidx.core.view.inputmethod.InputContentInfoCompat;
 import com.callx.app.conversation.MessageAdapter;
@@ -78,7 +77,8 @@ import com.callx.app.chat.ui.MessageHighlightAnimator;
  *   - Feature 10: Group Invite Link
  *   + Typing indicator, online member count, voice/media messages
  */
-public class GroupChatActivity extends AppCompatActivity implements GroupWatchingController.Delegate {
+public class GroupChatActivity extends AppCompatActivity
+        implements GroupWatchingController.Delegate, GroupStarredController.Delegate {
 
     private static final String TAG           = "GroupChatActivity";
     private static final int    PAGE_SIZE     = 20;
@@ -122,6 +122,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     // ── "Watching banner" — overlapping avatars for members who currently
     //    have this group's chat screen open & foregrounded ────────────────
     private GroupWatchingController watchingController;
+    private GroupStarredController  starredController;
 
     // ── Handlers ───────────────────────────────────────────────────────────
     private final android.os.Handler typingHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -414,7 +415,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
             @Override public void onReply(Message m)               { startReply(m); }
             @Override public void onDelete(Message m)              { confirmDelete(m); }
             @Override public void onReact(Message m, String emoji) { sendReaction(m, emoji); }
-            @Override public void onStar(Message m)                { toggleStar(m); }
+            @Override public void onStar(Message m)                { starredController.toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
             @Override public void onPollVote(Message m, int idx)   { castPollVote(m, idx); }
@@ -926,11 +927,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
         groupMessagesRef.child(m.id).child("reactions").child(currentUid).setValue(emoji);
     }
 
-    private void toggleStar(Message m) {
-        boolean nowStarred = !Boolean.TRUE.equals(m.starred);
-        ioExecutor.execute(() -> db.messageDao().updateStarred(m.id, nowStarred));
-        groupMessagesRef.child(m.id).child("starred").setValue(nowStarred);
-    }
+    // toggleStar() moved to GroupStarredController#toggleStar — same
+    // Firebase + Room write, just no longer inline on the Activity.
 
     private void copyText(Message m) {
         if (m.text == null || m.text.isEmpty()) return;
@@ -1009,7 +1007,7 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
                 com.callx.app.chat.R.id.btn_selection_star);
         if (btnStar != null) btnStar.setOnClickListener(v -> {
             java.util.List<com.callx.app.models.Message> sel = pagingAdapter.getSelectedMessages();
-            for (com.callx.app.models.Message m : sel) toggleStar(m);
+            for (com.callx.app.models.Message m : sel) starredController.toggleStar(m);
             pagingAdapter.exitMultiSelectMode();
             hideMultiSelectBar();
         });
@@ -1193,12 +1191,19 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     private void setupGroupWatching() {
         watchingController = new GroupWatchingController(this);
         watchingController.init();
+        starredController = new GroupStarredController(this);
     }
 
     @Override public Activity getActivity() { return this; }
     @Override public ActivityChatBinding getBinding() { return binding; }
     @Override public String getGroupId() { return groupId; }
     @Override public String getCurrentUid() { return currentUid; }
+
+    // ── GroupStarredController.Delegate (getActivity/getGroupId above
+    //    already satisfy two of its five methods) ────────────────────────
+    @Override public AppDatabase getDb() { return db; }
+    @Override public Executor getIoExecutor() { return ioExecutor; }
+    @Override public DatabaseReference getGroupMessagesRef() { return groupMessagesRef; }
     // ─────────────────────────────────────────────────────────────────────
     // SCROLL TO MESSAGE BY ID — shared by reply "jump to original" and the
     // watching-banner "jump to their position" feature. If the message
@@ -1776,10 +1781,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
         }
         if (id == R.id.menu_invite)      { shareInviteLink(); return true; }
         if (id == R.id.menu_starred) {
-            Intent i = new Intent(this, StarredMessagesActivity.class);
-            i.putExtra("chatId",  groupId);
-            i.putExtra("isGroup", true);
-            startActivity(i); return true;
+            starredController.openManageList();
+            return true;
         }
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
         if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
