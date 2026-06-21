@@ -528,23 +528,25 @@
                 <!-- "Partner is currently playing this voice note / video" badge —
                      Instagram-DM-style live indicator, sibling of view_seen_dot
                      above but driven by actual playback instead of scroll
-                     position. Sits on the bubble's top-end corner so it never
-                     overlaps the dot. -->
+                     position. Sits as an overlay ON TOP of the media bubble's
+                     top-end corner (positive margins, fully inside the
+                     FrameLayout's bounds) so it's never clipped. -->
                 <TextView
                     android:id="@+id/tv_listening_badge"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="top|end"
-                    android:layout_marginTop="-9dp"
-                    android:layout_marginEnd="-4dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:elevation="4dp"
                     android:background="@drawable/bg_listening_badge"
-                    android:paddingStart="7dp"
-                    android:paddingEnd="7dp"
-                    android:paddingTop="2dp"
-                    android:paddingBottom="2dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
                     android:text="🎧 listening…"
                     android:textColor="#FFFFFF"
-                    android:textSize="9.5sp"
+                    android:textSize="10sp"
                     android:textStyle="bold"
                     android:visibility="gone"/>
                 </FrameLayout>
