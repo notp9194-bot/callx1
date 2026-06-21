@@ -286,6 +286,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // Stop the partner's typing-dots bounce loop — no point animating
             // a strip nobody can see while we're backgrounded.
             presenceController.onScreenPaused();
+            // If we left mid-recording, clear the recording badge on the partner's screen.
+            if (isRecording) presenceController.publishOurRecordingState(false);
         }
         if (liveTypingController != null) liveTypingController.clearOurPreview();
         typingHandler.removeCallbacks(stopTypingRunnable);
@@ -1003,7 +1005,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             });
             return true;
         });
-        binding.btnMic.setOnClickListener(v -> mediaController.toggleRecording());
+        binding.btnMic.setOnClickListener(v -> {
+            boolean wasRecording = isRecording;
+            mediaController.toggleRecording();
+            // Publish voice-note recording state to Firebase so the partner
+            // sees "Rahul is recording a voice message D83CDF99FE0F" on their screen.
+            if (presenceController != null) {
+                presenceController.publishOurRecordingState(isRecording);
+            }
+        });
         binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
         binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
 
