@@ -53,6 +53,7 @@ import com.callx.app.chat.ui.GifAwareEditText;
 import com.callx.app.chat.ui.MessageHighlightAnimator;
 import com.callx.app.conversation.controllers.ChatActivityDelegate;
 import com.callx.app.conversation.controllers.ChatBlockController;
+import com.callx.app.conversation.controllers.ChatLiveTypingController;
 import com.callx.app.conversation.controllers.ChatMediaController;
 import com.callx.app.conversation.controllers.ChatMessageSender;
 import com.callx.app.conversation.controllers.ChatPinController;
