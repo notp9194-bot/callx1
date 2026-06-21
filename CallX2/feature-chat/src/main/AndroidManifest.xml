@@ -4,6 +4,11 @@
         <activity android:name="com.callx.app.conversation.ChatActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.conversation.popup.MiniChatPopupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX.Transparent"
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTop"/>
         <activity android:name="com.callx.app.group.GroupChatActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

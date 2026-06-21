@@ -164,6 +164,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatPresenceController presenceController;
     private ChatLiveTypingController liveTypingController;
     private ChatEmojiBurstController emojiBurstController;
+
+    // Tracks which chat (if any) is currently open & foregrounded, so the
+    // notification handler (CallxMessagingService) can decide: if the user
+    // is already looking at THIS chat, just update silently; if they're on
+    // any other screen, open the small popup window instead of full-screen
+    // navigation. Set in onResume/onPause below.
+    private static volatile String currentlyOpenChatId = null;
+
+    public static boolean isChatScreenOpenFor(String chatId) {
+        return chatId != null && chatId.equals(currentlyOpenChatId);
+    }
     private ChatPinController      pinController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
@@ -249,6 +260,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.setOurInChatScreen(true);
             presenceController.onScreenResumed();
         }
+        currentlyOpenChatId = chatId;
     }
 
     @Override
@@ -266,6 +278,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.onScreenPaused();
         }
         if (liveTypingController != null) liveTypingController.clearOurPreview();
+        if (currentlyOpenChatId != null && currentlyOpenChatId.equals(chatId)) {
+            currentlyOpenChatId = null;
+        }
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
 
