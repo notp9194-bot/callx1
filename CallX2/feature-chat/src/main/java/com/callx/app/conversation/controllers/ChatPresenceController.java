@@ -56,6 +56,7 @@ public class ChatPresenceController {
         watchPartnerTypingReplyTarget();
         watchPartnerInChatScreen();
         watchPartnerViewingMessage();
+        watchPartnerRecording();
         watchMute();
         markMessagesRead();
         setupBannerTap();
@@ -659,6 +660,190 @@ public class ChatPresenceController {
                 .start();
     }
 
+    // ── Voice Recording Indicator ─────────────────────────────────────────
+    // Mirrors the typing indicator concept but for voice notes: shows an
+    // animated waveform pill + mic icon + partner name when the partner is
+    // actively holding the mic button and recording a voice message.
+    //
+    // Firebase path: chatRecording/{chatId}/{uid} = true while recording,
+    // removed immediately on release/cancel/send or disconnect.
+    //
+    // OUTGOING: ChatActivity calls publishOurRecordingState(true) when the
+    //   user presses-and-holds the mic button, and false on release/cancel/send.
+    // INCOMING: watchPartnerRecording() listens and drives ll_voice_recording_strip.
+
+    private ValueEventListener recordingListener;
+
+    /** Waveform bar IDs — animated in a staggered scale loop. */
+    private static final int[] WAVE_BAR_IDS = {
+        com.callx.app.chat.R.id.bar_wave_1,
+        com.callx.app.chat.R.id.bar_wave_2,
+        com.callx.app.chat.R.id.bar_wave_3,
+        com.callx.app.chat.R.id.bar_wave_4,
+        com.callx.app.chat.R.id.bar_wave_5,
+    };
+    private static final float[] WAVE_PEAK_SCALES = {0.5f, 1.0f, 0.4f, 0.8f, 0.3f};
+    private final android.os.Handler waveHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable waveRunnable;
+    private boolean waveAnimRunning = false;
+
+    /** Called by ChatActivity when the user presses (recording=true) or
+     *  releases/cancels/sends (recording=false) their own voice note mic. */
+    public void publishOurRecordingState(boolean recording) {
+        String chatId = delegate.getChatId();
+        String uid = delegate.getCurrentUid();
+        if (chatId == null || uid == null) return;
+        DatabaseReference ref = FirebaseUtils.getChatRecordingRef(chatId).child(uid);
+        if (recording) {
+            ref.setValue(true);
+            ref.onDisconnect().removeValue(); // safety net: process killed mid-recording
+        } else {
+            ref.removeValue();
+            ref.onDisconnect().cancel();
+        }
+    }
+
+    private void watchPartnerRecording() {
+        String chatId = delegate.getChatId();
+        String partnerUid = delegate.getPartnerUid();
+        if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
+
+        recordingListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                boolean recording = Boolean.TRUE.equals(s.getValue(Boolean.class));
+                if (recording) showVoiceRecordingStrip(); else hideVoiceRecordingStrip();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.getChatRecordingRef(chatId)
+                .child(partnerUid)
+                .addValueEventListener(recordingListener);
+    }
+
+    private void showVoiceRecordingStrip() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding == null) return;
+        android.view.View strip = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_voice_recording_strip);
+        if (strip == null) return;
+
+        // Populate avatar + name
+        android.widget.TextView tvName = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.tv_recording_name);
+        if (tvName != null) {
+            String name = delegate.getPartnerName();
+            tvName.setText((name != null ? name : "") + " recording… \uD83C\uDF99\uFE0F");
+        }
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.iv_recording_avatar);
+        if (ivAvatar != null && delegate.getActivity() != null) {
+            String photo = delegate.getPartnerPhoto();
+            if (photo != null && !photo.isEmpty()) {
+                Glide.with(delegate.getActivity())
+                        .load(photo)
+                        .placeholder(com.callx.app.chat.R.drawable.ic_person)
+                        .into(ivAvatar);
+            }
+        }
+
+        if (strip.getVisibility() == android.view.View.VISIBLE) {
+            return; // already showing — don't re-animate
+        }
+
+        strip.setAlpha(0f);
+        strip.setScaleX(0.85f);
+        strip.setScaleY(0.85f);
+        strip.setVisibility(android.view.View.VISIBLE);
+        strip.animate()
+                .alpha(1f).scaleX(1f).scaleY(1f)
+                .setDuration(220)
+                .setInterpolator(new OvershootInterpolator(1.8f))
+                .start();
+
+        startWaveformAnimation(binding.getRoot());
+        startMicPulse(binding.getRoot());
+    }
+
+    private void hideVoiceRecordingStrip() {
+        ActivityChatBinding binding = delegate.getBinding();
+        if (binding == null) return;
+        android.view.View strip = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_voice_recording_strip);
+        if (strip == null || strip.getVisibility() != android.view.View.VISIBLE) return;
+
+        stopWaveformAnimation();
+        strip.animate()
+                .alpha(0f).scaleX(0.85f).scaleY(0.85f)
+                .setDuration(160)
+                .setInterpolator(new AccelerateInterpolator())
+                .withEndAction(() -> {
+                    strip.setVisibility(android.view.View.GONE);
+                    strip.setAlpha(1f);
+                    strip.setScaleX(1f);
+                    strip.setScaleY(1f);
+                })
+                .start();
+    }
+
+    /** Staggered scale animation on the 5 waveform bars — each bar pulses
+     *  up to its WAVE_PEAK_SCALES value and back down, offset by 80ms per bar,
+     *  looping every 500ms to simulate a live audio waveform. */
+    private void startWaveformAnimation(android.view.View root) {
+        if (waveAnimRunning) return;
+        waveAnimRunning = true;
+        waveRunnable = new Runnable() {
+            int tick = 0;
+            @Override public void run() {
+                if (!waveAnimRunning) return;
+                for (int i = 0; i < WAVE_BAR_IDS.length; i++) {
+                    android.view.View bar = root.findViewById(WAVE_BAR_IDS[i]);
+                    if (bar == null) continue;
+                    float peak = (tick % 2 == 0) ? WAVE_PEAK_SCALES[i] : 0.2f;
+                    bar.animate()
+                            .scaleY(peak)
+                            .setStartDelay(i * 60L)
+                            .setDuration(180)
+                            .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                            .start();
+                }
+                tick++;
+                waveHandler.postDelayed(this, 400);
+            }
+        };
+        waveHandler.post(waveRunnable);
+    }
+
+    private void stopWaveformAnimation() {
+        waveAnimRunning = false;
+        if (waveRunnable != null) {
+            waveHandler.removeCallbacks(waveRunnable);
+            waveRunnable = null;
+        }
+    }
+
+    /** Slow alpha pulse on the mic icon — 0.4 ↔ 1.0, 700ms per cycle. */
+    private void startMicPulse(android.view.View root) {
+        android.widget.ImageView ivMic = root.findViewById(com.callx.app.chat.R.id.iv_recording_mic);
+        if (ivMic == null) return;
+        ivMic.animate().cancel();
+        ivMic.setAlpha(1.0f);
+        pulseMic(ivMic, true);
+    }
+
+    private void pulseMic(android.widget.ImageView ivMic, boolean fadeOut) {
+        if (!waveAnimRunning) {
+            ivMic.animate().cancel();
+            ivMic.setAlpha(1.0f);
+            return;
+        }
+        ivMic.animate()
+                .alpha(fadeOut ? 0.35f : 1.0f)
+                .setDuration(700)
+                .setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator())
+                .withEndAction(() -> pulseMic(ivMic, !fadeOut))
+                .start();
+    }
+
     // ── Mute ─────────────────────────────────────────────────────────────
 
     private void watchMute() {
@@ -740,13 +925,20 @@ public class ChatPresenceController {
                     .child(delegate.getPartnerUid())
                     .removeEventListener(typingReplyListener);
         }
+        if (recordingListener != null && delegate.getChatId() != null && delegate.getPartnerUid() != null) {
+            FirebaseUtils.getChatRecordingRef(delegate.getChatId())
+                    .child(delegate.getPartnerUid())
+                    .removeEventListener(recordingListener);
+        }
         if (typingDotsAnimator != null) {
             typingDotsAnimator.stop();
             typingDotsAnimator = null;
         }
+        stopWaveformAnimation();
         cancelJustLeftWindow();
         clearOurTypingStatus();
         clearViewingMessage();
+        publishOurRecordingState(false); // flush immediately on destroy
         // Activity is being destroyed for good — flush immediately, skip debounce.
         if (pendingOffWrite != null) {
             presenceDebounceHandler.removeCallbacks(pendingOffWrite);

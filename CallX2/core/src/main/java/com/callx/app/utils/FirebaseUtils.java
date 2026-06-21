@@ -171,6 +171,17 @@ public class FirebaseUtils {
         return db().getReference("chatPlayback").child(chatOrGroupId);
     }
 
+    /**
+     * Voice-note recording indicator node — the audio-version of the typing
+     * indicator. chatRecording/{chatIdOrGroupId}/{uid} = true while that user
+     * is actively holding the mic button and recording a voice note, removed
+     * the instant they release, cancel, or send. Drives the animated
+     * ll_voice_recording_strip banner on the partner's screen.
+     */
+    public static DatabaseReference getChatRecordingRef(String chatOrGroupId) {
+        return db().getReference("chatRecording").child(chatOrGroupId);
+    }
+
     // ── Reels ─────────────────────────────────────────────────────────────
 
     /** Root reels node: reels/{reelId}/ */

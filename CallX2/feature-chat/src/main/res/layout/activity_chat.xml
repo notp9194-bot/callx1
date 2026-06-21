@@ -669,6 +669,115 @@
         </LinearLayout>
 
         <!-- ══════════════════════════════════════════════════════════════
+             VOICE RECORDING INDICATOR — "Rahul is recording a voice
+             message 🎙️" — the audio-version of the typing strip. Shows
+             when the partner is actively holding the mic button and
+             recording a voice note. Uses the same pill style as
+             ll_typing_strip but with a pulsing mic icon + waveform bar
+             instead of the three bouncing dots.
+             Driven by ChatPresenceController#watchPartnerRecording.
+             ══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:id="@+id/ll_voice_recording_strip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="10dp"
+            android:layout_marginBottom="54dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_watching_strip"
+            android:paddingStart="6dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:elevation="6dp"
+            android:visibility="gone">
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_recording_avatar"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="1dp"
+                app:civ_border_color="#80FFFFFF"/>
+
+            <!-- Pulsing mic icon (alpha-animated by ChatPresenceController) -->
+            <ImageView
+                android:id="@+id/iv_recording_mic"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginStart="7dp"
+                android:src="@drawable/ic_mic"
+                android:colorFilter="#FFFFFF"
+                android:importantForAccessibility="no"/>
+
+            <TextView
+                android:id="@+id/tv_recording_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="5dp"
+                android:layout_marginEnd="6dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:maxWidth="160dp"
+                android:text="recording…"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"/>
+
+            <!-- Mini waveform: 5 bars of alternating heights, alpha-looped -->
+            <LinearLayout
+                android:id="@+id/ll_recording_waveform"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <View
+                    android:id="@+id/bar_wave_1"
+                    android:layout_width="3dp"
+                    android:layout_height="10dp"
+                    android:background="@drawable/circle_primary"
+                    android:backgroundTint="#FFFFFF"/>
+
+                <View
+                    android:id="@+id/bar_wave_2"
+                    android:layout_width="3dp"
+                    android:layout_height="16dp"
+                    android:layout_marginStart="2dp"
+                    android:background="@drawable/circle_primary"
+                    android:backgroundTint="#FFFFFF"/>
+
+                <View
+                    android:id="@+id/bar_wave_3"
+                    android:layout_width="3dp"
+                    android:layout_height="8dp"
+                    android:layout_marginStart="2dp"
+                    android:background="@drawable/circle_primary"
+                    android:backgroundTint="#FFFFFF"/>
+
+                <View
+                    android:id="@+id/bar_wave_4"
+                    android:layout_width="3dp"
+                    android:layout_height="13dp"
+                    android:layout_marginStart="2dp"
+                    android:background="@drawable/circle_primary"
+                    android:backgroundTint="#FFFFFF"/>
+
+                <View
+                    android:id="@+id/bar_wave_5"
+                    android:layout_width="3dp"
+                    android:layout_height="6dp"
+                    android:layout_marginStart="2dp"
+                    android:background="@drawable/circle_primary"
+                    android:backgroundTint="#FFFFFF"/>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- ══════════════════════════════════════════════════════════════
              LIVE TYPING PREVIEW BOX — bottom-left, shows the partner's
              in-progress message text EXACTLY as they type/delete it,
              character by character, before they hit send. Sits just above
