@@ -160,6 +160,19 @@ public interface MessageDao {
     @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
     void updateText(String messageId, String newText, long editedAt);
 
+    /** Edit message text AND append the pre-edit version to the history
+     *  JSON blob in one write — used by MessageEditHistoryController so a
+     *  message edited more than once keeps every prior version. */
+    @WorkerThread
+    @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt, editHistoryJson = :editHistoryJson WHERE id = :messageId")
+    void updateTextWithHistory(String messageId, String newText, long editedAt, String editHistoryJson);
+
+    /** Fetch just the history JSON blob — used to append the next version
+     *  without needing the whole MessageEntity. */
+    @WorkerThread
+    @Query("SELECT editHistoryJson FROM messages WHERE id = :messageId")
+    String getEditHistoryJson(String messageId);
+
     /** Poll: update the votes JSON blob for a poll message. */
     @WorkerThread
     @Query("UPDATE messages SET pollVotesJson = :votesJson WHERE id = :messageId")

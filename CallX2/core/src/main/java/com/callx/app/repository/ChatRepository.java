@@ -205,6 +205,7 @@ public class ChatRepository {
         e.replyToSenderName = m.replyToSenderName;
         e.edited          = m.edited;
         e.editedAt        = m.editedAt;
+        e.editHistoryJson = com.callx.app.utils.EditHistoryJsonUtil.historyToJson(m.editHistory);
         e.deleted         = m.deleted;
         e.forwardedFrom   = m.forwardedFrom;
         e.starred         = m.starred;

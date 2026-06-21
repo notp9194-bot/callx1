@@ -54,6 +54,7 @@ public class MessagePagingAdapter
                     && safeEquals(a.status, b.status)
                     && a.timestamp == b.timestamp
                     && a.edited == b.edited
+                    && safeEquals(asStr(a.editedAt), asStr(b.editedAt))
                     && a.deleted == b.deleted
                     && a.fontStyle == b.fontStyle
                     && reactionsEqual(a.reactions, b.reactions)  // FIX: reactions change pe rebind trigger
@@ -62,6 +63,7 @@ public class MessagePagingAdapter
             }
 
             private String asStr(Boolean b) { return b == null ? "null" : b.toString(); }
+            private String asStr(Long l) { return l == null ? "null" : l.toString(); }
 
             private boolean pollVotesEqual(java.util.Map<String, java.util.List<Integer>> x,
                                             java.util.Map<String, java.util.List<Integer>> y) {
@@ -122,6 +124,9 @@ public class MessagePagingAdapter
         default void onRetry(Message m) {}
         /** Called when user chooses Edit from the action sheet (own messages only). */
         default void onEdit(Message m) {}
+        /** Called when user taps the "✏️ edited" tag on a bubble's timestamp
+         *  to view every prior version of the message text. */
+        default void onShowEditHistory(Message m) {}
         /** Called when user pins or unpins a message from the action sheet. */
         default void onPin(Message m) {}
         /** Called when user taps a poll option to cast/change their vote. */
@@ -646,8 +651,18 @@ public class MessagePagingAdapter
         // Timestamp — append "(edited)" when applicable
         if (h.tvTime != null && m.timestamp > 0) {
             String timeStr = timeFmt.format(new java.util.Date(m.timestamp));
-            if (Boolean.TRUE.equals(m.edited)) timeStr = timeStr + "  \u270F\uFE0F edited";
+            boolean isEdited = Boolean.TRUE.equals(m.edited);
+            if (isEdited) timeStr = timeStr + "  \u270F\uFE0F edited";
             h.tvTime.setText(timeStr);
+            // Tap the "✏️ edited" tag to view every prior version of the text.
+            if (isEdited) {
+                h.tvTime.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onShowEditHistory(m);
+                });
+            } else {
+                h.tvTime.setOnClickListener(null);
+                h.tvTime.setClickable(false);
+            }
         }
 
         // ── REPLY PREVIEW (SwipeReplySystem v1) ─────────────────────────
@@ -1551,6 +1566,7 @@ public class MessagePagingAdapter
         boolean isPinned = Boolean.TRUE.equals(m.pinned);
         boolean isPoll   = "poll".equals(m.type);
         boolean isPollClosed = Boolean.TRUE.equals(m.pollClosed);
+        boolean hasEditHistory = Boolean.TRUE.equals(m.edited);
 
         java.util.List<String> optList = new java.util.ArrayList<>();
         optList.add("Reply");
@@ -1559,6 +1575,7 @@ public class MessagePagingAdapter
         optList.add(isPinned ? "Unpin" : "Pin");
         optList.add("Forward");
         if (canEdit) optList.add("Edit");
+        if (hasEditHistory) optList.add("Edit history");
         if (isPoll && isOwnMsg) optList.add(isPollClosed ? "Reopen Poll" : "Close Poll");
         optList.add("Delete");
         String[] options = optList.toArray(new String[0]);
@@ -1577,6 +1594,7 @@ public class MessagePagingAdapter
                             case "Unpin":   actionListener.onPin(m);     break;
                             case "Forward": actionListener.onForward(m); break;
                             case "Edit":    actionListener.onEdit(m);    break;
+                            case "Edit history": actionListener.onShowEditHistory(m); break;
                             case "Close Poll":  // fall-through
                             case "Reopen Poll": actionListener.onPollToggleClose(m); break;
                             case "Delete":  actionListener.onDelete(m);  break;

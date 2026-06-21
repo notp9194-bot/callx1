@@ -44,6 +44,10 @@ public class MessageEntity {
     public String replyToMediaUrl;   // media URL of original for thumbnail
     public Boolean edited;
     public Long   editedAt;
+    /** JSON array string of prior text versions, oldest first. See
+     *  EditHistoryJsonUtil for the List<Map<String,Object>> ↔ JSON
+     *  conversion. Null for never-edited messages. */
+    public String editHistoryJson;
     public Boolean deleted;
     public String forwardedFrom;
     public Boolean starred;

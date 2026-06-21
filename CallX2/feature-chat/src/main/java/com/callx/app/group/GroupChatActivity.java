@@ -570,6 +570,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
         m.replyToText       = e.replyToText;
         m.replyToSenderName = e.replyToSenderName;
         m.edited            = e.edited;
+        m.editedAt          = e.editedAt;
+        m.editHistory       = com.callx.app.utils.EditHistoryJsonUtil.historyFromJson(e.editHistoryJson);
         m.deleted           = e.deleted;
         m.forwardedFrom     = e.forwardedFrom;
         m.starred           = e.starred;
@@ -604,6 +606,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
         e.replyToText           = m.replyToText;
         e.replyToSenderName     = m.replyToSenderName;
         e.edited                = m.edited;
+        e.editedAt              = m.editedAt;
+        e.editHistoryJson       = com.callx.app.utils.EditHistoryJsonUtil.historyToJson(m.editHistory);
         e.deleted               = m.deleted;
         e.forwardedFrom         = m.forwardedFrom;
         e.starred               = Boolean.TRUE.equals(m.starred);

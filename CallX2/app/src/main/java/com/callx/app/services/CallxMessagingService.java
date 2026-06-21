@@ -948,22 +948,11 @@ public class CallxMessagingService extends FirebaseMessagingService {
         Person.Builder meB = new Person.Builder().setName("You").setKey("me");
         if (myAvatar != null) meB.setIcon(IconCompat.createWithBitmap(myAvatar));
         Person me = meB.build();
-        // (Feature 9) Open chat directly on tap — but if the user isn't
-        // already looking at THIS exact chat, open the small popup window
-        // instead of jumping away from whatever screen they're on.
-        boolean alreadyOnThisChat =
-            com.callx.app.conversation.ChatActivity.isChatScreenOpenFor(chatId);
-        Intent open = alreadyOnThisChat
-            ? new Intent(this, ChatActivity.class)
-            : new Intent(this, com.callx.app.conversation.popup.MiniChatPopupActivity.class);
+        // (Feature 9) Open chat directly on tap
+        Intent open = new Intent(this, ChatActivity.class);
         open.putExtra("partnerUid",   fromUid);
         open.putExtra("partnerName",  fromName);
         open.putExtra("partnerPhoto", fromPhoto != null ? fromPhoto : "");
-        if (!alreadyOnThisChat) {
-            open.putExtra(com.callx.app.conversation.popup.MiniChatPopupActivity.EXTRA_PARTNER_UID,   fromUid);
-            open.putExtra(com.callx.app.conversation.popup.MiniChatPopupActivity.EXTRA_PARTNER_NAME,  fromName);
-            open.putExtra(com.callx.app.conversation.popup.MiniChatPopupActivity.EXTRA_PARTNER_PHOTO, fromPhoto != null ? fromPhoto : "");
-        }
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPi = PendingIntent.getActivity(this, notifId, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

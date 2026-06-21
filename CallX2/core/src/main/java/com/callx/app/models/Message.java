@@ -47,6 +47,12 @@ public class Message {
     // ── Feature 4: Message Editing ────────────────────────
     public Boolean edited;
     public Long    editedAt;
+    /** Prior text versions, oldest first. Each entry: {"text":..,"editedAt":..}.
+     *  Null/empty for never-edited messages. Current text always lives in
+     *  {@link #text} — this list only holds what it WAS before each edit.
+     *  Firebase path: messages/{id}/editHistory. Room: editHistoryJson
+     *  (see EditHistoryJsonUtil for the List ↔ JSON-string conversion). */
+    public java.util.List<Map<String, Object>> editHistory;
 
     // ── Feature 5: Delete for Everyone ───────────────────
     public Boolean deleted;

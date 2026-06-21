@@ -58,6 +58,7 @@ import com.callx.app.conversation.controllers.ChatLiveTypingController;
 import com.callx.app.conversation.controllers.ChatMediaController;
 import com.callx.app.conversation.controllers.ChatMessageSender;
 import com.callx.app.conversation.controllers.ChatPinController;
+import com.callx.app.conversation.controllers.MessageEditHistoryController;
 import com.callx.app.conversation.controllers.ChatPresenceController;
 import com.callx.app.conversation.controllers.ChatSearchController;
 import com.callx.app.conversation.controllers.ChatThemeController;
@@ -91,6 +92,7 @@ import java.util.concurrent.Executors;
  *   • ChatBlockController    — block / perma-block / unblock-joy / special-request
  *   • ChatPresenceController — typing, online-status, in-chat-screen presence, mute, mark-read
  *   • ChatPinController      — pin / unpin
+ *   • MessageEditHistoryController — edit message text + view prior versions
  *   • ChatSearchController   — in-chat search
  *   • ChatThemeController    — theme, wallpaper, customization, privacy dialogs
  *   • ChatMediaController    — media pickers, upload, camera, GIF, voice
@@ -164,18 +166,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatPresenceController presenceController;
     private ChatLiveTypingController liveTypingController;
     private ChatEmojiBurstController emojiBurstController;
-
-    // Tracks which chat (if any) is currently open & foregrounded, so the
-    // notification handler (CallxMessagingService) can decide: if the user
-    // is already looking at THIS chat, just update silently; if they're on
-    // any other screen, open the small popup window instead of full-screen
-    // navigation. Set in onResume/onPause below.
-    private static volatile String currentlyOpenChatId = null;
-
-    public static boolean isChatScreenOpenFor(String chatId) {
-        return chatId != null && chatId.equals(currentlyOpenChatId);
-    }
     private ChatPinController      pinController;
+    private MessageEditHistoryController editHistoryController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
     private ChatMediaController    mediaController;
@@ -210,6 +202,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         liveTypingController = new ChatLiveTypingController(this);
         emojiBurstController = new ChatEmojiBurstController(this);
         pinController      = new ChatPinController(this);
+        editHistoryController = new MessageEditHistoryController(this);
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
         messageSender      = new ChatMessageSender(this);
@@ -260,7 +253,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.setOurInChatScreen(true);
             presenceController.onScreenResumed();
         }
-        currentlyOpenChatId = chatId;
     }
 
     @Override
@@ -278,9 +270,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.onScreenPaused();
         }
         if (liveTypingController != null) liveTypingController.clearOurPreview();
-        if (currentlyOpenChatId != null && currentlyOpenChatId.equals(chatId)) {
-            currentlyOpenChatId = null;
-        }
         typingHandler.removeCallbacks(stopTypingRunnable);
     }
 
@@ -874,7 +863,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 String preview = m.text != null ? m.text : (m.type != null ? "[" + m.type + "]" : "[message]");
                 messageSender.firebasePushMessage(m, m.id, preview);
             }
-            @Override public void onEdit(Message m)                { editMessage(m); }
+            @Override public void onEdit(Message m)                { editHistoryController.editMessage(m); }
+            @Override public void onShowEditHistory(Message m)     { editHistoryController.showHistory(m); }
             @Override public void onPin(Message m)                 { pinController.pinMessage(m); }
             @Override public void onPollVote(Message m, int idx)   { castPollVote(m, idx); }
             @Override public void onPollToggleClose(Message m)    { togglePollClosed(m); }
@@ -995,7 +985,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.timestamp = e.timestamp; m.status = e.status; m.replyToId = e.replyToId;
         m.replyToText = e.replyToText; m.replyToSenderName = e.replyToSenderName;
         m.replyToType = e.replyToType; m.replyToMediaUrl = e.replyToMediaUrl;
-        m.edited = e.edited; m.deleted = e.deleted; m.forwardedFrom = e.forwardedFrom;
+        m.edited = e.edited; m.editedAt = e.editedAt; m.deleted = e.deleted; m.forwardedFrom = e.forwardedFrom;
+        m.editHistory = com.callx.app.utils.EditHistoryJsonUtil.historyFromJson(e.editHistoryJson);
         m.starred = e.starred; m.pinned = e.pinned; m.reelId = e.reelId;
         m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
         m.pollQuestion = e.pollQuestion;
@@ -1016,7 +1007,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.duration = m.duration; e.timestamp = m.timestamp; e.status = m.status;
         e.replyToId = m.replyToId; e.replyToText = m.replyToText;
         e.replyToSenderName = m.replyToSenderName; e.replyToType = m.replyToType;
-        e.replyToMediaUrl = m.replyToMediaUrl; e.edited = m.edited; e.deleted = m.deleted;
+        e.replyToMediaUrl = m.replyToMediaUrl; e.edited = m.edited; e.editedAt = m.editedAt; e.deleted = m.deleted;
+        e.editHistoryJson = com.callx.app.utils.EditHistoryJsonUtil.historyToJson(m.editHistory);
         e.forwardedFrom = m.forwardedFrom; e.starred = Boolean.TRUE.equals(m.starred);
         e.pinned = Boolean.TRUE.equals(m.pinned); e.reelId = m.reelId;
         e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
@@ -1139,33 +1131,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
     }
 
-    private void editMessage(Message m) {
-        if (m == null || m.id == null) return;
-        if (!currentUid.equals(m.senderId)) return;
-        android.widget.EditText input = new android.widget.EditText(this);
-        input.setText(m.text);
-        input.setSelection(input.getText().length());
-        int pad = dp(16);
-        input.setPadding(pad, pad / 2, pad, pad / 2);
-        input.setSingleLine(false); input.setMaxLines(6);
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        new AlertDialog.Builder(this)
-                .setTitle("Edit message").setView(input)
-                .setPositiveButton("Save", (d, w) -> {
-                    String newText = input.getText().toString().trim();
-                    if (newText.isEmpty()) { Toast.makeText(this, "Message cannot be empty", Toast.LENGTH_SHORT).show(); return; }
-                    if (newText.equals(m.text)) return;
-                    long editedAt = System.currentTimeMillis();
-                    messagesRef.child(m.id).child("text").setValue(newText);
-                    messagesRef.child(m.id).child("edited").setValue(true);
-                    messagesRef.child(m.id).child("editedAt").setValue(editedAt);
-                    ioExecutor.execute(() -> db.messageDao().updateText(m.id, newText, editedAt));
-                    Toast.makeText(this, "Message edited", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Cancel", null).show();
-    }
+    // editMessage() moved to MessageEditHistoryController#editMessage —
+    // now also pushes the pre-edit text into editHistory (see controller).
 
     private void toggleStar(Message m) {
         boolean nowStarred = !Boolean.TRUE.equals(m.starred);
