@@ -66,6 +66,11 @@ public interface ChatActivityDelegate {
     void startReply(Message m);
     void activateReplyDirect(Message m);
     void navigateToOriginal(String messageId);
+    /** messageId currently shown in the reply bar (user is composing a
+     *  reply to it), or null if no reply is active. Used to publish the
+     *  per-message "someone is replying to this" highlight alongside the
+     *  typing indicator — see ChatPresenceController#publishTypingReplyTarget. */
+    String getCurrentReplyTargetId();
 
     // ── Adapter ───────────────────────────────────────────────────────────
     MessagePagingAdapter getPagingAdapter();

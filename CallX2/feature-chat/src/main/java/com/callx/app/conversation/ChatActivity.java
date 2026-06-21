@@ -314,6 +314,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override public void launchWallpaperPicker()            { mediaController.launchWallpaperPicker(); }
     @Override public void launchPollCreator()                { showCreatePollDialog(); }
     @Override public void navigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
+    @Override public String getCurrentReplyTargetId() {
+        if (replyingTo == null) return null;
+        return replyingTo.messageId != null ? replyingTo.messageId : replyingTo.id;
+    }
 
     @Override
     public boolean isOnline() {
@@ -454,6 +458,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     public void clearReply() {
         replyingTo = null;
         if (replyController != null) replyController.cancel();
+        // Don't wait for the next keystroke — replyingTo just became null,
+        // so if we're still typing, immediately drop the highlight on
+        // whatever bubble was being replied to.
+        if (presenceController != null) presenceController.publishTypingReplyTarget();
         if (binding.llReplyBar == null) return;
         binding.llReplyBar.animate()
                 .alpha(0f).translationY(20f).setDuration(150)

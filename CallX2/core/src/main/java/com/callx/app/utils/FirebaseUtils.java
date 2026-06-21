@@ -134,6 +134,19 @@ public class FirebaseUtils {
         return db().getReference("chatViewing").child(chatOrGroupId);
     }
 
+    /**
+     * Per-message "currently composing a reply to" node — sibling of
+     * chatViewing above, but narrower: chatTypingReply/{chatIdOrGroupId}/{uid}
+     * = messageId only while that user (a) has an active reply-bar pointed
+     * at that message AND (b) is actively typing (non-empty input), cleared
+     * the moment either condition stops being true. Lets a single bubble
+     * show a "someone is replying to this" glow, distinct from the broader
+     * per-message viewing dot.
+     */
+    public static DatabaseReference getChatTypingReplyRef(String chatOrGroupId) {
+        return db().getReference("chatTypingReply").child(chatOrGroupId);
+    }
+
     // ── Reels ─────────────────────────────────────────────────────────────
 
     /** Root reels node: reels/{reelId}/ */

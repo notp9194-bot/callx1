@@ -7,6 +7,7 @@ import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.paging.PagingDataAdapter;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
@@ -154,6 +155,31 @@ public class MessagePagingAdapter
         java.util.Set<String> changed = new java.util.HashSet<>(old);
         changed.addAll(newIds);
         currentlyViewedMessageIds = newIds;
+        for (int i = 0; i < getItemCount(); i++) {
+            Message m = getItem(i);
+            if (m == null) continue;
+            String id = m.messageId != null ? m.messageId : m.id;
+            if (id != null && changed.contains(id)) notifyItemChanged(i);
+        }
+    }
+
+    // ── "Someone is currently composing a reply to this message" glow ──────
+    // Sibling set to currentlyViewedMessageIds, but scoped to whatever
+    // bubble a participant has open in the reply bar AND is actively typing
+    // into right now (not just "scrolled into view"). Fed by
+    // ChatPresenceController / GroupChatActivity listening on
+    // chatTypingReply/{chatOrGroupId}/{uid} = messageId | null.
+    private java.util.Set<String> replyTargetMessageIds = java.util.Collections.emptySet();
+
+    /** Replaces the set of "being replied to right now" message ids and
+     *  refreshes only the rows whose highlight state actually changed. */
+    public void setReplyTargetMessageIds(java.util.Set<String> newIds) {
+        if (newIds == null) newIds = java.util.Collections.emptySet();
+        java.util.Set<String> old = replyTargetMessageIds;
+        if (old.equals(newIds)) return;
+        java.util.Set<String> changed = new java.util.HashSet<>(old);
+        changed.addAll(newIds);
+        replyTargetMessageIds = newIds;
         for (int i = 0; i < getItemCount(); i++) {
             Message m = getItem(i);
             if (m == null) continue;
@@ -586,8 +612,8 @@ public class MessagePagingAdapter
         }
 
         // ── Theme-aware bubble background ─────────────────────────────────
+        android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
         try {
-            android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
             if (llBubble != null) {
                 boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
                 String bType = m.type != null ? m.type : "text";
@@ -596,6 +622,18 @@ public class MessagePagingAdapter
                         .applyBubble(llBubble, sent, bType, hasReply);
             }
         } catch (Exception ignored) {}
+
+        // ── "Someone is currently composing a reply to THIS message" glow ──
+        // Finer-grained sibling of the viewing-dot above: lights up only the
+        // exact bubble being replied to (not just "screen open" or "this
+        // message is in view"), fed by chatTypingReply/{id}/{uid}=messageId.
+        if (llBubble != null) {
+            String mid = m.messageId != null ? m.messageId : m.id;
+            boolean isReplyTarget = mid != null && replyTargetMessageIds.contains(mid);
+            llBubble.setForeground(isReplyTarget
+                    ? ContextCompat.getDrawable(ctx, R.drawable.bg_reply_target_highlight)
+                    : null);
+        }
 
         // Reset visibility
         h.tvMessage.setVisibility(View.GONE);

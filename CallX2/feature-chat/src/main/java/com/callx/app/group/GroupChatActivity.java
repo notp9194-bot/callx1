@@ -102,6 +102,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     private ChildEventListener messageListener;
     private DatabaseReference  typingRef;
     private ValueEventListener typingListener;
+    private DatabaseReference  typingReplyRef;
+    private ValueEventListener typingReplyListener;
     private DatabaseReference  membersRef;
     private ValueEventListener membersListener;
     private final Map<String, ValueEventListener> presenceListeners = new HashMap<>();
@@ -224,6 +226,8 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
             groupMessagesRef.removeEventListener(messageListener);
         if (typingRef  != null && typingListener  != null)
             typingRef.removeEventListener(typingListener);
+        if (typingReplyRef != null && typingReplyListener != null)
+            typingReplyRef.removeEventListener(typingReplyListener);
         if (membersRef != null && membersListener != null)
             membersRef.removeEventListener(membersListener);
         for (Map.Entry<String, ValueEventListener> e : presenceListeners.entrySet())
@@ -889,6 +893,11 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
         replyingTo = null;
         if (binding.llReplyBar != null)
             binding.llReplyBar.setVisibility(View.GONE);
+        // Don't wait for the next keystroke's setMyTyping() call — the
+        // bubble highlight should disappear the instant the reply bar does.
+        if (amTyping && typingReplyRef != null) {
+            publishMyTypingReplyTarget(typingReplyRef.child(currentUid));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1114,6 +1123,25 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
         };
         typingRef.addValueEventListener(typingListener);
 
+        // Per-message "someone is replying to this" glow — aggregated across
+        // every other member currently typing into the reply bar, mirrors
+        // GroupWatchingController's per-message viewing-dot aggregation.
+        typingReplyRef = FirebaseUtils.getChatTypingReplyRef(groupId);
+        typingReplyListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                java.util.Set<String> ids = new HashSet<>();
+                for (DataSnapshot c : snap.getChildren()) {
+                    String uid = c.getKey();
+                    if (uid == null || uid.equals(currentUid)) continue;
+                    String mid = c.getValue(String.class);
+                    if (mid != null) ids.add(mid);
+                }
+                if (pagingAdapter != null) pagingAdapter.setReplyTargetMessageIds(ids);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        typingReplyRef.addValueEventListener(typingReplyListener);
+
         membersListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 Set<String> latest = new HashSet<>();
@@ -1223,14 +1251,47 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
 
 
     private void setMyTyping(boolean typing) {
-        if (typing == amTyping) return;
+        DatabaseReference replyRef = FirebaseUtils.getChatTypingReplyRef(groupId).child(currentUid);
+        if (typing == amTyping) {
+            // Typing state itself unchanged — still re-publish the reply
+            // target in case the user switched which message they're
+            // replying to without toggling typing off in between.
+            publishMyTypingReplyTarget(replyRef);
+            return;
+        }
         amTyping = typing;
         DatabaseReference me = FirebaseUtils.getGroupTypingRef(groupId).child(currentUid);
         if (typing) {
             me.setValue(currentName != null ? currentName : "Someone");
             me.onDisconnect().removeValue();
+            publishMyTypingReplyTarget(replyRef);
         } else {
             me.removeValue();
+            lastWrittenReplyTargetId = null;
+            replyRef.removeValue();
+            replyRef.onDisconnect().cancel();
+        }
+    }
+
+    /** uid of whatever message id we last actually wrote to
+     *  chatTypingReply/{groupId}/{currentUid}, so unchanged values (e.g.
+     *  still typing, reply bar unchanged) skip the Firebase round trip. */
+    private String lastWrittenReplyTargetId = null;
+
+    private void publishMyTypingReplyTarget(DatabaseReference replyRef) {
+        String targetId = replyingTo != null
+                ? (replyingTo.messageId != null ? replyingTo.messageId : replyingTo.id)
+                : null;
+        if (targetId == null ? lastWrittenReplyTargetId == null : targetId.equals(lastWrittenReplyTargetId)) {
+            return;
+        }
+        lastWrittenReplyTargetId = targetId;
+        if (targetId == null) {
+            replyRef.removeValue();
+            replyRef.onDisconnect().cancel();
+        } else {
+            replyRef.setValue(targetId);
+            replyRef.onDisconnect().removeValue();
         }
     }
 

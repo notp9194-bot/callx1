@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Soft glow ring used as ll_bubble's `foreground` while someone else is
+  composing a reply that targets this exact message (per-message typing
+  context — see ChatPresenceController#watchPartnerReplyTarget /
+  GroupChatActivity#refreshReplyTargetHighlight).
+
+  Applied/cleared via View#setForeground() so it never touches the bubble's
+  own background drawable (which ChatThemeManager already swaps per theme/
+  sent-vs-received/has-reply state) — purely an additive overlay outline.
+  Corner radius is a reasonable middle-ground between the sent (20/20/20/6)
+  and received (6/20/20/20) bubble shapes; at this stroke width the small
+  mismatch on one corner is not noticeable.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@android:color/transparent"/>
+    <stroke android:width="2dp" android:color="#A855F7"/>
+    <corners android:radius="18dp"/>
+</shape>

@@ -42,6 +42,7 @@ public class ChatPresenceController {
     private ValueEventListener onlineListener;
     private ValueEventListener inChatListener;
     private ValueEventListener viewingListener;
+    private ValueEventListener typingReplyListener;
 
     public ChatPresenceController(ChatActivityDelegate delegate) {
         this.delegate = delegate;
@@ -52,6 +53,7 @@ public class ChatPresenceController {
     public void init() {
         watchPartnerStatus();
         watchTyping();
+        watchPartnerTypingReplyTarget();
         watchPartnerInChatScreen();
         watchPartnerViewingMessage();
         watchMute();
@@ -90,14 +92,33 @@ public class ChatPresenceController {
 
     private com.callx.app.chat.ui.TypingDotsAnimator typingDotsAnimator;
 
+    /** Last value we actually wrote to Firebase for OUR typing/{chatId}/{uid}
+     *  node. ChatActivity's TextWatcher calls setOurTypingStatus(true) on
+     *  every keystroke (it has its own separate 2s "went quiet" timeout that
+     *  calls setOurTypingStatus(false) — see onStopTypingTimeout()), so
+     *  without this guard every single character typed would fire a Firebase
+     *  write even though the value never actually changes from `true`. */
+    private Boolean lastWrittenTypingValue = null;
+
     public void setOurTypingStatus(boolean typing) {
+        if (lastWrittenTypingValue != null && lastWrittenTypingValue == typing) {
+            // No-op write avoided — still re-publish the reply target below
+            // in case the user switched which message they're replying to
+            // without the typing state itself flipping.
+            publishTypingReplyTarget();
+            return;
+        }
+        lastWrittenTypingValue = typing;
         FirebaseUtils.db().getReference("typing")
                 .child(delegate.getChatId()).child(delegate.getCurrentUid()).setValue(typing);
+        publishTypingReplyTarget();
     }
 
     public void clearOurTypingStatus() {
+        lastWrittenTypingValue = false;
         FirebaseUtils.db().getReference("typing")
                 .child(delegate.getChatId()).child(delegate.getCurrentUid()).setValue(false);
+        clearTypingReplyTarget();
     }
 
     private void watchTyping() {
@@ -171,6 +192,78 @@ public class ChatPresenceController {
                     binding.llTypingStrip.setScaleY(1f);
                 })
                 .start();
+    }
+
+    // ── Per-message "replying to this" glow ─────────────────────────────────
+    // chatTypingReply/{chatId}/{uid} = messageId, written alongside the plain
+    // typing/{chatId}/{uid} flag above. Only set while BOTH typing is active
+    // AND a reply bar is open targeting a specific message — gives the exact
+    // bubble being replied to a highlight, distinct from "they have the
+    // chat open" (watching banner) or "this message is in view" (seen dot).
+
+    private String lastWrittenReplyTargetId = null;
+    private String lastPartnerReplyTargetId;
+
+    /** Re-publishes (or clears) the reply-target highlight against whatever
+     *  setOurTypingStatus last wrote for the plain typing flag. Public so
+     *  ChatActivity#clearReply() can call this immediately when the reply
+     *  bar is dismissed, instead of waiting for the next keystroke. */
+    public void publishTypingReplyTarget() {
+        String chatId = delegate.getChatId();
+        String uid = delegate.getCurrentUid();
+        if (chatId == null || uid == null) return;
+
+        String targetId = Boolean.TRUE.equals(lastWrittenTypingValue)
+                ? delegate.getCurrentReplyTargetId()
+                : null;
+
+        // Same value as last write (including both-null) — skip the round trip.
+        if (targetId == null ? lastWrittenReplyTargetId == null : targetId.equals(lastWrittenReplyTargetId)) {
+            return;
+        }
+        lastWrittenReplyTargetId = targetId;
+
+        DatabaseReference ref = FirebaseUtils.getChatTypingReplyRef(chatId).child(uid);
+        if (targetId == null) {
+            ref.removeValue();
+            ref.onDisconnect().cancel();
+        } else {
+            ref.setValue(targetId);
+            ref.onDisconnect().removeValue();
+        }
+    }
+
+    private void clearTypingReplyTarget() {
+        if (lastWrittenReplyTargetId == null) return; // nothing to clear
+        lastWrittenReplyTargetId = null;
+        String chatId = delegate.getChatId();
+        String uid = delegate.getCurrentUid();
+        if (chatId == null || uid == null) return;
+        DatabaseReference ref = FirebaseUtils.getChatTypingReplyRef(chatId).child(uid);
+        ref.removeValue();
+        ref.onDisconnect().cancel();
+    }
+
+    private void watchPartnerTypingReplyTarget() {
+        String chatId = delegate.getChatId();
+        String partnerUid = delegate.getPartnerUid();
+        if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
+
+        typingReplyListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                lastPartnerReplyTargetId = s.getValue(String.class);
+                java.util.Set<String> ids = lastPartnerReplyTargetId == null
+                        ? java.util.Collections.emptySet()
+                        : java.util.Collections.singleton(lastPartnerReplyTargetId);
+                if (delegate.getPagingAdapter() != null) {
+                    delegate.getPagingAdapter().setReplyTargetMessageIds(ids);
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.getChatTypingReplyRef(chatId)
+                .child(partnerUid)
+                .addValueEventListener(typingReplyListener);
     }
 
     // ── Online / last-seen status ─────────────────────────────────────────
@@ -573,6 +666,11 @@ public class ChatPresenceController {
             FirebaseUtils.getChatViewingRef(delegate.getChatId())
                     .child(delegate.getPartnerUid())
                     .removeEventListener(viewingListener);
+        }
+        if (typingReplyListener != null && delegate.getChatId() != null && delegate.getPartnerUid() != null) {
+            FirebaseUtils.getChatTypingReplyRef(delegate.getChatId())
+                    .child(delegate.getPartnerUid())
+                    .removeEventListener(typingReplyListener);
         }
         if (typingDotsAnimator != null) {
             typingDotsAnimator.stop();
