@@ -1211,6 +1211,10 @@ public class GroupChatActivity extends AppCompatActivity implements GroupWatchin
     /** GroupWatchingController.Delegate — "jump to their position" entry point. */
     @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
 
+    @Override public Map<String, String> getMemberNames() { return memberNames; }
+    @Override public Map<String, String> getMemberPhotos() { return memberPhotos; }
+    @Override public MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+
 
 
     private void setMyTyping(boolean typing) {
