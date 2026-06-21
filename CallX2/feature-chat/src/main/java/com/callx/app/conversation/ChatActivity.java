@@ -58,6 +58,7 @@ import com.callx.app.conversation.controllers.ChatLiveTypingController;
 import com.callx.app.conversation.controllers.ChatMediaController;
 import com.callx.app.conversation.controllers.ChatMessageSender;
 import com.callx.app.conversation.controllers.ChatPinController;
+import com.callx.app.conversation.controllers.ChatPollController;
 import com.callx.app.conversation.controllers.ChatReactionController;
 import com.callx.app.conversation.controllers.MessageEditHistoryController;
 import com.callx.app.conversation.controllers.ChatPresenceController;
@@ -172,6 +173,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatPinController      pinController;
     private MessageEditHistoryController editHistoryController;
     private ChatReactionController reactionController;
+    private ChatPollController     pollController;
     private ChatScheduledSendController scheduledSendController;
     private ChatSearchController   searchController;
     private ChatThemeController    themeController;
@@ -209,6 +211,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pinController      = new ChatPinController(this);
         editHistoryController = new MessageEditHistoryController(this);
         reactionController = new ChatReactionController(this);
+        pollController     = new ChatPollController(this);
         scheduledSendController = new ChatScheduledSendController(this);
         searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
@@ -340,7 +343,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override public void refreshScreenTheme()               { themeController.applyScreenTheme(); }
     @Override public void refreshWallpaper()                 { themeController.applyWallpaper(); }
     @Override public void launchWallpaperPicker()            { mediaController.launchWallpaperPicker(); }
-    @Override public void launchPollCreator()                { showCreatePollDialog(); }
+    @Override public void launchPollCreator()                { pollController.showCreatePollDialog(); }
     @Override public void navigateToOriginal(String messageId) { navigateToOriginalMsg(messageId); }
     @Override public String getCurrentReplyTargetId() {
         if (replyingTo == null) return null;
@@ -375,107 +378,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // POLLS
+    // POLLS — moved to ChatPollController (showCreatePollDialog / castVote /
+    // toggleClosed). launchPollCreator() and the onPollVote/onPollToggleClose
+    // action-sheet callbacks now delegate straight to it.
     // ─────────────────────────────────────────────────────────────────────
-
-    /** Opens the poll-creation bottom sheet. */
-    private void showCreatePollDialog() {
-        if (isBlocked) {
-            Toast.makeText(this, "Can't send messages to this contact", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        com.callx.app.chat.ui.CreatePollDialog.show(this, (question, options, anonymous, multiChoice) -> {
-            sendPollMessage(question, options, anonymous, multiChoice);
-        });
-    }
-
-    /** Builds and sends a poll message via the standard outgoing pipeline. */
-    private void sendPollMessage(String question, java.util.List<String> options, boolean anonymous, boolean multiChoice) {
-        Message m = buildOutgoing();
-        m.type = "poll";
-        m.pollQuestion = question;
-        m.pollOptions = options;
-        m.pollVotes = new java.util.HashMap<>();
-        m.pollAnonymous = anonymous;
-        m.pollClosed = false;
-        m.pollMultiChoice = multiChoice;
-        // text mirrors the question so chat-list previews and search show something sensible
-        m.text = "\uD83D\uDCCA " + question;
-        pushMessage(m, "\uD83D\uDCCA Poll: " + question);
-    }
-
-    /**
-     * Casts/toggles the current user's vote(s) on a poll message.
-     * Single-choice polls: tapping any option replaces the previous vote.
-     * Multi-choice polls: tapping an option ticks/un-ticks just that option,
-     * leaving the rest of the voter's selections untouched.
-     * Writes directly to Firebase (messages/{id}/pollVotes/{uid}) — the existing
-     * real-time listener + Room sync pipeline picks up the change and refreshes the UI,
-     * same as reactions.
-     */
-    private void castPollVote(Message m, int optionIndex) {
-        if (m == null) return;
-        String id = m.messageId != null ? m.messageId : m.id;
-        if (id == null || id.isEmpty()) return;
-        if (Boolean.TRUE.equals(m.pollClosed)) {
-            Toast.makeText(this, "This poll is closed", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (!isOnline()) {
-            Toast.makeText(this, "You're offline — vote will sync once you're back online", Toast.LENGTH_SHORT).show();
-        }
-
-        boolean multiChoice = Boolean.TRUE.equals(m.pollMultiChoice);
-        java.util.Map<String, java.util.List<Integer>> votes = m.pollVotes != null
-                ? new java.util.HashMap<>(m.pollVotes) : new java.util.HashMap<>();
-        java.util.List<Integer> mine = votes.get(currentUid);
-        java.util.List<Integer> updatedMine = new java.util.ArrayList<>(mine != null ? mine : java.util.Collections.emptyList());
-
-        if (multiChoice) {
-            // Tick/un-tick just this option, keeping any other ticks intact.
-            if (updatedMine.contains(optionIndex)) {
-                updatedMine.remove(Integer.valueOf(optionIndex));
-            } else {
-                updatedMine.add(optionIndex);
-            }
-        } else {
-            // Single-choice: this option becomes the only vote.
-            updatedMine.clear();
-            updatedMine.add(optionIndex);
-        }
-
-        if (updatedMine.isEmpty()) {
-            votes.remove(currentUid);
-            messagesRef.child(id).child("pollVotes").child(currentUid).removeValue();
-        } else {
-            votes.put(currentUid, updatedMine);
-            messagesRef.child(id).child("pollVotes").child(currentUid).setValue(updatedMine);
-        }
-
-        // Optimistic local update so the bar/tick reflects immediately even before
-        // the Firebase round-trip / Room sync completes.
-        m.pollVotes = votes;
-        ioExecutor.execute(() -> {
-            try {
-                com.callx.app.db.entity.MessageEntity e = db.messageDao().getMessageById(id);
-                if (e != null) {
-                    e.pollVotesJson = com.callx.app.utils.PollJsonUtil.votesToJson(votes);
-                    db.messageDao().updateMessage(e);
-                }
-            } catch (Exception ignored) {}
-        });
-    }
-
-    /** Poll creator closes or reopens voting on their own poll. */
-    private void togglePollClosed(Message m) {
-        if (m == null) return;
-        String id = m.messageId != null ? m.messageId : m.id;
-        if (id == null || id.isEmpty()) return;
-        boolean newClosed = !Boolean.TRUE.equals(m.pollClosed);
-        messagesRef.child(id).child("pollClosed").setValue(newClosed);
-        ioExecutor.execute(() -> db.messageDao().updatePollClosed(id, newClosed));
-        Toast.makeText(this, newClosed ? "Poll closed" : "Poll reopened", Toast.LENGTH_SHORT).show();
-    }
 
     @Override
     public void firebasePushMessage(Message m, String key, String previewText) {
@@ -876,8 +782,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onEdit(Message m)                { editHistoryController.editMessage(m); }
             @Override public void onShowEditHistory(Message m)     { editHistoryController.showHistory(m); }
             @Override public void onPin(Message m)                 { pinController.pinMessage(m); }
-            @Override public void onPollVote(Message m, int idx)   { castPollVote(m, idx); }
-            @Override public void onPollToggleClose(Message m)    { togglePollClosed(m); }
+            @Override public void onPollVote(Message m, int idx)   { pollController.castVote(m, idx); }
+            @Override public void onPollToggleClose(Message m)    { pollController.toggleClosed(m); }
         });
 
         pagingAdapter.setMultiSelectListener(count -> {
