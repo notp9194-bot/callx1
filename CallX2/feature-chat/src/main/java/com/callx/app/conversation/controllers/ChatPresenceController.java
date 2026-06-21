@@ -51,13 +51,12 @@ public class ChatPresenceController {
     // ── Init ──────────────────────────────────────────────────────────────
 
     public void init() {
-        watchPartnerStatus();
+        watchPartnerStatus();   // online/lastSeen + onCall strip — single Firebase read
         watchTyping();
         watchPartnerTypingReplyTarget();
         watchPartnerInChatScreen();
         watchPartnerViewingMessage();
         watchPartnerRecording();
-        watchPartnerOnCall();
         watchMute();
         markMessagesRead();
         setupBannerTap();
@@ -331,6 +330,7 @@ public class ChatPresenceController {
                 Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
                 if (Boolean.TRUE.equals(partnerGhost)) {
                     binding.tvStatus.setVisibility(View.GONE);
+                    hideOnCallStrip(); // ghost mode — strip bhi nahi dikhni
                     return;
                 }
 
@@ -352,6 +352,15 @@ public class ChatPresenceController {
 
                 binding.tvStatus.setText(statusText);
                 binding.tvStatus.setVisibility(statusText.length() > 0 ? View.VISIBLE : View.GONE);
+
+                // ── On-Call strip — same snapshot, no extra Firebase read ──
+                Boolean onCall = s.child("onCall").getValue(Boolean.class);
+                String  type   = s.child("onCallType").getValue(String.class);
+                if (!lastOnCallType.equals(type != null ? type : "")) {
+                    lastOnCallType = type != null ? type : "";
+                }
+                if (Boolean.TRUE.equals(onCall)) showOnCallStrip();
+                else hideOnCallStrip();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -859,9 +868,9 @@ public class ChatPresenceController {
     // Firebase paths written by PresenceManager.setOnCall(bool, type) from
     // CallActivity + GroupCallActivity.
 
-    private ValueEventListener onCallListener;
-    private ValueEventListener onCallTypeListener;
-    private String             lastOnCallType = null;   // "voice" | "video" | null
+    private ValueEventListener onCallListener;      // kept for release() cleanup ref (no longer registered)
+    private ValueEventListener onCallTypeListener;  // kept for release() cleanup ref (no longer registered)
+    private String             lastOnCallType = "";  // "voice" | "video" | ""
     private boolean            onCallStripVisible = false;
 
     // Pulsing-dot animation state
@@ -870,31 +879,11 @@ public class ChatPresenceController {
     private Runnable callDotRunnable;
     private boolean  callDotAnimRunning = false;
 
-    private void watchPartnerOnCall() {
-        String partnerUid = delegate.getPartnerUid();
-        if (partnerUid == null || partnerUid.isEmpty()) return;
-
-        // Watch onCallType first so it's ready before onCall fires
-        onCallTypeListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                lastOnCallType = s.getValue(String.class);
-                if (onCallStripVisible) refreshOnCallStripLabel(); // update label live
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getUserRef(partnerUid).child("onCallType")
-                .addValueEventListener(onCallTypeListener);
-
-        onCallListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                boolean onCall = Boolean.TRUE.equals(s.getValue(Boolean.class));
-                if (onCall) showOnCallStrip(); else hideOnCallStrip();
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getUserRef(partnerUid).child("onCall")
-                .addValueEventListener(onCallListener);
-    }
+    // NOTE: watchPartnerOnCall() has been merged into watchPartnerStatus() above.
+    // Both onCall and onCallType are read from the same users/{partnerUid} snapshot,
+    // so no second Firebase listener or round-trip is needed.
+    // onCallListener / onCallTypeListener fields are kept as null — release() guards
+    // against null before calling removeEventListener, so no change needed there.
 
     /** Updates the label text without re-animating the strip. */
     private void refreshOnCallStripLabel() {
