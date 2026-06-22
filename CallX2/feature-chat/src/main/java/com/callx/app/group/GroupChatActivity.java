@@ -219,7 +219,7 @@ public class GroupChatActivity extends AppCompatActivity
         startRealtimeListener();
 
         // DB background mein
-        new java.util.concurrent.Executors().newSingleThreadExecutor().execute(() -> {
+        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
             db = AppDatabase.getInstance(this);
             runOnUiThread(this::onGroupDbReady);
         });
