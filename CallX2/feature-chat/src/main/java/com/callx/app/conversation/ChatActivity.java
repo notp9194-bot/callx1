@@ -229,7 +229,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // ── Core setup ──
         setupToolbar();
         themeController.applyScreenTheme();
-        db = AppDatabase.getInstance(this);
 
         setupPagingRecyclerView();
         observePagedMessages();
@@ -481,13 +480,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (db == null || chatId == null || binding == null) return;
         String draftText = binding.etMessage.getText() != null
                 ? binding.etMessage.getText().toString() : "";
-        Executors.newSingleThreadExecutor().execute(() ->
+        ioExecutor.execute(() ->
                 db.chatDao().saveDraft(chatId, draftText));
     }
 
     private void restoreDraft() {
         if (db == null || chatId == null) return;
-        Executors.newSingleThreadExecutor().execute(() -> {
+        ioExecutor.execute(() -> {
             String draft = db.chatDao().getDraft(chatId);
             if (draft != null && !draft.isEmpty()) {
                 runOnUiThread(() -> {
@@ -1006,7 +1005,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 binding.etMessage.setText("");
                 if (presenceController != null) presenceController.clearOurTypingStatus();
                 if (liveTypingController != null) liveTypingController.clearOurPreview();
-                Executors.newSingleThreadExecutor().execute(() -> {
+                ioExecutor.execute(() -> {
                     if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
                 });
             });
@@ -1059,7 +1058,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.etMessage.post(() -> TypingStyleManager.get(this).applyToInput(binding.etMessage));
         if (presenceController != null) presenceController.clearOurTypingStatus();
         if (liveTypingController != null) liveTypingController.clearOurPreview();
-        Executors.newSingleThreadExecutor().execute(() -> {
+        ioExecutor.execute(() -> {
             if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
         });
         Message m = buildOutgoing();

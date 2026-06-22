@@ -172,7 +172,7 @@ public class SyncWorker extends Worker {
                 // ── AUTO-DELETE ENFORCEMENT ────────────────────────────────
                 // User ne jo setting choose ki hai (24h/7d/30d/90d) use ab
                 // actually enforce karo — Room se delete karo aur Firebase se bhi
-                SecurityManager secMgr = new SecurityManager(ctx);
+                SecurityManager secMgr = SecurityManager.get(ctx);
                 long autoDeleteMs = secMgr.getAutoDeleteMessagesMs();
                 if (autoDeleteMs > 0) {
                     long cutoff = System.currentTimeMillis() - autoDeleteMs;

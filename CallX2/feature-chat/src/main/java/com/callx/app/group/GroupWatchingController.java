@@ -131,7 +131,7 @@ public class GroupWatchingController {
         if (groupId == null || uid == null) return;
 
         if (messageId != null && delegate.getActivity() != null) {
-            SecurityManager secMgr = new SecurityManager(delegate.getActivity());
+            SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
             if (!secMgr.isWatchingPresenceEnabled()) messageId = null;
         }
 
@@ -434,7 +434,7 @@ public class GroupWatchingController {
 
         // Respect the same "Chat Activity Status" privacy toggle used for 1:1 chats.
         if (active && delegate.getActivity() != null) {
-            SecurityManager secMgr = new SecurityManager(delegate.getActivity());
+            SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
             if (!secMgr.isWatchingPresenceEnabled()) active = false;
         }
 

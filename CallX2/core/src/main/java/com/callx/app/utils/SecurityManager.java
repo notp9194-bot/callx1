@@ -67,6 +67,26 @@ public class SecurityManager {
 
     private final SharedPreferences prefs;
 
+    // ── Singleton ─────────────────────────────────────────────────────────
+    // PERF FIX: EncryptedSharedPreferences.create() performs AES256 key
+    // derivation on every call (~100-300 ms). The old code called
+    // `new SecurityManager(ctx)` inside markRead(), which runs once per
+    // incoming message — so opening a chat with 50 unread messages triggered
+    // 50 key-derivation operations, making the screen feel very slow to load.
+    // Singleton ensures this expensive work happens exactly once per process.
+    private static volatile SecurityManager instance;
+
+    public static SecurityManager get(@NonNull android.content.Context ctx) {
+        if (instance == null) {
+            synchronized (SecurityManager.class) {
+                if (instance == null) {
+                    instance = new SecurityManager(ctx.getApplicationContext());
+                }
+            }
+        }
+        return instance;
+    }
+
     public SecurityManager(@NonNull Context ctx) {
         SharedPreferences sp;
         try {

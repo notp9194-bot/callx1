@@ -426,7 +426,7 @@ public class ChatPresenceController {
         // Respect the "Chat Activity Status" privacy toggle — if the user has
         // turned this off, we never publish true (always clear instead).
         if (active && delegate.getActivity() != null) {
-            SecurityManager secMgr = new SecurityManager(delegate.getActivity());
+            SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
             if (!secMgr.isWatchingPresenceEnabled()) active = false;
         }
 
@@ -501,7 +501,7 @@ public class ChatPresenceController {
         if (chatId == null || uid == null) return;
 
         if (messageId != null && delegate.getActivity() != null) {
-            SecurityManager secMgr = new SecurityManager(delegate.getActivity());
+            SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
             if (!secMgr.isWatchingPresenceEnabled()) messageId = null;
         }
 
@@ -891,7 +891,7 @@ public class ChatPresenceController {
     public void markRead(Message m) {
         if (m == null || m.id == null) return;
         if (!delegate.getCurrentUid().equals(m.senderId) && !"read".equals(m.status)) {
-            SecurityManager secMgr = new SecurityManager(delegate.getActivity());
+            SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
             if (!secMgr.isReadReceiptsEnabled()) return;
             delegate.getMessagesRef().child(m.id).child("status").setValue("read");
             delegate.getIoExecutor().execute(() ->
