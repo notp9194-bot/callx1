@@ -341,9 +341,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // shimmerShowRunnable above. Cancelled in addLoadStateListener the
         // moment real data (cached or fresh) actually arrives. Skipped
         // entirely on a warm-cache hit — there's already content on screen.
-        if (!warmCacheHit) {
-            shimmerHandler.postDelayed(shimmerShowRunnable, SHIMMER_SHOW_DELAY_MS);
-        }
+        // SKELETON REMOVED (by request): shimmer was still flashing on cold
+        // loads (first-ever open this session / no warm cache). Scheduling
+        // disabled entirely — cold loads now just show llEmptyChat-style
+        // blank until real data arrives, same as a warm-cache load.
+        // shimmerHandler.postDelayed(shimmerShowRunnable, SHIMMER_SHOW_DELAY_MS);
 
         // Firebase listener IMMEDIATELY lagao — DB ready hone se pehle bhi
         // messages queue mein buffer hote hain (pendingUpserts map mein).
