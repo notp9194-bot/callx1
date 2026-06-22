@@ -128,6 +128,19 @@ public class CallxApp extends Application {
             // Status: 200MB dedicated cache — same pattern as Reels
             StatusVideoCacheManager.init(CallxApp.this);
 
+            // ── PERF FIX: AppDatabase warm-up ────────────────────────────
+            // AppDatabase.getInstance() pehli baar SQLCipher loadLibs() +
+            // EncryptedDbKeyStore key retrieval + Room schema check karta hai
+            // — yeh 500ms–2sec le sakta hai. Background me warm karo taaki
+            // ChatActivity open hone par DB already ready mile aur main
+            // thread block na ho.
+            try {
+                com.callx.app.db.AppDatabase.getInstance(CallxApp.this);
+                Log.d(TAG, "AppDatabase warm-up complete");
+            } catch (Exception e) {
+                Log.w(TAG, "AppDatabase warm-up failed (will retry on first use): " + e.getMessage());
+            }
+
             Log.d(TAG, "Background init complete");
         }, "app-init-bg").start();
     }

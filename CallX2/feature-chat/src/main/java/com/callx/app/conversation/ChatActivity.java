@@ -207,7 +207,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             finish(); return;
         }
 
-        db = AppDatabase.getInstance(this);
+        // ── PERF FIX: DB getInstance background se warm hona chahiye (CallxApp).
+        // Agar pehli baar aa raha hai (cold boot) toh background thread pe karo
+        // taaki main thread block na ho. Normally warm-up already ho chuka hoga.
+        ioExecutor.execute(() -> {
+            db = AppDatabase.getInstance(this);
+            runOnUiThread(this::onDbReady);
+        });
+    }
+
+    /**
+     * PERF FIX: DB ready hone ke baad hi baaki init karo.
+     * Normal case mein DB pehle se warm hai toh yeh usi frame mein fire hoga.
+     * Cold boot mein background thread pe wait karta hai — UI freeze nahi hoga.
+     */
+    private void onDbReady() {
+        if (isFinishing() || isDestroyed()) return;
 
         // ── Create all remaining controllers ──
         blockController    = new ChatBlockController(this);
@@ -239,21 +254,43 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupSwipeToReply();
         setupFabBackToLatest();
 
-        // ── Controller init (Firebase listeners) ──
+        // ── PERF FIX: Critical controllers turant init karo ──
+        // Presence aur markRead zaroori hain (user experience direct impact)
         presenceController.init();
-        playbackPresenceController.init();
-        liveTypingController.init();
-        pinController.init();
-        scheduledSendController.init();
-        screenshotNotifier.init();
-
         markMessagesReadOnOpen();
         setupNetworkMonitor();
-        ioExecutor.execute(() -> db.messageDao().pruneOldMessages(chatId, 500));
-        scheduleExpiryCleanup();
-
-        ChatRepository.getInstance(this).preloadRecentChats(chatId);
         restoreDraft();
+
+        // ── PERF FIX: Non-critical controllers 300ms baad init karo ──
+        // Screen render ho jaaye pehle, tab ye Firebase listeners attach hon.
+        // Isse first-frame rendering fast hota hai.
+        binding.getRoot().postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            playbackPresenceController.init();
+            liveTypingController.init();
+            screenshotNotifier.init();
+        }, 300);
+
+        // ── PERF FIX: Low-priority controllers 600ms baad ──
+        binding.getRoot().postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            pinController.init();
+            scheduledSendController.init();
+        }, 600);
+
+        // ── PERF FIX: Background cleanup tasks delayed karo ──
+        // Ye initial message load ke saath compete na kare
+        ioExecutor.execute(() -> db.messageDao().pruneOldMessages(chatId, 500));
+
+        // ExpiryCleanup 10 sec baad — Firebase query initial load se compete na kare
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+            this::scheduleExpiryCleanup, 10_000L
+        );
+
+        // preloadRecentChats 3 sec baad — current chat load ho jaaye pehle
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() ->
+            ChatRepository.getInstance(this).preloadRecentChats(chatId), 3_000L
+        );
     }
 
     @Override
@@ -905,6 +942,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private void saveToRoom(Message m, boolean isUpdate) {
+        if (db == null) return;
         ioExecutor.execute(() -> {
             MessageEntity entity = modelToEntity(m);
             db.messageDao().insertMessage(entity);

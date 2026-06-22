@@ -745,12 +745,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     }
 
     private final java.util.Map<String, String> photoCache = new java.util.HashMap<>();
+    // UIDs jinka Firebase fetch chal raha hai — duplicate requests rok ne ke liye
+    private final java.util.Set<String> photoFetchInFlight = new java.util.HashSet<>();
 
     private void loadSenderAvatar(android.content.Context ctx, String uid,
             de.hdodenhof.circleimageview.CircleImageView iv) {
         if (uid == null || ctx == null || iv == null) return;
         String cached = photoCache.get(uid);
         if (cached != null) {
+            // Cache hit — seedha load karo, no network call
             if (!cached.isEmpty())
                 com.bumptech.glide.Glide.with(ctx).load(cached)
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
@@ -758,18 +761,36 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             else iv.setImageResource(R.drawable.ic_person);
             return;
         }
+
+        // ── PERF FIX: Firebase call per-row nahi ──────────────────────────
+        // Pehle placeholder dikhao — screen turant render hogi.
+        // Firebase fetch sirf ek baar hoga (in-flight deduplication).
+        // Fetch complete hone par notifyDataSetChanged nahi karte —
+        // sirf woh row update hogi jab woh dubara bind hogi (cache hit).
+        iv.setImageResource(R.drawable.ic_person);
+
+        if (photoFetchInFlight.contains(uid)) return; // already fetching
+        photoFetchInFlight.add(uid);
+
         com.callx.app.utils.FirebaseUtils.getUserRef(uid)
             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
                 @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
+                    photoFetchInFlight.remove(uid);
                     String photo = snap.child("photoUrl").getValue(String.class);
                     photoCache.put(uid, photo != null ? photo : "");
-                    if (photo != null && !photo.isEmpty())
-                        com.bumptech.glide.Glide.with(ctx).load(photo)
-                            .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                            .placeholder(R.drawable.ic_person).into(iv);
-                    else iv.setImageResource(R.drawable.ic_person);
+                    // Sirf is ImageView pe load karo agar still valid hai
+                    if (photo != null && !photo.isEmpty()) {
+                        try {
+                            com.bumptech.glide.Glide.with(ctx).load(photo)
+                                .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                                .placeholder(R.drawable.ic_person).into(iv);
+                        } catch (Exception ignored) {}
+                    }
                 }
-                @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
+                @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {
+                    photoFetchInFlight.remove(uid);
+                    photoCache.put(uid, ""); // don't retry this session
+                }
             });
     }
 
