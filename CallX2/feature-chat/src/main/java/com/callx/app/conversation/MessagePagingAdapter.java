@@ -434,6 +434,7 @@ public class MessagePagingAdapter
                     .load(photo)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .override(96, 96)
+                    .dontAnimate()
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
                     .into(ivAvatar);
@@ -527,6 +528,7 @@ public class MessagePagingAdapter
                     .load(photo)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .override(96, 96)
+                    .dontAnimate()
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
                     .into(ivAvatar);
@@ -1040,7 +1042,17 @@ public class MessagePagingAdapter
 
                 // POLISH: Link preview — detect URL, fetch OG data async, bind card
                 if (h.llLinkPreview != null && m.text != null) {
-                    String previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text);
+                    // PERF: cache extracted URL in tvMessage tag — regex won't run again
+                    // if same text is re-bound (e.g. after reaction/status update)
+                    String cachedText = (String) h.tvMessage.getTag(R.id.tv_message);
+                    String previewUrl;
+                    if (m.text.equals(cachedText)) {
+                        previewUrl = (String) h.llLinkPreview.getTag();
+                        if (previewUrl == null) previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text);
+                    } else {
+                        h.tvMessage.setTag(R.id.tv_message, m.text);
+                        previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text);
+                    }
                     if (previewUrl != null) {
                         // Tag itemView with URL so we detect stale VH on recycle
                         h.llLinkPreview.setTag(previewUrl);

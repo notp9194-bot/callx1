@@ -860,7 +860,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // FIX #2a: Tell LinearLayoutManager how many items to prefetch.
         // Default is 2 — increasing to 5 means the next 5 items are inflated
         // during idle time before the user scrolls to them (no stutter).
-        llm.setInitialPrefetchItemCount(5);
+        llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
         binding.rvMessages.setAdapter(pagingAdapter);
         // FIX #2b: setHasFixedSize(true) — RecyclerView won't re-measure
@@ -872,7 +872,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // typical visible window of ~12 items, cache=2 means almost every
         // onBind() must pull from the recycle pool (slow). Cache=10 keeps the
         // most recently off-screen views ready to rebind without reinflation.
-        binding.rvMessages.setItemViewCacheSize(10);
+        binding.rvMessages.setItemViewCacheSize(20);
         // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
         // Default pool size is 5 already but explicit sizing prevents the pool
         // from being exhausted on fast flings that scroll past many bubbles.

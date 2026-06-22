@@ -34,6 +34,7 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
             if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
                 Glide.with(ctx)
                     .load(g.iconUrl)
+                    .dontAnimate()
                     .apply(RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_group)
                     .error(R.drawable.ic_group)

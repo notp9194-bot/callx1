@@ -71,7 +71,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     public void setSpecialRequestSenders(Set<String> set) {
         this.specialRequestSenders = set == null ? new HashSet<>() : set;
-        notifyDataSetChanged();
+        notifyItemRangeChanged(0, getItemCount());
     }
 
     public void setOnAvatarClickListener(OnAvatarClickListener listener) {
@@ -103,6 +103,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(ctx)
                 .load(avatarUrl)
+                .dontAnimate()
                 .apply(RequestOptions.circleCropTransform())
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)

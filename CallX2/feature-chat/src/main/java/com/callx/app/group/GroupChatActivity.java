@@ -436,8 +436,21 @@ public class GroupChatActivity extends AppCompatActivity
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
         llm.setStackFromEnd(true);
+        llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
         binding.rvMessages.setAdapter(pagingAdapter);
+        // PERF: fixed-size RV, large view cache, shared RecycledViewPool
+        binding.rvMessages.setHasFixedSize(true);
+        binding.rvMessages.setItemViewCacheSize(20);
+        androidx.recyclerview.widget.RecyclerView.RecycledViewPool groupPool =
+                new androidx.recyclerview.widget.RecyclerView.RecycledViewPool();
+        groupPool.setMaxRecycledViews(1, 5);
+        groupPool.setMaxRecycledViews(2, 5);
+        groupPool.setMaxRecycledViews(3, 3);
+        groupPool.setMaxRecycledViews(4, 3);
+        groupPool.setMaxRecycledViews(5, 3);
+        binding.rvMessages.setRecycledViewPool(groupPool);
+        com.callx.app.chat.performance.SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
@@ -1873,7 +1886,7 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.chat.ui.MessageFontSizeBottomSheet sheet =
                 com.callx.app.chat.ui.MessageFontSizeBottomSheet.newInstance();
         sheet.setOnSizeSelectedListener(which -> {
-            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+            if (pagingAdapter != null) pagingAdapter.notifyItemRangeChanged(0, pagingAdapter.getItemCount());
         });
         sheet.show(getSupportFragmentManager(),
                 com.callx.app.chat.ui.MessageFontSizeBottomSheet.TAG);
@@ -1931,7 +1944,7 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.chat.ui.BubbleShapeBottomSheet sheet =
                 com.callx.app.chat.ui.BubbleShapeBottomSheet.newInstance();
         sheet.setOnShapeSelectedListener(which -> {
-            if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+            if (pagingAdapter != null) pagingAdapter.notifyItemRangeChanged(0, pagingAdapter.getItemCount());
         });
         sheet.show(getSupportFragmentManager(),
                 com.callx.app.chat.ui.BubbleShapeBottomSheet.TAG);

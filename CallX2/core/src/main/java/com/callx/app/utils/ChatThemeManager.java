@@ -60,8 +60,8 @@ public class ChatThemeManager {
     };
 
     // ── Corner radii in dp ───────────────────────────────────────────────
-    private static final float R_LARGE = 20f;
-    private static final float R_SMALL = 6f;
+    private static final float R_LARGE = 14f;
+    private static final float R_SMALL = 4f;
 
     // ── SharedPreferences ────────────────────────────────────────────────
     private static final String PREF_NAME = "chat_theme_prefs";
@@ -132,15 +132,10 @@ public class ChatThemeManager {
             int[] colors = getColors(currentTheme, sent);
 
             GradientDrawable gd;
-            if (currentTheme == THEME_MONO || currentTheme == THEME_CLASSIC
-                    || currentTheme == THEME_COFFEE || currentTheme == THEME_ICE) {
-                gd = new GradientDrawable();
-                gd.setColor(colors[0]);
-            } else {
-                gd = new GradientDrawable(
-                        GradientDrawable.Orientation.TL_BR,
-                        colors);
-            }
+            // PERF: Always use flat solid color — gradients cause GPU overdraw on every frame.
+            // Theme colors are preserved (each theme still has its unique color), just no gradient.
+            gd = new GradientDrawable();
+            gd.setColor(colors[0]);
             gd.setCornerRadii(corners);
 
             cached = gd;

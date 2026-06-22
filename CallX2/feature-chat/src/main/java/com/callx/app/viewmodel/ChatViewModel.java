@@ -60,8 +60,8 @@ public class ChatViewModel extends AndroidViewModel {
 
     // ── Config ─────────────────────────────────────────────────────────────
     private static final int PAGE_SIZE     = 20;
-    private static final int PREFETCH_DIST = 10;
-    private static final int INITIAL_LOAD  = 40;
+    private static final int PREFETCH_DIST = 5;
+    private static final int INITIAL_LOAD  = 30;
 
     // ── Dependencies ───────────────────────────────────────────────────────
     private final ChatRepository  repo;
