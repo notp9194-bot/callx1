@@ -165,20 +165,80 @@ public class ChatViewModel extends AndroidViewModel {
     // REALTIME FIREBASE → ROOM SYNC
     // ─────────────────────────────────────────────────────────────────────
 
+    // ── PERF FIX: Write-coalescing buffer (same pattern as ChatActivity) ──────
+    // ChatViewModel previously called insertMessage() per Firebase event — when
+    // a chat opened with 50 messages, that was 50 separate Room writes → 50
+    // PagingSource invalidations → 50 RecyclerView re-renders. The user saw
+    // messages "popping in" one by one with a 3-4s total delay.
+    // Fix: buffer adds/changes/removes within an 80ms window and flush them
+    // all in ONE Room transaction → one invalidation → one clean render pass.
+    private static final long WRITE_FLUSH_DEBOUNCE_MS = 80;
+    private final java.util.Map<String, Message> pendingUpserts =
+            new java.util.LinkedHashMap<>();
+    private final java.util.LinkedHashSet<String> pendingRemovals =
+            new java.util.LinkedHashSet<>();
+    private final android.os.Handler writeFlushHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean writeFlushScheduled = false;
+    private final Runnable writeFlushRunnable = this::flushPendingWrites;
+
+    private void queueUpsert(Message m) {
+        if (m == null || m.id == null) return;
+        pendingUpserts.put(m.id, m);
+        pendingRemovals.remove(m.id);
+        scheduleFlush();
+    }
+
+    private void queueRemoval(String id) {
+        if (id == null) return;
+        pendingUpserts.remove(id);
+        pendingRemovals.add(id);
+        scheduleFlush();
+    }
+
+    private void scheduleFlush() {
+        if (writeFlushScheduled) return;
+        writeFlushScheduled = true;
+        writeFlushHandler.postDelayed(writeFlushRunnable, WRITE_FLUSH_DEBOUNCE_MS);
+    }
+
+    private void flushPendingWrites() {
+        writeFlushScheduled = false;
+        if (pendingUpserts.isEmpty() && pendingRemovals.isEmpty()) return;
+        java.util.List<Message> upserts = new java.util.ArrayList<>(pendingUpserts.values());
+        java.util.List<String> removals = new java.util.ArrayList<>(pendingRemovals);
+        pendingUpserts.clear();
+        pendingRemovals.clear();
+        ioExecutor.execute(() -> {
+            java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upserts.size());
+            for (Message m : upserts) entities.add(messageToEntity(m));
+            db.messageDao().applyBufferedChanges(entities, removals, null);
+        });
+    }
+
     private void startRealtimeListener() {
         messagesRef = FirebaseUtils.getMessagesRef(chatId);
         E2EEncryptionManager encryption =
                 E2EEncryptionManager.getInstance(getApplication());
 
+        // PERF FIX: Delta sync — only fetch messages newer than what is already
+        // cached in Room. On cold open this is limitToLast(30); on re-open
+        // (user navigates away and back) only genuinely new messages are fetched.
+        // Old code always fetched the last 50 messages from Firebase regardless,
+        // which caused the 3-4s delay on every single chat open.
+        long lastTs = com.callx.app.cache.CacheManager.getInstance(getApplication())
+                .getLastSyncTimestamp(chatId);
+
+        com.google.firebase.database.Query query = (lastTs > 0)
+                ? messagesRef.orderByChild("timestamp").startAfter((double) lastTs)
+                : messagesRef.orderByChild("timestamp").limitToLast(30);
+
         messageChildListener = new ChildEventListener() {
-            @Override
-            public void onChildAdded(@NonNull DataSnapshot snap, String prev) {
+            private Message decryptAndTag(DataSnapshot snap) {
                 Message raw = snap.getValue(Message.class);
-                if (raw == null) return;
+                if (raw == null) return null;
                 if (raw.messageId == null) raw.messageId = snap.getKey();
                 if (raw.id == null)        raw.id        = snap.getKey();
-
-                // Decrypt message text if encrypted
                 if (raw.text != null && raw.text.startsWith("enc:")) {
                     try {
                         raw.text = encryption.decrypt(raw.text, partnerUid);
@@ -186,42 +246,24 @@ public class ChatViewModel extends AndroidViewModel {
                         Log.w(TAG, "Decrypt failed for msg: " + raw.messageId, e);
                     }
                 }
+                return raw;
+            }
 
-                Message msg = raw;
-                ioExecutor.execute(() -> {
-                    MessageEntity entity = messageToEntity(msg);
-                    db.messageDao().insertMessage(entity);
-                });
+            @Override
+            public void onChildAdded(@NonNull DataSnapshot snap, String prev) {
+                Message msg = decryptAndTag(snap);
+                if (msg != null) queueUpsert(msg);
             }
 
             @Override
             public void onChildChanged(@NonNull DataSnapshot snap, String prev) {
-                Message raw = snap.getValue(Message.class);
-                if (raw == null) return;
-                if (raw.messageId == null) raw.messageId = snap.getKey();
-                if (raw.id == null)        raw.id        = snap.getKey();
-
-                if (raw.text != null && raw.text.startsWith("enc:")) {
-                    try {
-                        raw.text = encryption.decrypt(raw.text, partnerUid);
-                    } catch (Exception e) {
-                        Log.w(TAG, "Decrypt failed on update: " + raw.messageId, e);
-                    }
-                }
-
-                Message msg = raw;
-                ioExecutor.execute(() -> {
-                    MessageEntity entity = messageToEntity(msg);
-                    db.messageDao().insertMessage(entity);
-                });
+                Message msg = decryptAndTag(snap);
+                if (msg != null) queueUpsert(msg);
             }
 
             @Override
             public void onChildRemoved(@NonNull DataSnapshot snap) {
-                String msgId = snap.getKey();
-                if (msgId != null) {
-                    ioExecutor.execute(() -> db.messageDao().softDelete(msgId));
-                }
+                queueRemoval(snap.getKey());
             }
 
             @Override public void onChildMoved(@NonNull DataSnapshot s, String p) {}
@@ -230,8 +272,7 @@ public class ChatViewModel extends AndroidViewModel {
             }
         };
 
-        messagesRef.orderByChild("timestamp").limitToLast(50)
-                .addChildEventListener(messageChildListener);
+        query.addChildEventListener(messageChildListener);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -521,6 +562,9 @@ public class ChatViewModel extends AndroidViewModel {
 
         clearOurTypingStatus();
         typingHandler.removeCallbacks(stopTypingRunnable);
+        // PERF FIX: flush any buffered writes before ViewModel dies
+        writeFlushHandler.removeCallbacks(writeFlushRunnable);
+        flushPendingWrites();
         ioExecutor.shutdown();
     }
 

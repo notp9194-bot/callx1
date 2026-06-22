@@ -69,7 +69,7 @@ import net.sqlcipher.database.SupportFactory;
         StatusEntity.class,    // v17: status cache
         ScheduledMessageEntity.class  // v28: scheduled chat messages
     },
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -315,6 +315,18 @@ public abstract class AppDatabase extends RoomDatabase {
     //   Then: .addMigrations(MIGRATION_1_2) in buildDatabase()
     // ──────────────────────────────────────────────────────────────
 
+
+    /** v15 -> v16: performance indexes on messages(chatId,status) and messages(status).
+     *  Speeds up getPendingMessages() / getAllPendingMessages() queries which
+     *  previously did a full table scan on every message in the DB. */
+    static final Migration MIGRATION_15_16 = new Migration(15, 16) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_chatId_status` ON `messages` (`chatId`, `status`)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_status` ON `messages` (`status`)");
+        }
+    };
+
     public static AppDatabase getInstance(Context ctx) {
         if (sInstance == null) {
             synchronized (AppDatabase.class) {
@@ -348,13 +360,25 @@ public abstract class AppDatabase extends RoomDatabase {
 
         SupportFactory factory = new SupportFactory(passphrase);
 
+        // PERF FIX: Dedicated IO executor for Room queries.
+        java.util.concurrent.ExecutorService queryExecutor =
+                java.util.concurrent.Executors.newFixedThreadPool(4);
+
         AppDatabase db = Room.databaseBuilder(ctx, AppDatabase.class, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt) v25(polls) v26(multiChoicePolls) v27(editHistory) v28(scheduledMessages) v29(reactions)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt) v25(polls) v26(multiChoicePolls) v27(editHistory) v28(scheduledMessages) v29(reactions)
                 .fallbackToDestructiveMigration()
+                // PERF FIX: WAL (Write-Ahead Logging) mode.
+                // Default TRUNCATE mode holds a full write lock — concurrent reads
+                // from the Paging3 worker are blocked while Firebase->Room sync
+                // writes happen, causing 50-300ms freezes per write burst.
+                // WAL allows reads to proceed concurrently with writes: Paging3
+                // never waits for sync writes, so chat opens instantly from cache.
+                .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+                .setQueryExecutor(queryExecutor)
                 .build();
 
-        Log.d(TAG, "AppDatabase (SQLCipher encrypted, exportSchema=true) ready");
+        Log.d(TAG, "AppDatabase (SQLCipher encrypted, WAL mode, exportSchema=true) ready");
         return db;
     }
 }

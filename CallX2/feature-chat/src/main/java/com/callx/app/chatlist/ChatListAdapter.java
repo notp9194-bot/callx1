@@ -67,6 +67,16 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     public ChatListAdapter(List<User> contacts, SelectionListener listener) {
         this.contacts          = contacts;
         this.selectionListener = listener;
+        // PERF FIX: stable IDs allow RecyclerView to animate diffs correctly
+        // and avoid unnecessary rebind calls for unchanged items.
+        setHasStableIds(true);
+    }
+
+    @Override
+    public long getItemId(int position) {
+        if (position < 0 || position >= contacts.size()) return RecyclerView.NO_ID;
+        String uid = contacts.get(position).uid;
+        return uid != null ? uid.hashCode() : position;
     }
 
     public void setSpecialRequestSenders(Set<String> set) {

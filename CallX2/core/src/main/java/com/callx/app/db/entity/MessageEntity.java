@@ -15,7 +15,12 @@ import androidx.annotation.NonNull;
     indices = {
         @Index(value = {"chatId", "timestamp"}),
         @Index(value = {"chatId", "starred"}),
-        @Index(value = {"syncedAt"})
+        @Index(value = {"syncedAt"}),
+        // PERF FIX: Speeds up getPendingMessages() and getAllPendingMessages()
+        // queries that filter by status='pending'. Without this index SQLite
+        // does a full table scan of every message in the DB on every retry call.
+        @Index(value = {"chatId", "status"}),
+        @Index(value = {"status"})
     }
 )
 public class MessageEntity {
