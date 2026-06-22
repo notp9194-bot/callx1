@@ -114,12 +114,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Constants ──────────────────────────────────────────────────────────
     private static final String TAG           = "ChatActivity";
-    // FIX #6: Tuned PagingConfig values.
-    // INITIAL_LOAD 40→30: fetching 40 on first open is wasteful — user sees ~12 items.
-    // PREFETCH_DIST 10→5: 10 items ahead = too eager on DB thread. 5 = half screen ahead, still smooth.
-    private static final int    PAGE_SIZE     = 20;
+    // PERF v4: Tuned PagingConfig values for WhatsApp-level smoothness.
+    // PAGE_SIZE 20→30: more items per page = fewer DB round-trips during fast fling.
+    // INITIAL_LOAD 30→40: 40 items covers ~3 screens at first open — no blank flash.
+    // PREFETCH_DIST kept at 5: half a screen ahead is enough for the IO thread.
+    private static final int    PAGE_SIZE     = 30;
     private static final int    PREFETCH_DIST = 5;
-    private static final int    INITIAL_LOAD  = 30;
+    private static final int    INITIAL_LOAD  = 40;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
 
     // ── View binding ───────────────────────────────────────────────────────
@@ -1039,15 +1040,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // onBind() must pull from the recycle pool (slow). Cache=10 keeps the
         // most recently off-screen views ready to rebind without reinflation.
         binding.rvMessages.setItemViewCacheSize(20);
-        // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
-        // Default pool size is 5 already but explicit sizing prevents the pool
-        // from being exhausted on fast flings that scroll past many bubbles.
+        // PERF v4: RecycledViewPool bumped for the two hottest view types.
+        // TYPE_SENT/RECEIVED raised from 5→10: a fast fling can exhaust 5 slots
+        // in under 50ms, forcing onCreateViewHolder() inflation on the UI thread.
+        // 10 matches the Telegram/WhatsApp guideline for primary chat bubble types.
         RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
-        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        5);
-        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    5);
-        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */, 3);
-        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,   3);
-        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,  3);
+        pool.setMaxRecycledViews(1 /* TYPE_SENT */,         10);
+        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,     10);
+        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */,   3);
+        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,     3);
+        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,    3);
         binding.rvMessages.setRecycledViewPool(pool);
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
         // WHATSAPP-STYLE FIX: kill the default ItemAnimator entirely.

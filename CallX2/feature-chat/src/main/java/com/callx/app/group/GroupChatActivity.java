@@ -81,9 +81,11 @@ public class GroupChatActivity extends AppCompatActivity
         implements GroupWatchingController.Delegate, GroupStarredController.Delegate {
 
     private static final String TAG           = "GroupChatActivity";
-    private static final int    PAGE_SIZE     = 20;
+    // PERF v4: aligned with ChatActivity — 30 items per page (fewer DB trips
+    // on fast fling), PREFETCH_DIST 10→5 (half-screen lookahead is plenty).
+    private static final int    PAGE_SIZE     = 30;
     private static final int    INITIAL_LOAD  = 40;
-    private static final int    PREFETCH_DIST = 10;
+    private static final int    PREFETCH_DIST = 5;
     private static final int    REQ_AUDIO     = 200;
 
     // ── View binding ───────────────────────────────────────────────────────
@@ -472,12 +474,13 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setLayoutManager(llm);
         binding.rvMessages.setAdapter(pagingAdapter);
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
+        // v4: TYPE_SENT/RECEIVED bumped 5→10 (same as ChatActivity).
         binding.rvMessages.setHasFixedSize(true);
         binding.rvMessages.setItemViewCacheSize(20);
         androidx.recyclerview.widget.RecyclerView.RecycledViewPool groupPool =
                 new androidx.recyclerview.widget.RecyclerView.RecycledViewPool();
-        groupPool.setMaxRecycledViews(1, 5);
-        groupPool.setMaxRecycledViews(2, 5);
+        groupPool.setMaxRecycledViews(1, 10);
+        groupPool.setMaxRecycledViews(2, 10);
         groupPool.setMaxRecycledViews(3, 3);
         groupPool.setMaxRecycledViews(4, 3);
         groupPool.setMaxRecycledViews(5, 3);
