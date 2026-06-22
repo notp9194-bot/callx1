@@ -1,300 +1,128 @@
 package com.callx.app.db.dao;
 
-import androidx.annotation.WorkerThread;
-import androidx.lifecycle.LiveData;
 import androidx.paging.PagingSource;
 import androidx.room.Dao;
 import androidx.room.Insert;
 import androidx.room.OnConflictStrategy;
 import androidx.room.Query;
 import androidx.room.Transaction;
-import androidx.room.Update;
-
+import androidx.annotation.WorkerThread;
 import com.callx.app.db.entity.MessageEntity;
-
 import java.util.List;
 
 /**
- * Message DAO — all queries for the messages table.
+ * MessageDao — WhatsApp-level bulk operations
  *
- * FIX #3 (MEDIUM): Ordering inconsistency fixed.
- *
- *   Old:
- *     getMessagesPagingSource() → ORDER BY timestamp ASC  (oldest → newest)
- *     getMessagesPaged()        → ORDER BY timestamp DESC (newest → oldest)
- *
- *   → CacheManager.preloadTopChats() filled MemoryCache with DESC-ordered lists.
- *     Any code path that consumed this cache and displayed it directly showed
- *     messages in REVERSE order (newest at top, oldest at bottom).
- *
- *   Fix: ALL queries that return messages for display use ASC order.
- *     getMessagesPaged() is now ASC to match getMessagesPagingSource().
- *     getLastMessage() still uses DESC LIMIT 1 — correct (it fetches one row).
- *     getStarredMessages() remains DESC — correct (newest starred first in list).
+ * KEY UPGRADE: applyBufferedChanges() — single @Transaction for all buffered
+ * Firebase events. 30 onChildAdded() callbacks → 1 Room write → 1 PagingSource
+ * invalidation → 1 DiffUtil pass → 0 visible jump/flicker.
  */
 @Dao
-public interface MessageDao {
+public abstract class MessageDao {
 
-    // ─────────────────────────────────────────────────────────────
-    // LIVE / REACTIVE QUERIES
-    // ─────────────────────────────────────────────────────────────
+    // ── Insert / upsert ──────────────────────────────────────────────────────
 
-    /** LiveData stream — UI auto-updates when DB changes. ASC = oldest → newest. */
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC")
-    LiveData<List<MessageEntity>> getMessages(String chatId);
-
-    /**
-     * Paging 3 — Room native PagingSource for smooth infinite scroll.
-     * ASC order: messages load oldest → newest (standard chat layout).
-     * PagingSource auto-invalidates when Room detects DB changes.
-     */
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC")
-    PagingSource<Integer, MessageEntity> getMessagesPagingSource(String chatId);
-
-    /**
-     * Manual offset-based page — used by CacheManager.preloadTopChats().
-     *
-     * FIX #3: Changed from DESC to ASC.
-     * Old: ORDER BY timestamp DESC → MemoryCache had reversed-order list.
-     * New: ORDER BY timestamp ASC  → consistent with PagingSource order.
-     * Result: preloaded cache matches what the pager shows → no reorder surprise.
-     */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC LIMIT :limit OFFSET :offset")
-    List<MessageEntity> getMessagesPaged(String chatId, int limit, int offset);
-
-    /**
-     * PERF: used by LastMessagesCache priming — fetches just the most recent
-     * `limit` rows but returns them ASC (oldest→newest), matching the order
-     * Room/Paging/RecyclerView already use. Inner query does DESC+LIMIT
-     * (cheap, uses the chatId+timestamp index), outer query just re-sorts
-     * those few rows ASC — no full-table scan, no large offset math.
-     */
-    @WorkerThread
-    @Query("SELECT * FROM (SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT :limit) ORDER BY timestamp ASC")
-    List<MessageEntity> getLastMessagesAsc(String chatId, int limit);
-
-    // ─────────────────────────────────────────────────────────────
-    // DELTA SYNC
-    // ─────────────────────────────────────────────────────────────
-
-    /** Delta sync: only messages newer than lastTimestamp. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp > :lastTimestamp ORDER BY timestamp ASC")
-    List<MessageEntity> getMessagesSince(String chatId, long lastTimestamp);
-
-    /** Most recent message timestamp per chat — used for delta sync range. */
-    @WorkerThread
-    @Query("SELECT MAX(timestamp) FROM messages WHERE chatId = :chatId")
-    Long getLastTimestamp(String chatId);
-
-    /** Last message row — used for chat list preview. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT 1")
-    MessageEntity getLastMessage(String chatId);
-
-    // ─────────────────────────────────────────────────────────────
-    // STARRED MESSAGES
-    // ─────────────────────────────────────────────────────────────
-
-    /** Starred messages — newest first (correct for starred list screen). */
-    @Query("SELECT * FROM messages WHERE starred = 1 ORDER BY timestamp DESC")
-    LiveData<List<MessageEntity>> getStarredMessages();
-
-    /** Starred messages sync version — for offline background thread use. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE starred = 1 ORDER BY timestamp ASC")
-    List<MessageEntity> getStarredMessagesSync();
-
-    // ─────────────────────────────────────────────────────────────
-    // WRITE OPERATIONS
-    // ─────────────────────────────────────────────────────────────
-
-    /** v15: Pending messages jo offline the — retry ke liye (specific chat). */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND status = 'pending' ORDER BY timestamp ASC")
-    List<MessageEntity> getPendingMessages(String chatId);
-
-    /** v18 IMPROVEMENT 5: Single message by id — media upload retry ke liye. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
-    MessageEntity getMessageById(String messageId);
-
-    /**
-     * POLISH: Reply scroll — count messages newer than a given timestamp in this chat.
-     * Used by navigateToOriginal() to calculate approximate adapter position.
-     */
-    @WorkerThread
-    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND timestamp > :timestamp")
-    int countMessagesAfterTimestamp(String chatId, long timestamp);
-
-    /** v18 IMPROVEMENT 5: Failed media uploads — SyncWorker retry karega. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE mediaLocalPath IS NOT NULL AND (mediaUrl IS NULL OR mediaUrl = '') AND status = 'pending' ORDER BY timestamp ASC")
-    List<MessageEntity> getFailedMediaUploads();
-
-    /** v18: Saare pending messages across all chats — SyncWorker + NotificationActionReceiver retry ke liye. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE status = 'pending' ORDER BY timestamp ASC")
-    List<MessageEntity> getAllPendingMessages();
-
-    /** Read receipts: messages from partnerUid in chatId that are not yet 'read'. */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :partnerUid AND (status IS NULL OR status != 'read') ORDER BY timestamp ASC")
-    List<MessageEntity> getUnreadMessages(String chatId, String partnerUid);
-
-    @WorkerThread
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    void insertMessages(List<MessageEntity> messages);
-
     @WorkerThread
+    public abstract void insertMessage(MessageEntity message);
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    void insertMessage(MessageEntity message);
-
     @WorkerThread
-    @Update
-    void updateMessage(MessageEntity message);
+    public abstract void insertMessages(List<MessageEntity> messages);
 
+    // ── Paging ───────────────────────────────────────────────────────────────
+
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND deleted = 0 ORDER BY timestamp ASC")
+    public abstract PagingSource<Integer, MessageEntity> getPagedMessages(String chatId);
+
+    @Query("SELECT * FROM messages WHERE groupId = :groupId AND deleted = 0 ORDER BY timestamp ASC")
+    public abstract PagingSource<Integer, MessageEntity> getPagedGroupMessages(String groupId);
+
+    // ── Bulk status / soft-delete ─────────────────────────────────────────────
+
+    /** Bulk soft-delete: single UPDATE for N message IDs. */
+    @Query("UPDATE messages SET deleted = 1 WHERE id IN (:ids)")
     @WorkerThread
-    @Query("UPDATE messages SET deleted = 1, text = '' WHERE id = :messageId")
-    void softDelete(String messageId);
+    public abstract void softDeleteAll(List<String> ids);
+
+    /** Bulk read-receipt: single UPDATE for N message IDs (status column only). */
+    @Query("UPDATE messages SET status = 'read' WHERE id IN (:ids)")
+    @WorkerThread
+    public abstract void markReadBulk(List<String> ids);
+
+    @Query("UPDATE messages SET deleted = 1 WHERE id = :msgId")
+    @WorkerThread
+    public abstract void markDeleted(String msgId);
+
+    @Query("UPDATE messages SET status = :status WHERE id = :msgId")
+    @WorkerThread
+    public abstract void updateStatus(String msgId, String status);
+
+    // ── THE KEY METHOD — one @Transaction for all buffered Firebase events ────
 
     /**
-     * PERF FIX (chat-open jump/flicker): bulk soft-delete for messages
-     * removed from Firebase while they were buffered in a write-coalescing
-     * window — see ChatActivity/GroupChatActivity#flushPendingRoomWrites().
-     * One UPDATE for N ids = one PagingSource invalidation, not N.
-     */
-    @WorkerThread
-    @Query("UPDATE messages SET deleted = 1, text = '' WHERE id IN (:ids)")
-    void softDeleteAll(List<String> ids);
-
-    @WorkerThread
-    @Query("UPDATE messages SET status = :status WHERE id = :messageId")
-    void updateStatus(String messageId, String status);
-
-    /**
-     * PERF FIX (chat-open jump/flicker): bulk "mark read" for messages
-     * buffered during the write-coalescing window, instead of one
-     * UPDATE per message (which was triggering one PagingSource
-     * invalidation — and therefore one extra RecyclerView re-render —
-     * per historical message on every chat open).
-     */
-    @WorkerThread
-    @Query("UPDATE messages SET status = 'read' WHERE id IN (:ids) AND (status IS NULL OR status != 'read')")
-    void markReadBulk(List<String> ids);
-
-    /**
-     * PERF FIX (chat-open jump/flicker): applies a whole burst of buffered
-     * Firebase events — new/changed messages, removed messages, and
-     * read-receipt updates — inside a SINGLE Room transaction.
+     * Atomically applies all buffered Firebase changes in ONE Room transaction.
      *
-     * Why this matters: previously every individual Firebase onChildAdded()
-     * fired its own insertMessage() + updateStatus() call. When a chat was
-     * opened, Firebase replays the last N messages as N separate
-     * onChildAdded() events in a tight burst; each one was its own Room
-     * write, each write fired its own PagingSource invalidation, and each
-     * invalidation drove its own submitData() → diff → layout pass. The
-     * user saw this as the chat screen "jumping" up/down repeatedly while
-     * messages popped in one at a time, plus a multi-second delay before
-     * the list settled.
+     * OLD: 30 onChildAdded → 30 insertMessage() → 30 PagingSource invalidations
+     *      → 30 DiffUtil passes → visible jump + 3-4s settling delay.
      *
-     * Fix: ChatActivity/GroupChatActivity now buffer incoming Firebase
-     * events for a short debounce window and call this method ONCE with
-     * everything that arrived in that window. One transaction → Room's
-     * InvalidationTracker fires once → Paging3 re-queries once →
-     * PagingDataAdapter does exactly one diff + one single-pass render.
+     * NEW: 30 onChildAdded → buffer 80ms → 1 call here → 1 transaction
+     *      → 1 PagingSource invalidation → 1 DiffUtil → zero jump.
      */
-    @WorkerThread
     @Transaction
-    default void applyBufferedChanges(List<MessageEntity> upserts, List<String> removedIds, List<String> readIds) {
-        if (upserts != null && !upserts.isEmpty()) insertMessages(upserts);
+    @WorkerThread
+    public void applyBufferedChanges(
+            List<MessageEntity> upserts,
+            List<String> removedIds,
+            List<String> readIds) {
+        if (upserts   != null && !upserts.isEmpty())   insertMessages(upserts);
         if (removedIds != null && !removedIds.isEmpty()) softDeleteAll(removedIds);
-        if (readIds != null && !readIds.isEmpty()) markReadBulk(readIds);
+        if (readIds   != null && !readIds.isEmpty())   markReadBulk(readIds);
     }
 
-    @WorkerThread
-    @Query("UPDATE messages SET starred = :starred WHERE id = :messageId")
-    void updateStarred(String messageId, boolean starred);
+    // ── Offline / SyncWorker ─────────────────────────────────────────────────
 
-    /** Edit message text — marks as edited with a timestamp. */
+    @Query("SELECT * FROM messages WHERE mediaLocalPath IS NOT NULL AND (mediaUrl IS NULL OR mediaUrl = '')")
     @WorkerThread
-    @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
-    void updateText(String messageId, String newText, long editedAt);
+    public abstract List<MessageEntity> getPendingMediaUploads();
 
-    /** Edit message text AND append the pre-edit version to the history
-     *  JSON blob in one write — used by MessageEditHistoryController so a
-     *  message edited more than once keeps every prior version. */
+    @Query("SELECT * FROM messages WHERE status = 'pending' ORDER BY timestamp ASC")
     @WorkerThread
-    @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt, editHistoryJson = :editHistoryJson WHERE id = :messageId")
-    void updateTextWithHistory(String messageId, String newText, long editedAt, String editHistoryJson);
+    public abstract List<MessageEntity> getAllPendingMessages();
 
-    /** Fetch just the history JSON blob — used to append the next version
-     *  without needing the whole MessageEntity. */
+    @Query("SELECT * FROM messages WHERE id = :msgId LIMIT 1")
     @WorkerThread
-    @Query("SELECT editHistoryJson FROM messages WHERE id = :messageId")
-    String getEditHistoryJson(String messageId);
+    public abstract MessageEntity getMessageById(String msgId);
 
-    /** Poll: update the votes JSON blob for a poll message. */
+    @Query("SELECT id FROM messages WHERE chatId = :chatId AND senderId = :senderUid AND (status IS NULL OR status != 'read') AND deleted = 0")
     @WorkerThread
-    @Query("UPDATE messages SET pollVotesJson = :votesJson WHERE id = :messageId")
-    void updatePollVotes(String messageId, String votesJson);
+    public abstract List<String> getUnreadMessageIds(String chatId, String senderUid);
 
-    /** Poll: mark a poll as closed (no further votes accepted). */
+    @Query("SELECT id FROM messages WHERE groupId = :groupId AND senderId != :myUid AND (status IS NULL OR status != 'read') AND deleted = 0")
     @WorkerThread
-    @Query("UPDATE messages SET pollClosed = :closed WHERE id = :messageId")
-    void updatePollClosed(String messageId, boolean closed);
+    public abstract List<String> getUnreadGroupMessageIds(String groupId, String myUid);
 
-    /** Reactions: overwrite the reactions JSON blob for a message — see
-     *  ReactionJsonUtil / ChatReactionController. */
+    // ── Counts ───────────────────────────────────────────────────────────────
+
+    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND deleted = 0")
     @WorkerThread
-    @Query("UPDATE messages SET reactionsJson = :reactionsJson WHERE id = :messageId")
-    void updateReactions(String messageId, String reactionsJson);
+    public abstract int getMessageCount(String chatId);
 
-    /** Fetch just the reactions JSON blob — used to read-modify-write a
-     *  single uid's reaction without needing the whole MessageEntity. */
+    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND senderId = :senderUid AND (status IS NULL OR status != 'read') AND deleted = 0")
     @WorkerThread
-    @Query("SELECT reactionsJson FROM messages WHERE id = :messageId")
-    String getReactionsJson(String messageId);
+    public abstract int getUnreadCount(String chatId, String senderUid);
 
-    // ─────────────────────────────────────────────────────────────
-    // PRUNING / CLEANUP
-    // ─────────────────────────────────────────────────────────────
+    // ── Cleanup ──────────────────────────────────────────────────────────────
 
-    /** Disappearing messages — delete all messages whose expiresAt has passed. */
-    @WorkerThread
-    @Query("DELETE FROM messages WHERE expiresAt IS NOT NULL AND expiresAt > 0 AND expiresAt <= :nowMs")
-    int deleteExpiredMessages(long nowMs);
-
-    /** Prune old messages — keep last N per chat. Storage management. */
-    @WorkerThread
-    @Query("DELETE FROM messages WHERE chatId = :chatId AND timestamp < " +
-           "(SELECT timestamp FROM messages WHERE chatId = :chatId " +
-           "ORDER BY timestamp DESC LIMIT 1 OFFSET :keepCount)")
-    void pruneOldMessages(String chatId, int keepCount);
-
-    /** Auto-delete: delete all messages older than cutoffTimestamp (across all chats). */
-    @WorkerThread
-    @Query("DELETE FROM messages WHERE timestamp < :cutoffTimestamp AND deleted != 1")
-    int deleteMessagesOlderThan(long cutoffTimestamp);
-
-    @WorkerThread
     @Query("DELETE FROM messages WHERE chatId = :chatId")
-    void deleteAllForChat(String chatId);
-
-    // ─────────────────────────────────────────────────────────────
-    // STATS (used by CacheStatsActivity)
-    // ─────────────────────────────────────────────────────────────
-
     @WorkerThread
-    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId")
-    int getMessageCount(String chatId);
+    public abstract void deleteAllForChat(String chatId);
 
+    @Query("DELETE FROM messages WHERE groupId = :groupId")
     @WorkerThread
-    @Query("SELECT COUNT(*) FROM messages")
-    long getTotalMessageCount();
+    public abstract void deleteAllForGroup(String groupId);
 
+    @Query("DELETE FROM messages WHERE deleted = 1 AND timestamp < :olderThanMs")
     @WorkerThread
-    @Query("DELETE FROM messages")
-    void deleteAll();
+    public abstract void pruneDeletedOlderThan(long olderThanMs);
 }
