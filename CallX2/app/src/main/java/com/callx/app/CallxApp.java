@@ -174,12 +174,18 @@ public class CallxApp extends Application {
                 ReelCacheManager.trimMemory();
                 UnifiedVideoCacheManager.trimMemory();
                 com.callx.app.utils.ExoPlayerManager.trimMemory();
+                // PERF FIX: per-chat last-messages cache — drop everything under
+                // real memory pressure. Room remains the source of truth, so
+                // this only disables the instant-render fast path until chats
+                // are reopened (which re-primes it) — no data loss.
+                com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
                 Log.w(TAG, "onTrimMemory CRITICAL — full memory cache + video caches cleared");
 
             } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
                 cache.evictLowPriority();
                 // FIX #MEM-3B: Moderate signal pe bhi Reel cache trim karo
                 ReelCacheManager.trimMemory();
+                com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
                 Log.d(TAG, "onTrimMemory MODERATE — low priority + reel cache trimmed");
 
             } else if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {

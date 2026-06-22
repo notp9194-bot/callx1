@@ -63,6 +63,17 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC LIMIT :limit OFFSET :offset")
     List<MessageEntity> getMessagesPaged(String chatId, int limit, int offset);
 
+    /**
+     * PERF: used by LastMessagesCache priming — fetches just the most recent
+     * `limit` rows but returns them ASC (oldest→newest), matching the order
+     * Room/Paging/RecyclerView already use. Inner query does DESC+LIMIT
+     * (cheap, uses the chatId+timestamp index), outer query just re-sorts
+     * those few rows ASC — no full-table scan, no large offset math.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM (SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT :limit) ORDER BY timestamp ASC")
+    List<MessageEntity> getLastMessagesAsc(String chatId, int limit);
+
     // ─────────────────────────────────────────────────────────────
     // DELTA SYNC
     // ─────────────────────────────────────────────────────────────

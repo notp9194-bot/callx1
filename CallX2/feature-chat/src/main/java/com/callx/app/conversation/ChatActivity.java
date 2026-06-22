@@ -42,6 +42,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.cache.CacheManager;
+import com.callx.app.cache.LastMessagesCache;
 import com.callx.app.chat.R;
 import com.callx.app.chat.analytics.ReplyAnalyticsTracker;
 import com.callx.app.chat.databinding.ActivityChatBinding;
@@ -307,11 +308,42 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupFabBackToLatest();
         setupNetworkMonitor();
 
+        // ─────────────────────────────────────────────────────────────────
+        // PERF FIX: in-memory "last messages" cache — instant warm-render.
+        //
+        // Even with the DB-warm fast path (onDbReady same-frame call below),
+        // a Room query is still a real query — cursor open, row mapping,
+        // PagingSource construction. That's microseconds normally, but on a
+        // loaded low-end device under jank it can still cost a visible frame
+        // or two. LastMessagesCache sidesteps even that: if we already have
+        // this chat's last ≤20 messages sitting in memory from a previous
+        // visit (this session), submit them to the adapter RIGHT NOW, same
+        // frame, with zero I/O. Room's real PagingData arrives a moment
+        // later and PagingDataAdapter's DiffUtil reconciles the two lists —
+        // since they're almost always identical, that reconciliation is a
+        // no-op (no flicker, no jump). If the cache is stale, the diff just
+        // patches the few rows that changed.
+        //
+        // This is a *rendering* fast path only — Room + Firebase remain the
+        // only sources of truth; see onDbReady()/observePagedMessages() and
+        // flushPendingRoomWrites() below for the real pipeline, which always
+        // runs regardless of whether this cache hit anything.
+        // ─────────────────────────────────────────────────────────────────
+        boolean warmCacheHit = AppDatabase.isWarm() && LastMessagesCache.getInstance().has(chatId);
+        if (warmCacheHit) {
+            java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
+            pagingAdapter.submitData(getLifecycle(), PagingData.from(cached));
+            firstPageRendered = true; // already showing content — no stackFromEnd double-anchor needed
+        }
+
         // PERF FIX: don't flash shimmer for fast/cached loads — schedule it
         // 150ms out instead of showing it unconditionally right away. See
         // shimmerShowRunnable above. Cancelled in addLoadStateListener the
-        // moment real data (cached or fresh) actually arrives.
-        shimmerHandler.postDelayed(shimmerShowRunnable, SHIMMER_SHOW_DELAY_MS);
+        // moment real data (cached or fresh) actually arrives. Skipped
+        // entirely on a warm-cache hit — there's already content on screen.
+        if (!warmCacheHit) {
+            shimmerHandler.postDelayed(shimmerShowRunnable, SHIMMER_SHOW_DELAY_MS);
+        }
 
         // Firebase listener IMMEDIATELY lagao — DB ready hone se pehle bhi
         // messages queue mein buffer hote hain (pendingUpserts map mein).
@@ -362,6 +394,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         flushPendingRoomWrites();
 
         restoreDraft();
+
+        // PERF FIX: prime/refresh LastMessagesCache from Room — the actual
+        // source of truth — so the warm-render fast path in onCreate() has
+        // accurate data NEXT time this chat is opened. Cheap indexed query
+        // (DESC+LIMIT on chatId+timestamp index, see MessageDao), runs once
+        // in the background and never touches the UI thread.
+        ioExecutor.execute(() -> {
+            if (db == null) return;
+            java.util.List<MessageEntity> entities = db.messageDao().getLastMessagesAsc(chatId, 20);
+            java.util.List<Message> models = new java.util.ArrayList<>(entities.size());
+            for (MessageEntity e : entities) models.add(entityToModel(e));
+            LastMessagesCache.getInstance().seed(chatId, models);
+        });
 
         // Non-critical 300ms baad
         binding.getRoot().postDelayed(() -> {
@@ -1169,6 +1214,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pendingReadIds.clear();
 
         if (db == null) return;
+        // PERF FIX: keep LastMessagesCache in sync with every Firebase-driven
+        // Room write — new messages, edits/status changes, and removals all
+        // flow through here (see queueRoomWrite/onChildRemoved above), so
+        // hooking the cache update here covers every case in one place:
+        // next time this chat is reopened, the warm-render fast path in
+        // onCreate() will have accurate, current data.
+        for (Message m : upsertsSnapshot) LastMessagesCache.getInstance().upsert(chatId, m);
+        for (String removedId : removalsSnapshot) LastMessagesCache.getInstance().removeMessage(chatId, removedId);
         ioExecutor.execute(() -> {
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
@@ -1377,13 +1430,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         messagesRef.child(m.id).child("deleted").setValue(true);
                         messagesRef.child(m.id).child("text").setValue("");
                         ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
+                        LastMessagesCache.getInstance().removeMessage(chatId, m.id);
                     })
-                    .setNeutralButton("Delete for me", (d, w) ->
-                            ioExecutor.execute(() -> db.messageDao().softDelete(m.id)));
+                    .setNeutralButton("Delete for me", (d, w) -> {
+                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
+                        LastMessagesCache.getInstance().removeMessage(chatId, m.id);
+                    });
         } else {
             builder.setMessage("Delete this message for you only?")
-                    .setPositiveButton("Delete for me", (d, w) ->
-                            ioExecutor.execute(() -> db.messageDao().softDelete(m.id)));
+                    .setPositiveButton("Delete for me", (d, w) -> {
+                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
+                        LastMessagesCache.getInstance().removeMessage(chatId, m.id);
+                    });
         }
         builder.show();
     }
@@ -1436,11 +1494,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                             messagesRef.child(m.id).child("text").setValue("");
                             final String mid = m.id;
                             ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                            LastMessagesCache.getInstance().removeMessage(chatId, mid);
                         }
                         pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
                     })
                     .setNeutralButton("Delete for me", (d, w) -> {
-                        for (Message m : sel) { final String mid = m.id; ioExecutor.execute(() -> db.messageDao().softDelete(mid)); }
+                        for (Message m : sel) {
+                            final String mid = m.id;
+                            ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                            LastMessagesCache.getInstance().removeMessage(chatId, mid);
+                        }
                         pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
                     })
                     .setNegativeButton("Cancel", null).show();
