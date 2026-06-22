@@ -13,9 +13,10 @@ import java.util.List;
 /**
  * MessageDao — WhatsApp-level bulk operations
  *
- * KEY UPGRADE: applyBufferedChanges() — single @Transaction for all buffered
- * Firebase events. 30 onChildAdded() callbacks → 1 Room write → 1 PagingSource
- * invalidation → 1 DiffUtil pass → 0 visible jump/flicker.
+ * FIX v5.1:
+ *  • groupId column exist nahi karta → sab queries chatId use karti hain.
+ *    GroupChatActivity mein entity.chatId = groupId set karo (groupId column nahi chahiye).
+ *  • room-paging artifact add karo: implementation "androidx.room:room-paging:2.5.2"
  */
 @Dao
 public abstract class MessageDao {
@@ -32,20 +33,26 @@ public abstract class MessageDao {
 
     // ── Paging ───────────────────────────────────────────────────────────────
 
+    /**
+     * 1:1 chat messages — chatId = the 1:1 chat ID.
+     * Requires: implementation "androidx.room:room-paging:2.5.2" in build.gradle
+     */
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND deleted = 0 ORDER BY timestamp ASC")
     public abstract PagingSource<Integer, MessageEntity> getPagedMessages(String chatId);
 
-    @Query("SELECT * FROM messages WHERE groupId = :groupId AND deleted = 0 ORDER BY timestamp ASC")
+    /**
+     * Group chat messages — SAME query, SAME column (chatId).
+     * GroupChatActivity mein entity.chatId = groupId set karo, groupId column nahi chahiye.
+     */
+    @Query("SELECT * FROM messages WHERE chatId = :groupId AND deleted = 0 ORDER BY timestamp ASC")
     public abstract PagingSource<Integer, MessageEntity> getPagedGroupMessages(String groupId);
 
     // ── Bulk status / soft-delete ─────────────────────────────────────────────
 
-    /** Bulk soft-delete: single UPDATE for N message IDs. */
     @Query("UPDATE messages SET deleted = 1 WHERE id IN (:ids)")
     @WorkerThread
     public abstract void softDeleteAll(List<String> ids);
 
-    /** Bulk read-receipt: single UPDATE for N message IDs (status column only). */
     @Query("UPDATE messages SET status = 'read' WHERE id IN (:ids)")
     @WorkerThread
     public abstract void markReadBulk(List<String> ids);
@@ -58,16 +65,11 @@ public abstract class MessageDao {
     @WorkerThread
     public abstract void updateStatus(String msgId, String status);
 
-    // ── THE KEY METHOD — one @Transaction for all buffered Firebase events ────
+    // ── THE KEY METHOD ────────────────────────────────────────────────────────
 
     /**
-     * Atomically applies all buffered Firebase changes in ONE Room transaction.
-     *
-     * OLD: 30 onChildAdded → 30 insertMessage() → 30 PagingSource invalidations
-     *      → 30 DiffUtil passes → visible jump + 3-4s settling delay.
-     *
-     * NEW: 30 onChildAdded → buffer 80ms → 1 call here → 1 transaction
-     *      → 1 PagingSource invalidation → 1 DiffUtil → zero jump.
+     * ONE @Transaction for all buffered Firebase events.
+     * 30 onChildAdded → buffer 80ms → 1 call here → 1 PagingSource invalidation → zero jump.
      */
     @Transaction
     @WorkerThread
@@ -75,10 +77,28 @@ public abstract class MessageDao {
             List<MessageEntity> upserts,
             List<String> removedIds,
             List<String> readIds) {
-        if (upserts   != null && !upserts.isEmpty())   insertMessages(upserts);
+        if (upserts    != null && !upserts.isEmpty())    insertMessages(upserts);
         if (removedIds != null && !removedIds.isEmpty()) softDeleteAll(removedIds);
-        if (readIds   != null && !readIds.isEmpty())   markReadBulk(readIds);
+        if (readIds    != null && !readIds.isEmpty())    markReadBulk(readIds);
     }
+
+    // ── Unread IDs (for bulk mark-read on open) ────────────────────────────
+
+    /**
+     * 1:1 chat: unread messages from the partner.
+     * chatId = the 1:1 chat ID, senderUid = partnerUid.
+     */
+    @Query("SELECT id FROM messages WHERE chatId = :chatId AND senderId = :senderUid AND (status IS NULL OR status != 'read') AND deleted = 0")
+    @WorkerThread
+    public abstract List<String> getUnreadMessageIds(String chatId, String senderUid);
+
+    /**
+     * Group chat: unread messages from anyone except self.
+     * chatId = groupId (entity.chatId = groupId set karo GroupChatActivity mein).
+     */
+    @Query("SELECT id FROM messages WHERE chatId = :groupId AND senderId != :myUid AND (status IS NULL OR status != 'read') AND deleted = 0")
+    @WorkerThread
+    public abstract List<String> getUnreadGroupMessageIds(String groupId, String myUid);
 
     // ── Offline / SyncWorker ─────────────────────────────────────────────────
 
@@ -93,14 +113,6 @@ public abstract class MessageDao {
     @Query("SELECT * FROM messages WHERE id = :msgId LIMIT 1")
     @WorkerThread
     public abstract MessageEntity getMessageById(String msgId);
-
-    @Query("SELECT id FROM messages WHERE chatId = :chatId AND senderId = :senderUid AND (status IS NULL OR status != 'read') AND deleted = 0")
-    @WorkerThread
-    public abstract List<String> getUnreadMessageIds(String chatId, String senderUid);
-
-    @Query("SELECT id FROM messages WHERE groupId = :groupId AND senderId != :myUid AND (status IS NULL OR status != 'read') AND deleted = 0")
-    @WorkerThread
-    public abstract List<String> getUnreadGroupMessageIds(String groupId, String myUid);
 
     // ── Counts ───────────────────────────────────────────────────────────────
 
@@ -118,7 +130,8 @@ public abstract class MessageDao {
     @WorkerThread
     public abstract void deleteAllForChat(String chatId);
 
-    @Query("DELETE FROM messages WHERE groupId = :groupId")
+    /** Group chat delete — chatId = groupId */
+    @Query("DELETE FROM messages WHERE chatId = :groupId")
     @WorkerThread
     public abstract void deleteAllForGroup(String groupId);
 

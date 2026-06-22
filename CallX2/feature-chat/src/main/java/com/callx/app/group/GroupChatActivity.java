@@ -26,14 +26,9 @@ import java.util.concurrent.Executors;
 /**
  * GroupChatActivity — WhatsApp-level group chat screen
  *
- * Identical write-coalescing pattern as ChatActivity.
- * All Firebase ChildEventListener callbacks → ChatActivityDelegate buffer →
- * 80ms debounce → ONE Room @Transaction → 1 PagingSource invalidation.
- *
- * Extra vs ChatActivity:
- *  • Multi-member typing indicator ("[Ali], [Sara] are typing…")
- *  • Group read receipts bulk-pushed in one IO pass
- *  • Group presence (groupActive/{groupId}/{myUid}) set/cleared in onStart/onStop
+ * FIX v5.1: entity.chatId = groupId (not entity.groupId)
+ * groupId column exist nahi karta messages table mein.
+ * chatId column se hi sab queries kaam karti hain.
  */
 public class GroupChatActivity extends AppCompatActivity {
 
@@ -43,16 +38,13 @@ public class GroupChatActivity extends AppCompatActivity {
 
     private static final long TYPING_STOP_MS = 2_000L;
 
-    // ── Fields ───────────────────────────────────────────────────────────────
-
     private String groupId;
     private String myUid;
     private String groupName;
     private String groupPhoto;
 
-    private MessageDao      messageDao;
-    private ExecutorService ioExecutor;
-
+    private MessageDao           messageDao;
+    private ExecutorService      ioExecutor;
     private ChatActivityDelegate delegate;
 
     private RecyclerView         rvMessages;
@@ -66,7 +58,7 @@ public class GroupChatActivity extends AppCompatActivity {
     private ChildEventListener messageListener;
     private ValueEventListener typingListener;
 
-    private final Handler  mainHandler   = new Handler(Looper.getMainLooper());
+    private final Handler  mainHandler    = new Handler(Looper.getMainLooper());
     private boolean        isTypingActive = false;
     private final Runnable stopTypingRunnable = () -> {
         if (myTypingRef != null) myTypingRef.removeValue();
@@ -75,8 +67,6 @@ public class GroupChatActivity extends AppCompatActivity {
 
     private ConnectivityManager                 connMgr;
     private ConnectivityManager.NetworkCallback netCallback;
-
-    // ── Lifecycle ────────────────────────────────────────────────────────────
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -102,25 +92,25 @@ public class GroupChatActivity extends AppCompatActivity {
         markAllUnreadAsRead();
     }
 
-    @Override protected void onStart()   { super.onStart(); setMyGroupPresence(true);  }
-    @Override protected void onStop()    { super.onStop();  setMyGroupPresence(false);
-                                           mainHandler.removeCallbacks(stopTypingRunnable);
-                                           if (myTypingRef != null) myTypingRef.removeValue();
-                                           isTypingActive = false; }
-    @Override protected void onPause()   { super.onPause(); saveDraft(); }
+    @Override protected void onStart()  { super.onStart(); setMyGroupPresence(true);  }
+    @Override protected void onStop()   {
+        super.onStop(); setMyGroupPresence(false);
+        mainHandler.removeCallbacks(stopTypingRunnable);
+        if (myTypingRef != null) myTypingRef.removeValue();
+        isTypingActive = false;
+    }
+    @Override protected void onPause()  { super.onPause(); saveDraft(); }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        delegate.flushNow();            // nothing lost if closed mid-debounce
+        delegate.flushNow();
         detachFirebaseListeners();
         if (connMgr != null && netCallback != null) {
             try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
         }
         if (ioExecutor != null) ioExecutor.shutdown();
     }
-
-    // ── Paging RecyclerView ──────────────────────────────────────────────────
 
     private void setupPagingRecyclerView() {
         layoutManager = new LinearLayoutManager(this);
@@ -135,9 +125,8 @@ public class GroupChatActivity extends AppCompatActivity {
         pagingAdapter = new MessagePagingAdapter(myUid);
         rvMessages.setAdapter(pagingAdapter);
 
-        // Scroll-jump fix — identical to ChatActivity
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
-            @Override public void onItemRangeInserted(int positionStart, int itemCount) {
+            @Override public void onItemRangeInserted(int pos, int count) {
                 if (isFirstLoad) { isFirstLoad = false; return; }
                 if (isUserAtBottom()) scrollToBottom(true);
             }
@@ -149,33 +138,30 @@ public class GroupChatActivity extends AppCompatActivity {
         //     .getLiveData().observe(this, pagingAdapter::submitData);
     }
 
-    // ── Firebase listener — ALL events buffered via delegate ─────────────────
-
     private void setupFirebaseListener() {
         groupMessagesRef = FirebaseDatabase.getInstance()
                 .getReference("groupMessages").child(groupId)
                 .orderByChild("timestamp").limitToLast(30);
 
         messageListener = new ChildEventListener() {
-            @Override public void onChildAdded(@NonNull DataSnapshot snap, String prev) {
-                MessageEntity e = parseGroupMessage(snap);
+            @Override public void onChildAdded(@NonNull DataSnapshot s, String p) {
+                MessageEntity e = parseGroupMessage(s);
                 if (e != null) {
                     delegate.queueUpsert(e);
                     if (!e.senderId.equals(myUid)) {
                         delegate.queueMarkRead(e.id);
-                        pushGroupReadReceipt(e.id);
+                        pushReadReceipt(e.id);
                     }
                 }
             }
-            @Override public void onChildChanged(@NonNull DataSnapshot snap, String prev) {
-                MessageEntity e = parseGroupMessage(snap);
-                if (e != null) delegate.queueUpsert(e);
+            @Override public void onChildChanged(@NonNull DataSnapshot s, String p) {
+                MessageEntity e = parseGroupMessage(s); if (e != null) delegate.queueUpsert(e);
             }
-            @Override public void onChildRemoved(@NonNull DataSnapshot snap) {
-                if (snap.getKey() != null) delegate.queueRemove(snap.getKey());
+            @Override public void onChildRemoved(@NonNull DataSnapshot s) {
+                if (s.getKey() != null) delegate.queueRemove(s.getKey());
             }
-            @Override public void onChildMoved(@NonNull DataSnapshot snap, String prev) {}
-            @Override public void onCancelled(@NonNull DatabaseError error) {}
+            @Override public void onChildMoved(@NonNull DataSnapshot s, String p) {}
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         groupMessagesRef.addChildEventListener(messageListener);
     }
@@ -188,10 +174,10 @@ public class GroupChatActivity extends AppCompatActivity {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 List<String> names = new ArrayList<>();
                 long now = System.currentTimeMillis();
-                for (DataSnapshot child : snap.getChildren()) {
-                    if (myUid.equals(child.getKey())) continue;
-                    Long ts   = child.child("timestamp").getValue(Long.class);
-                    String nm = child.child("name").getValue(String.class);
+                for (DataSnapshot c : snap.getChildren()) {
+                    if (myUid.equals(c.getKey())) continue;
+                    Long ts   = c.child("timestamp").getValue(Long.class);
+                    String nm = c.child("name").getValue(String.class);
                     if (ts != null && (now - ts) < TYPING_STOP_MS && nm != null) names.add(nm);
                 }
                 runOnUiThread(() -> updateGroupTypingIndicator(names));
@@ -208,34 +194,30 @@ public class GroupChatActivity extends AppCompatActivity {
             groupTypingRef.removeEventListener(typingListener); typingListener = null; }
     }
 
-    // ── Bulk mark-read on open ───────────────────────────────────────────────
-
     private void markAllUnreadAsRead() {
         ioExecutor.execute(() -> {
             List<String> ids = messageDao.getUnreadGroupMessageIds(groupId, myUid);
             if (ids != null && !ids.isEmpty()) {
                 delegate.queueMarkReadBulk(ids);
-                pushGroupReadReceiptBulk(ids);
+                pushReadReceiptBulk(ids);
             }
         });
     }
 
-    private void pushGroupReadReceipt(String msgId) {
+    private void pushReadReceipt(String msgId) {
         ioExecutor.execute(() ->
             FirebaseDatabase.getInstance().getReference()
                 .child("groupMessages").child(groupId)
                 .child(msgId).child("readBy").child(myUid).setValue(true));
     }
 
-    private void pushGroupReadReceiptBulk(List<String> ids) {
+    private void pushReadReceiptBulk(List<String> ids) {
         ioExecutor.execute(() -> {
             DatabaseReference r = FirebaseDatabase.getInstance().getReference()
                     .child("groupMessages").child(groupId);
             for (String id : ids) r.child(id).child("readBy").child(myUid).setValue(true);
         });
     }
-
-    // ── Typing — my side ────────────────────────────────────────────────────
 
     private void onUserTyping() {
         if (!isTypingActive) {
@@ -252,26 +234,20 @@ public class GroupChatActivity extends AppCompatActivity {
         if (isTypingActive) { myTypingRef.removeValue(); isTypingActive = false; }
     }
 
-    // ── Group presence ───────────────────────────────────────────────────────
-
     private void setMyGroupPresence(boolean active) {
-        DatabaseReference ref = FirebaseDatabase.getInstance().getReference()
+        DatabaseReference r = FirebaseDatabase.getInstance().getReference()
                 .child("groupActive").child(groupId).child(myUid);
-        if (active) ref.setValue(true); else ref.removeValue();
+        if (active) r.setValue(true); else r.removeValue();
     }
 
-    // ── Draft ────────────────────────────────────────────────────────────────
-
     private static final String PREF_DRAFT = "group_draft_";
-    private void saveDraft()    { /* getSharedPreferences("drafts",MODE_PRIVATE).edit().putString(PREF_DRAFT+groupId, binding.etMessage.getText().toString()).apply(); */ }
-    private void restoreDraft() { /* String d=getSharedPreferences("drafts",MODE_PRIVATE).getString(PREF_DRAFT+groupId,""); if(!d.isEmpty()){ binding.etMessage.setText(d); binding.etMessage.setSelection(d.length()); } */ }
-
-    // ── FAB / network ───────────────────────────────────────────────────────
+    private void saveDraft()    { /* SharedPreferences save */ }
+    private void restoreDraft() { /* SharedPreferences restore */ }
 
     private void setupFabBackToLatest() {
         rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (!isUserAtBottom()) showScrollToBottomFab(); else hideScrollToBottomFab();
+                if (!isUserAtBottom()) showFab(); else hideFab();
             }
         });
     }
@@ -285,62 +261,56 @@ public class GroupChatActivity extends AppCompatActivity {
         connMgr.registerNetworkCallback(new NetworkRequest.Builder().build(), netCallback);
     }
 
-    // ── Scroll helpers ───────────────────────────────────────────────────────
-
     private boolean isUserAtBottom() {
         int last = layoutManager.findLastVisibleItemPosition();
         int total = pagingAdapter.getItemCount();
         return total == 0 || last >= total - 2;
     }
-
     private void scrollToBottom(boolean animate) {
-        int total = pagingAdapter.getItemCount();
-        if (total == 0) return;
+        int total = pagingAdapter.getItemCount(); if (total == 0) return;
         if (animate) rvMessages.smoothScrollToPosition(total - 1);
         else          rvMessages.scrollToPosition(total - 1);
     }
 
-    // ── UI state ─────────────────────────────────────────────────────────────
-
-    private void setupToolbar()  {}
     private void setupInputBar() {}
+    private void setupToolbar()  {}
     private void readIntentExtras() {
         groupId    = getIntent().getStringExtra(EXTRA_GROUP_ID);
         groupName  = getIntent().getStringExtra(EXTRA_GROUP_NAME);
         groupPhoto = getIntent().getStringExtra(EXTRA_GROUP_PHOTO);
     }
-
     private void updateGroupTypingIndicator(List<String> names) {
-        // if (names.isEmpty()) { binding.tvTyping.setVisibility(View.GONE); return; }
-        // String txt = names.size()==1 ? names.get(0)+" is typing…"
-        //            : names.get(0)+" and "+(names.size()-1)+" others are typing…";
-        // binding.tvTyping.setText(txt); binding.tvTyping.setVisibility(View.VISIBLE);
+        // if(names.isEmpty()){ binding.tvTyping.setVisibility(View.GONE); return; }
+        // String t = names.size()==1 ? names.get(0)+" is typing…"
+        //          : names.get(0)+" and "+(names.size()-1)+" others are typing…";
+        // binding.tvTyping.setText(t); binding.tvTyping.setVisibility(View.VISIBLE);
     }
+    private void updateOfflineBanner(boolean s) {}
+    private void showFab() {}
+    private void hideFab() {}
 
-    private void updateOfflineBanner(boolean show) { /* binding.bannerOffline.setVisibility(show?View.VISIBLE:View.GONE); */ }
-    private void showScrollToBottomFab()           { /* binding.fabScrollBottom.setVisibility(View.VISIBLE); */ }
-    private void hideScrollToBottomFab()           { /* binding.fabScrollBottom.setVisibility(View.GONE); */ }
-
-    // ── Firebase → Room entity parser ────────────────────────────────────────
+    // ── FIX v5.1: e.chatId = groupId (NOT e.groupId) ────────────────────────
+    // messages table mein groupId column nahi hai.
+    // chatId column se hi group messages bhi store hoti hain.
 
     private MessageEntity parseGroupMessage(DataSnapshot snap) {
         if (snap == null || snap.getKey() == null) return null;
         try {
-            MessageEntity e  = new MessageEntity();
-            e.id             = snap.getKey();
-            e.groupId        = groupId;
-            e.senderId       = snap.child("senderId").getValue(String.class);
-            e.senderName     = snap.child("senderName").getValue(String.class);
-            e.text           = snap.child("text").getValue(String.class);
-            e.mediaUrl       = snap.child("mediaUrl").getValue(String.class);
-            e.mediaType      = snap.child("mediaType").getValue(String.class);
-            e.thumbnailUrl   = snap.child("thumbnailUrl").getValue(String.class);
-            e.status         = snap.child("status").getValue(String.class);
-            e.deleted        = Boolean.TRUE.equals(snap.child("deleted").getValue(Boolean.class)) ? 1 : 0;
-            e.replyToId      = snap.child("replyToId").getValue(String.class);
-            e.replyToText    = snap.child("replyToText").getValue(String.class);
-            Long ts          = snap.child("timestamp").getValue(Long.class);
-            e.timestamp      = ts != null ? ts : System.currentTimeMillis();
+            MessageEntity e = new MessageEntity();
+            e.id           = snap.getKey();
+            e.chatId       = groupId;                  // ← FIX: chatId = groupId (no groupId column needed)
+            e.senderId     = snap.child("senderId").getValue(String.class);
+            e.senderName   = snap.child("senderName").getValue(String.class);
+            e.text         = snap.child("text").getValue(String.class);
+            e.mediaUrl     = snap.child("mediaUrl").getValue(String.class);
+            e.mediaType    = snap.child("mediaType").getValue(String.class);
+            e.thumbnailUrl = snap.child("thumbnailUrl").getValue(String.class);
+            e.status       = snap.child("status").getValue(String.class);
+            e.deleted      = Boolean.TRUE.equals(snap.child("deleted").getValue(Boolean.class)) ? 1 : 0;
+            e.replyToId    = snap.child("replyToId").getValue(String.class);
+            e.replyToText  = snap.child("replyToText").getValue(String.class);
+            Long ts        = snap.child("timestamp").getValue(Long.class);
+            e.timestamp    = ts != null ? ts : System.currentTimeMillis();
             return e;
         } catch (Exception ex) { return null; }
     }

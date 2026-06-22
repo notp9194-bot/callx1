@@ -10,15 +10,10 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 
 /**
- * ChatPresenceController — Online/last-seen + typing indicator + read receipts
+ * ChatPresenceController — Online/last-seen + typing + read receipts.
  *
- * KEY CHANGE vs old code:
- *   OLD: markRead(msgId) → ioExecutor.execute(() -> dao.updateStatus(id,"read"))
- *        = extra Room write per message = extra PagingSource invalidation.
- *
- *   NEW: markRead(msgId) → delegate.queueMarkRead(msgId)
- *        = coalesces into same @Transaction as the message sync.
- *        = zero extra PagingSource invalidations.
+ * KEY CHANGE: markRead() routes through delegate.queueMarkRead()
+ * instead of its own direct Room write — zero extra PagingSource invalidations.
  */
 public class ChatPresenceController {
 
@@ -30,9 +25,9 @@ public class ChatPresenceController {
 
     private static final long TYPING_STOP_MS = 2_000L;
 
-    private final String chatId;
-    private final String myUid;
-    private final String partnerUid;
+    private final String               chatId;
+    private final String               myUid;
+    private final String               partnerUid;
     private final ChatActivityDelegate delegate;
     private final ExecutorService      ioExecutor;
     private final PresenceCallback     callback;
@@ -68,23 +63,10 @@ public class ChatPresenceController {
         this.myTypingRef = root.child("typing").child(chatId).child(myUid);
     }
 
-    public void start() {
-        attachOnlineListener();
-        attachTypingListener();
-        setMyPresence(true);
-    }
-
-    public void stop() {
-        detachListeners();
-        setMyPresence(false);
-        mainHandler.removeCallbacks(stopTypingRunnable);
-        myTypingRef.removeValue();
-        isTypingActive = false;
-    }
-
+    public void start()   { attachOnlineListener(); attachTypingListener(); setMyPresence(true);  }
+    public void stop()    { detachListeners(); setMyPresence(false);
+                            mainHandler.removeCallbacks(stopTypingRunnable); myTypingRef.removeValue(); isTypingActive = false; }
     public void release() { stop(); }
-
-    // ── Online / last-seen ───────────────────────────────────────────────────
 
     private void attachOnlineListener() {
         onlineListener = new ValueEventListener() {
@@ -97,8 +79,7 @@ public class ChatPresenceController {
                         @Override public void onDataChange(DataSnapshot ls) {
                             Long ts = ls.getValue(Long.class);
                             callback.onPartnerOnline(false);
-                            callback.onPartnerLastSeen(ts != null && ts > 0
-                                    ? formatLastSeen(ts) : "last seen recently");
+                            callback.onPartnerLastSeen(ts != null && ts > 0 ? formatLastSeen(ts) : "last seen recently");
                         }
                         @Override public void onCancelled(DatabaseError e) {}
                     });
@@ -113,8 +94,7 @@ public class ChatPresenceController {
         typingListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 Long ts = snap.getValue(Long.class);
-                boolean typing = ts != null && (System.currentTimeMillis() - ts) < TYPING_STOP_MS;
-                callback.onPartnerTyping(typing);
+                callback.onPartnerTyping(ts != null && (System.currentTimeMillis() - ts) < TYPING_STOP_MS);
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
@@ -122,8 +102,8 @@ public class ChatPresenceController {
     }
 
     private void detachListeners() {
-        if (onlineListener != null) { onlineRef.removeEventListener(onlineListener); onlineListener = null; }
-        if (typingListener != null) { typingRef.removeEventListener(typingListener); typingListener = null; }
+        if (onlineListener != null) { onlineRef.removeEventListener(onlineListener);  onlineListener  = null; }
+        if (typingListener != null) { typingRef.removeEventListener(typingListener);  typingListener  = null; }
     }
 
     private void setMyPresence(boolean online) {
@@ -133,13 +113,8 @@ public class ChatPresenceController {
         if (!online) myLastSeen.setValue(ServerValue.TIMESTAMP);
     }
 
-    // ── Typing — my side ────────────────────────────────────────────────────
-
     public void onUserTyping() {
-        if (!isTypingActive) {
-            myTypingRef.setValue(ServerValue.TIMESTAMP);
-            isTypingActive = true;
-        }
+        if (!isTypingActive) { myTypingRef.setValue(ServerValue.TIMESTAMP); isTypingActive = true; }
         mainHandler.removeCallbacks(stopTypingRunnable);
         mainHandler.postDelayed(stopTypingRunnable, TYPING_STOP_MS);
     }
@@ -149,36 +124,29 @@ public class ChatPresenceController {
         if (isTypingActive) { myTypingRef.removeValue(); isTypingActive = false; }
     }
 
-    // ── Read receipts — NOW routed through delegate (zero extra Room writes) ─
-
-    /** Routes through delegate so read-receipt coalesces into the message sync transaction. */
+    /** Routes through delegate — zero extra PagingSource invalidations. */
     public void markRead(String msgId) {
         if (msgId == null || msgId.isEmpty()) return;
         delegate.queueMarkRead(msgId);
-        // Push status to Firebase so partner sees ✓✓
         FirebaseDatabase.getInstance().getReference()
                 .child("messages").child(chatId).child(msgId).child("status").setValue("read");
     }
 
-    /** Bulk mark-read on chat open — 1 Room transaction + async Firebase writes. */
     public void markReadBulk(List<String> msgIds) {
         if (msgIds == null || msgIds.isEmpty()) return;
         delegate.queueMarkReadBulk(msgIds);
         ioExecutor.execute(() -> {
-            DatabaseReference msgRoot = FirebaseDatabase.getInstance().getReference()
-                    .child("messages").child(chatId);
-            for (String id : msgIds) msgRoot.child(id).child("status").setValue("read");
+            DatabaseReference r = FirebaseDatabase.getInstance().getReference().child("messages").child(chatId);
+            for (String id : msgIds) r.child(id).child("status").setValue("read");
         });
     }
 
-    // ── Helper ───────────────────────────────────────────────────────────────
-
     private static String formatLastSeen(long ms) {
         long diff = System.currentTimeMillis() - ms;
-        if (diff < 60_000L)         return "last seen just now";
-        if (diff < 3_600_000L)      return "last seen " + (diff / 60_000L) + " min ago";
-        if (diff < 86_400_000L)     return "last seen today at " + new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(ms));
-        if (diff < 172_800_000L)    return "last seen yesterday at " + new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(ms));
+        if (diff < 60_000L)      return "last seen just now";
+        if (diff < 3_600_000L)   return "last seen " + (diff / 60_000L) + " min ago";
+        if (diff < 86_400_000L)  return "last seen today at " + new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(ms));
+        if (diff < 172_800_000L) return "last seen yesterday at " + new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(ms));
         return "last seen " + new SimpleDateFormat("dd MMM 'at' h:mm a", Locale.getDefault()).format(new Date(ms));
     }
 }
