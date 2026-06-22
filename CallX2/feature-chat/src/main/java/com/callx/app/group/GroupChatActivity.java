@@ -545,8 +545,16 @@ public class GroupChatActivity extends AppCompatActivity
         // Pending Firebase events (jo pehle se aa chuke hain) ek transaction mein flush karo
         writeFlushHandler.removeCallbacks(writeFlushRunnable);
         flushPendingRoomWrites();
-        // Background cleanup — DB guaranteed non-null yahan
-        ioExecutor.execute(() -> db.messageDao().pruneOldMessages(groupId, 500));
+        // Background cleanup — DB guaranteed non-null yahan.
+        // BUG FIX (same as ChatActivity): yeh DELETE query immediately chalti
+        // thi har group chat open pe, jo messages table invalidate kar deti
+        // thi aur Paging3 ko force-reload karaati thi — har baar visible
+        // "reload" dikhta tha chahe data already cached ho. Ab 10s baad.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() ->
+            ioExecutor.execute(() -> {
+                if (db != null) db.messageDao().pruneOldMessages(groupId, 500);
+            }), 10_000L
+        );
     }
 
     private void observePagedMessages() {

@@ -338,7 +338,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }, 600);
 
         // Background cleanup (10s baad — load se compete na kare)
-        ioExecutor.execute(() -> db.messageDao().pruneOldMessages(chatId, 500));
+        //
+        // BUG FIX: pruneOldMessages() pehle turant (no delay) chal raha tha
+        // har chat open pe. Yeh `messages` table pe ek DELETE query hai —
+        // Room ka invalidation tracker DELETE dekh ke active PagingSource
+        // (jo isi table ko observe karta hai) ko invalidate kar deta tha,
+        // jisse Paging3 dobara query + re-render karta tha. Result: chat
+        // already Room me cached hone ke bawajood, HAR baar khulne pe
+        // messages visibly "reload" hote dikhte the. Ab yeh bhi 10s baad
+        // chalega — jab tak user chat padh raha hota hai, list ko disturb
+        // nahi karega.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() ->
+            ioExecutor.execute(() -> {
+                if (db != null) db.messageDao().pruneOldMessages(chatId, 500);
+            }), 10_000L
+        );
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
             this::scheduleExpiryCleanup, 10_000L
         );
