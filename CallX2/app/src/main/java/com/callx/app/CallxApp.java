@@ -67,6 +67,29 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // ── PERF FIX: dedicated AppDatabase (SQLCipher) warm-up thread ────
+        // Root cause of "chat khulta hai aur 3 sec baad messages aate hain":
+        // AppDatabase.getInstance() does SQLCipher loadLibs() + Android
+        // Keystore key retrieval + Room schema check — 500ms to 3sec, and
+        // it's a synchronized singleton. The old code only warmed it up
+        // INSIDE the shared "app-init-bg" thread, AFTER Firebase persistence
+        // config + photo listener — by the time it actually started building,
+        // a user who opened a chat right after launch would have their
+        // ChatActivity's own AppDatabase.getInstance() call BLOCK on the same
+        // lock, waiting for this thread to finish. That wait is the visible
+        // "3 second" delay.
+        // Fix: build it on its OWN thread, started first thing, so SQLCipher
+        // init begins at the earliest possible moment (process start) and
+        // races independently of every other background task below.
+        new Thread(() -> {
+            try {
+                com.callx.app.db.AppDatabase.getInstance(CallxApp.this);
+                Log.d(TAG, "AppDatabase (SQLCipher) warm-up complete");
+            } catch (Exception e) {
+                Log.w(TAG, "AppDatabase warm-up failed (will retry on first use): " + e.getMessage());
+            }
+        }, "db-warmup").start();
+
         // ── MAIN THREAD: sirf lightweight kaam ────────────────────────
 
         // Notification channels — Android OS call hai, fast hai
@@ -127,19 +150,6 @@ public class CallxApp extends Application {
 
             // Status: 200MB dedicated cache — same pattern as Reels
             StatusVideoCacheManager.init(CallxApp.this);
-
-            // ── PERF FIX: AppDatabase warm-up ────────────────────────────
-            // AppDatabase.getInstance() pehli baar SQLCipher loadLibs() +
-            // EncryptedDbKeyStore key retrieval + Room schema check karta hai
-            // — yeh 500ms–2sec le sakta hai. Background me warm karo taaki
-            // ChatActivity open hone par DB already ready mile aur main
-            // thread block na ho.
-            try {
-                com.callx.app.db.AppDatabase.getInstance(CallxApp.this);
-                Log.d(TAG, "AppDatabase warm-up complete");
-            } catch (Exception e) {
-                Log.w(TAG, "AppDatabase warm-up failed (will retry on first use): " + e.getMessage());
-            }
 
             Log.d(TAG, "Background init complete");
         }, "app-init-bg").start();
