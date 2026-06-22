@@ -1022,13 +1022,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // PERF FIX v8: DB ready hone se PEHLE Firebase listener lagao.
         // Incoming messages pendingUpserts buffer mein queue hote hain.
         // flushPendingRoomWrites() onDbReady() mein call hoga — ek transaction.
-        // lastTs: Room se read karna background pe karte hain toh DB warm hone ka wait karo.
-        // Cold open pe lastTs=0 hoga (Room empty) — sirf INITIAL_LOAD messages fetch honge.
-        // Re-open pe DB already warm hoga — background thread pe lastTs milega instantly.
+        //
+        // BUG FIX: yeh pehle `this.db != null` check karta tha — lekin `db`
+        // field ek ALAG ioExecutor task se set hota hai (Step 2, neeche) jo
+        // SAME 2-thread pool pe concurrently chalta hai. Race condition ki
+        // wajah se `db` yahan almost always abhi tak null hota tha, har
+        // single chat open pe lastTs=0 ban jaata tha — matlab Firebase
+        // hamesha FULL limitToLast(30) resync karta tha (delta sync kabhi
+        // nahi chalta tha), saare 30 messages re-upsert hote, Room table
+        // invalidate hoti, aur Paging poori list reload kar deta — yahi
+        // "har baar messages reload hote hain" wapas aane ka asli reason.
+        // AppDatabase pehle se warm hai (app-start fix), seedha call karo —
+        // koi gating ki zaroorat nahi.
         ioExecutor.execute(() -> {
-            long lastTs = (db != null)
-                    ? CacheManager.getInstance(this).getLastSyncTimestamp(chatId)
-                    : 0L;
+            long lastTs = CacheManager.getInstance(this).getLastSyncTimestamp(chatId);
             runOnUiThread(() -> attachFirebaseListener(lastTs));
         });
     }
