@@ -113,9 +113,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Constants ──────────────────────────────────────────────────────────
     private static final String TAG           = "ChatActivity";
+    // FIX #6: Tuned PagingConfig values.
+    // INITIAL_LOAD 40→30: fetching 40 on first open is wasteful — user sees ~12 items.
+    // PREFETCH_DIST 10→5: 10 items ahead = too eager on DB thread. 5 = half screen ahead, still smooth.
     private static final int    PAGE_SIZE     = 20;
-    private static final int    PREFETCH_DIST = 10;
-    private static final int    INITIAL_LOAD  = 40;
+    private static final int    PREFETCH_DIST = 5;
+    private static final int    INITIAL_LOAD  = 30;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
 
     // ── View binding ───────────────────────────────────────────────────────
@@ -854,8 +857,32 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         LinearLayoutManager llm = new LinearLayoutManager(this);
         llm.setStackFromEnd(true);
         llm.setReverseLayout(false);
+        // FIX #2a: Tell LinearLayoutManager how many items to prefetch.
+        // Default is 2 — increasing to 5 means the next 5 items are inflated
+        // during idle time before the user scrolls to them (no stutter).
+        llm.setInitialPrefetchItemCount(5);
         binding.rvMessages.setLayoutManager(llm);
         binding.rvMessages.setAdapter(pagingAdapter);
+        // FIX #2b: setHasFixedSize(true) — RecyclerView won't re-measure
+        // its own size every time an item changes; valid because the RV fills
+        // the screen and its own size never changes (only item content changes).
+        binding.rvMessages.setHasFixedSize(true);
+        // FIX #2c: Increase view cache from default 2 → 10.
+        // With 5 view types (sent/received/status-seen/reel-seen/call) and a
+        // typical visible window of ~12 items, cache=2 means almost every
+        // onBind() must pull from the recycle pool (slow). Cache=10 keeps the
+        // most recently off-screen views ready to rebind without reinflation.
+        binding.rvMessages.setItemViewCacheSize(10);
+        // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
+        // Default pool size is 5 already but explicit sizing prevents the pool
+        // from being exhausted on fast flings that scroll past many bubbles.
+        RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
+        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        5);
+        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    5);
+        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */, 3);
+        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,   3);
+        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,  3);
+        binding.rvMessages.setRecycledViewPool(pool);
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
 
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {

@@ -213,6 +213,10 @@ public class CacheManager {
     // DELTA SYNC SUPPORT
     // ─────────────────────────────────────────────────────────────
 
+    // FIX #1: getLastSyncTimestamp() does a synchronous Room DB query (getLastTimestamp).
+    // Must be called from a background thread — ChatActivity.startRealtimeListener()
+    // already wraps this in ioExecutor.execute() but the annotation enforces it at compile time.
+    @WorkerThread
     public long getLastSyncTimestamp(String chatId) {
         Long ts = mDb.messageDao().getLastTimestamp(chatId);
         return ts != null ? ts : 0L;

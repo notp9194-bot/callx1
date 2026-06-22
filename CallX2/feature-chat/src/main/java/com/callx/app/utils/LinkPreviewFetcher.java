@@ -79,6 +79,13 @@ public class LinkPreviewFetcher {
                 }
             };
 
+    // FIX #4: In-flight deduplication — same URL pe concurrent multiple fetches prevent karo.
+    // Without this, if 3 messages share the same URL and are bound in quick succession,
+    // 3 identical HTTP requests fire in parallel. Now: first fetch goes out, subsequent
+    // callers queue their callbacks and get notified when the first completes.
+    private static final Map<String, java.util.List<Callback>> inFlight =
+            new java.util.HashMap<>();
+
     private LinkPreviewFetcher() {}
 
     // ── Public API ────────────────────────────────────────────────────────
@@ -90,25 +97,40 @@ public class LinkPreviewFetcher {
         return m.find() ? m.group() : null;
     }
 
-    /** Fetch preview async. Callback always fires on main thread. */
+    /** Fetch preview async. Callback always fires on main thread.
+     *  FIX #4: Multiple callers for the same URL share a single HTTP request. */
     public static void fetch(String url, Callback callback) {
         if (url == null || callback == null) return;
         synchronized (cache) {
+            // Cache hit — deliver immediately
             Result cached = cache.get(url);
             if (cached != null) {
                 mainHandler.post(() -> callback.onResult(cached));
                 return;
             }
+            // In-flight — queue this callback; the active fetch will notify all waiters
+            if (inFlight.containsKey(url)) {
+                inFlight.get(url).add(callback);
+                return;
+            }
+            // New request — register in-flight list
+            java.util.List<Callback> waiters = new java.util.ArrayList<>();
+            waiters.add(callback);
+            inFlight.put(url, waiters);
         }
         executor.execute(() -> {
             Result result = fetchSync(url);
             synchronized (cache) {
                 if (result != null) cache.put(url, result);
-            }
-            if (result != null) {
-                mainHandler.post(() -> callback.onResult(result));
-            } else {
-                mainHandler.post(() -> callback.onError(url));
+                java.util.List<Callback> waiters = inFlight.remove(url);
+                if (waiters == null) return;
+                final Result r = result;
+                mainHandler.post(() -> {
+                    for (Callback cb : waiters) {
+                        if (r != null) cb.onResult(r);
+                        else           cb.onError(url);
+                    }
+                });
             }
         });
     }

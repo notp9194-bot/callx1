@@ -1751,7 +1751,16 @@ public class MessagePagingAdapter
     @Override
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
-        if (holder.ivImage != null) Glide.with(holder.ivImage).clear(holder.ivImage);
+        // FIX #3: Clear ALL ImageViews on recycle — not just ivImage.
+        // Missing clears on ivReplyThumb/ivLinkThumb/ivVideoThumb/ivStatusSeenThumb/ivReelSeenThumb
+        // caused Glide memory leaks and stale image flicker on fast scrolling.
+        Context ctx = holder.itemView.getContext();
+        if (holder.ivImage           != null) Glide.with(ctx).clear(holder.ivImage);
+        if (holder.ivReplyThumb      != null) Glide.with(ctx).clear(holder.ivReplyThumb);
+        if (holder.ivLinkThumb       != null) Glide.with(ctx).clear(holder.ivLinkThumb);
+        if (holder.ivVideoThumb      != null) Glide.with(ctx).clear(holder.ivVideoThumb);
+        if (holder.ivStatusSeenThumb != null) Glide.with(ctx).clear(holder.ivStatusSeenThumb);
+        if (holder.ivReelSeenThumb   != null) Glide.with(ctx).clear(holder.ivReelSeenThumb);
         // Cancel any running countdown timer to prevent leaks on recycled views
         if (holder.activeCountDown != null) {
             holder.activeCountDown.cancel();

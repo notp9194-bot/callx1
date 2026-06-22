@@ -50,16 +50,39 @@ public class ChatPresenceController {
 
     // ── Init ──────────────────────────────────────────────────────────────
 
+    /**
+     * FIX #7: Stagger the 7 Firebase listeners across 3 dispatch slots.
+     *
+     * Old: all 7 listeners attach in the same frame → 7 concurrent Firebase
+     * subscriptions open on the network thread at once, competing with the
+     * initial message fetch from startRealtimeListener().
+     *
+     * Fix: attach the 2 most critical listeners immediately (status + typing),
+     * then 2 more at +80ms (after the first frame renders), then 3 more at
+     * +160ms (fully deferred). Total wall-clock delay is 160ms — imperceptible
+     * to the user but lets the message pager start first.
+     */
     public void init() {
+        // Batch 1 — immediately: the two listeners that visibly affect the toolbar
+        // and typing strip on first open. User sees these on the very first frame.
         watchPartnerStatus();
         watchTyping();
-        watchPartnerTypingReplyTarget();
-        watchPartnerInChatScreen();
-        watchPartnerViewingMessage();
-        watchPartnerRecording();
-        watchMute();
         markMessagesRead();
         setupBannerTap();
+
+        // Batch 2 — +80ms: reply-target glow and in-chat presence banner
+        android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        h.postDelayed(() -> {
+            watchPartnerTypingReplyTarget();
+            watchPartnerInChatScreen();
+        }, 80);
+
+        // Batch 3 — +160ms: lower-priority features (viewing message, recording badge, mute)
+        h.postDelayed(() -> {
+            watchPartnerViewingMessage();
+            watchPartnerRecording();
+            watchMute();
+        }, 160);
     }
 
     // ── Tap banner → jump to whatever message the partner is currently
