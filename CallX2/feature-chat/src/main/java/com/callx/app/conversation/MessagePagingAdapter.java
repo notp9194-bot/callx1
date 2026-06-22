@@ -1057,11 +1057,13 @@ public class MessagePagingAdapter
                         // Tag itemView with URL so we detect stale VH on recycle
                         h.llLinkPreview.setTag(previewUrl);
                         h.llLinkPreview.setVisibility(View.INVISIBLE); // reserve space while loading
-                        com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
+                        // FIX: must be final for use inside anonymous inner class
+                        final String finalPreviewUrl = previewUrl;
+                        com.callx.app.utils.LinkPreviewFetcher.fetch(finalPreviewUrl,
                                 new com.callx.app.utils.LinkPreviewFetcher.Callback() {
                             @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
                                 // Guard against recycled VH
-                                if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
+                                if (!finalPreviewUrl.equals(h.llLinkPreview.getTag())) return;
                                 h.llLinkPreview.setVisibility(View.VISIBLE);
                                 if (h.tvLinkDomain != null) h.tvLinkDomain.setText(r.domain);
                                 if (h.tvLinkTitle  != null) h.tvLinkTitle.setText(r.title);
@@ -1087,7 +1089,7 @@ public class MessagePagingAdapter
                                 });
                             }
                             @Override public void onError(String url) {
-                                if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
+                                if (!finalPreviewUrl.equals(h.llLinkPreview.getTag())) return;
                                 h.llLinkPreview.setVisibility(View.GONE);
                             }
                         });
