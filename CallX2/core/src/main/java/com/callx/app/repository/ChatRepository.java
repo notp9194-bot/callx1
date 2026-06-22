@@ -84,16 +84,17 @@ public class ChatRepository {
             // When no prior sync: use limitToLast to get the most recent PAGE_SIZE messages.
             // When delta sync: use startAfter((double)lastTs) which is the correct overload.
             Query query;
+            // PERF FIX v8: Firebase path was WRONG ("chats/{id}/messages").
+            // Correct path matches ChatActivity: "messages/{chatId}"
+            // Old wrong path = Room always empty = 3-4s load on every open.
             if (lastTs == 0) {
-                query = mFirebase.getReference("chats")
+                query = mFirebase.getReference("messages")
                     .child(chatId)
-                    .child("messages")
                     .orderByChild("timestamp")
                     .limitToLast(PAGE_SIZE);
             } else {
-                query = mFirebase.getReference("chats")
+                query = mFirebase.getReference("messages")
                     .child(chatId)
-                    .child("messages")
                     .orderByChild("timestamp")
                     .startAfter((double) lastTs)
                     .limitToLast(PAGE_SIZE);

@@ -193,16 +193,13 @@ public class GroupChatActivity extends AppCompatActivity
         currentName = FirebaseUtils.getCurrentName();
         groupMessagesRef = FirebaseUtils.getGroupMessagesRef(groupId);
 
-        db = AppDatabase.getInstance(this);
+        // PERF FIX v8: DB ko background mein init karo, UI turant shuru karo.
+        // db is null initially; Firebase events buffer hote hain pendingUpserts mein.
+        // onGroupDbReady() mein Room Paging shuru hoga + buffer flush hoga.
 
         setupToolbar();
         setupPickers();
-
-        // ── FIX #7: Paging 3 wiring ──
-        setupPagingRecyclerView();
-        observePagedMessages();
-        startRealtimeListener();
-
+        setupPagingRecyclerView();   // RecyclerView + adapter ready (Room query baad mein)
         setupInputBar();
         setupPinnedBanner();
         setupReplyCancel();
@@ -210,10 +207,22 @@ public class GroupChatActivity extends AppCompatActivity
         setupGroupWatching();
         checkAdminStatus();
         watchPinnedMessage();
-
-        // ── Task 5: Offline banner + message pruning ──
         setupNetworkMonitor();
-        ioExecutor.execute(() -> db.messageDao().pruneOldMessages(groupId, 500));
+
+        // Shimmer show karo taaki user blank screen na dekhe
+        if (binding.shimmerContainer != null) {
+            binding.shimmerContainer.startShimmer();
+            binding.shimmerContainer.setVisibility(android.view.View.VISIBLE);
+        }
+
+        // Firebase listener immediately — events buffer honge jab tak DB ready nahi
+        startRealtimeListener();
+
+        // DB background mein
+        new java.util.concurrent.Executors().newSingleThreadExecutor().execute(() -> {
+            db = AppDatabase.getInstance(this);
+            runOnUiThread(this::onGroupDbReady);
+        });
 
         // Disappearing messages — expired messages cleanup
         scheduleExpiryCleanup();
@@ -528,6 +537,17 @@ public class GroupChatActivity extends AppCompatActivity
     // FIX #7 — PAGING 3: Pager → LiveData → Adapter
     // Room PagingSource auto-invalidates on insert → no manual invalidate needed
     // ─────────────────────────────────────────────────────────────────────
+
+    /** DB ready hone ke baad Room Paging start karo + buffered events flush karo. */
+    private void onGroupDbReady() {
+        if (isFinishing() || isDestroyed()) return;
+        observePagedMessages();
+        // Pending Firebase events (jo pehle se aa chuke hain) ek transaction mein flush karo
+        writeFlushHandler.removeCallbacks(writeFlushRunnable);
+        flushPendingRoomWrites();
+        // Background cleanup — DB guaranteed non-null yahan
+        ioExecutor.execute(() -> db.messageDao().pruneOldMessages(groupId, 500));
+    }
 
     private void observePagedMessages() {
         Pager<Integer, MessageEntity> pager = new Pager<>(

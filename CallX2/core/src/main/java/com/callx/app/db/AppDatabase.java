@@ -368,17 +368,14 @@ public abstract class AppDatabase extends RoomDatabase {
                 .openHelperFactory(factory)
                 .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)  // v16…v21(senderPhoto) v22(reelSeen) v23(fontStyle) v24(expiresAt) v25(polls) v26(multiChoicePolls) v27(editHistory) v28(scheduledMessages) v29(reactions)
                 .fallbackToDestructiveMigration()
-                // PERF FIX: WAL (Write-Ahead Logging) mode.
-                // Default TRUNCATE mode holds a full write lock — concurrent reads
-                // from the Paging3 worker are blocked while Firebase->Room sync
-                // writes happen, causing 50-300ms freezes per write burst.
-                // WAL allows reads to proceed concurrently with writes: Paging3
-                // never waits for sync writes, so chat opens instantly from cache.
-                .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+                // NOTE: WAL mode removed — SQLCipher 4.5.4 + Room WAL combination
+                // causes silent open failures on some devices. The write-batching
+                // fix (applyBufferedChanges single transaction) achieves the same
+                // goal: one DB write burst per Firebase replay instead of N writes.
                 .setQueryExecutor(queryExecutor)
                 .build();
 
-        Log.d(TAG, "AppDatabase (SQLCipher encrypted, WAL mode, exportSchema=true) ready");
+        Log.d(TAG, "AppDatabase (SQLCipher encrypted, dedicated executor, exportSchema=true) ready");
         return db;
     }
 }
