@@ -445,7 +445,7 @@
             android:id="@+id/shimmer_container"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:visibility="visible">
+            android:visibility="gone">
             <include layout="@layout/layout_skeleton_chat"/>
         </com.facebook.shimmer.ShimmerFrameLayout>
 

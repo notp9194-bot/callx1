@@ -253,6 +253,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         super.onCreate(savedInstanceState);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        // SKELETON REMOVED (by request): belt-and-suspenders — XML default
+        // is now visibility="gone" too, but force it here as well in case
+        // any other code path ever flips it back on.
+        if (binding.shimmerContainer != null) {
+            binding.shimmerContainer.stopShimmer();
+            binding.shimmerContainer.setVisibility(View.GONE);
+        }
 
         readIntentExtras();
         if (partnerUid == null || partnerUid.isEmpty()) {
