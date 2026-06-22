@@ -321,11 +321,32 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Presence: toolbar mein online/typing dikhane ke liye turant chahiye
         presenceController.init();
 
-        // STEP 2 [BACKGROUND]: DB warm karo
-        ioExecutor.execute(() -> {
+        // STEP 2 [BACKGROUND-OR-SYNC]: DB warm karo
+        //
+        // PERF FIX v15: Pehle yahan unconditionally ioExecutor.execute() →
+        // runOnUiThread() lagaya jaata tha — chahe DB already warm ho
+        // (common case: app-start prewarm already chal gaya, ya yeh dusra/
+        // teesra chat screen hai is session mein). Yeh 2 thread-hops khud
+        // Handler-queue delay add karte hain (har hop ek extra message-loop
+        // cycle), bhale hi koi real I/O na ho — isi wajah se "2 second baad
+        // message load" jaisa lag rha tha chahe Room query khud fast thi.
+        //
+        // AppDatabase.getInstance() jab sInstance already set hai, sirf ek
+        // synchronized null-check hai (no I/O) — isliye warm case mein use
+        // SEEDHA main thread pe call karna safe hai. Sirf cold case mein
+        // (SQLCipher load + migrations + file I/O) background thread chahiye.
+        if (AppDatabase.isWarm()) {
+            // FAST PATH: same frame, synchronous — koi thread-hop nahi.
             db = AppDatabase.getInstance(this);
-            runOnUiThread(this::onDbReady);
-        });
+            onDbReady();
+        } else {
+            // COLD PATH: pehli baar DB build ho rahi hai — background thread
+            // zaroori hai taaki SQLCipher/migration I/O main thread block na kare.
+            ioExecutor.execute(() -> {
+                db = AppDatabase.getInstance(this);
+                runOnUiThread(this::onDbReady);
+            });
+        }
     }
 
     private void onDbReady() {

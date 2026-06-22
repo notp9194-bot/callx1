@@ -327,6 +327,15 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** PERF FIX: lets callers check, without any I/O or synchronization cost
+     *  beyond a volatile read, whether the singleton is already built. If
+     *  true, getInstance() below is guaranteed non-blocking (just returns
+     *  sInstance) and is safe to call directly on the main thread — no
+     *  background-thread hop needed. */
+    public static boolean isWarm() {
+        return sInstance != null;
+    }
+
     public static AppDatabase getInstance(Context ctx) {
         if (sInstance == null) {
             synchronized (AppDatabase.class) {
