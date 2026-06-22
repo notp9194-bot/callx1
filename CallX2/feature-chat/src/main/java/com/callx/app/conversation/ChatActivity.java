@@ -178,6 +178,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // (a genuinely new message arriving while the user is at the bottom).
     private boolean firstPageRendered = false;
 
+    // ── PERF FIX: don't show the skeleton at all for fast/cached loads ─────
+    // Shimmer used to be set VISIBLE unconditionally the instant onCreate ran,
+    // before Paging even had a chance to check whether Room already had this
+    // chat's messages cached. Result: even a 5ms cache hit still showed a
+    // guaranteed skeleton flash every single open. Real fix: don't show
+    // shimmer immediately — schedule it 150ms out, and cancel that scheduled
+    // show the moment data actually arrives. A cached chat resolves in a few
+    // ms, so the shimmer runnable gets cancelled before it ever runs — no
+    // flash at all. A genuinely slow (cold network) load still shows it,
+    // same as before, just slightly delayed.
+    private static final long SHIMMER_SHOW_DELAY_MS = 150;
+    private final android.os.Handler shimmerHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable shimmerShowRunnable = () -> {
+        if (isFinishing() || isDestroyed()) return;
+        if (binding.shimmerContainer != null) {
+            binding.shimmerContainer.startShimmer();
+            binding.shimmerContainer.setVisibility(View.VISIBLE);
+        }
+    };
+
     // ── Reply state ────────────────────────────────────────────────────────
     private Message replyingTo = null;
     private ReplyController  replyController;
@@ -287,11 +307,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupFabBackToLatest();
         setupNetworkMonitor();
 
-        // Shimmer show karo immediately — user ko blank screen nahi dikhegi
-        if (binding.shimmerContainer != null) {
-            binding.shimmerContainer.startShimmer();
-            binding.shimmerContainer.setVisibility(android.view.View.VISIBLE);
-        }
+        // PERF FIX: don't flash shimmer for fast/cached loads — schedule it
+        // 150ms out instead of showing it unconditionally right away. See
+        // shimmerShowRunnable above. Cancelled in addLoadStateListener the
+        // moment real data (cached or fresh) actually arrives.
+        shimmerHandler.postDelayed(shimmerShowRunnable, SHIMMER_SHOW_DELAY_MS);
 
         // Firebase listener IMMEDIATELY lagao — DB ready hone se pehle bhi
         // messages queue mein buffer hote hain (pendingUpserts map mein).
@@ -407,6 +427,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     protected void onDestroy() {
         super.onDestroy();
         saveDraft();
+        shimmerHandler.removeCallbacks(shimmerShowRunnable);
 
         if (messagesRef != null && messageListener != null)
             messagesRef.removeEventListener(messageListener);
@@ -987,12 +1008,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter.addLoadStateListener(states -> {
             androidx.paging.LoadState refresh = states.getRefresh();
             if (refresh instanceof androidx.paging.LoadState.Loading) {
-                if (binding.rvMessages.getVisibility() == View.GONE) {
-                    binding.shimmerContainer.startShimmer();
-                    binding.shimmerContainer.setVisibility(View.VISIBLE);
-                }
+                // Still loading — let the already-scheduled delayed shimmer
+                // fire on its own (don't show it earlier than planned).
                 binding.llEmptyChat.setVisibility(View.GONE);
             } else {
+                // Data resolved (cached or fresh) — cancel the pending
+                // shimmer-show before it ever gets a chance to appear.
+                shimmerHandler.removeCallbacks(shimmerShowRunnable);
                 binding.shimmerContainer.stopShimmer();
                 binding.shimmerContainer.setVisibility(View.GONE);
                 if (refresh instanceof androidx.paging.LoadState.Error) {
