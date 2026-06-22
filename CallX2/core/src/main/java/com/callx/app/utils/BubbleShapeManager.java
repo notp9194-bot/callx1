@@ -110,10 +110,12 @@ public class BubbleShapeManager {
     // ── Singleton ─────────────────────────────────────────────────────────
     private static BubbleShapeManager instance;
     private final SharedPreferences prefs;
+    private final Context appContext;
     private int currentShape;
 
     private BubbleShapeManager(Context ctx) {
-        prefs        = ctx.getApplicationContext()
+        appContext   = ctx.getApplicationContext();
+        prefs        = appContext
                           .getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         currentShape = prefs.getInt(KEY_SHAPE, SHAPE_TAIL);
     }
@@ -128,6 +130,10 @@ public class BubbleShapeManager {
     public void setShape(int shapeId) {
         currentShape = shapeId;
         prefs.edit().putInt(KEY_SHAPE, shapeId).apply();
+        // PERF: shape is part of ChatThemeManager's cached-bubble key —
+        // invalidate that cache so the new shape renders immediately
+        // instead of showing stale cached bubble drawables.
+        ChatThemeManager.get(appContext).clearBubbleCache();
     }
 
     /**

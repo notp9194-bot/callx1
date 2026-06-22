@@ -72,6 +72,22 @@ public class ChatThemeManager {
     private final SharedPreferences prefs;
     private int currentTheme;
 
+    // ── Bubble drawable cache ───────────────────────────────────────────
+    // PERF FIX: applyBubble() used to allocate a brand-new GradientDrawable
+    // on EVERY RecyclerView bind (i.e. every row, every scroll frame). With
+    // long chats that meant constant allocation + GC churn while scrolling,
+    // which is the #1 cause of chat-screen jank/lag.
+    //
+    // The set of possible bubbles is small and fixed at runtime: it only
+    // depends on (theme, bubble shape, sent/received). Density does not
+    // change at runtime for a given screen, so it's safe to bake it into
+    // the cached drawable. We key on (theme, shape, sent) and reuse the
+    // same Drawable instance across all rows that need that exact bubble —
+    // this is safe because nothing else in the app mutates the drawable
+    // after it's been set on a bubble's background.
+    private final java.util.Map<Long, GradientDrawable> bubbleDrawableCache =
+            new java.util.HashMap<>();
+
     private ChatThemeManager(Context ctx) {
         prefs        = ctx.getApplicationContext()
                           .getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
@@ -90,34 +106,62 @@ public class ChatThemeManager {
     public void setTheme(int themeId) {
         currentTheme = themeId;
         prefs.edit().putInt(KEY_THEME, themeId).apply();
+        clearBubbleCache();
     }
 
     /**
      * Apply the correct bubble background to a given bubble container view.
+     *
+     * PERF: reuses a cached GradientDrawable per (theme, shape, sent) combo
+     * instead of allocating a new one on every call — this method runs once
+     * per row per bind, so on a long scrolling chat it was previously
+     * creating dozens of throwaway Drawable objects per second.
      */
     public void applyBubble(android.view.View bubbleView,
                             boolean sent, String msgType, boolean hasReply) {
         if (bubbleView == null) return;
 
-        float density = bubbleView.getContext().getResources().getDisplayMetrics().density;
+        int shape = BubbleShapeManager.get(bubbleView.getContext()).getCurrentShape();
+        long cacheKey = bubbleCacheKey(currentTheme, shape, sent);
 
-        float[] corners = BubbleShapeManager.get(bubbleView.getContext())
-                              .getCornerRadii(sent, density);
+        GradientDrawable cached = bubbleDrawableCache.get(cacheKey);
+        if (cached == null) {
+            float density = bubbleView.getContext().getResources().getDisplayMetrics().density;
+            float[] corners = BubbleShapeManager.get(bubbleView.getContext())
+                                  .getCornerRadii(sent, density);
+            int[] colors = getColors(currentTheme, sent);
 
-        int[] colors = getColors(currentTheme, sent);
-        GradientDrawable gd;
+            GradientDrawable gd;
+            if (currentTheme == THEME_MONO || currentTheme == THEME_CLASSIC
+                    || currentTheme == THEME_COFFEE || currentTheme == THEME_ICE) {
+                gd = new GradientDrawable();
+                gd.setColor(colors[0]);
+            } else {
+                gd = new GradientDrawable(
+                        GradientDrawable.Orientation.TL_BR,
+                        colors);
+            }
+            gd.setCornerRadii(corners);
 
-        if (currentTheme == THEME_MONO || currentTheme == THEME_CLASSIC
-                || currentTheme == THEME_COFFEE || currentTheme == THEME_ICE) {
-            gd = new GradientDrawable();
-            gd.setColor(colors[0]);
-        } else {
-            gd = new GradientDrawable(
-                    GradientDrawable.Orientation.TL_BR,
-                    colors);
+            cached = gd;
+            bubbleDrawableCache.put(cacheKey, cached);
         }
-        gd.setCornerRadii(corners);
-        bubbleView.setBackground(gd);
+
+        // NOTE: do not call bubbleView.setBackground(cached).mutate() or
+        // change properties on `cached` after this point elsewhere in the
+        // app — it's shared across every row using this exact bubble style.
+        bubbleView.setBackground(cached);
+    }
+
+    /** Packs (theme, shape, sent) into a single cache key. */
+    private static long bubbleCacheKey(int theme, int shape, boolean sent) {
+        return ((long) theme << 16) | ((long) shape << 1) | (sent ? 1L : 0L);
+    }
+
+    /** Call when the user changes theme or bubble shape so stale cached
+     *  drawables aren't reused (cheap — cache rebuilds lazily on next bind). */
+    public void clearBubbleCache() {
+        bubbleDrawableCache.clear();
     }
 
     /**

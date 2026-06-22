@@ -354,11 +354,11 @@ public class MessagePagingAdapter
     // No long-press / reactions — it's a system event.
     // ──────────────────────────────────────────────────────────────
     private void bindCallEntryBubble(@NonNull VH h, @NonNull Message m) {
-        android.widget.TextView tvIcon  = h.itemView.findViewById(R.id.tv_call_entry_icon);
-        android.widget.TextView tvLabel = h.itemView.findViewById(R.id.tv_call_entry_label);
-        android.widget.TextView tvTime  = h.itemView.findViewById(R.id.tv_call_entry_time);
-        android.view.View llRoot = h.itemView.findViewById(R.id.ll_call_entry_root);
-        android.view.View llPill = h.itemView.findViewById(R.id.ll_call_entry_pill);
+        android.widget.TextView tvIcon  = h.tvCallEntryIcon;
+        android.widget.TextView tvLabel = h.tvCallEntryLabel;
+        android.widget.TextView tvTime  = h.tvCallEntryTime;
+        android.view.View llRoot = h.llCallEntryRoot;
+        android.view.View llPill = h.llCallEntryPill;
 
         boolean isVideoCall = "video".equals(m.fileName);
         boolean isMissed    = "missed".equals(m.text);
@@ -426,13 +426,14 @@ public class MessagePagingAdapter
         Context ctx = h.itemView.getContext();
 
         // Avatar
-        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
-            h.itemView.findViewById(R.id.iv_status_seen_avatar);
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar = h.ivStatusSeenAvatar;
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
                 com.bumptech.glide.Glide.with(ctx)
                     .load(photo)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .override(96, 96)
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
                     .into(ivAvatar);
@@ -442,9 +443,9 @@ public class MessagePagingAdapter
         }
 
         // Status thumbnail
-        android.view.View flThumb = h.itemView.findViewById(R.id.fl_status_seen_thumb);
-        android.widget.ImageView ivThumb = h.itemView.findViewById(R.id.iv_status_seen_thumb);
-        android.widget.ImageView ivEye   = h.itemView.findViewById(R.id.iv_status_seen_eye);
+        android.view.View flThumb = h.flStatusSeenThumb;
+        android.widget.ImageView ivThumb = h.ivStatusSeenThumb;
+        android.widget.ImageView ivEye   = h.ivStatusSeenEye;
         if (ivThumb != null && flThumb != null) {
             String thumb = m.statusThumbUrl != null ? m.statusThumbUrl : "";
             if (!thumb.isEmpty()) {
@@ -452,6 +453,8 @@ public class MessagePagingAdapter
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
                 com.bumptech.glide.Glide.with(ctx)
                     .load(thumb)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .override(240, 240)
                     .centerCrop()
                     .placeholder(R.drawable.bg_skeleton_rect)
                     .into(ivThumb);
@@ -483,8 +486,7 @@ public class MessagePagingAdapter
         if (flThumb != null) flThumb.setOnClickListener(openStatus);
 
         // Sender name (shown in group chat only)
-        android.widget.TextView tvName =
-            h.itemView.findViewById(R.id.tv_status_seen_name);
+        android.widget.TextView tvName = h.tvStatusSeenName;
         if (tvName != null) {
             if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
                 tvName.setText(m.senderName);
@@ -495,8 +497,7 @@ public class MessagePagingAdapter
         }
 
         // Time
-        android.widget.TextView tvTime =
-            h.itemView.findViewById(R.id.tv_status_seen_time);
+        android.widget.TextView tvTime = h.tvStatusSeenTime;
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
             tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
@@ -518,13 +519,14 @@ public class MessagePagingAdapter
         Context ctx = h.itemView.getContext();
 
         // Avatar
-        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
-            h.itemView.findViewById(R.id.iv_reel_seen_avatar);
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar = h.ivReelSeenAvatar;
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
                 com.bumptech.glide.Glide.with(ctx)
                     .load(photo)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .override(96, 96)
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person)
                     .into(ivAvatar);
@@ -545,9 +547,9 @@ public class MessagePagingAdapter
         };
 
         // Reel thumbnail + play icon
-        android.view.View flThumb = h.itemView.findViewById(R.id.fl_reel_seen_thumb);
-        android.widget.ImageView ivThumb = h.itemView.findViewById(R.id.iv_reel_seen_thumb);
-        android.widget.ImageView ivPlay  = h.itemView.findViewById(R.id.iv_reel_seen_play);
+        android.view.View flThumb = h.flReelSeenThumb;
+        android.widget.ImageView ivThumb = h.ivReelSeenThumb;
+        android.widget.ImageView ivPlay  = h.ivReelSeenPlay;
         if (ivThumb != null) {
             String thumb = m.reelThumbUrl != null ? m.reelThumbUrl : "";
             if (!thumb.isEmpty()) {
@@ -555,6 +557,8 @@ public class MessagePagingAdapter
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
                 com.bumptech.glide.Glide.with(ctx)
                     .load(thumb)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .override(240, 240)
                     .centerCrop()
                     .placeholder(R.drawable.bg_skeleton_rect)
                     .into(ivThumb);
@@ -569,8 +573,7 @@ public class MessagePagingAdapter
         h.itemView.setOnClickListener(openReel);
 
         // Sender name (group only)
-        android.widget.TextView tvName =
-            h.itemView.findViewById(R.id.tv_reel_seen_name);
+        android.widget.TextView tvName = h.tvReelSeenName;
         if (tvName != null) {
             if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
                 tvName.setText(m.senderName);
@@ -581,8 +584,7 @@ public class MessagePagingAdapter
         }
 
         // Time
-        android.widget.TextView tvTime =
-            h.itemView.findViewById(R.id.tv_reel_seen_time);
+        android.widget.TextView tvTime = h.tvReelSeenTime;
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
             tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
@@ -674,7 +676,7 @@ public class MessagePagingAdapter
         }
 
         // ── Theme-aware bubble background ─────────────────────────────────
-        android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
+        android.view.View llBubble = h.llBubble;
         try {
             if (llBubble != null) {
                 boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
@@ -739,7 +741,10 @@ public class MessagePagingAdapter
                     if (thumbUrl != null && !thumbUrl.isEmpty()) {
                         h.ivReplyThumb.setVisibility(View.VISIBLE);
                         com.bumptech.glide.Glide.with(ctx)
-                                .load(thumbUrl).centerCrop()
+                                .load(thumbUrl)
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .override(120, 120)
+                                .centerCrop()
                                 .into(h.ivReplyThumb);
                     } else {
                         h.ivReplyThumb.setVisibility(View.GONE);
@@ -826,6 +831,7 @@ public class MessagePagingAdapter
                         Glide.with(ctx)
                             .load(fullUrl)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .override(720, 720) // PERF: cap decode size to bubble size, not native res
                             .thumbnail(Glide.with(ctx)
                                 .load(thumbUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL))
@@ -845,17 +851,20 @@ public class MessagePagingAdapter
                                 .asGif()
                                 .load(fullUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .override(480, 480) // PERF: GIFs are heavy to decode/animate at full res
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)
                                 .into(h.ivImage);
                         } else if (cachedImg != null) {
                             Glide.with(ctx).load(cachedImg)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .override(720, 720)
                                 .placeholder(R.drawable.ic_file)
                                 .into(h.ivImage);
                         } else {
                             Glide.with(ctx).load(fullUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .override(720, 720)
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)
                                 .into(h.ivImage);
@@ -891,6 +900,7 @@ public class MessagePagingAdapter
                     Glide.with(ctx)
                         .load(thumbUrl)
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .override(480, 480)
                         .placeholder(R.drawable.ic_file)
                         .centerCrop()
                         .into(h.ivVideoThumb);
@@ -921,6 +931,7 @@ public class MessagePagingAdapter
                             ? m.thumbnailUrl : vUrl;
                     Glide.with(ctx).load(thumbUrl)
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .override(480, 480)
                         .placeholder(R.drawable.ic_file)
                         .into(h.ivImage);
                     h.ivImage.setOnClickListener(v -> {
@@ -1048,6 +1059,7 @@ public class MessagePagingAdapter
                                         com.bumptech.glide.Glide.with(ctx)
                                             .load(r.imageUrl)
                                             .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                                            .override(300, 300)
                                             .centerCrop()
                                             .into(h.ivLinkThumb);
                                     } else {
@@ -1868,6 +1880,30 @@ public class MessagePagingAdapter
         // "Currently playing this voice note / video" live badge (sibling
         // of viewSeenDot above, but for playback instead of scroll position)
         TextView     tvListeningBadge;
+        // PERF: bubble background container — was looked up via
+        // itemView.findViewById() on every single bindMessage() call (i.e.
+        // every text/image/audio row, every bind). Cached here instead since
+        // it's the hottest path in the adapter.
+        View         llBubble;
+
+        // PERF: the following are for the rarer system-row layouts
+        // (status_seen / reel_seen / call_entry). They used to be looked
+        // up with itemView.findViewById() inside the bind*Bubble() methods
+        // on every bind. Cached here instead — null on layouts that don't
+        // contain them, which is fine since those bind methods are never
+        // called for the wrong view type.
+        de.hdodenhof.circleimageview.CircleImageView ivStatusSeenAvatar;
+        View      flStatusSeenThumb;
+        ImageView ivStatusSeenThumb, ivStatusSeenEye;
+        TextView  tvStatusSeenName, tvStatusSeenTime;
+
+        de.hdodenhof.circleimageview.CircleImageView ivReelSeenAvatar;
+        View      flReelSeenThumb;
+        ImageView ivReelSeenThumb, ivReelSeenPlay;
+        TextView  tvReelSeenName, tvReelSeenTime;
+
+        TextView  tvCallEntryIcon, tvCallEntryLabel, tvCallEntryTime;
+        View      llCallEntryRoot, llCallEntryPill;
 
         VH(@NonNull View v) {
             super(v);
@@ -1914,6 +1950,32 @@ public class MessagePagingAdapter
             ivPollIcon        = v.findViewById(R.id.iv_poll_icon);
             viewSeenDot       = v.findViewById(R.id.view_seen_dot);
             tvListeningBadge  = v.findViewById(R.id.tv_listening_badge);
+            llBubble          = v.findViewById(R.id.ll_bubble);
+
+            // System-row layouts (status_seen / reel_seen / call_entry) —
+            // these IDs only exist on their respective layouts, so they'll
+            // simply resolve to null on the other view types. That's fine:
+            // the bind*Bubble() method for one type never runs against a
+            // VH inflated from a different type's layout.
+            ivStatusSeenAvatar = v.findViewById(R.id.iv_status_seen_avatar);
+            flStatusSeenThumb  = v.findViewById(R.id.fl_status_seen_thumb);
+            ivStatusSeenThumb  = v.findViewById(R.id.iv_status_seen_thumb);
+            ivStatusSeenEye    = v.findViewById(R.id.iv_status_seen_eye);
+            tvStatusSeenName   = v.findViewById(R.id.tv_status_seen_name);
+            tvStatusSeenTime   = v.findViewById(R.id.tv_status_seen_time);
+
+            ivReelSeenAvatar = v.findViewById(R.id.iv_reel_seen_avatar);
+            flReelSeenThumb  = v.findViewById(R.id.fl_reel_seen_thumb);
+            ivReelSeenThumb  = v.findViewById(R.id.iv_reel_seen_thumb);
+            ivReelSeenPlay   = v.findViewById(R.id.iv_reel_seen_play);
+            tvReelSeenName   = v.findViewById(R.id.tv_reel_seen_name);
+            tvReelSeenTime   = v.findViewById(R.id.tv_reel_seen_time);
+
+            tvCallEntryIcon  = v.findViewById(R.id.tv_call_entry_icon);
+            tvCallEntryLabel = v.findViewById(R.id.tv_call_entry_label);
+            tvCallEntryTime  = v.findViewById(R.id.tv_call_entry_time);
+            llCallEntryRoot  = v.findViewById(R.id.ll_call_entry_root);
+            llCallEntryPill  = v.findViewById(R.id.ll_call_entry_pill);
         }
     }
 }
