@@ -90,4 +90,14 @@ public interface ChatActivityDelegate {
 
     // ── Poll creation ─────────────────────────────────────────────────────
     void launchPollCreator();
+
+    /**
+     * PERF FIX: queues a Room "mark read" write instead of writing it
+     * immediately. Coalesced with other buffered Firebase events into a
+     * single transaction — see ChatActivity#flushPendingRoomWrites() and
+     * MessageDao#applyBufferedChanges(). Stops every historical unread
+     * message from triggering its own PagingSource invalidation when a
+     * chat is opened.
+     */
+    void queueMarkRead(String messageId);
 }

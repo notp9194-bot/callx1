@@ -7,6 +7,7 @@ import androidx.room.Dao;
 import androidx.room.Insert;
 import androidx.room.OnConflictStrategy;
 import androidx.room.Query;
+import androidx.room.Transaction;
 import androidx.room.Update;
 
 import com.callx.app.db.entity.MessageEntity;
@@ -147,9 +148,59 @@ public interface MessageDao {
     @Query("UPDATE messages SET deleted = 1, text = '' WHERE id = :messageId")
     void softDelete(String messageId);
 
+    /**
+     * PERF FIX (chat-open jump/flicker): bulk soft-delete for messages
+     * removed from Firebase while they were buffered in a write-coalescing
+     * window — see ChatActivity/GroupChatActivity#flushPendingRoomWrites().
+     * One UPDATE for N ids = one PagingSource invalidation, not N.
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET deleted = 1, text = '' WHERE id IN (:ids)")
+    void softDeleteAll(List<String> ids);
+
     @WorkerThread
     @Query("UPDATE messages SET status = :status WHERE id = :messageId")
     void updateStatus(String messageId, String status);
+
+    /**
+     * PERF FIX (chat-open jump/flicker): bulk "mark read" for messages
+     * buffered during the write-coalescing window, instead of one
+     * UPDATE per message (which was triggering one PagingSource
+     * invalidation — and therefore one extra RecyclerView re-render —
+     * per historical message on every chat open).
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET status = 'read' WHERE id IN (:ids) AND (status IS NULL OR status != 'read')")
+    void markReadBulk(List<String> ids);
+
+    /**
+     * PERF FIX (chat-open jump/flicker): applies a whole burst of buffered
+     * Firebase events — new/changed messages, removed messages, and
+     * read-receipt updates — inside a SINGLE Room transaction.
+     *
+     * Why this matters: previously every individual Firebase onChildAdded()
+     * fired its own insertMessage() + updateStatus() call. When a chat was
+     * opened, Firebase replays the last N messages as N separate
+     * onChildAdded() events in a tight burst; each one was its own Room
+     * write, each write fired its own PagingSource invalidation, and each
+     * invalidation drove its own submitData() → diff → layout pass. The
+     * user saw this as the chat screen "jumping" up/down repeatedly while
+     * messages popped in one at a time, plus a multi-second delay before
+     * the list settled.
+     *
+     * Fix: ChatActivity/GroupChatActivity now buffer incoming Firebase
+     * events for a short debounce window and call this method ONCE with
+     * everything that arrived in that window. One transaction → Room's
+     * InvalidationTracker fires once → Paging3 re-queries once →
+     * PagingDataAdapter does exactly one diff + one single-pass render.
+     */
+    @WorkerThread
+    @Transaction
+    default void applyBufferedChanges(List<MessageEntity> upserts, List<String> removedIds, List<String> readIds) {
+        if (upserts != null && !upserts.isEmpty()) insertMessages(upserts);
+        if (removedIds != null && !removedIds.isEmpty()) softDeleteAll(removedIds);
+        if (readIds != null && !readIds.isEmpty()) markReadBulk(readIds);
+    }
 
     @WorkerThread
     @Query("UPDATE messages SET starred = :starred WHERE id = :messageId")

@@ -917,8 +917,11 @@ public class ChatPresenceController {
             SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
             if (!secMgr.isReadReceiptsEnabled()) return;
             delegate.getMessagesRef().child(m.id).child("status").setValue("read");
-            delegate.getIoExecutor().execute(() ->
-                    delegate.getDb().messageDao().updateStatus(m.id, "read"));
+            // PERF FIX: was a per-message ioExecutor.execute(updateStatus(...))
+            // here, i.e. one Room write (→ one PagingSource invalidation) per
+            // historical unread message on chat open. Now buffered and applied
+            // together with the rest of the initial sync in one transaction.
+            delegate.queueMarkRead(m.id);
         }
     }
 

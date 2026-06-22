@@ -100,6 +100,25 @@ public class GroupChatActivity extends AppCompatActivity
     // ── Firebase refs ──────────────────────────────────────────────────────
     private DatabaseReference  groupMessagesRef;
     private ChildEventListener messageListener;
+
+    // ── PERF FIX: write-coalescing buffer for Firebase → Room sync ─────────
+    // Same root cause as ChatActivity (1:1 chat): Firebase replays the last
+    // N group messages as N separate onChildAdded() events fired back to
+    // back when the screen opens. Writing each one to Room immediately
+    // meant N separate PagingSource invalidations → N separate
+    // submitData()/diff/layout passes, seen as the list jumping up/down
+    // while it loaded. Buffer everything that arrives within a short
+    // window and flush it as ONE Room transaction instead.
+    private static final long WRITE_FLUSH_DEBOUNCE_MS = 80;
+    private final Map<String, Message> pendingUpserts = new LinkedHashMap<>();
+    private final LinkedHashSet<String> pendingRemovals = new LinkedHashSet<>();
+    private final android.os.Handler writeFlushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean writeFlushScheduled = false;
+    private final Runnable writeFlushRunnable = this::flushPendingRoomWrites;
+
+    // ── PERF FIX: don't fight stackFromEnd on the very first render ────────
+    // See the matching field/comment in ChatActivity for the full reasoning.
+    private boolean firstPageRendered = false;
     private DatabaseReference  typingRef;
     private ValueEventListener typingListener;
     private DatabaseReference  typingReplyRef;
@@ -226,6 +245,10 @@ public class GroupChatActivity extends AppCompatActivity
         setMyTyping(false);
         if (groupMessagesRef != null && messageListener != null)
             groupMessagesRef.removeEventListener(messageListener);
+        // PERF FIX: flush any buffered Firebase→Room writes immediately
+        // instead of losing them if the debounce window hadn't fired yet.
+        writeFlushHandler.removeCallbacks(writeFlushRunnable);
+        flushPendingRoomWrites();
         if (typingRef  != null && typingListener  != null)
             typingRef.removeEventListener(typingListener);
         if (typingReplyRef != null && typingReplyListener != null)
@@ -470,6 +493,13 @@ public class GroupChatActivity extends AppCompatActivity
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
                 super.onItemRangeInserted(positionStart, itemCount);
+                if (!firstPageRendered) {
+                    // stackFromEnd(true) already anchors the first layout pass
+                    // at the bottom — an extra explicit scroll here was causing
+                    // the visible jump while the group chat opened.
+                    firstPageRendered = true;
+                    return;
+                }
                 int total  = pagingAdapter.getItemCount();
                 int lastVis = llm.findLastVisibleItemPosition();
                 if (lastVis >= total - itemCount - 2)
@@ -547,7 +577,12 @@ public class GroupChatActivity extends AppCompatActivity
             }
             @Override public void onChildRemoved(DataSnapshot s) {
                 String key = s.getKey();
-                if (key != null) ioExecutor.execute(() -> db.messageDao().softDelete(key));
+                if (key == null) return;
+                // PERF FIX: buffer the removal so it coalesces with the rest
+                // of the burst into one Room transaction.
+                pendingUpserts.remove(key);
+                pendingRemovals.add(key);
+                scheduleWriteFlush();
             }
             @Override public void onChildMoved(DataSnapshot s, String p) {}
             @Override public void onCancelled(DatabaseError e) {}
@@ -555,9 +590,42 @@ public class GroupChatActivity extends AppCompatActivity
         query.addChildEventListener(messageListener);
     }
 
+    /**
+     * PERF FIX: buffers a Firebase add/change event instead of writing it to
+     * Room straight away. Everything queued within WRITE_FLUSH_DEBOUNCE_MS
+     * gets applied in a single Room transaction (MessageDao#applyBufferedChanges)
+     * — this is what stops opening a group chat from rendering one message
+     * at a time with a visible jump.
+     */
     private void saveToRoom(Message m) {
-        ioExecutor.execute(() -> db.messageDao().insertMessage(modelToEntity(m)));
-        // Room auto-invalidates PagingSource — no explicit invalidate() needed
+        if (m == null || m.id == null) return;
+        pendingUpserts.put(m.id, m);
+        pendingRemovals.remove(m.id); // a fresh upsert always wins over a stale pending removal
+        scheduleWriteFlush();
+    }
+
+    private void scheduleWriteFlush() {
+        if (writeFlushScheduled) return;
+        writeFlushScheduled = true;
+        writeFlushHandler.postDelayed(writeFlushRunnable, WRITE_FLUSH_DEBOUNCE_MS);
+    }
+
+    /** Applies every buffered Firebase event since the last flush in ONE Room transaction. */
+    private void flushPendingRoomWrites() {
+        writeFlushScheduled = false;
+        if (pendingUpserts.isEmpty() && pendingRemovals.isEmpty()) return;
+
+        List<Message> upsertsSnapshot = new ArrayList<>(pendingUpserts.values());
+        List<String> removalsSnapshot = new ArrayList<>(pendingRemovals);
+        pendingUpserts.clear();
+        pendingRemovals.clear();
+
+        if (db == null) return;
+        ioExecutor.execute(() -> {
+            List<MessageEntity> entities = new ArrayList<>(upsertsSnapshot.size());
+            for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
+            db.messageDao().applyBufferedChanges(entities, removalsSnapshot, null);
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────

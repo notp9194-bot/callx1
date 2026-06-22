@@ -149,6 +149,35 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private DatabaseReference  messagesRef;
     private ChildEventListener messageListener;
 
+    // ── PERF FIX: write-coalescing buffer for Firebase → Room sync ─────────
+    // Root cause of the "chat opens with 3-4s delay + up/down jump" bug:
+    // Firebase replays the last N messages as N separate onChildAdded()
+    // events fired back-to-back. The old code wrote each one to Room the
+    // instant it arrived, so opening a chat with 30 messages meant 30
+    // separate Room writes → 30 separate PagingSource invalidations → 30
+    // separate submitData()/diff/layout passes, visible as the list
+    // growing and re-jumping to the bottom one message at a time.
+    // Fix: buffer every add/change/remove/read-receipt that arrives within
+    // a short window and flush them all in ONE Room transaction — see
+    // MessageDao#applyBufferedChanges(). One transaction = one invalidation
+    // = one single-pass render.
+    private static final long WRITE_FLUSH_DEBOUNCE_MS = 80;
+    private final java.util.Map<String, Message> pendingUpserts = new java.util.LinkedHashMap<>();
+    private final java.util.LinkedHashSet<String> pendingRemovals = new java.util.LinkedHashSet<>();
+    private final java.util.LinkedHashSet<String> pendingReadIds = new java.util.LinkedHashSet<>();
+    private final android.os.Handler writeFlushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean writeFlushScheduled = false;
+    private final Runnable writeFlushRunnable = this::flushPendingRoomWrites;
+
+    // ── PERF FIX: don't fight stackFromEnd on the very first render ────────
+    // The LinearLayoutManager's stackFromEnd(true) already anchors the
+    // layout at the bottom the first time items are inserted into an empty
+    // RecyclerView. Forcing an extra explicit scrollToPosition() on that
+    // same first insert produced a visible double-scroll / snap right as
+    // the chat opened. We only need the explicit scroll for LATER inserts
+    // (a genuinely new message arriving while the user is at the bottom).
+    private boolean firstPageRendered = false;
+
     // ── Reply state ────────────────────────────────────────────────────────
     private Message replyingTo = null;
     private ReplyController  replyController;
@@ -345,6 +374,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         if (messagesRef != null && messageListener != null)
             messagesRef.removeEventListener(messageListener);
+
+        // PERF FIX: flush any buffered Firebase→Room writes immediately
+        // instead of losing them if the debounce window hadn't fired yet.
+        writeFlushHandler.removeCallbacks(writeFlushRunnable);
+        flushPendingRoomWrites();
 
         typingHandler.removeCallbacks(stopTypingRunnable);
         if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
@@ -888,6 +922,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
                 super.onItemRangeInserted(positionStart, itemCount);
+                if (!firstPageRendered) {
+                    // First-ever data for this screen: stackFromEnd(true) already
+                    // anchors the initial layout pass at the bottom. An extra
+                    // explicit scroll here is what caused the visible jump while
+                    // the chat was opening — skip it.
+                    firstPageRendered = true;
+                    return;
+                }
                 int total = pagingAdapter.getItemCount();
                 int lastVis = llm.findLastVisibleItemPosition();
                 if (lastVis >= total - itemCount - 2) {
@@ -960,7 +1002,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onChildRemoved(DataSnapshot snapshot) {
                 String key = snapshot.getKey();
                 if (key == null) return;
-                ioExecutor.execute(() -> db.messageDao().softDelete(key));
+                // PERF FIX: buffer the removal too, so a delete that lands in the
+                // same burst as the initial load coalesces into the same single
+                // Room transaction instead of firing its own invalidation.
+                pendingUpserts.remove(key);
+                pendingRemovals.add(key);
+                scheduleWriteFlush();
             }
             @Override public void onChildMoved(DataSnapshot s, String p) {}
             @Override public void onCancelled(DatabaseError error) {}
@@ -969,10 +1016,52 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private void saveToRoom(Message m, boolean isUpdate) {
+        queueRoomWrite(m);
+    }
+
+    /**
+     * PERF FIX: buffers a Firebase add/change event instead of writing it to
+     * Room straight away. Everything queued within WRITE_FLUSH_DEBOUNCE_MS
+     * gets applied in a single Room transaction — see scheduleWriteFlush()
+     * and MessageDao#applyBufferedChanges() for the full explanation.
+     */
+    private void queueRoomWrite(Message m) {
+        if (m == null || m.id == null) return;
+        pendingUpserts.put(m.id, m);
+        pendingRemovals.remove(m.id); // a fresh upsert always wins over a stale pending removal
+        scheduleWriteFlush();
+    }
+
+    @Override
+    public void queueMarkRead(String messageId) {
+        if (messageId == null) return;
+        pendingReadIds.add(messageId);
+        scheduleWriteFlush();
+    }
+
+    private void scheduleWriteFlush() {
+        if (writeFlushScheduled) return;
+        writeFlushScheduled = true;
+        writeFlushHandler.postDelayed(writeFlushRunnable, WRITE_FLUSH_DEBOUNCE_MS);
+    }
+
+    /** Applies every buffered Firebase event since the last flush in ONE Room transaction. */
+    private void flushPendingRoomWrites() {
+        writeFlushScheduled = false;
+        if (pendingUpserts.isEmpty() && pendingRemovals.isEmpty() && pendingReadIds.isEmpty()) return;
+
+        java.util.List<Message> upsertsSnapshot = new java.util.ArrayList<>(pendingUpserts.values());
+        java.util.List<String> removalsSnapshot = new java.util.ArrayList<>(pendingRemovals);
+        java.util.List<String> readSnapshot = new java.util.ArrayList<>(pendingReadIds);
+        pendingUpserts.clear();
+        pendingRemovals.clear();
+        pendingReadIds.clear();
+
         if (db == null) return;
         ioExecutor.execute(() -> {
-            MessageEntity entity = modelToEntity(m);
-            db.messageDao().insertMessage(entity);
+            java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
+            for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
+            db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
         });
     }
 
