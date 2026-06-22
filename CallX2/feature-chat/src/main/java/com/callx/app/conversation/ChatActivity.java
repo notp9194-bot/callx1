@@ -940,6 +940,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,  3);
         binding.rvMessages.setRecycledViewPool(pool);
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
+        // WHATSAPP-STYLE FIX: kill the default ItemAnimator entirely.
+        // DefaultItemAnimator fades/translates every inserted row in from
+        // its previous position. When 20-30 messages land in one bulk
+        // insert (cold open, or the buffered Firebase flush), that shows
+        // up as the whole list visibly "sliding"/scrolling into place
+        // even though stackFromEnd already laid it out correctly. WhatsApp
+        // has no such animation — the chat just appears, already in place.
+        // Setting itemAnimator to null makes every insert/remove/move an
+        // instant, non-animated layout pass.
+        binding.rvMessages.setItemAnimator(null);
 
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
