@@ -20,7 +20,10 @@ import com.google.firebase.database.ValueEventListener;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Handles typing indicator, online/last-seen status, mute, mark-read logic,
@@ -37,6 +40,19 @@ public class ChatPresenceController {
     // the same chatPresence/{id}/{uid}=true node.
 
     private final ChatActivityDelegate delegate;
+
+    // ── PERF FIX: batch Firebase "status=read" writes ───────────────────────
+    // markRead(m) used to fire ONE setValue("read") network call PER message
+    // the instant chat opened — with 5 unread messages that's invisible, but
+    // with 80-100 unread messages (a chat you haven't opened in a while) that
+    // was 80-100 separate Firebase round-trips fired back to back, which is
+    // exactly what made "chat khulna slow" scale with message count. All of
+    // these are now buffered into pendingReadFirebaseIds and flushed together
+    // as ONE multi-path updateChildren() call.
+    private static final long READ_FLUSH_DEBOUNCE_MS = 150;
+    private final LinkedHashSet<String> pendingReadFirebaseIds = new LinkedHashSet<>();
+    private final android.os.Handler readFlushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable readFlushRunnable = this::flushPendingReadStatus;
 
     private ValueEventListener typingListener;
     private ValueEventListener onlineListener;
@@ -916,7 +932,11 @@ public class ChatPresenceController {
         if (!delegate.getCurrentUid().equals(m.senderId) && !"read".equals(m.status)) {
             SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
             if (!secMgr.isReadReceiptsEnabled()) return;
-            delegate.getMessagesRef().child(m.id).child("status").setValue("read");
+            // PERF FIX: don't fire a Firebase write per message — buffer the
+            // id and flush ALL pending ids in one updateChildren() call after
+            // a short debounce. See pendingReadFirebaseIds above.
+            pendingReadFirebaseIds.add(m.id);
+            scheduleReadFlush();
             // PERF FIX: was a per-message ioExecutor.execute(updateStatus(...))
             // here, i.e. one Room write (→ one PagingSource invalidation) per
             // historical unread message on chat open. Now buffered and applied
@@ -925,9 +945,29 @@ public class ChatPresenceController {
         }
     }
 
+    private void scheduleReadFlush() {
+        readFlushHandler.removeCallbacks(readFlushRunnable);
+        readFlushHandler.postDelayed(readFlushRunnable, READ_FLUSH_DEBOUNCE_MS);
+    }
+
+    private void flushPendingReadStatus() {
+        if (pendingReadFirebaseIds.isEmpty()) return;
+        DatabaseReference messagesRef = delegate.getMessagesRef();
+        if (messagesRef == null) { pendingReadFirebaseIds.clear(); return; }
+        Map<String, Object> updates = new HashMap<>();
+        for (String id : pendingReadFirebaseIds) {
+            updates.put(id + "/status", "read");
+        }
+        pendingReadFirebaseIds.clear();
+        // ONE network round-trip for the whole batch instead of one per message.
+        messagesRef.updateChildren(updates);
+    }
+
     // ── Cleanup ───────────────────────────────────────────────────────────
 
     public void release() {
+        readFlushHandler.removeCallbacks(readFlushRunnable);
+        flushPendingReadStatus();
         if (typingListener != null && delegate.getChatId() != null) {
             FirebaseUtils.db().getReference("typing").child(delegate.getChatId())
                     .removeEventListener(typingListener);
