@@ -63,11 +63,7 @@ public class ChatLiveTypingController {
     /** Call this from the input bar's TextWatcher.onTextChanged, alongside
      *  the existing presenceController.setOurTypingStatus() call. */
     public void onOurTextChanged(String currentText) {
-        if (pendingWrite != null) handler.removeCallbacks(pendingWrite);
-        pendingWrite = () -> writeOurPreview(currentText);
-        // Small debounce so we don't spam Firebase on every keystroke
-        // while still feeling instant/live to the partner.
-        handler.postDelayed(pendingWrite, WRITE_DEBOUNCE_MS);
+        // Live text mirror disabled — no-op
     }
 
     /** Call on send / clear-input so the partner's box empties immediately
@@ -91,33 +87,15 @@ public class ChatLiveTypingController {
     // ── Incoming: mirror PARTNER's live draft text into the preview box ─
 
     private void watchPartnerLivePreview() {
-        if (delegate.getChatId() == null || delegate.getPartnerUid() == null) return;
-        partnerPreviewListener = new ValueEventListener() {
-            @Override
-            public void onDataChange(DataSnapshot snapshot) {
-                String text = snapshot.getValue(String.class);
-                showPartnerPreview(text);
-            }
-
-            @Override
-            public void onCancelled(DatabaseError error) { }
-        };
-        FirebaseUtils.db().getReference(NODE)
-                .child(delegate.getChatId())
-                .child(delegate.getPartnerUid())
-                .addValueEventListener(partnerPreviewListener);
+        // Live text mirror disabled — no-op
     }
 
     private void showPartnerPreview(String text) {
+        // Live text mirror disabled — always hidden
         ActivityChatBinding binding = delegate.getBinding();
-        if (binding == null || binding.llLiveTypingPreview == null) return;
-
-        if (text == null || text.isEmpty()) {
+        if (binding != null && binding.llLiveTypingPreview != null) {
             binding.llLiveTypingPreview.setVisibility(View.GONE);
-            return;
         }
-        binding.tvLiveTypingPreview.setText(text);
-        binding.llLiveTypingPreview.setVisibility(View.VISIBLE);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────

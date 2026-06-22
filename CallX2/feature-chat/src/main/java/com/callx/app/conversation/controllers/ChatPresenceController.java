@@ -435,26 +435,7 @@ public class ChatPresenceController {
 
     /** Called by the Activity on resume/pause to publish our own in-chat presence. */
     public void setOurInChatScreen(boolean active) {
-        // Cancel any pending "going offline" write — we either just came back
-        // (active=true) or we're scheduling a fresh one below (active=false).
-        if (pendingOffWrite != null) {
-            presenceDebounceHandler.removeCallbacks(pendingOffWrite);
-            pendingOffWrite = null;
-        }
-
-        if (active) {
-            // Becoming active: publish immediately so the banner shows promptly.
-            writePresence(true);
-        } else {
-            // Becoming inactive: debounce. If the user comes right back
-            // (e.g. screen rotation, quick app-switcher peek) before this
-            // fires, it gets cancelled above and the partner never sees a flicker.
-            pendingOffWrite = () -> {
-                writePresence(false);
-                pendingOffWrite = null;
-            };
-            presenceDebounceHandler.postDelayed(pendingOffWrite, PRESENCE_OFF_DEBOUNCE_MS);
-        }
+        // Watching presence disabled — no-op
     }
 
     private void writePresence(boolean active) {
@@ -481,25 +462,7 @@ public class ChatPresenceController {
     }
 
     private void watchPartnerInChatScreen() {
-        String chatId = delegate.getChatId();
-        String partnerUid = delegate.getPartnerUid();
-        if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
-
-        inChatListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                boolean inChat = Boolean.TRUE.equals(s.getValue(Boolean.class));
-                if (inChat) {
-                    lastSeenActiveAt = System.currentTimeMillis();
-                    showWatchingBanner();
-                } else {
-                    beginJustLeftWindow();
-                }
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getChatPresenceRef(chatId)
-                .child(partnerUid)
-                .addValueEventListener(inChatListener);
+        // Watching banner disabled — no-op
     }
 
     // ── Per-message viewing ("seen-this-bubble" dot) ────────────────────────
@@ -565,77 +528,11 @@ public class ChatPresenceController {
     }
 
     private void watchPartnerViewingMessage() {
-        String chatId = delegate.getChatId();
-        String partnerUid = delegate.getPartnerUid();
-        if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
-
-        viewingListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                String messageId = s.getValue(String.class);
-                lastPartnerViewingMessageId = messageId;
-                java.util.Set<String> ids = messageId == null
-                        ? java.util.Collections.emptySet()
-                        : java.util.Collections.singleton(messageId);
-                if (delegate.getPagingAdapter() != null) {
-                    delegate.getPagingAdapter().setViewingMessageIds(ids);
-                }
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getChatViewingRef(chatId)
-                .child(partnerUid)
-                .addValueEventListener(viewingListener);
+        // Viewing message dots disabled — no-op
     }
 
     private void showWatchingBanner() {
-        // Coming back (or first time showing) cancels any pending "just left" fade.
-        cancelJustLeftWindow();
-
-        ActivityChatBinding binding = delegate.getBinding();
-        if (binding.llWatchingBanner == null) return;
-
-        String name = delegate.getPartnerName();
-        binding.tvWatchingName.setText((name != null ? name : "") + " aapko dekh rha hai");
-
-        String photo = delegate.getPartnerPhoto();
-        if (photo != null && !photo.isEmpty() && delegate.getActivity() != null) {
-            Glide.with(delegate.getActivity())
-                    .load(photo)
-                    .placeholder(R.drawable.ic_person)
-                    .into(binding.ivWatchingAvatar);
-        }
-
-        boolean alreadyShowing = binding.llWatchingBanner.getVisibility() == View.VISIBLE;
-        if (!alreadyShowing) {
-            // Fresh pop-in: alpha/scale belong to the entrance animation below,
-            // not the priority system — full prominence by default, then
-            // immediately deferred to applyCurrentPriority() if typing is
-            // already active (avoids a one-frame flash at full opacity).
-            binding.llWatchingBanner.setAlpha(1f);
-            binding.llWatchingBanner.setScaleX(1f);
-            binding.llWatchingBanner.setScaleY(1f);
-        }
-
-        if (alreadyShowing) {
-            // Already on screen — just a content refresh, leave whatever
-            // alpha/scale the priority coordinator currently has it at.
-            return;
-        }
-
-        binding.ivWatchingAvatar.setScaleX(0f);
-        binding.ivWatchingAvatar.setScaleY(0f);
-        binding.llWatchingBanner.setVisibility(View.VISIBLE);
-        binding.ivWatchingAvatar.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-        binding.ivWatchingAvatar.animate()
-                .scaleX(1f).scaleY(1f)
-                .setDuration(380)
-                .setInterpolator(new OvershootInterpolator(2.2f))
-                .start();
-
-        // New arrival — immediately yield to typing if it's already showing,
-        // instead of waiting for the next typing Firebase tick.
-        com.callx.app.chat.ui.BannerPriorityCoordinator.applyCurrentPriority(
-                binding.llWatchingBanner, binding.llTypingStrip);
+        // Watching banner disabled — no-op
     }
 
     /**
@@ -646,33 +543,7 @@ public class ChatPresenceController {
      * cancels this with no flicker at all.
      */
     private void beginJustLeftWindow() {
-        ActivityChatBinding binding = delegate.getBinding();
-        if (binding.llWatchingBanner == null) return;
-        if (binding.llWatchingBanner.getVisibility() != View.VISIBLE) return; // wasn't shown anyway
-
-        cancelJustLeftWindow();
-        String name = delegate.getPartnerName();
-        final String label = name != null ? name : "";
-        final long leftAt = lastSeenActiveAt > 0 ? lastSeenActiveAt : System.currentTimeMillis();
-
-        binding.llWatchingBanner.animate().alpha(0.6f).setDuration(250).start();
-
-        justLeftTickRunnable = new Runnable() {
-            @Override public void run() {
-                long elapsed = System.currentTimeMillis() - leftAt;
-                if (elapsed >= JUST_LEFT_GRACE_MS) {
-                    hideWatchingBanner();
-                    return;
-                }
-                ActivityChatBinding b = delegate.getBinding();
-                if (b.llWatchingBanner == null || b.llWatchingBanner.getVisibility() != View.VISIBLE) return;
-                long mins = elapsed / 60_000L;
-                String agoText = mins < 1 ? "abhi tak active tha" : ("active " + mins + "m pehle");
-                b.tvWatchingName.setText(label.isEmpty() ? agoText : (label + " " + agoText));
-                justLeftTickHandler.postDelayed(this, 20_000);
-            }
-        };
-        justLeftTickHandler.post(justLeftTickRunnable);
+        // Watching banner disabled — no-op
     }
 
     private void cancelJustLeftWindow() {
