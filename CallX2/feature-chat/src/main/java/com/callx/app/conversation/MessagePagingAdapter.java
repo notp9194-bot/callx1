@@ -289,21 +289,13 @@ public class MessagePagingAdapter
         super(DIFF);
         this.currentUid = currentUid;
         this.isGroup    = isGroup;
-        // PERF: stable IDs — combined with DiffUtil above, this lets
-        // RecyclerView correctly track item identity across submitData()
-        // calls (e.g. the warm-cache list being replaced by the real
-        // Paging list moments later) without misattributing animations or
-        // recycled views to the wrong row.
-        setHasStableIds(true);
-    }
-
-    @Override
-    public long getItemId(int position) {
-        Message m = getItem(position);
-        // Placeholder (not-yet-loaded) positions return null from getItem();
-        // NO_ID tells RecyclerView "no stable identity available here".
-        if (m == null || m.messageId == null) return RecyclerView.NO_ID;
-        return m.messageId.hashCode();
+        // NOTE: setHasStableIds(true) + custom getItemId() was attempted here
+        // but PagingDataAdapter.getItemId(int) is FINAL — it already manages
+        // item identity internally via the DiffUtil.ItemCallback (DIFF above
+        // handles areItemsTheSame() by messageId), so a custom getItemId()
+        // isn't possible and isn't needed: DiffUtil already gives correct
+        // identity tracking across submitData() calls, including the
+        // warm-cache-list → real-Paging-list transition.
     }
 
     public void setActionListener(ActionListener l) {
