@@ -1,12 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- "Listening…/watching…" pill badge shown on a message bubble's corner
-     while the other person currently has that exact voice note / video
-     playing — see ChatPlaybackPresenceController. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="#8B5CF6"/>
-    <stroke
-        android:width="1.5dp"
-        android:color="#FFFFFF"/>
-    <corners android:radius="20dp"/>
+    <corners android:radius="10dp"/>
 </shape>

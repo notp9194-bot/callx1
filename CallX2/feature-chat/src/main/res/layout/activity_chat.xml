@@ -17,8 +17,7 @@
         android:paddingTop="2dp"
         android:paddingBottom="2dp"
         android:paddingStart="4dp"
-        android:paddingEnd="4dp"
-        android:elevation="4dp">
+        android:paddingEnd="4dp">
 
         <!-- Back button -->
         <ImageButton
@@ -180,7 +179,6 @@
         android:paddingBottom="8dp"
         android:paddingStart="4dp"
         android:paddingEnd="4dp"
-        android:elevation="6dp"
         android:visibility="gone">
 
         <!-- Cancel / Close selection -->
@@ -286,14 +284,12 @@
         android:paddingStart="8dp"
         android:paddingEnd="4dp"
         android:gravity="center_vertical"
-        android:elevation="4dp"
         android:visibility="gone">
         <ImageView
             android:layout_width="20dp"
             android:layout_height="20dp"
             android:src="@drawable/ic_search"
-            android:layout_marginEnd="8dp"
-            android:alpha="0.5"/>
+            android:layout_marginEnd="8dp"/>
         <EditText
             android:id="@+id/et_search"
             android:layout_width="0dp"
@@ -513,7 +509,6 @@
             android:paddingEnd="16dp"
             android:paddingTop="7dp"
             android:paddingBottom="7dp"
-            android:elevation="10dp"
             android:visibility="gone">
 
             <de.hdodenhof.circleimageview.CircleImageView
@@ -574,7 +569,6 @@
             android:gravity="center_horizontal"
             android:paddingTop="10dp"
             android:paddingBottom="10dp"
-            android:elevation="6dp"
             android:foreground="?attr/selectableItemBackground"
             android:visibility="gone">
 
@@ -662,7 +656,6 @@
             android:paddingEnd="14dp"
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
-            android:elevation="6dp"
             android:visibility="gone">
 
             <de.hdodenhof.circleimageview.CircleImageView
@@ -746,7 +739,6 @@
             android:paddingEnd="14dp"
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
-            android:elevation="6dp"
             android:visibility="gone">
 
             <de.hdodenhof.circleimageview.CircleImageView
@@ -853,7 +845,6 @@
             android:paddingEnd="10dp"
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
-            android:elevation="6dp"
             android:visibility="gone">
 
             <TextView
@@ -894,9 +885,7 @@
             android:gravity="center"
             android:clickable="false"
             android:focusable="false"
-            android:elevation="20dp"
-            android:visibility="gone"
-            android:alpha="0"/>
+            android:visibility="gone"/>
 
         <!-- "Back to latest" FAB — shown when navigating to original message -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -939,8 +928,7 @@
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
         android:gravity="center_vertical"
-        android:visibility="gone"
-        android:elevation="2dp">
+        android:visibility="gone">
 
         <!-- Left accent stripe -->
         <View
@@ -1007,8 +995,7 @@
         android:paddingTop="10dp"
         android:paddingBottom="10dp"
         android:gravity="center_vertical"
-        android:visibility="gone"
-        android:elevation="2dp">
+        android:visibility="gone">
 
         <TextView
             android:id="@+id/tv_block_banner_text"
@@ -1043,8 +1030,7 @@
         android:orientation="horizontal"
         android:padding="3dp"
         android:background="@color/surface_card"
-        android:gravity="center_vertical"
-        android:elevation="4dp">
+        android:gravity="center_vertical">
         <ImageButton
             android:id="@+id/btn_attach"
             android:layout_width="34dp"

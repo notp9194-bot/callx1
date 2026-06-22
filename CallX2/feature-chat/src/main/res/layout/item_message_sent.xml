@@ -77,7 +77,6 @@
             android:minWidth="120dp"
             android:clickable="true"
             android:focusable="true"
-            android:foreground="?attr/selectableItemBackground"
             android:visibility="gone">
 
             <!-- Left border (gold for sent) -->
@@ -151,7 +150,6 @@
             android:layout_margin="6dp"
             android:clickable="true"
             android:focusable="true"
-            android:foreground="?attr/selectableItemBackground"
             android:visibility="gone">
 
             <!-- OG image thumbnail -->
@@ -530,7 +528,6 @@
             android:layout_gravity="top|start"
             android:layout_marginTop="6dp"
             android:layout_marginStart="6dp"
-            android:elevation="4dp"
             android:background="@drawable/bg_listening_badge"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"
