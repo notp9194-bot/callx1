@@ -6,8 +6,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
 import android.view.View;
-import android.view.animation.AccelerateInterpolator;
-import android.view.animation.OvershootInterpolator;
 
 import androidx.annotation.NonNull;
 
@@ -240,16 +238,10 @@ public class ChatScreenshotNotifier {
         // Cancel any pending hide from a previous banner cycle.
         cancelBannerHide();
 
-        // Animate in from top (slide down + fade in).
-        banner.setTranslationY(-120f);
-        banner.setAlpha(0f);
+        // Instant show — no animation for performance.
+        banner.setTranslationY(0f);
+        banner.setAlpha(1f);
         banner.setVisibility(View.VISIBLE);
-        banner.animate()
-                .translationY(0f)
-                .alpha(1f)
-                .setDuration(320)
-                .setInterpolator(new OvershootInterpolator(1.4f))
-                .start();
 
         // Schedule auto-hide after BANNER_HOLD_MS.
         bannerHideRunnable = () -> hideScreenshotBanner(banner);
@@ -259,17 +251,10 @@ public class ChatScreenshotNotifier {
     private void hideScreenshotBanner(View banner) {
         cancelBannerHide();
         if (banner == null || banner.getVisibility() != View.VISIBLE) return;
-        banner.animate()
-                .translationY(-120f)
-                .alpha(0f)
-                .setDuration(240)
-                .setInterpolator(new AccelerateInterpolator())
-                .withEndAction(() -> {
-                    banner.setVisibility(View.GONE);
-                    banner.setTranslationY(0f);
-                    banner.setAlpha(1f);
-                })
-                .start();
+        // Instant hide — no animation for performance.
+        banner.setVisibility(View.GONE);
+        banner.setTranslationY(0f);
+        banner.setAlpha(1f);
     }
 
     private void cancelBannerHide() {

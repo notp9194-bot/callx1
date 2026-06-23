@@ -29,7 +29,6 @@ public final class BannerPriorityCoordinator {
 
     private static final float RECEDED_ALPHA = 0.55f;
     private static final float RECEDED_SCALE = 0.92f;
-    private static final long TRANSITION_MS = 200L;
 
     private BannerPriorityCoordinator() {}
 

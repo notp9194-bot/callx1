@@ -20,8 +20,6 @@ import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.animation.Animation;
-import android.view.animation.RotateAnimation;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Toast;
@@ -663,9 +661,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         }
 
-        binding.llReplyBar.setVisibility(View.VISIBLE);
-        binding.llReplyBar.setAlpha(0f);
-        binding.llReplyBar.setTranslationY(40f);
         binding.llReplyBar.setAlpha(1f);
         binding.llReplyBar.setTranslationY(0f);
         binding.llReplyBar.setVisibility(View.VISIBLE);
@@ -914,19 +909,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         });
 
-        // Hanging reel animation
-        LinearLayout reelHanging = binding.llReelHanging;
-        if (reelHanging != null) {
-            reelHanging.post(() -> {
-                RotateAnimation swing = new RotateAnimation(-12f, 12f,
-                        Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.0f);
-                swing.setDuration(1800);
-                swing.setRepeatCount(Animation.INFINITE);
-                swing.setRepeatMode(Animation.REVERSE);
-                swing.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
-                reelHanging.startAnimation(swing);
-            });
-        }
+        // Hanging reel animation removed for performance
 
         // X profile
         binding.btnToolbarX.setOnClickListener(v -> {
