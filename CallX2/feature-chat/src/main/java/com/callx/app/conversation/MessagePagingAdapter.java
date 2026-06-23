@@ -106,15 +106,6 @@ public class MessagePagingAdapter
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private final SimpleDateFormat dateLabelFmt =
             new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
-    // Reusable Date instance — avoids new Date() allocation on every bind/format call.
-    // SimpleDateFormat.format(Date) only reads the time value; safe to reuse.
-    private final java.util.Date reuseDate = new java.util.Date();
-
-    // PERF FIX: Cache Glide RequestManager at adapter level.
-    // Calling Glide.with(ctx) on every onBindViewHolder() creates a new
-    // RequestManager lookup per image per scroll frame. Caching it here
-    // eliminates that repeated traversal. Set lazily on first bind.
-    private com.bumptech.glide.RequestManager glideManager;
 
     private ActionListener actionListener;
     private MediaPlayer player;
@@ -422,7 +413,7 @@ public class MessagePagingAdapter
 
         // Time
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(fmtTs(m.timestamp));
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
     }
 
@@ -516,7 +507,7 @@ public class MessagePagingAdapter
         // Time
         android.widget.TextView tvTime = h.tvStatusSeenTime;
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(fmtTs(m.timestamp));
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
     }
 
@@ -604,7 +595,7 @@ public class MessagePagingAdapter
         // Time
         android.widget.TextView tvTime = h.tvReelSeenTime;
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(fmtTs(m.timestamp));
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
     }
 
@@ -631,9 +622,11 @@ public class MessagePagingAdapter
         // Older: "3 Jan 2025" or just "3 Jan" if same year
         boolean sameYear = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR);
         if (sameYear) {
-            return new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(new java.util.Date(timestamp));
+            return new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+                    .format(new java.util.Date(timestamp));
         }
-        return new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(new java.util.Date(timestamp));
+        return new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault())
+                .format(new java.util.Date(timestamp));
     }
 
     private static boolean isSameDay(long ts1, long ts2) {
@@ -648,9 +641,6 @@ public class MessagePagingAdapter
     private void bindMessage(@NonNull VH h, @NonNull Message m, int position) {
         Context ctx = h.itemView.getContext();
         boolean sent = currentUid.equals(m.senderId);
-        // PERF FIX: init glideManager lazily on first bind — one RequestManager
-        // lookup per adapter lifetime instead of one per image per scroll frame.
-        if (glideManager == null) glideManager = com.bumptech.glide.Glide.with(ctx);
 
         // ── "Someone is viewing this message right now" dot ───────────────
         if (h.viewSeenDot != null) {
@@ -728,7 +718,7 @@ public class MessagePagingAdapter
 
         // Timestamp — append "(edited)" when applicable
         if (h.tvTime != null && m.timestamp > 0) {
-            String timeStr = fmtTs(m.timestamp);
+            String timeStr = timeFmt.format(new java.util.Date(m.timestamp));
             boolean isEdited = Boolean.TRUE.equals(m.edited);
             if (isEdited) timeStr = timeStr + "  \u270F\uFE0F edited";
             h.tvTime.setText(timeStr);
@@ -759,10 +749,10 @@ public class MessagePagingAdapter
                     String thumbUrl = m.replyToMediaUrl;
                     if (thumbUrl != null && !thumbUrl.isEmpty()) {
                         h.ivReplyThumb.setVisibility(View.VISIBLE);
-                        glideManager
+                        com.bumptech.glide.Glide.with(ctx)
                                 .load(thumbUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(80, 80)
+                                .override(120, 120)
                                 .centerCrop()
                                 .into(h.ivReplyThumb);
                     } else {
@@ -840,18 +830,18 @@ public class MessagePagingAdapter
                     // ── Progressive loading: thumb instantly → full replaces ──
                     if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
                         // Step 1: Show thumbnail instantly (tiny, ~30KB)
-                        glideManager
+                        Glide.with(ctx)
                             .load(thumbUrl)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(120, 120)
+                            .override(200, 200)
                             .into(h.ivImage);
 
                         // Step 2: Load full in background — replaces thumb with crossfade
-                        glideManager
+                        Glide.with(ctx)
                             .load(fullUrl)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(480, 480) // PERF: 480px is max bubble width on most phones
-                            .thumbnail(glideManager
+                            .override(720, 720) // PERF: cap decode size to bubble size, not native res
+                            .thumbnail(Glide.with(ctx)
                                 .load(thumbUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL))
                             .transition(com.bumptech.glide.load.resource.drawable
@@ -866,24 +856,24 @@ public class MessagePagingAdapter
                             // GIF: asGif() se URL directly load karo — MediaCache file use
                             // mat karo kyunki file mein .gif extension nahi hogi, Glide
                             // decode fail karta hai. Glide DiskCache GIF cache kar lega.
-                            glideManager
+                            Glide.with(ctx)
                                 .asGif()
                                 .load(fullUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(320, 320) // PERF: GIFs are heavy; 320px is plenty for chat
+                                .override(480, 480) // PERF: GIFs are heavy to decode/animate at full res
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)
                                 .into(h.ivImage);
                         } else if (cachedImg != null) {
-                            glideManager.load(cachedImg)
+                            Glide.with(ctx).load(cachedImg)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(480, 480)
+                                .override(720, 720)
                                 .placeholder(R.drawable.ic_file)
                                 .into(h.ivImage);
                         } else {
-                            glideManager.load(fullUrl)
+                            Glide.with(ctx).load(fullUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(480, 480)
+                                .override(720, 720)
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)
                                 .into(h.ivImage);
@@ -916,10 +906,10 @@ public class MessagePagingAdapter
                     // POLISH FIX: use Cloudinary thumbnail for preview image, not the raw video URL
                     String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                             ? m.thumbnailUrl : vUrl;
-                    glideManager
+                    Glide.with(ctx)
                         .load(thumbUrl)
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
-                        .override(360, 360)
+                        .override(480, 480)
                         .placeholder(R.drawable.ic_file)
                         .centerCrop()
                         .into(h.ivVideoThumb);
@@ -1040,28 +1030,18 @@ public class MessagePagingAdapter
                 // ── Font Size: globally selected message text size ──────────
                 h.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
                     com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
-                // ── Clickable links: skip Linkify if text has no URL/phone/email hint ──
-                // Linkify.addLinks() runs 3 regex passes on every bind — on most chat
-                // messages (plain text, no links) it's pure wasted CPU. A quick char-scan
-                // for ':' (https://) or '@' or '+' lets us skip it entirely for the
-                // majority of messages. SpannableString still created only when needed.
+                // ── Clickable links: URLs, phone numbers, emails ────────────
+                android.text.SpannableString spanned = new android.text.SpannableString(txt);
+                android.text.util.Linkify.addLinks(spanned,
+                    android.text.util.Linkify.WEB_URLS |
+                    android.text.util.Linkify.PHONE_NUMBERS |
+                    android.text.util.Linkify.EMAIL_ADDRESSES);
+                h.tvMessage.setText(spanned);
+                // Link color matching bubble theme
                 boolean isSentMsg = currentUid.equals(m.senderId);
-                boolean mightHaveLink = txt.indexOf(':') >= 0 || txt.indexOf('@') >= 0
-                        || txt.indexOf('+') >= 0;
-                if (mightHaveLink) {
-                    android.text.SpannableString spanned = new android.text.SpannableString(txt);
-                    android.text.util.Linkify.addLinks(spanned,
-                        android.text.util.Linkify.WEB_URLS |
-                        android.text.util.Linkify.PHONE_NUMBERS |
-                        android.text.util.Linkify.EMAIL_ADDRESSES);
-                    h.tvMessage.setText(spanned);
-                    int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
-                    h.tvMessage.setLinkTextColor(linkColor);
-                    h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-                } else {
-                    h.tvMessage.setText(txt);
-                    h.tvMessage.setMovementMethod(null);
-                }
+                int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
+                h.tvMessage.setLinkTextColor(linkColor);
+                h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                 h.tvMessage.setHighlightColor(0x33FFFFFF);
                 h.tvMessage.setAlpha(1f);
                 h.tvMessage.setTextColor(
@@ -1818,22 +1798,8 @@ public class MessagePagingAdapter
 
     // ──────────────────────────────────────────────────────────────
     // Font Style — always default (typing style system removed)
-    /** Format a timestamp millis → date label without allocating a new Date each time. */
-    private String fmtDate(long ts) {
-        reuseDate.setTime(ts);
-        return dateLabelFmt.format(reuseDate);
-    }
-
-    /** Format a timestamp millis → "hh:mm a" without allocating a new Date each time. */
-    private String fmtTs(long ts) {
-        reuseDate.setTime(ts);
-        return timeFmt.format(reuseDate);
-    }
-
-    // applyFontStyle: font style system removed — default typeface already applied in XML.
-    // Typeface.create() per bind was allocating a new object every scroll frame; no-op now.
     private static void applyFontStyle(android.widget.TextView tv, int styleId) {
-        // No-op: default typeface set in layout XML, no per-bind alloc needed.
+        tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL));
     }
 
     // ──────────────────────────────────────────────────────────────

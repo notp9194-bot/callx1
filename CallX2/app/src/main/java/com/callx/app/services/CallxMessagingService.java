@@ -388,24 +388,17 @@ public class CallxMessagingService extends FirebaseMessagingService {
               : "Missed " + callTypeStr + " • just now";
 
           // ── Tap → Open ChatActivity ───────────────────────────────────────
-          // BUG FIX: TaskStackBuilder so back press goes to MainActivity, not app close
           android.content.Intent openIntent = new android.content.Intent();
           openIntent.setClassName(this, "com.callx.app.conversation.ChatActivity");
           openIntent.putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_UID,   callerUid);
           openIntent.putExtra(com.callx.app.utils.Constants.EXTRA_PARTNER_NAME,  callerName);
           openIntent.putExtra("partnerPhoto", callerPhoto);
-          openIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP |
+          openIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
               android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-          android.content.Intent mainMc = new android.content.Intent(
-              this, com.callx.app.activities.MainActivity.class);
-          mainMc.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
-              android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK);
-          android.app.PendingIntent openPi = androidx.core.app.TaskStackBuilder.create(this)
-              .addNextIntent(mainMc)
-              .addNextIntentWithParentStack(openIntent)
-              .getPendingIntent(notifId,
-                  android.app.PendingIntent.FLAG_UPDATE_CURRENT |
-                  android.app.PendingIntent.FLAG_IMMUTABLE);
+          android.app.PendingIntent openPi = android.app.PendingIntent.getActivity(
+              this, notifId, openIntent,
+              android.app.PendingIntent.FLAG_UPDATE_CURRENT |
+              android.app.PendingIntent.FLAG_IMMUTABLE);
 
           // ── FEATURE 1 (existing): Voice Call Back action ──────────────────
           android.content.Intent callBackIntent = new android.content.Intent(this,
@@ -956,20 +949,13 @@ public class CallxMessagingService extends FirebaseMessagingService {
         if (myAvatar != null) meB.setIcon(IconCompat.createWithBitmap(myAvatar));
         Person me = meB.build();
         // (Feature 9) Open chat directly on tap
-        // BUG FIX: FLAG_ACTIVITY_NEW_TASK alone creates empty back stack — back press closes app.
-        // TaskStackBuilder: MainActivity (root) → ChatActivity (top) = proper back navigation.
         Intent open = new Intent(this, ChatActivity.class);
         open.putExtra("partnerUid",   fromUid);
         open.putExtra("partnerName",  fromName);
         open.putExtra("partnerPhoto", fromPhoto != null ? fromPhoto : "");
-        open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        Intent mainForChat = new Intent(this, com.callx.app.activities.MainActivity.class);
-        mainForChat.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        PendingIntent openPi = androidx.core.app.TaskStackBuilder.create(this)
-            .addNextIntent(mainForChat)
-            .addNextIntentWithParentStack(open)
-            .getPendingIntent(notifId,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(this, notifId, open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         // Action: Reply (inline RemoteInput)
         RemoteInput remoteInput = new RemoteInput.Builder(Constants.KEY_TEXT_REPLY)
             .setLabel("Reply…").build();
@@ -1187,18 +1173,12 @@ public class CallxMessagingService extends FirebaseMessagingService {
             int net = getNetworkLevel();
             Bitmap avatar = (net >= 2) ? circle(downloadBitmap(fromPhoto, 100, 100)) : null;
             // Tap → open chat — banner already wahan dikhega
-            // BUG FIX: TaskStackBuilder so back press goes to MainActivity, not app close
             Intent open = new Intent(this, ChatActivity.class);
             open.putExtra("partnerUid", fromUid);
             open.putExtra("partnerName", fromName);
-            open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            Intent mainPb = new Intent(this, com.callx.app.activities.MainActivity.class);
-            mainPb.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            PendingIntent pi = androidx.core.app.TaskStackBuilder.create(this)
-                .addNextIntent(mainPb)
-                .addNextIntentWithParentStack(open)
-                .getPendingIntent(notifId,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent pi = PendingIntent.getActivity(this, notifId, open,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             NotificationCompat.Builder b = new NotificationCompat.Builder(this,
                     Constants.CHANNEL_BLOCK)
                 .setSmallIcon(R.drawable.ic_phone_off)
@@ -1305,19 +1285,13 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final String fromName = data.getOrDefault("fromName", "User");
         final int notifId = ("unblock_" + fromUid).hashCode();
 
-        // BUG FIX: TaskStackBuilder so back press goes to MainActivity, not app close
         Intent open = new Intent(this, ChatActivity.class);
         open.putExtra("partnerUid",        fromUid);
         open.putExtra("partnerName",       fromName);
         open.putExtra("show_unblock_joy",  true);
-        open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        Intent mainUb = new Intent(this, com.callx.app.activities.MainActivity.class);
-        mainUb.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        PendingIntent openPi = androidx.core.app.TaskStackBuilder.create(this)
-            .addNextIntent(mainUb)
-            .addNextIntentWithParentStack(open)
-            .getPendingIntent(notifId,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(this, notifId, open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         NotificationCompat.Builder b = new NotificationCompat.Builder(this,
                 Constants.CHANNEL_REQUESTS)
@@ -1336,18 +1310,12 @@ public class CallxMessagingService extends FirebaseMessagingService {
 
     private void showTypingNotification(String fromUid, String fromName,
                                         String chatId, int notifId, String subText) {
-        // BUG FIX: TaskStackBuilder so back press goes to MainActivity, not app close
         Intent open = new Intent(this, ChatActivity.class);
         open.putExtra("partnerUid", fromUid);
         open.putExtra("partnerName", fromName);
-        open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        Intent mainTyping = new Intent(this, com.callx.app.activities.MainActivity.class);
-        mainTyping.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        PendingIntent openPi = androidx.core.app.TaskStackBuilder.create(this)
-            .addNextIntent(mainTyping)
-            .addNextIntentWithParentStack(open)
-            .getPendingIntent(notifId,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(this, notifId, open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         NotificationCompat.Builder b = new NotificationCompat.Builder(this,
                 Constants.CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_message_notification)

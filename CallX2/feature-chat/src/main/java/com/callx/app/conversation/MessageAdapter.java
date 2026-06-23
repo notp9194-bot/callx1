@@ -219,17 +219,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         // GIF ko bhi image ki tarah treat karo — Glide GIF auto-play karta hai
         if ("gif".equals(type)) type = "gif";
 
-        // ── Per-type bubble background — ChatThemeManager (runtime gradient) ──
-        try {
-            android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
-            if (llBubble != null) {
-                boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
-                com.callx.app.utils.ChatThemeManager
-                        .get(ctx)
-                        .applyBubble(llBubble, sent, type, hasReply);
-
-            }
-        } catch (Exception ignored) {}
+        // Bubble background is set by XML drawable (bubble_sent.xml / bubble_received.xml).
+        // No runtime GradientDrawable allocation needed — keeps scroll smooth.
 
         switch (type) {
             case "gif":
