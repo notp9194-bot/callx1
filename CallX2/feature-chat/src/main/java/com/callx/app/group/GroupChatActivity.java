@@ -128,7 +128,11 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── WhatsApp-style intelligent scroll state ───────────────────────────
     private static final String SCROLL_PREFS = "group_scroll_prefs_v2";
-    private boolean isUserAtBottom            = true;
+    // Starts FALSE — restoreScrollOrGoToUnread() sets it true only when we
+    // actually land at the bottom. Starting true caused Paging burst inserts
+    // (fired before the post()-delayed restore runs) to scrollToPosition(end)
+    // and produce a visible top→bottom scroll on every chat open.
+    private boolean isUserAtBottom            = false;
     private int     pendingNewMsgCount        = 0;
     private DatabaseReference  typingRef;
     private ValueEventListener typingListener;
@@ -1503,8 +1507,10 @@ public class GroupChatActivity extends AppCompatActivity
             // Critical: mark NOT at bottom so subsequent onItemRangeInserted calls
             // don't override our restored position with an auto-scroll to the end.
             isUserAtBottom = false;
+        } else {
+            // stackFromEnd placed us at bottom — allow auto-scroll on new inserts.
+            isUserAtBottom = true;
         }
-        // else: stackFromEnd already positioned us at bottom — nothing more needed
     }
 
     private void updateNewMessagesIndicator(int count) {

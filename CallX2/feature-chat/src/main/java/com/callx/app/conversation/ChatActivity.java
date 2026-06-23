@@ -188,8 +188,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // last-seen-message timestamp across chat screen opens/closes.
     private static final String SCROLL_PREFS   = "chat_scroll_prefs_v2";
     // isUserAtBottom: true when user is within 3 items of the last message.
+    // NOTE: starts as FALSE — restoreScrollOrGoToUnread() sets it to true
+    //       only when we actually land at the bottom after the first render.
+    //       Starting true caused Paging 3's second+ insert bursts (which fire
+    //       BEFORE the post()-delayed restoreScrollOrGoToUnread() runs) to
+    //       call scrollToPosition(total-1) and produce the visible top→bottom
+    //       scroll every time the chat opened.
     // Used to decide whether to auto-scroll on new inserts.
-    private boolean isUserAtBottom             = true;
+    private boolean isUserAtBottom             = false;
     // pendingNewMsgCount: count of messages from others that arrived while
     // user was scrolled up. Shown in the "↓ N new messages" indicator.
     private int     pendingNewMsgCount         = 0;
@@ -1349,8 +1355,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // Mark as NOT at bottom so subsequent onItemRangeInserted calls don't
             // override our restored position with an auto-scroll to the end.
             isUserAtBottom = false;
+        } else {
+            // stackFromEnd already placed us at bottom — allow subsequent inserts
+            // (own sent messages, incoming messages) to auto-scroll as expected.
+            isUserAtBottom = true;
         }
-        // else: stackFromEnd already positioned at bottom — nothing more needed
     }
 
     /** Shows or updates the "↓ N new messages" floating indicator chip. */
