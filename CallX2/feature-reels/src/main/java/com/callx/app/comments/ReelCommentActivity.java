@@ -1,6 +1,5 @@
 package com.callx.app.comments;
 
-import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextUtils;
@@ -10,25 +9,17 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.ImageButton;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.bumptech.glide.Glide;
-import com.callx.app.utils.ReelCloudinaryUtils;
 
 import com.callx.app.comments.ReelCommentsAdapter;
 import com.callx.app.models.ReelComment;
@@ -117,31 +108,11 @@ public class ReelCommentActivity extends AppCompatActivity {
     // ── Adapter ──────────────────────────────────────────────────────────────
     private ReelCommentsAdapter adapter;
 
-    // ── v9: Photo upload state ────────────────────────────────────────────────
-    private ImageView     ivPhotoPreview;
-    private ProgressBar   pbPhotoUpload;
-    private TextView      tvPhotoStatus;
-    private ImageButton   btnAttachPhoto;
-    private LinearLayout  layoutPhotoPreview;
-    private ImageButton   btnRemovePhoto;
-
-    private Uri    pendingPhotoUri  = null;
-    private String pendingFullUrl   = null;
-    private String pendingThumbUrl  = null;
-    private boolean isPhotoUploading = false;
-
-    private ActivityResultLauncher<String> imagePickerLauncher;
-
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Register image picker BEFORE setContentView (required by Activity API)
-        imagePickerLauncher = registerForActivityResult(
-            new ActivityResultContracts.GetContent(),
-            uri -> { if (uri != null) onPhotoPicked(uri); }
-        );
         try {
             setContentView(R.layout.activity_reel_comment);
         } catch (Exception e) {
@@ -214,19 +185,6 @@ public class ReelCommentActivity extends AppCompatActivity {
         if (btnBack        != null) btnBack.setOnClickListener(v -> finish());
         if (btnSend        != null) btnSend.setOnClickListener(v -> onSendClicked());
         if (btnCancelReply != null) btnCancelReply.setOnClickListener(v -> cancelReply());
-
-        // v9: Photo views
-        layoutPhotoPreview = findViewById(R.id.layout_photo_preview);
-        ivPhotoPreview     = findViewById(R.id.iv_comment_photo_preview);
-        pbPhotoUpload      = findViewById(R.id.pb_photo_upload);
-        tvPhotoStatus      = findViewById(R.id.tv_photo_status);
-        btnRemovePhoto     = findViewById(R.id.btn_remove_photo);
-        btnAttachPhoto     = findViewById(R.id.btn_attach_photo);
-
-        if (btnAttachPhoto != null)
-            btnAttachPhoto.setOnClickListener(v -> imagePickerLauncher.launch("image/*"));
-        if (btnRemovePhoto != null)
-            btnRemovePhoto.setOnClickListener(v -> clearPendingPhoto());
     }
 
     private void setupAdapter() {
@@ -443,7 +401,7 @@ public class ReelCommentActivity extends AppCompatActivity {
             @Override
             public void onChildAdded(@NonNull DataSnapshot s, @Nullable String prev) {
                 ReelComment c = safeParseComment(s);
-                if (c == null || (TextUtils.isEmpty(c.text) && !c.hasPhoto())) return;
+                if (c == null || TextUtils.isEmpty(c.text)) return;
                 allComments.add(c);
                 applyFilterAndSort();
                 autoScrollIfAtBottom();
@@ -515,14 +473,7 @@ public class ReelCommentActivity extends AppCompatActivity {
 
     private void postComment() {
         String text = getInputText();
-        boolean hasPhoto = pendingFullUrl != null;
-
-        // Must have text OR a ready photo
-        if ((text == null || text.isEmpty()) && !hasPhoto) return;
-        if (isPhotoUploading) {
-            Toast.makeText(this, "Please wait — photo is still uploading…", Toast.LENGTH_SHORT).show();
-            return;
-        }
+        if (text == null) return;
 
         try {
             DatabaseReference ref = commentsRef != null
@@ -536,74 +487,23 @@ public class ReelCommentActivity extends AppCompatActivity {
             data.put("uid",        myUid);
             data.put("ownerName",  myName);
             data.put("ownerPhoto", myPhoto);
-            data.put("text",       text != null ? text : "");
+            data.put("text",       text);
             data.put("timestamp",  System.currentTimeMillis());
             data.put("likesCount", 0);
             data.put("replyCount", 0);
             data.put("isPinned",   false);
             data.put("isEdited",   false);
-
-            // v9: Attach photo data if present
-            if (hasPhoto) {
-                data.put("photoUrl",      pendingFullUrl);
-                data.put("photoThumbUrl", pendingThumbUrl != null ? pendingThumbUrl : pendingFullUrl);
-            }
-
             ref.child(key).setValue(data);
+
             incrementCommentsCount(+1);
             clearInput();
-            if (hasPhoto) clearPendingPhoto();
 
-            if (text != null && !text.isEmpty()) {
-                ReelCommentNotifWorker.enqueue(
-                    this, reelId, reelUid, myUid, myName, key, text);
-            }
+            ReelCommentNotifWorker.enqueue(
+                this, reelId, reelUid, myUid, myName, key, text);
 
         } catch (Exception e) {
             Toast.makeText(this, "Failed to post comment", Toast.LENGTH_SHORT).show();
         }
-    }
-
-    // ── v9: Photo attachment ──────────────────────────────────────────────────
-
-    private void onPhotoPicked(Uri uri) {
-        pendingPhotoUri = uri;
-        if (layoutPhotoPreview != null) layoutPhotoPreview.setVisibility(View.VISIBLE);
-        if (ivPhotoPreview     != null) Glide.with(this).load(uri).centerCrop().into(ivPhotoPreview);
-        if (pbPhotoUpload      != null) pbPhotoUpload.setVisibility(View.VISIBLE);
-        if (tvPhotoStatus      != null) tvPhotoStatus.setText("Uploading photo…");
-        if (btnSend            != null) btnSend.setEnabled(false);
-        isPhotoUploading = true;
-
-        ReelCloudinaryUtils.uploadCommentPhoto(this, uri,
-            new ReelCloudinaryUtils.CommentPhotoCallback() {
-                @Override
-                public void onSuccess(String fullUrl, String thumbUrl) {
-                    pendingFullUrl    = fullUrl;
-                    pendingThumbUrl   = thumbUrl;
-                    isPhotoUploading  = false;
-                    if (pbPhotoUpload != null) pbPhotoUpload.setVisibility(View.GONE);
-                    if (tvPhotoStatus != null) tvPhotoStatus.setText("Photo ready ✓");
-                    if (btnSend      != null)  btnSend.setEnabled(true);
-                }
-                @Override
-                public void onError(String message) {
-                    isPhotoUploading = false;
-                    clearPendingPhoto();
-                    Toast.makeText(ReelCommentActivity.this,
-                        "Photo upload failed. Try again.", Toast.LENGTH_SHORT).show();
-                }
-            });
-    }
-
-    private void clearPendingPhoto() {
-        pendingPhotoUri  = null;
-        pendingFullUrl   = null;
-        pendingThumbUrl  = null;
-        isPhotoUploading = false;
-        if (layoutPhotoPreview != null) layoutPhotoPreview.setVisibility(View.GONE);
-        if (pbPhotoUpload      != null) pbPhotoUpload.setVisibility(View.GONE);
-        if (btnSend            != null) btnSend.setEnabled(true);
     }
 
     private void postReply() {

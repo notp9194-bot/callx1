@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- bottom_sheet_reel_comments.xml — v9: Photo-in-Comment support -->
+<!-- bottom_sheet_reel_comments.xml — Advanced v2 with sticky add-comment bar -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -129,84 +129,18 @@
             android:visibility="gone"/>
     </FrameLayout>
 
-    <!-- Divider above input -->
+    <!-- Divider above add-comment bar -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="@color/divider"/>
 
-    <!--
-        ── v9: Photo Preview Strip ──────────────────────────────────────────────
-        Visible only after user picks a photo from gallery.
-        Shows thumbnail + upload progress bar while uploading.
-        Hidden by default (GONE).
-    -->
-    <LinearLayout
-        android:id="@+id/layout_photo_preview"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="4dp"
-        android:visibility="gone">
-
-        <!-- Photo thumbnail preview -->
-        <FrameLayout
-            android:layout_width="64dp"
-            android:layout_height="64dp">
-
-            <ImageView
-                android:id="@+id/iv_comment_photo_preview"
-                android:layout_width="64dp"
-                android:layout_height="64dp"
-                android:scaleType="centerCrop"
-                android:background="@drawable/bg_comment_photo"
-                android:clipToOutline="true"
-                android:contentDescription="Selected photo preview"/>
-
-            <!-- Upload spinner — shown while Cloudinary upload is in progress -->
-            <ProgressBar
-                android:id="@+id/pb_photo_upload"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_gravity="center"
-                android:indeterminateTint="#FFFFFF"
-                android:visibility="gone"/>
-
-        </FrameLayout>
-
-        <!-- Upload status label -->
-        <TextView
-            android:id="@+id/tv_photo_upload_status"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="10dp"
-            android:text="Uploading photo…"
-            android:textSize="13sp"
-            android:textColor="@color/text_muted"/>
-
-        <!-- Remove photo button -->
-        <ImageButton
-            android:id="@+id/btn_remove_photo"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_close"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Remove photo"
-            android:padding="6dp"/>
-
-    </LinearLayout>
-
-    <!-- ── Sticky Add-Comment Bar (v9 updated) ── -->
+    <!-- ── Sticky Add-Comment Bar ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
         android:paddingTop="6dp"
         android:paddingBottom="6dp">
 
@@ -216,21 +150,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:src="@drawable/ic_person"
-            android:layout_marginEnd="6dp"/>
-
-        <!--
-            v9: Attach photo button (Instagram-style 📷 icon)
-            Opens system image picker.
-        -->
-        <ImageButton
-            android:id="@+id/btn_attach_photo"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_image"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Attach photo"
-            android:padding="6dp"
-            android:layout_marginEnd="4dp"/>
+            android:layout_marginEnd="8dp"/>
 
         <!-- Comment input -->
         <EditText
@@ -252,7 +172,7 @@
             android:id="@+id/btn_send_comment"
             android:layout_width="38dp"
             android:layout_height="38dp"
-            android:layout_marginStart="6dp"
+            android:layout_marginStart="8dp"
             android:padding="8dp"
             android:src="@drawable/ic_send"
             android:background="@drawable/bg_circle_action"

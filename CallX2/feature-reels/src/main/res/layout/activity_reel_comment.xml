@@ -203,65 +203,6 @@
         android:orientation="vertical"
         android:background="?attr/colorSurface">
 
-        <!--
-            v9: Photo preview strip — shown after user picks a photo.
-            Displays thumbnail + upload spinner + remove button.
-            Hidden (GONE) by default.
-        -->
-        <LinearLayout
-            android:id="@+id/layout_photo_preview"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="4dp"
-            android:visibility="gone">
-
-            <FrameLayout
-                android:layout_width="64dp"
-                android:layout_height="64dp">
-
-                <ImageView
-                    android:id="@+id/iv_comment_photo_preview"
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
-                    android:scaleType="centerCrop"
-                    android:background="@drawable/bg_comment_photo"
-                    android:clipToOutline="true"
-                    android:contentDescription="Photo preview"/>
-
-                <ProgressBar
-                    android:id="@+id/pb_photo_upload"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_gravity="center"
-                    android:indeterminateTint="#FFFFFF"
-                    android:visibility="gone"/>
-            </FrameLayout>
-
-            <TextView
-                android:id="@+id/tv_photo_status"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="10dp"
-                android:text="Uploading photo…"
-                android:textSize="13sp"
-                android:textColor="@color/text_muted"/>
-
-            <ImageButton
-                android:id="@+id/btn_remove_photo"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:src="@drawable/ic_close"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Remove photo"
-                android:padding="6dp"/>
-        </LinearLayout>
-
         <!-- Character counter -->
         <TextView
             android:id="@+id/tv_char_count"
@@ -281,17 +222,6 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:padding="8dp">
-
-            <!-- v9: Photo attach button -->
-            <ImageButton
-                android:id="@+id/btn_attach_photo"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:src="@drawable/ic_image"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Attach photo"
-                android:padding="6dp"
-                android:layout_marginEnd="4dp"/>
 
             <EditText
                 android:id="@+id/et_comment"

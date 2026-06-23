@@ -8,7 +8,6 @@ import android.util.Log;
 
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.MediaCompressor;
-import com.callx.app.utils.ImageCompressor;
 
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
@@ -19,20 +18,15 @@ import okhttp3.Response;
 
 import org.json.JSONObject;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 /**
  * ReelCloudinaryUtils — Reels profile ke liye dedicated Cloudinary upload helper.
  *
  * Cloudinary folder structure:
- *   Avatar thumb    → callx/reels/avatars/thumbs/
- *   Avatar full     → callx/reels/avatars/
- *   Banner image    → callx/reels/banners/
- *   Comment photo   → callx/reels/comment_photos/
- *   Comment thumb   → callx/reels/comment_thumbs/
+ *   Avatar thumb  → callx/reels/avatars/thumbs/
+ *   Avatar full   → callx/reels/avatars/
+ *   Banner image  → callx/reels/banners/
  *
  * Same signed-upload flow as CloudinaryUploader.java.
  * Server endpoint: Constants.SERVER_URL + /cloudinary/sign
@@ -53,20 +47,14 @@ public class ReelCloudinaryUtils {
 
     /** Avatar dual-step upload callback */
     public interface AvatarUploadCallback {
-        void onThumbReady(String thumbUrl);
-        void onFullReady(String photoUrl);
+        void onThumbReady(String thumbUrl);   // Step 1 done — 100x100 WebP
+        void onFullReady(String photoUrl);    // Step 2 done — 800x800 JPEG
         void onError(String message);
     }
 
-    /** Single image (banner / slideshow) upload callback */
+    /** Single image (banner) upload callback */
     public interface ImageUploadCallback {
         void onSuccess(String url);
-        void onError(String message);
-    }
-
-    /** Comment photo dual-upload callback (v9) */
-    public interface CommentPhotoCallback {
-        void onSuccess(String fullUrl, String thumbUrl);
         void onError(String message);
     }
 
@@ -80,6 +68,7 @@ public class ReelCloudinaryUtils {
     public static void uploadReelAvatar(Context ctx, Uri uri, AvatarUploadCallback cb) {
         new Thread(() -> {
             try {
+                // Step 1: Thumbnail (100px, WebP 60%)
                 byte[] thumbBytes = MediaCompressor.compressImageWithQuality(ctx, uri, 100, 60, true);
                 if (thumbBytes == null || thumbBytes.length == 0) {
                     postErr(cb, "Thumb compress failed");
@@ -90,6 +79,7 @@ public class ReelCloudinaryUtils {
                 if (thumbUrl == null) { postErr(cb, "Thumb upload failed"); return; }
                 UI.post(() -> cb.onThumbReady(thumbUrl));
 
+                // Step 2: Full photo (800px, JPEG 85%)
                 byte[] fullBytes = MediaCompressor.compressImageWithQuality(ctx, uri, 800, 85, false);
                 if (fullBytes == null || fullBytes.length == 0) {
                     postErr(cb, "Full photo compress failed");
@@ -109,6 +99,11 @@ public class ReelCloudinaryUtils {
 
     // ── Reel Slideshow Photo Upload ───────────────────────────────────────────
 
+    /**
+     * Reels photo slideshow ke liye ek photo upload karta hai.
+     * Compressed to 1080px JPEG 85% → callx/reels/slideshows/
+     * Callback main thread pe fire hota hai.
+     */
     public static void uploadReelSlideshowPhoto(Context ctx, Uri uri, int index,
                                                  ImageUploadCallback cb) {
         new Thread(() -> {
@@ -135,6 +130,10 @@ public class ReelCloudinaryUtils {
 
     // ── Banner Upload ─────────────────────────────────────────────────────────
 
+    /**
+     * Reel profile banner upload:
+     *   Compressed to 1200×400 JPEG → callx/reels/banners/
+     */
     public static void uploadReelBanner(Context ctx, Uri uri, ImageUploadCallback cb) {
         new Thread(() -> {
             try {
@@ -157,76 +156,12 @@ public class ReelCloudinaryUtils {
         }).start();
     }
 
-    // ── Comment Photo Upload (v9) ─────────────────────────────────────────────
-
-    /**
-     * Reel comment photo dual-upload (Instagram-style photo comments):
-     *   Step 1 → Thumbnail  (~30KB WebP) → callx/reels/comment_thumbs/
-     *   Step 2 → Full image (~400KB WebP) → callx/reels/comment_photos/
-     *
-     * Uses ImageCompressor (existing app utility) for compression.
-     * Both steps run on a background thread; callback fires on main thread.
-     */
-    public static void uploadCommentPhoto(Context ctx, Uri uri, CommentPhotoCallback cb) {
-        ImageCompressor.compress(ctx, uri, new ImageCompressor.Callback() {
-
-            @Override
-            public void onSuccess(ImageCompressor.Result result) {
-                new Thread(() -> {
-                    try {
-                        // ── Upload Thumb ─────────────────────────────────────
-                        byte[] thumbBytes = readFileBytes(result.thumbFile);
-                        String thumbUrl   = null;
-                        if (thumbBytes != null) {
-                            thumbUrl = uploadBytes(thumbBytes, "image/webp",
-                                    "comment_thumb.webp",
-                                    "callx/reels/comment_thumbs", "image");
-                        }
-
-                        // ── Upload Full ──────────────────────────────────────
-                        byte[] fullBytes = readFileBytes(result.fullFile);
-                        String fullUrl   = null;
-                        if (fullBytes != null) {
-                            fullUrl = uploadBytes(fullBytes, "image/webp",
-                                    "comment_photo.webp",
-                                    "callx/reels/comment_photos", "image");
-                        }
-
-                        // Cleanup temp files
-                        if (result.thumbFile != null) result.thumbFile.delete();
-                        if (result.fullFile  != null) result.fullFile.delete();
-
-                        if (fullUrl == null) {
-                            UI.post(() -> cb.onError("Photo upload failed"));
-                            return;
-                        }
-
-                        final String fUrl = fullUrl;
-                        final String tUrl = thumbUrl != null ? thumbUrl : fullUrl;
-                        UI.post(() -> cb.onSuccess(fUrl, tUrl));
-
-                    } catch (Exception e) {
-                        Log.e(TAG, "uploadCommentPhoto network error", e);
-                        UI.post(() -> cb.onError(
-                            e.getMessage() != null ? e.getMessage() : "Upload error"));
-                    }
-                }).start();
-            }
-
-            @Override
-            public void onError(Exception e) {
-                Log.w(TAG, "Comment photo compression failed: " + e.getMessage());
-                UI.post(() -> cb.onError("Compression failed: " + e.getMessage()));
-            }
-        });
-    }
-
     // ── Internal: byte[] → Cloudinary → secureUrl ────────────────────────────
 
     private static String uploadBytes(byte[] bytes, String mime, String filename,
                                       String folder, String resourceType) {
         try {
-            // Step 1: Get signature from server
+            // Step 1: Sign
             JSONObject payload = new JSONObject()
                 .put("folder", folder)
                 .put("resource_type", resourceType);
@@ -248,7 +183,7 @@ public class ReelCloudinaryUtils {
             String cloudName = signJson.optString("cloud_name", Constants.CLOUDINARY_CLOUD_NAME);
             String f         = signJson.optString("folder", folder);
 
-            // Step 2: Upload to Cloudinary
+            // Step 2: Upload
             MultipartBody body = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file", filename,
@@ -274,25 +209,6 @@ public class ReelCloudinaryUtils {
 
         } catch (Exception e) {
             Log.e(TAG, "uploadBytes error: " + e.getMessage());
-            return null;
-        }
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /** Read all bytes from a File; returns null on error or missing file. */
-    private static byte[] readFileBytes(File file) {
-        if (file == null || !file.exists() || file.length() == 0) return null;
-        try {
-            // Use RandomAccessFile.readFully() — guarantees ALL bytes are read,
-            // unlike InputStream.read() which can return fewer bytes.
-            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
-            byte[] bytes = new byte[(int) file.length()];
-            raf.readFully(bytes);
-            raf.close();
-            return bytes;
-        } catch (IOException e) {
-            Log.e(TAG, "readFileBytes error: " + e.getMessage());
             return null;
         }
     }

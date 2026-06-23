@@ -188,37 +188,6 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         // ── Comment text ────────────────────────────────────────────────
         h.tvText.setText(c.text != null ? c.text : "");
 
-        // ── v3: Photo thumbnail ─────────────────────────────────────────
-        if (h.ivCommentPhoto != null) {
-            boolean hasPhoto = c.photoUrl != null && !c.photoUrl.isEmpty();
-            if (hasPhoto) {
-                h.ivCommentPhoto.setVisibility(android.view.View.VISIBLE);
-                String thumbUrl = (c.photoThumbUrl != null && !c.photoThumbUrl.isEmpty())
-                        ? c.photoThumbUrl : c.photoUrl;
-                com.bumptech.glide.Glide.with(ctx)
-                        .load(thumbUrl)
-                        .centerCrop()
-                        .placeholder(android.R.color.darker_gray)
-                        .into(h.ivCommentPhoto);
-                // Tap → full-screen viewer via Intent
-                h.ivCommentPhoto.setOnClickListener(v -> {
-                    try {
-                        Class<?> cls = Class.forName("com.callx.app.comments.CommentPhotoViewerActivity");
-                        android.content.Intent i = new android.content.Intent(ctx, cls);
-                        i.putExtra("photo_url", c.photoUrl);
-                        i.putExtra("thumb_url", thumbUrl);
-                        ctx.startActivity(i);
-                    } catch (ClassNotFoundException e) {
-                        // Fallback: open in browser
-                        try { ctx.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(c.photoUrl))); } catch (Exception ignored) {}
-                    }
-                });
-            } else {
-                h.ivCommentPhoto.setVisibility(android.view.View.GONE);
-            }
-        }
-
         // ── Emoji reaction strip ────────────────────────────────────────
         if (h.layoutReactions != null) {
             bindReactions(ctx, h.layoutReactions, c);
@@ -476,7 +445,6 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         LinearLayout containerReplies;
         LinearLayout layoutReactions;
         View rowPin;
-        android.widget.ImageView ivCommentPhoto; // v3: photo-in-comment
 
         VH(@NonNull View v) {
             super(v);
@@ -493,7 +461,6 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             tvViewReplies   = v.findViewById(R.id.tv_view_replies);
             containerReplies= v.findViewById(R.id.container_replies);
             layoutReactions = v.findViewById(R.id.layout_reactions);
-            ivCommentPhoto  = v.findViewById(R.id.iv_comment_photo); // v3
         }
     }
 }
