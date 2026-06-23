@@ -1,94 +1,103 @@
 package com.callx.app.conversation.controllers;
 
-import android.os.Handler;
-import android.os.Looper;
-import com.callx.app.db.dao.MessageDao;
-import com.callx.app.db.entity.MessageEntity;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
+import android.app.Activity;
+import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.conversation.MessagePagingAdapter;
+import com.callx.app.db.AppDatabase;
+import com.callx.app.models.Message;
+import com.google.firebase.database.DatabaseReference;
+import java.util.concurrent.Executor;
 
 /**
- * ChatActivityDelegate — 80ms write-coalescing buffer.
- *
- * 30 Firebase onChildAdded callbacks → buffer → 1 Room @Transaction
- * → 1 PagingSource invalidation → zero jump / zero flicker.
+ * Delegate interface exposed by ChatActivity to all controller classes.
+ * Controllers call back into the Activity via this interface instead of
+ * holding a direct hard reference to ChatActivity.
  */
-public class ChatActivityDelegate {
+public interface ChatActivityDelegate {
 
-    private static final long DEBOUNCE_MS     = 80L;
-    private static final int  MAX_BUFFER_SIZE = 50;
+    // ── Binding ────────────────────────────────────────────────────────────
+    ActivityChatBinding getBinding();
 
-    private final MessageDao      messageDao;
-    private final ExecutorService ioExecutor;
-    private final Handler         mainHandler  = new Handler(Looper.getMainLooper());
-    private final Object          lock         = new Object();
+    // ── Identity ──────────────────────────────────────────────────────────
+    String getChatId();
+    String getPartnerUid();
+    String getPartnerName();
+    String getPartnerPhoto();
+    String getPartnerThumb();
+    String getCurrentUid();
+    String getCurrentName();
 
-    private final Map<String, MessageEntity> upsertBuffer = new LinkedHashMap<>();
-    private final List<String>               removeBuffer = new ArrayList<>();
-    private final List<String>               readBuffer   = new ArrayList<>();
-    private boolean flushScheduled = false;
+    // ── Database & executor ───────────────────────────────────────────────
+    AppDatabase getDb();
+    Executor getIoExecutor();
 
-    private final Runnable flushRunnable = this::flush;
+    // ── Firebase ──────────────────────────────────────────────────────────
+    DatabaseReference getMessagesRef();
 
-    public ChatActivityDelegate(MessageDao messageDao, ExecutorService ioExecutor) {
-        this.messageDao = messageDao;
-        this.ioExecutor = ioExecutor;
-    }
+    // ── Network ───────────────────────────────────────────────────────────
+    boolean isOnline();
 
-    public void queueUpsert(MessageEntity entity) {
-        synchronized (lock) { upsertBuffer.put(entity.id, entity); }
-        scheduleFlush();
-    }
+    // ── Mute state ────────────────────────────────────────────────────────
+    boolean isMuted();
+    void setMuted(boolean muted);
 
-    public void queueRemove(String msgId) {
-        synchronized (lock) { removeBuffer.add(msgId); upsertBuffer.remove(msgId); }
-        scheduleFlush();
-    }
+    // ── Block state ───────────────────────────────────────────────────────
+    boolean isBlocked();
+    void setBlocked(boolean blocked);
+    boolean isPartnerPermaBlockedMe();
+    void setPartnerPermaBlockedMe(boolean val);
+    boolean isIPermaBlockedPartner();
+    void setIPermaBlockedPartner(boolean val);
 
-    public void queueMarkRead(String msgId) {
-        synchronized (lock) { readBuffer.add(msgId); }
-        scheduleFlush();
-    }
+    // ── Recording state ───────────────────────────────────────────────────
+    boolean isRecording();
+    void setRecording(boolean recording);
 
-    public void queueMarkReadBulk(List<String> msgIds) {
-        synchronized (lock) { readBuffer.addAll(msgIds); }
-        scheduleFlush();
-    }
+    // ── UI helpers ────────────────────────────────────────────────────────
+    void runOnMain(Runnable r);
+    void showToast(String msg);
+    void invalidateMenu();
 
-    /** Call from onDestroy() — flushes immediately so nothing is lost. */
-    public void flushNow() {
-        mainHandler.removeCallbacks(flushRunnable);
-        flush();
-    }
+    // ── Message operations ────────────────────────────────────────────────
+    Message buildOutgoing();
+    void pushMessage(Message m, String previewText);
+    void firebasePushMessage(Message m, String key, String previewText);
+    void clearReply();
+    void startReply(Message m);
+    void activateReplyDirect(Message m);
+    void navigateToOriginal(String messageId);
+    /** messageId currently shown in the reply bar (user is composing a
+     *  reply to it), or null if no reply is active. Used to publish the
+     *  per-message "someone is replying to this" highlight alongside the
+     *  typing indicator — see ChatPresenceController#publishTypingReplyTarget. */
+    String getCurrentReplyTargetId();
 
-    private void scheduleFlush() {
-        int total;
-        synchronized (lock) { total = upsertBuffer.size() + removeBuffer.size() + readBuffer.size(); }
-        if (total >= MAX_BUFFER_SIZE) { mainHandler.removeCallbacks(flushRunnable); flush(); return; }
-        synchronized (lock) {
-            if (flushScheduled) mainHandler.removeCallbacks(flushRunnable);
-            flushScheduled = true;
-        }
-        mainHandler.postDelayed(flushRunnable, DEBOUNCE_MS);
-    }
+    // ── Adapter ───────────────────────────────────────────────────────────
+    MessagePagingAdapter getPagingAdapter();
 
-    private void flush() {
-        final List<MessageEntity> upserts;
-        final List<String>        removes;
-        final List<String>        reads;
-        synchronized (lock) {
-            if (upsertBuffer.isEmpty() && removeBuffer.isEmpty() && readBuffer.isEmpty()) {
-                flushScheduled = false; return;
-            }
-            upserts = new ArrayList<>(upsertBuffer.values());
-            removes = new ArrayList<>(removeBuffer);
-            reads   = new ArrayList<>(readBuffer);
-            upsertBuffer.clear(); removeBuffer.clear(); readBuffer.clear();
-            flushScheduled = false;
-        }
-        ioExecutor.execute(() -> messageDao.applyBufferedChanges(upserts, removes, reads));
-    }
+    // ── Fragment manager ──────────────────────────────────────────────────
+    androidx.fragment.app.FragmentManager getSupportFragmentManager();
+
+    // ── Activity context ──────────────────────────────────────────────────
+    Activity getActivity();
+
+    // ── Theme / wallpaper refresh ─────────────────────────────────────────
+    void refreshScreenTheme();
+    void refreshWallpaper();
+
+    // ── Wallpaper picker launcher ─────────────────────────────────────────
+    void launchWallpaperPicker();
+
+    // ── Poll creation ─────────────────────────────────────────────────────
+    void launchPollCreator();
+
+    /**
+     * PERF FIX: queues a Room "mark read" write instead of writing it
+     * immediately. Coalesced with other buffered Firebase events into a
+     * single transaction — see ChatActivity#flushPendingRoomWrites() and
+     * MessageDao#applyBufferedChanges(). Stops every historical unread
+     * message from triggering its own PagingSource invalidation when a
+     * chat is opened.
+     */
+    void queueMarkRead(String messageId);
 }

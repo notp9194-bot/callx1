@@ -4,101 +4,59 @@ import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
 
 /**
- * ChatThemeManager — Single minimal Midnight theme. No switching.
+ * ChatThemeManager — Minimal clean chat bubbles. No theme system.
+ * Sent: brand green. Received: white/light grey.
  */
 public class ChatThemeManager {
 
-    public static final int THEME_HYBRID    = 0;
-    public static final int THEME_OCEAN     = 1;
-    public static final int THEME_FOREST    = 2;
-    public static final int THEME_SUNSET    = 3;
-    public static final int THEME_LAVENDER  = 4;
-    public static final int THEME_MIDNIGHT  = 5;
-    public static final int THEME_CLASSIC   = 6;
-    public static final int THEME_MONO      = 7;
-    public static final int THEME_CHERRY    = 8;
-    public static final int THEME_AURORA    = 9;
-    public static final int THEME_COFFEE    = 10;
-    public static final int THEME_NEON      = 11;
-    public static final int THEME_ROYAL     = 12;
-    public static final int THEME_GALAXY    = 13;
-    public static final int THEME_CANDY     = 14;
-    public static final int THEME_FIRE      = 15;
-    public static final int THEME_ICE       = 16;
-    public static final int THEME_JUNGLE    = 17;
-
-    public static final String[] THEME_NAMES = {
-        "\uD83C\uDF19 Midnight"
-    };
-
-    private static final float R_LARGE = 14f;
-
     private static ChatThemeManager instance;
 
-    private final java.util.Map<Long, GradientDrawable> bubbleDrawableCache =
-            new java.util.HashMap<>();
+    // Kept for any lingering references — noop
+    public static final int THEME_HYBRID = 0;
 
-    private ChatThemeManager(Context ctx) {
-    }
+    private ChatThemeManager(Context ctx) {}
 
     public static ChatThemeManager get(Context ctx) {
         if (instance == null) instance = new ChatThemeManager(ctx);
         return instance;
     }
 
-    public int getCurrentTheme() { return THEME_MIDNIGHT; }
+    public int getCurrentTheme() { return THEME_HYBRID; }
+    public void setTheme(int id) {}
+    public void clearBubbleCache() {}
 
-    public void setTheme(int themeId) {
-        clearBubbleCache();
-    }
-
-    public void applyBubble(android.view.View bubbleView,
-                            boolean sent, String msgType, boolean hasReply) {
+    public void applyBubble(android.view.View bubbleView, boolean sent, String msgType, boolean hasReply) {
         if (bubbleView == null) return;
+        float d = bubbleView.getContext().getResources().getDisplayMetrics().density;
+        float r = 18f * d;
+        float tail = 4f * d;
 
-        int shape = BubbleShapeManager.get(bubbleView.getContext()).getCurrentShape();
-        long cacheKey = ((long) THEME_MIDNIGHT << 16) | ((long) shape << 1) | (sent ? 1L : 0L);
-
-        GradientDrawable cached = bubbleDrawableCache.get(cacheKey);
-        if (cached == null) {
-            float density = bubbleView.getContext().getResources().getDisplayMetrics().density;
-            float[] corners = BubbleShapeManager.get(bubbleView.getContext())
-                                  .getCornerRadii(sent, density);
-            int color = sent ? 0xFF1E293B : 0xFF334155;
-
-            GradientDrawable gd = new GradientDrawable();
-            gd.setColor(color);
-            gd.setCornerRadii(corners);
-
-            cached = gd;
-            bubbleDrawableCache.put(cacheKey, cached);
+        GradientDrawable gd = new GradientDrawable();
+        if (sent) {
+            gd.setColor(0xFF075E54); // WhatsApp-style dark green for sent
+            gd.setCornerRadii(new float[]{r, r, tail, tail, r, r, r, r});
+        } else {
+            gd.setColor(0xFFFFFFFF); // white for received
+            gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
         }
-
-        bubbleView.setBackground(cached);
-    }
-
-    public void clearBubbleCache() {
-        bubbleDrawableCache.clear();
+        bubbleView.setBackground(gd);
     }
 
     public int getTextColor(boolean sent) {
-        return 0xFFFFFFFF;
+        return sent ? 0xFFFFFFFF : 0xFF111111;
     }
 
-    public int getPrimaryColor() {
-        return 0xFF1E293B;
+    public int getPrimaryColor() { return 0xFF075E54; }
+    public int getSecondaryColor() { return 0xFF25D366; }
+
+    public int getChatBgColor(Context ctx) {
+        boolean dark = isDarkMode(ctx);
+        return dark ? 0xFF0B141A : 0xFFECE5DD;
     }
 
-    public int getSecondaryColor() {
-        return 0xFF0F172A;
-    }
-
-    public int getChatBgColor(android.content.Context ctx) {
-        return 0xFF050A12;
-    }
-
-    public int getInputBarColor(android.content.Context ctx) {
-        return 0xFF0D1117;
+    public int getInputBarColor(Context ctx) {
+        boolean dark = isDarkMode(ctx);
+        return dark ? 0xFF1F2C34 : 0xFFFFFFFF;
     }
 
     public void applyScreenTheme(
@@ -110,13 +68,12 @@ public class ChatThemeManager {
             android.view.View fab,
             android.view.View replyAccent) {
 
-        int primary   = 0xFF1E293B;
-        int secondary = 0xFF0F172A;
+        int primary   = getPrimaryColor();
+        int secondary = getSecondaryColor();
 
-        android.graphics.drawable.GradientDrawable toolbarGd =
-                new android.graphics.drawable.GradientDrawable(
-                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                        new int[]{primary, secondary});
+        GradientDrawable toolbarGd = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{primary, secondary});
         toolbar.setBackground(toolbarGd);
 
         android.content.Context ctx = toolbar.getContext();
@@ -124,34 +81,35 @@ public class ChatThemeManager {
         if (inputBarRoot != null) inputBarRoot.setBackgroundColor(getInputBarColor(ctx));
 
         if (btnSend != null) {
-            android.graphics.drawable.GradientDrawable sendGd =
-                    new android.graphics.drawable.GradientDrawable(
-                            android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                            new int[]{primary, secondary});
-            sendGd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            btnSend.setBackground(sendGd);
+            GradientDrawable sd = new GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    new int[]{primary, secondary});
+            sd.setShape(GradientDrawable.OVAL);
+            btnSend.setBackground(sd);
         }
-
         if (btnMic != null) {
-            android.graphics.drawable.GradientDrawable micGd =
-                    new android.graphics.drawable.GradientDrawable(
-                            android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                            new int[]{primary, secondary});
-            micGd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            btnMic.setBackground(micGd);
+            GradientDrawable md = new GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    new int[]{primary, secondary});
+            md.setShape(GradientDrawable.OVAL);
+            btnMic.setBackground(md);
         }
-
         if (fab != null) {
             fab.setBackgroundTintList(
                     android.content.res.ColorStateList.valueOf(primary));
         }
-
         if (replyAccent != null) {
             replyAccent.setBackgroundColor(primary);
         }
     }
 
     public int getTickColor(boolean isRead) {
-        return isRead ? 0xFF60A5FA : 0xFF9CA3AF;
+        return isRead ? 0xFF34B7F1 : 0xFF8FAF9F;
+    }
+
+    private boolean isDarkMode(Context ctx) {
+        int flags = ctx.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return flags == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 }

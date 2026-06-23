@@ -3,25 +3,20 @@ package com.callx.app.conversation.controllers;
 import android.app.AlertDialog;
 import android.net.Uri;
 import android.view.View;
-import android.widget.Toast;
 
 import com.callx.app.chat.databinding.ActivityChatBinding;
-import com.callx.app.chat.ui.BubbleShapeBottomSheet;
 import com.callx.app.chat.ui.ChatCustomizationBottomSheet;
 import com.callx.app.chat.ui.ChatPrivacyBottomSheet;
 import com.callx.app.chat.ui.ChatSecurityBottomSheet;
-import com.callx.app.chat.ui.ChatThemeBottomSheet;
-import com.callx.app.chat.ui.MessageFontSizeBottomSheet;
-import com.callx.app.chat.ui.TypingStyleBottomSheet;
 import com.callx.app.utils.ChatPrivacyManager;
 import com.callx.app.utils.ChatThemeManager;
 import com.callx.app.utils.ChatWallpaperManager;
-import com.callx.app.utils.TypingStyleManager;
-import com.callx.app.utils.UnicodeStyler;
+
+import android.widget.Toast;
 
 /**
- * Handles chat screen theme, wallpaper, typing style, customization
- * and privacy/security dialog logic.
+ * Handles chat screen theme (static), wallpaper, and privacy/security dialogs.
+ * Theme/bubble/font/typing customization removed — clean fast chat system.
  */
 public class ChatThemeController {
 
@@ -31,7 +26,7 @@ public class ChatThemeController {
         this.delegate = delegate;
     }
 
-    // ── Screen theme ──────────────────────────────────────────────────────
+    // ── Screen theme (static, no picker) ─────────────────────────────────
 
     public void applyScreenTheme() {
         ActivityChatBinding binding = delegate.getBinding();
@@ -50,7 +45,6 @@ public class ChatThemeController {
                 binding.fabBackToLatest,
                 binding.viewReplyAccent);
 
-        TypingStyleManager.get(delegate.getActivity()).applyToInput(binding.etMessage);
         applyWallpaper();
     }
 
@@ -76,17 +70,15 @@ public class ChatThemeController {
         }
     }
 
-    // ── Wallpaper picker ──────────────────────────────────────────────────
-
     public void showWallpaperPicker() {
         delegate.launchWallpaperPicker();
     }
 
     public void showWallpaperScopeDialog(Uri uri) {
         ChatWallpaperManager wm = ChatWallpaperManager.get(delegate.getActivity());
-        String[] options = {"\uD83D\uDE4B This chat only", "\uD83C\uDF10 All chats (Global)", "\u274C Remove wallpaper"};
+        String[] options = {"🙋 This chat only", "🌐 All chats (Global)", "❌ Remove wallpaper"};
         new AlertDialog.Builder(delegate.getActivity())
-                .setTitle("\uD83D\uDDBC\uFE0F Set Wallpaper")
+                .setTitle("🖼️ Set Wallpaper")
                 .setItems(options, (d, which) -> {
                     if (which == 0) {
                         wm.setWallpaper(delegate.getChatId(), uri);
@@ -104,81 +96,13 @@ public class ChatThemeController {
                 .show();
     }
 
-    // ── Typing style ──────────────────────────────────────────────────────
-
-    public void showTypingStylePicker() {
-        TypingStyleBottomSheet sheet = TypingStyleBottomSheet.newInstance();
-        sheet.setOnStyleSelectedListener(which -> {
-            if (which == -1) {
-                showSamsungStyleSubmenu(TypingStyleManager.get(delegate.getActivity()));
-                return;
-            }
-            delegate.getBinding().etMessage.post(() ->
-                    TypingStyleManager.get(delegate.getActivity())
-                            .applyToInput(delegate.getBinding().etMessage));
-        });
-        sheet.show(delegate.getSupportFragmentManager(), TypingStyleBottomSheet.TAG);
-    }
-
-    public void showSamsungStyleSubmenu(TypingStyleManager mgr) {
-        String scriptPreview = UnicodeStyler.toScript("Samsung Style");
-        String[] options = {"\uD83C\uDD38 Samsung One (Font)", scriptPreview + " (Script \u2728)"};
-        new AlertDialog.Builder(delegate.getActivity())
-                .setTitle("\uD83C\uDD38 Samsung Style \u2014 Choose")
-                .setItems(options, (dialog, which) -> {
-                    if (which == 0) {
-                        mgr.setStyle(TypingStyleManager.STYLE_SAMSUNG);
-                    } else {
-                        mgr.setStyle(TypingStyleManager.STYLE_SAMSUNG_SCRIPT);
-                    }
-                    delegate.getBinding().etMessage.post(() ->
-                            mgr.applyToInput(delegate.getBinding().etMessage));
-                })
-                .setNegativeButton("Back", (d, w) -> showTypingStylePicker())
-                .show();
-    }
-
-    // ── Theme / bubble / font size pickers ────────────────────────────────
-
-    public void showThemePicker() {
-        ChatThemeBottomSheet sheet = ChatThemeBottomSheet.newInstance();
-        sheet.setOnThemeSelectedListener(which -> {
-            if (delegate.getPagingAdapter() != null)
-                delegate.getPagingAdapter().notifyDataSetChanged();
-            applyScreenTheme();
-        });
-        sheet.show(delegate.getSupportFragmentManager(), ChatThemeBottomSheet.TAG);
-    }
-
-    public void showBubbleShapePicker() {
-        BubbleShapeBottomSheet sheet = BubbleShapeBottomSheet.newInstance();
-        sheet.setOnShapeSelectedListener(which -> {
-            if (delegate.getPagingAdapter() != null)
-                delegate.getPagingAdapter().notifyDataSetChanged();
-        });
-        sheet.show(delegate.getSupportFragmentManager(), BubbleShapeBottomSheet.TAG);
-    }
-
-    public void showFontSizePicker() {
-        MessageFontSizeBottomSheet sheet = MessageFontSizeBottomSheet.newInstance();
-        sheet.setOnSizeSelectedListener(which -> {
-            if (delegate.getPagingAdapter() != null)
-                delegate.getPagingAdapter().notifyDataSetChanged();
-        });
-        sheet.show(delegate.getSupportFragmentManager(), MessageFontSizeBottomSheet.TAG);
-    }
-
-    // ── Customization menu ────────────────────────────────────────────────
+    // ── Customization menu (wallpaper only) ───────────────────────────────
 
     public void showChatCustomizationMenu() {
         ChatCustomizationBottomSheet sheet = ChatCustomizationBottomSheet.newInstance();
         sheet.setOnOptionSelectedListener(option -> {
-            switch (option) {
-                case ChatCustomizationBottomSheet.OPTION_WALLPAPER: showWallpaperPicker();   break;
-                case ChatCustomizationBottomSheet.OPTION_THEME:     showThemePicker();       break;
-                case ChatCustomizationBottomSheet.OPTION_BUBBLE:    showBubbleShapePicker(); break;
-                case ChatCustomizationBottomSheet.OPTION_TYPING:    showTypingStylePicker(); break;
-                case ChatCustomizationBottomSheet.OPTION_FONT_SIZE: showFontSizePicker();    break;
+            if (option == ChatCustomizationBottomSheet.OPTION_WALLPAPER) {
+                showWallpaperPicker();
             }
         });
         sheet.show(delegate.getSupportFragmentManager(), ChatCustomizationBottomSheet.TAG);
@@ -196,12 +120,12 @@ public class ChatThemeController {
         ChatPrivacyManager pm = new ChatPrivacyManager(delegate.getActivity(), delegate.getChatId(), false);
 
         String[] options = {
-                "\u23F3 Disappearing Messages  [" + pm.getDisappearingLabel() + "]",
-                "\u23F1 Message Timer  [" + pm.getMsgTimerLabel() + "]",
-                "\uD83D\uDDD1 Auto-Delete Old Messages  [" + pm.getAutoDeleteLabel() + "]"
+                "⏳ Disappearing Messages  [" + pm.getDisappearingLabel() + "]",
+                "⏱ Message Timer  [" + pm.getMsgTimerLabel() + "]",
+                "🗑 Auto-Delete Old Messages  [" + pm.getAutoDeleteLabel() + "]"
         };
         new AlertDialog.Builder(delegate.getActivity())
-                .setTitle("\uD83D\uDEE1 Chat Privacy \u2014 " + displayName)
+                .setTitle("🛡 Chat Privacy — " + displayName)
                 .setItems(options, (d, which) -> {
                     if (which == 0) showDisappearingDialog(pm);
                     else if (which == 1) showMsgTimerDialog(pm);
@@ -224,7 +148,7 @@ public class ChatThemeController {
         for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
         final int[] sel = {checked};
         new AlertDialog.Builder(delegate.getActivity())
-                .setTitle("\u23F3 Disappearing Messages")
+                .setTitle("⏳ Disappearing Messages")
                 .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
                 .setPositiveButton("Set", (d, w) -> {
                     pm.setDisappearingMs(values[sel[0]]);
@@ -250,7 +174,7 @@ public class ChatThemeController {
         for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
         final int[] sel = {checked};
         new AlertDialog.Builder(delegate.getActivity())
-                .setTitle("\u23F1 Message Timer")
+                .setTitle("⏱ Message Timer")
                 .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
                 .setPositiveButton("Set", (d, w) -> {
                     pm.setMsgTimerMs(values[sel[0]]);
@@ -275,7 +199,7 @@ public class ChatThemeController {
         for (int i = 0; i < values.length; i++) if (values[i] == cur) { checked = i; break; }
         final int[] sel = {checked};
         new AlertDialog.Builder(delegate.getActivity())
-                .setTitle("\uD83D\uDDD1 Auto-Delete Old Messages")
+                .setTitle("🗑 Auto-Delete Old Messages")
                 .setSingleChoiceItems(labels, checked, (d, w) -> sel[0] = w)
                 .setPositiveButton("Set", (d, w) -> {
                     pm.setAutoDeleteDays(values[sel[0]]);

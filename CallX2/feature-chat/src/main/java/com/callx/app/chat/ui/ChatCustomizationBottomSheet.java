@@ -21,17 +21,12 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
 /**
- * ChatCustomizationBottomSheet — Minimal clean chat, no customization options.
+ * ChatCustomizationBottomSheet — Single option: Wallpaper.
  */
 public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
 
     public static final String TAG = "ChatCustomizationBottomSheet";
-
-    public static final int OPTION_WALLPAPER   = 0;
-    public static final int OPTION_THEME       = 1;
-    public static final int OPTION_BUBBLE      = 2;
-    public static final int OPTION_TYPING      = 3;
-    public static final int OPTION_FONT_SIZE   = 4;
+    public static final int OPTION_WALLPAPER = 0;
 
     public interface OnOptionSelectedListener {
         void onOptionSelected(int option);
@@ -63,10 +58,9 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
 
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setBackground(buildSheetBg());
-        root.setPadding(dp(24), 0, dp(24), dp(32));
+        root.setBackground(buildSheetBackground());
 
+        // Drag handle
         FrameLayout handleBar = new FrameLayout(ctx);
         handleBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(32)));
@@ -74,68 +68,38 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(dp(40), dp(4));
         hp.gravity = Gravity.CENTER;
         handle.setLayoutParams(hp);
-        GradientDrawable hBg = new GradientDrawable();
-        hBg.setColor(0x44FFFFFF);
-        hBg.setCornerRadius(dp(2));
-        handle.setBackground(hBg);
+        GradientDrawable handleBg = new GradientDrawable();
+        handleBg.setColor(0x55FFFFFF);
+        handleBg.setCornerRadius(dp(2));
+        handle.setBackground(handleBg);
         handleBar.addView(handle);
         root.addView(handleBar);
 
-        TextView icon = new TextView(ctx);
-        icon.setText("💬");
-        icon.setTextSize(36f);
-        icon.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        ilp.topMargin = dp(8);
-        ilp.bottomMargin = dp(12);
-        icon.setLayoutParams(ilp);
-        root.addView(icon);
+        // Header
+        TextView header = new TextView(ctx);
+        LinearLayout.LayoutParams hp2 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        hp2.setMargins(dp(20), 0, dp(20), dp(16));
+        header.setLayoutParams(hp2);
+        header.setText("🖼️  Chat Wallpaper");
+        header.setTextSize(17f);
+        header.setTextColor(0xFFFFFFFF);
+        header.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        root.addView(header);
 
-        TextView title = new TextView(ctx);
-        title.setText("Clean Chat");
-        title.setTextSize(18f);
-        title.setTextColor(0xFFFFFFFF);
-        title.setGravity(Gravity.CENTER);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        root.addView(title);
-
-        TextView sub = new TextView(ctx);
-        sub.setText("Minimal theme · Rounded bubbles · Normal text");
-        sub.setTextSize(13f);
-        sub.setTextColor(0x88FFFFFF);
-        sub.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        slp.topMargin = dp(6);
-        slp.bottomMargin = dp(20);
-        sub.setLayoutParams(slp);
-        root.addView(sub);
-
-        LinearLayout badge = new LinearLayout(ctx);
-        badge.setOrientation(LinearLayout.HORIZONTAL);
-        badge.setGravity(Gravity.CENTER_VERTICAL);
-        badge.setPadding(dp(14), dp(10), dp(14), dp(10));
-        GradientDrawable badgeBg = new GradientDrawable();
-        badgeBg.setColor(0x1A60A5FA);
-        badgeBg.setCornerRadius(dp(10));
-        badgeBg.setStroke(dp(1), 0x3360A5FA);
-        badge.setBackground(badgeBg);
-
-        TextView checkMark = new TextView(ctx);
-        checkMark.setText("✓  ");
-        checkMark.setTextSize(14f);
-        checkMark.setTextColor(0xFF60A5FA);
-        checkMark.setTypeface(Typeface.DEFAULT_BOLD);
-        badge.addView(checkMark);
-
-        TextView activeLabel = new TextView(ctx);
-        activeLabel.setText("Optimized for performance");
-        activeLabel.setTextSize(13f);
-        activeLabel.setTextColor(0xFF60A5FA);
-        badge.addView(activeLabel);
-
-        root.addView(badge);
+        // Wallpaper row
+        LinearLayout card = buildRow(ctx);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        cp.setMargins(dp(12), 0, dp(12), dp(20));
+        card.setLayoutParams(cp);
+        card.setOnClickListener(v -> {
+            dismiss();
+            if (listener != null) listener.onOptionSelected(OPTION_WALLPAPER);
+        });
+        root.addView(card);
 
         return root;
     }
@@ -146,22 +110,96 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             BottomSheetBehavior<FrameLayout> behavior = d.getBehavior();
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            int h = (int) (dm.heightPixels * 0.45f);
-            behavior.setPeekHeight(h, false);
-            behavior.setMaxHeight(h);
+            int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.35f);
+            behavior.setPeekHeight(height, false);
+            behavior.setMaxHeight(height);
             behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
             behavior.setHideable(true);
             behavior.setDraggable(true);
-            behavior.setFitToContents(true);
         }
     }
 
-    private GradientDrawable buildSheetBg() {
+    private LinearLayout buildRow(Context ctx) {
+        LinearLayout card = new LinearLayout(ctx);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        card.setClickable(true);
+        card.setFocusable(true);
+        GradientDrawable bg = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{0x220EA5E9, 0x116366F1});
+        bg.setStroke(dp(1), 0x330EA5E9);
+        bg.setCornerRadius(dp(14));
+        card.setBackground(bg);
+        card.setMinimumHeight(dp(72));
+
+        FrameLayout iconFrame = new FrameLayout(ctx);
+        LinearLayout.LayoutParams ifLp = new LinearLayout.LayoutParams(dp(52), dp(52));
+        ifLp.setMarginEnd(dp(16));
+        iconFrame.setLayoutParams(ifLp);
+        GradientDrawable ifBg = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFF0EA5E9, 0xFF6366F1});
+        ifBg.setCornerRadius(dp(14));
+        iconFrame.setBackground(ifBg);
+
+        TextView iconTv = new TextView(ctx);
+        FrameLayout.LayoutParams itLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+        itLp.gravity = Gravity.CENTER;
+        iconTv.setLayoutParams(itLp);
+        iconTv.setText("🖼️");
+        iconTv.setTextSize(22f);
+        iconFrame.addView(iconTv);
+
+        LinearLayout textBlock = new LinearLayout(ctx);
+        textBlock.setOrientation(LinearLayout.VERTICAL);
+        textBlock.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView nameTv = new TextView(ctx);
+        nameTv.setText("Wallpaper");
+        nameTv.setTextSize(15f);
+        nameTv.setTextColor(0xFFFFFFFF);
+        nameTv.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+
+        TextView descTv = new TextView(ctx);
+        descTv.setText("Set a custom background image");
+        descTv.setTextSize(11.5f);
+        descTv.setTextColor(0x99FFFFFF);
+        LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        descLp.topMargin = dp(3);
+        descTv.setLayoutParams(descLp);
+
+        textBlock.addView(nameTv);
+        textBlock.addView(descTv);
+
+        TextView arrow = new TextView(ctx);
+        arrow.setText("›");
+        arrow.setTextSize(24f);
+        arrow.setTextColor(0x55FFFFFF);
+        LinearLayout.LayoutParams arLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        arLp.setMarginStart(dp(8));
+        arrow.setLayoutParams(arLp);
+
+        card.addView(iconFrame);
+        card.addView(textBlock);
+        card.addView(arrow);
+
+        return card;
+    }
+
+    private GradientDrawable buildSheetBackground() {
         GradientDrawable gd = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFF111827, 0xFF0D1117});
-        gd.setCornerRadii(new float[]{dp(20), dp(20), dp(20), dp(20), 0, 0, 0, 0});
+                new int[]{0xFF1A1A2E, 0xFF0F0F1A});
+        gd.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
         return gd;
     }
 

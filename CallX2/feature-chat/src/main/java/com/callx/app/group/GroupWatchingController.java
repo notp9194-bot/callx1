@@ -412,7 +412,19 @@ public class GroupWatchingController {
     // other members.
 
     public void setOurInChatScreen(boolean active) {
-        // Watching presence disabled — no-op
+        if (pendingOffWrite != null) {
+            presenceDebounceHandler.removeCallbacks(pendingOffWrite);
+            pendingOffWrite = null;
+        }
+        if (active) {
+            writePresence(true);
+        } else {
+            pendingOffWrite = () -> {
+                writePresence(false);
+                pendingOffWrite = null;
+            };
+            presenceDebounceHandler.postDelayed(pendingOffWrite, PRESENCE_OFF_DEBOUNCE_MS);
+        }
     }
 
     private void writePresence(boolean active) {
@@ -439,7 +451,26 @@ public class GroupWatchingController {
     // ── Watch everyone else's presence on this group ────────────────────────
 
     private void watchGroupPresence() {
-        // Watching banner disabled — no-op
+        String groupId = delegate.getGroupId();
+        if (groupId == null) return;
+
+        presenceListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                List<String> watcherUids = new ArrayList<>();
+                for (DataSnapshot child : s.getChildren()) {
+                    String uid = child.getKey();
+                    if (uid == null || uid.equals(delegate.getCurrentUid())) continue;
+                    if (Boolean.TRUE.equals(child.getValue(Boolean.class))) {
+                        watcherUids.add(uid);
+                    }
+                }
+                lastWatcherUids = watcherUids;
+                if (watcherUids.isEmpty()) beginJustLeftWindow();
+                else { cancelJustLeftWindow(); lastSeenActiveAt = System.currentTimeMillis(); showWatchingBanner(watcherUids); }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.getChatPresenceRef(groupId).addValueEventListener(presenceListener);
     }
 
     // ── "Active Xm ago" grace window — last watcher(s) just left ───────────

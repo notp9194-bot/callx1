@@ -20,7 +20,7 @@
 
     <!-- Chat Customization (Wallpaper + Theme + Bubble + Typing + Font Size) -->
     <item android:id="@+id/action_chat_customization"
-        android:title="🎨 Chat Customization"
+        android:title="🖼️ Wallpaper"
         app:showAsAction="never"/>
 
     <item android:id="@+id/action_mute"

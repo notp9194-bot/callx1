@@ -84,40 +84,6 @@ public class MessagePagingAdapter
                 if (x == null || y == null) return false;
                 return x.equals(y);
             }
-
-            /**
-             * PERF v4: Partial-rebind payload — returned when DiffUtil detects that
-             * items are the same object but their contents differ.  A Bundle with
-             * fine-grained keys lets onBindViewHolder(VH,int,List) rebind only the
-             * tiny widget(s) that actually changed instead of running the full
-             * bindMessage() path (which includes text layout, Glide loads, etc.).
-             *
-             * Rules:
-             *  • Only status changed        → PAYLOAD_STATUS key
-             *  • Only reactions changed     → PAYLOAD_REACTIONS key
-             *  • Both changed               → both keys
-             *  • Any structural change
-             *    (text/type/timestamp/etc.) → return null → full rebind
-             */
-            @Override
-            @Nullable
-            public Object getChangePayload(@NonNull Message a, @NonNull Message b) {
-                boolean structuralChange =
-                        !safeEquals(a.text, b.text)
-                        || !safeEquals(a.type, b.type)
-                        || a.timestamp != b.timestamp
-                        || a.edited != b.edited
-                        || !safeEquals(asStr(a.editedAt), asStr(b.editedAt))
-                        || a.deleted != b.deleted
-                        || a.fontStyle != b.fontStyle
-                        || !pollVotesEqual(a.pollVotes, b.pollVotes)
-                        || !safeEquals(asStr(a.pollClosed), asStr(b.pollClosed));
-                if (structuralChange) return null; // full rebind
-                android.os.Bundle diff = new android.os.Bundle(2);
-                if (!safeEquals(a.status, b.status))      diff.putBoolean(PAYLOAD_STATUS,    true);
-                if (!reactionsEqual(a.reactions, b.reactions)) diff.putBoolean(PAYLOAD_REACTIONS, true);
-                return diff.isEmpty() ? null : diff;
-            }
         };
 
     // ── View types ────────────────────────────────────────────────
@@ -126,27 +92,6 @@ public class MessagePagingAdapter
     private static final int TYPE_STATUS_SEEN = 3;
     private static final int TYPE_REEL_SEEN   = 4;
     private static final int TYPE_CALL_ENTRY  = 5;
-
-    // ── Partial-rebind payload keys (DiffUtil.getChangePayload) ───
-    // When ONLY status/reactions change, DiffUtil passes one of these
-    // Bundle keys so onBindViewHolder(VH,int,List) can rebind ONLY
-    // the affected widget — skipping text layout, Glide loads, etc.
-    static final String PAYLOAD_STATUS    = "ps";
-    static final String PAYLOAD_REACTIONS = "pr";
-
-    // ── Shared Glide RequestOptions — created once, reused everywhere ─
-    // Avoids allocating a new RequestOptions chain on every bind call.
-    private static final com.bumptech.glide.request.RequestOptions GLIDE_AVATAR_OPTS =
-        new com.bumptech.glide.request.RequestOptions()
-            .circleCrop()
-            .diskCacheStrategy(DiskCacheStrategy.ALL)
-            .override(96, 96)
-            .dontAnimate();
-    private static final com.bumptech.glide.request.RequestOptions GLIDE_THUMB_OPTS =
-        new com.bumptech.glide.request.RequestOptions()
-            .centerCrop()
-            .diskCacheStrategy(DiskCacheStrategy.ALL)
-            .dontAnimate();
 
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
@@ -405,53 +350,6 @@ public class MessagePagingAdapter
             return;
         }
         bindMessage(h, m, position);
-    }
-
-    /**
-     * PERF v4: Payload-aware partial rebind.
-     *
-     * DiffUtil calls this instead of onBindViewHolder(VH,int) when
-     * getChangePayload() returned a non-null Bundle.  We inspect the
-     * Bundle keys and rebind ONLY the widgets that actually changed —
-     * skipping the expensive text-layout, Glide, reply-preview, and
-     * link-preview paths that make up 90 % of bindMessage()'s cost.
-     *
-     * The most common chat update is a status tick advancing
-     * sent→delivered→read: that changes ONE TextView and nothing else.
-     * Without payloads, RecyclerView re-runs the entire bind, including
-     * a Glide image reload for every media bubble that scrolled through
-     * a status change.  With payloads, only tvStatus is touched.
-     */
-    @Override
-    public void onBindViewHolder(@NonNull VH h, int pos,
-                                 @NonNull java.util.List<Object> payloads) {
-        if (payloads.isEmpty()) {
-            onBindViewHolder(h, pos);
-            return;
-        }
-        Message m = getItem(pos);
-        if (m == null) {
-            onBindViewHolder(h, pos);
-            return;
-        }
-        // System-event rows have their own full-bind path; fall through.
-        if ("status_seen".equals(m.type) || "reel_seen".equals(m.type)
-                || "call_entry".equals(m.type)) {
-            onBindViewHolder(h, pos);
-            return;
-        }
-        boolean sent = currentUid != null && currentUid.equals(m.senderId);
-        android.content.Context ctx = h.itemView.getContext();
-        for (Object raw : payloads) {
-            if (!(raw instanceof android.os.Bundle)) {
-                // Unknown payload type — fall back to full rebind.
-                onBindViewHolder(h, pos);
-                return;
-            }
-            android.os.Bundle bundle = (android.os.Bundle) raw;
-            if (bundle.containsKey(PAYLOAD_STATUS))    bindStatusTick(h, m, sent, ctx);
-            if (bundle.containsKey(PAYLOAD_REACTIONS)) bindReactionsRow(h, m);
-        }
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -874,7 +772,32 @@ public class MessagePagingAdapter
         }
 
         // ── Reactions display ─────────────────────────────────────────
-        bindReactionsRow(h, m);
+        if (h.llReactions != null && h.tvReactions != null) {
+            java.util.Map<String, String> rxMap = m.reactions;
+            if (rxMap != null && !rxMap.isEmpty()) {
+                // Count each unique emoji
+                java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
+                for (String emoji : rxMap.values()) {
+                    counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
+                }
+                StringBuilder sb = new StringBuilder();
+                int shown = 0;
+                for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+                    sb.append(e.getKey());
+                    if (e.getValue() > 1) sb.append(e.getValue());
+                    sb.append(" ");
+                    if (++shown >= 4) break; // max 4 distinct emojis shown
+                }
+                h.tvReactions.setText(sb.toString().trim());
+                h.llReactions.setVisibility(View.VISIBLE);
+                h.llReactions.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onReactionTap(m);
+                });
+            } else {
+                h.llReactions.setVisibility(View.GONE);
+                h.llReactions.setOnClickListener(null);
+            }
+        }
 
         // Sender name (group chats)
         if (isGroup && !sent && h.tvSenderName != null) {
@@ -1183,7 +1106,44 @@ public class MessagePagingAdapter
         }
 
         // ── Delivery status (sent messages only) ─────────────────
-        bindStatusTick(h, m, sent, ctx);
+        if (sent && h.tvStatus != null) {
+            h.tvStatus.setVisibility(View.VISIBLE);
+            String status = m.status != null ? m.status : "sent";
+            switch (status) {
+                case "seen":
+                case "read":
+                    h.tvStatus.setText("✓✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
+                    break;
+                case "delivered":
+                    h.tvStatus.setText("✓✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    break;
+                case "pending":
+                    // Clock icon — sent locally, not yet reached Firebase
+                    h.tvStatus.setText("🕐");
+                    h.tvStatus.setTextColor(0xFFAAAAAA);
+                    break;
+                case "failed":
+                    // Error icon — Firebase push rejected; tap to retry
+                    h.tvStatus.setText("⚠");
+                    h.tvStatus.setTextColor(0xFFFF5555);
+                    h.tvStatus.setOnClickListener(v -> {
+                        if (actionListener != null) actionListener.onRetry(m);
+                    });
+                    break;
+                default: // "sent" — one grey tick
+                    h.tvStatus.setText("✓");
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
+                    h.tvStatus.setOnClickListener(null);
+                    break;
+            }
+        } else if (h.tvStatus != null) {
+            h.tvStatus.setVisibility(View.GONE);
+        }
 
         // ── Disappearing message countdown ────────────────────────────────
         if (h.activeCountDown != null) {
@@ -1842,155 +1802,9 @@ public class MessagePagingAdapter
     }
 
     // ──────────────────────────────────────────────────────────────
-    // PERF v4: Extracted partial-rebind helpers
-    // Called from both bindMessage() (full bind) and the payload-aware
-    // onBindViewHolder(VH,int,List) override (partial bind).
-    // ──────────────────────────────────────────────────────────────
-
-    /**
-     * Rebind ONLY the delivery-status tick widget on a sent bubble.
-     * Safe to call from the payload path — touches nothing else.
-     */
-    private void bindStatusTick(@NonNull VH h, @NonNull Message m,
-                                boolean sent, @NonNull android.content.Context ctx) {
-        if (sent && h.tvStatus != null) {
-            h.tvStatus.setVisibility(View.VISIBLE);
-            String status = m.status != null ? m.status : "sent";
-            switch (status) {
-                case "seen":
-                case "read":
-                    h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(true));
-                    h.tvStatus.setOnClickListener(null);
-                    break;
-                case "delivered":
-                    h.tvStatus.setText("✓✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
-                    h.tvStatus.setOnClickListener(null);
-                    break;
-                case "pending":
-                    h.tvStatus.setText("🕐");
-                    h.tvStatus.setTextColor(0xFFAAAAAA);
-                    h.tvStatus.setOnClickListener(null);
-                    break;
-                case "failed":
-                    h.tvStatus.setText("⚠");
-                    h.tvStatus.setTextColor(0xFFFF5555);
-                    h.tvStatus.setOnClickListener(v -> {
-                        if (actionListener != null) actionListener.onRetry(m);
-                    });
-                    break;
-                default: // "sent" — one grey tick
-                    h.tvStatus.setText("✓");
-                    h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(ctx).getTickColor(false));
-                    h.tvStatus.setOnClickListener(null);
-                    break;
-            }
-        } else if (h.tvStatus != null) {
-            h.tvStatus.setVisibility(View.GONE);
-        }
-    }
-
-    /**
-     * Rebind ONLY the reactions row (emoji chip strip under a bubble).
-     * Safe to call from the payload path — touches nothing else.
-     */
-    private void bindReactionsRow(@NonNull VH h, @NonNull Message m) {
-        if (h.llReactions == null || h.tvReactions == null) return;
-        java.util.Map<String, String> rxMap = m.reactions;
-        if (rxMap != null && !rxMap.isEmpty()) {
-            java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
-            for (String emoji : rxMap.values()) {
-                counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
-            }
-            StringBuilder sb = new StringBuilder();
-            int shown = 0;
-            for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
-                sb.append(e.getKey());
-                if (e.getValue() > 1) sb.append(e.getValue());
-                sb.append(" ");
-                if (++shown >= 4) break;
-            }
-            h.tvReactions.setText(sb.toString().trim());
-            h.llReactions.setVisibility(View.VISIBLE);
-            h.llReactions.setOnClickListener(v -> {
-                if (actionListener != null) actionListener.onReactionTap(m);
-            });
-        } else {
-            h.llReactions.setVisibility(View.GONE);
-            h.llReactions.setOnClickListener(null);
-        }
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // Font Style helper — TypingStyleManager.STYLE_* (0–19) ko TextView pe apply
-    // ──────────────────────────────────────────────────────────────
-    private static void applyFontStyle(TextView tv, int styleId) {
-        switch (styleId) {
-            case com.callx.app.utils.TypingStyleManager.STYLE_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_ITALIC:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_BOLD_ITALIC:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG:
-                try {
-                    android.graphics.Typeface samsungTf = android.graphics.Typeface.create("SamsungOne", android.graphics.Typeface.NORMAL);
-                    if (samsungTf != null && !samsungTf.equals(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL))) {
-                        tv.setTypeface(samsungTf);
-                    } else {
-                        android.graphics.Typeface alt = android.graphics.Typeface.create("samsung-sans", android.graphics.Typeface.NORMAL);
-                        if (alt != null && !alt.equals(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL))) {
-                            tv.setTypeface(alt);
-                        } else {
-                            tv.setTypeface(android.graphics.Typeface.SERIF);
-                        }
-                    }
-                } catch (Exception e) {
-                    tv.setTypeface(android.graphics.Typeface.SERIF);
-                }
-                break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_MONOSPACE:
-                tv.setTypeface(android.graphics.Typeface.MONOSPACE); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF:
-                tv.setTypeface(android.graphics.Typeface.SERIF); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_CONDENSED:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_LIGHT:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_HANDWRITING:
-                tv.setTypeface(android.graphics.Typeface.create("casual", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_MEDIUM:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_THIN:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-thin", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF_ITALIC:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_CONDENSED_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_BLACK:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_CURSIVE:
-                tv.setTypeface(android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SANS_MEDIUM:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_MONO_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_LIGHT_ITALIC:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_CLASSIC_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_NORMAL:
-            default:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)); break;
-        }
+    // Font Style — always default (typing style system removed)
+    private static void applyFontStyle(android.widget.TextView tv, int styleId) {
+        tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL));
     }
 
     // ──────────────────────────────────────────────────────────────

@@ -2,27 +2,11 @@ package com.callx.app.utils;
 
 import android.content.Context;
 
-/**
- * MessageFontSizeManager — fixed at 15sp.
- * Public constants kept for compilation compatibility.
- */
+/** Stub — font size system removed. Always uses 15sp. */
 public class MessageFontSizeManager {
-
-    public static final int SIZE_SMALL   = 0;
-    public static final int SIZE_MEDIUM  = 1;
-    public static final int SIZE_LARGE   = 2;
-    public static final int SIZE_XLARGE  = 3;
-
-    public static final String[] SIZE_NAMES = {"Small", "Medium", "Large", "Extra Large"};
-    public static final String[] SIZE_DESC  = {
-        "Compact — more messages visible",
-        "Default — balanced readability",
-        "Comfortable — easy on the eyes",
-        "Bold & big — maximum readability"
-    };
+    public static final int SIZE_MEDIUM = 1;
 
     private static MessageFontSizeManager instance;
-
     private MessageFontSizeManager(Context ctx) {}
 
     public static MessageFontSizeManager get(Context ctx) {
@@ -31,10 +15,7 @@ public class MessageFontSizeManager {
     }
 
     public int getCurrentSize() { return SIZE_MEDIUM; }
-
     public float getFontSizeSp() { return 15f; }
-
-    public void setSize(int sizeIndex) { /* fixed — no-op */ }
-
+    public void setSize(int idx) {}
     public static float spForIndex(int idx) { return 15f; }
 }

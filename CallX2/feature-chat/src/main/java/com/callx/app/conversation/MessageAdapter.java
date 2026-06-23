@@ -1255,74 +1255,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Font Style helper — TypingStyleManager.STYLE_* (0–19) ko TextView pe apply
-    // ─────────────────────────────────────────────────────────────────────────
-    private static void applyFontStyle(TextView tv, int styleId) {
-        switch (styleId) {
-            case com.callx.app.utils.TypingStyleManager.STYLE_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_ITALIC:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_BOLD_ITALIC:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG:
-                try {
-                    android.graphics.Typeface samsungTf = android.graphics.Typeface.create("SamsungOne", android.graphics.Typeface.NORMAL);
-                    if (samsungTf != null && !samsungTf.equals(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL))) {
-                        tv.setTypeface(samsungTf);
-                    } else {
-                        android.graphics.Typeface alt = android.graphics.Typeface.create("samsung-sans", android.graphics.Typeface.NORMAL);
-                        if (alt != null && !alt.equals(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL))) {
-                            tv.setTypeface(alt);
-                        } else {
-                            tv.setTypeface(android.graphics.Typeface.SERIF);
-                        }
-                    }
-                } catch (Exception e) {
-                    tv.setTypeface(android.graphics.Typeface.SERIF);
-                }
-                break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_MONOSPACE:
-                tv.setTypeface(android.graphics.Typeface.MONOSPACE); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF:
-                tv.setTypeface(android.graphics.Typeface.SERIF); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_CONDENSED:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_LIGHT:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_HANDWRITING:
-                tv.setTypeface(android.graphics.Typeface.create("casual", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_MEDIUM:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_THIN:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-thin", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SERIF_ITALIC:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_CONDENSED_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_BLACK:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_CURSIVE:
-                tv.setTypeface(android.graphics.Typeface.create("cursive", android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SANS_MEDIUM:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_MONO_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_LIGHT_ITALIC:
-                tv.setTypeface(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_CLASSIC_BOLD:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD_ITALIC)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_SAMSUNG_SCRIPT:
-                // Unicode script text — transformation already ho chuka hai text mein.
-                // Normal typeface apply karo taaki characters properly render hon.
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)); break;
-            case com.callx.app.utils.TypingStyleManager.STYLE_NORMAL:
-            default:
-                tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)); break;
-        }
+    // Font Style — always default (typing style system removed)
+    private static void applyFontStyle(android.widget.TextView tv, int styleId) {
+        tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL));
     }
 
     static class VH extends RecyclerView.ViewHolder {
