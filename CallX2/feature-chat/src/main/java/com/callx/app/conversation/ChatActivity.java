@@ -389,6 +389,48 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void onDbReady() {
         if (isFinishing() || isDestroyed()) return;
 
+        // PERF FIX: Glide preload — partner avatar + recent chat image thumbnails
+        // ko disk cache se memory cache mein warm karo ASAP.
+        // Toolbar avatar: chat open hote hi fetch start hoti hai (setupToolbar mein
+        // Glide.with(this).load() already hai), lekin agar Glide disk cache miss
+        // kare toh network round-trip hogi. preload() ek background decode request
+        // queue karta hai — agar image disk cache mein hai to memory mein aa
+        // jaayegi; agar nahi hai to silently cancel (no wasted network call).
+        // Result: toolbar avatar aur latest message thumbs scroll se pehle ready.
+        String avatarUrl = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
+        if (avatarUrl != null && !avatarUrl.isEmpty()) {
+            com.bumptech.glide.Glide.with(this)
+                .load(avatarUrl)
+                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                .override(96, 96)
+                .circleCrop()
+                .preload();
+        }
+        // Preload last 10 messages' images from LastMessagesCache —
+        // these are the images the user will see the moment the list renders.
+        ioExecutor.execute(() -> {
+            java.util.List<com.callx.app.models.Message> cached =
+                com.callx.app.cache.LastMessagesCache.getInstance().get(chatId);
+            // Walk in reverse (newest first = most likely to be visible)
+            for (int i = cached.size() - 1; i >= Math.max(0, cached.size() - 10); i--) {
+                com.callx.app.models.Message m = cached.get(i);
+                String thumb = m.thumbnailUrl;
+                if (thumb == null || thumb.isEmpty()) {
+                    if ("image".equals(m.type)) thumb = m.mediaUrl;
+                }
+                if (thumb == null || thumb.isEmpty()) continue;
+                final String url = thumb;
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    com.bumptech.glide.Glide.with(ChatActivity.this)
+                        .load(url)
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                        .override(120, 120)
+                        .preload();
+                });
+            }
+        });
+
         // DB ready hai — ab Room-dependent cheezein start karo
         observePagedMessages();      // Paging3 Room se load karna shuru karega
         markMessagesReadOnOpen();
@@ -863,6 +905,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pagingAdapter.exitMultiSelectMode();
                 hideMultiSelectBar();
             } else {
+                // BUG FIX: finish() alone closes the app when ChatActivity is launched
+                // from a notification (FLAG_ACTIVITY_NEW_TASK) — no back stack exists.
+                // isTaskRoot() = true means we're the only activity in the task.
+                // In that case, launch MainActivity first so back goes to chat list.
+                if (isTaskRoot()) {
+                    android.content.Intent main = new android.content.Intent(
+                            this, com.callx.app.activities.MainActivity.class);
+                    main.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    startActivity(main);
+                }
                 finish();
             }
         });
@@ -1020,12 +1073,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
         // Default pool size is 5 already but explicit sizing prevents the pool
         // from being exhausted on fast flings that scroll past many bubbles.
+        // PERF FIX: RecycledViewPool sizes increased.
+        // Default (5 per type) was exhausted on fast flings through a mixed
+        // chat (text + images + audio). When pool is empty, RecyclerView must
+        // call onCreateViewHolder() (inflate XML + findViewById traversal) instead
+        // of onBindViewHolder() (just data binding). Inflate costs ~3-8ms per view
+        // vs bind costs ~0.3ms — the difference between a smooth 60fps fling and
+        // a janky one. TYPE_SENT/RECEIVED upped to 15 (most common view types);
+        // others upped to 6 (enough for one full screen worth of that type).
         RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
-        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        5);
-        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    5);
-        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */, 3);
-        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,   3);
-        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,  3);
+        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        15);
+        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    15);
+        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */,  6);
+        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,    6);
+        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   6);
         binding.rvMessages.setRecycledViewPool(pool);
         // Recycle child views as soon as they detach — reduces rebind cost on rapid scrolls.
         llm.setRecycleChildrenOnDetach(true);

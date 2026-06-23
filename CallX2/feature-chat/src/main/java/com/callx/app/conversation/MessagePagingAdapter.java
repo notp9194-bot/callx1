@@ -110,6 +110,12 @@ public class MessagePagingAdapter
     // SimpleDateFormat.format(Date) only reads the time value; safe to reuse.
     private final java.util.Date reuseDate = new java.util.Date();
 
+    // PERF FIX: Cache Glide RequestManager at adapter level.
+    // Calling Glide.with(ctx) on every onBindViewHolder() creates a new
+    // RequestManager lookup per image per scroll frame. Caching it here
+    // eliminates that repeated traversal. Set lazily on first bind.
+    private com.bumptech.glide.RequestManager glideManager;
+
     private ActionListener actionListener;
     private MediaPlayer player;
     private int playingPos = -1;
@@ -642,6 +648,9 @@ public class MessagePagingAdapter
     private void bindMessage(@NonNull VH h, @NonNull Message m, int position) {
         Context ctx = h.itemView.getContext();
         boolean sent = currentUid.equals(m.senderId);
+        // PERF FIX: init glideManager lazily on first bind — one RequestManager
+        // lookup per adapter lifetime instead of one per image per scroll frame.
+        if (glideManager == null) glideManager = com.bumptech.glide.Glide.with(ctx);
 
         // ── "Someone is viewing this message right now" dot ───────────────
         if (h.viewSeenDot != null) {
@@ -750,10 +759,10 @@ public class MessagePagingAdapter
                     String thumbUrl = m.replyToMediaUrl;
                     if (thumbUrl != null && !thumbUrl.isEmpty()) {
                         h.ivReplyThumb.setVisibility(View.VISIBLE);
-                        com.bumptech.glide.Glide.with(ctx)
+                        glideManager
                                 .load(thumbUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(120, 120)
+                                .override(80, 80)
                                 .centerCrop()
                                 .into(h.ivReplyThumb);
                     } else {
@@ -831,18 +840,18 @@ public class MessagePagingAdapter
                     // ── Progressive loading: thumb instantly → full replaces ──
                     if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
                         // Step 1: Show thumbnail instantly (tiny, ~30KB)
-                        Glide.with(ctx)
+                        glideManager
                             .load(thumbUrl)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(200, 200)
+                            .override(120, 120)
                             .into(h.ivImage);
 
                         // Step 2: Load full in background — replaces thumb with crossfade
-                        Glide.with(ctx)
+                        glideManager
                             .load(fullUrl)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(720, 720) // PERF: cap decode size to bubble size, not native res
-                            .thumbnail(Glide.with(ctx)
+                            .override(480, 480) // PERF: 480px is max bubble width on most phones
+                            .thumbnail(glideManager
                                 .load(thumbUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL))
                             .transition(com.bumptech.glide.load.resource.drawable
@@ -857,24 +866,24 @@ public class MessagePagingAdapter
                             // GIF: asGif() se URL directly load karo — MediaCache file use
                             // mat karo kyunki file mein .gif extension nahi hogi, Glide
                             // decode fail karta hai. Glide DiskCache GIF cache kar lega.
-                            Glide.with(ctx)
+                            glideManager
                                 .asGif()
                                 .load(fullUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(480, 480) // PERF: GIFs are heavy to decode/animate at full res
+                                .override(320, 320) // PERF: GIFs are heavy; 320px is plenty for chat
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)
                                 .into(h.ivImage);
                         } else if (cachedImg != null) {
-                            Glide.with(ctx).load(cachedImg)
+                            glideManager.load(cachedImg)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(720, 720)
+                                .override(480, 480)
                                 .placeholder(R.drawable.ic_file)
                                 .into(h.ivImage);
                         } else {
-                            Glide.with(ctx).load(fullUrl)
+                            glideManager.load(fullUrl)
                                 .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(720, 720)
+                                .override(480, 480)
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)
                                 .into(h.ivImage);
@@ -907,10 +916,10 @@ public class MessagePagingAdapter
                     // POLISH FIX: use Cloudinary thumbnail for preview image, not the raw video URL
                     String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                             ? m.thumbnailUrl : vUrl;
-                    Glide.with(ctx)
+                    glideManager
                         .load(thumbUrl)
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
-                        .override(480, 480)
+                        .override(360, 360)
                         .placeholder(R.drawable.ic_file)
                         .centerCrop()
                         .into(h.ivVideoThumb);
