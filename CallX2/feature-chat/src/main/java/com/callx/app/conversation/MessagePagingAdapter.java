@@ -106,6 +106,9 @@ public class MessagePagingAdapter
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
     private final SimpleDateFormat dateLabelFmt =
             new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
+    // Reusable Date instance — avoids new Date() allocation on every bind/format call.
+    // SimpleDateFormat.format(Date) only reads the time value; safe to reuse.
+    private final java.util.Date reuseDate = new java.util.Date();
 
     private ActionListener actionListener;
     private MediaPlayer player;
@@ -413,7 +416,7 @@ public class MessagePagingAdapter
 
         // Time
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+            tvTime.setText(fmtTs(m.timestamp));
         }
     }
 
@@ -507,7 +510,7 @@ public class MessagePagingAdapter
         // Time
         android.widget.TextView tvTime = h.tvStatusSeenTime;
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+            tvTime.setText(fmtTs(m.timestamp));
         }
     }
 
@@ -595,7 +598,7 @@ public class MessagePagingAdapter
         // Time
         android.widget.TextView tvTime = h.tvReelSeenTime;
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
+            tvTime.setText(fmtTs(m.timestamp));
         }
     }
 
@@ -622,11 +625,11 @@ public class MessagePagingAdapter
         // Older: "3 Jan 2025" or just "3 Jan" if same year
         boolean sameYear = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR);
         if (sameYear) {
-            return new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
-                    .format(new java.util.Date(timestamp));
+            reuseDate.setTime(timestamp);
+            return new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(reuseDate);
         }
-        return new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault())
-                .format(new java.util.Date(timestamp));
+        reuseDate.setTime(timestamp);
+        return new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(reuseDate);
     }
 
     private static boolean isSameDay(long ts1, long ts2) {
@@ -718,7 +721,7 @@ public class MessagePagingAdapter
 
         // Timestamp — append "(edited)" when applicable
         if (h.tvTime != null && m.timestamp > 0) {
-            String timeStr = timeFmt.format(new java.util.Date(m.timestamp));
+            String timeStr = fmtTs(m.timestamp);
             boolean isEdited = Boolean.TRUE.equals(m.edited);
             if (isEdited) timeStr = timeStr + "  \u270F\uFE0F edited";
             h.tvTime.setText(timeStr);
@@ -1030,18 +1033,28 @@ public class MessagePagingAdapter
                 // ── Font Size: globally selected message text size ──────────
                 h.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
                     com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
-                // ── Clickable links: URLs, phone numbers, emails ────────────
-                android.text.SpannableString spanned = new android.text.SpannableString(txt);
-                android.text.util.Linkify.addLinks(spanned,
-                    android.text.util.Linkify.WEB_URLS |
-                    android.text.util.Linkify.PHONE_NUMBERS |
-                    android.text.util.Linkify.EMAIL_ADDRESSES);
-                h.tvMessage.setText(spanned);
-                // Link color matching bubble theme
+                // ── Clickable links: skip Linkify if text has no URL/phone/email hint ──
+                // Linkify.addLinks() runs 3 regex passes on every bind — on most chat
+                // messages (plain text, no links) it's pure wasted CPU. A quick char-scan
+                // for ':' (https://) or '@' or '+' lets us skip it entirely for the
+                // majority of messages. SpannableString still created only when needed.
                 boolean isSentMsg = currentUid.equals(m.senderId);
-                int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
-                h.tvMessage.setLinkTextColor(linkColor);
-                h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                boolean mightHaveLink = txt.indexOf(':') >= 0 || txt.indexOf('@') >= 0
+                        || txt.indexOf('+') >= 0;
+                if (mightHaveLink) {
+                    android.text.SpannableString spanned = new android.text.SpannableString(txt);
+                    android.text.util.Linkify.addLinks(spanned,
+                        android.text.util.Linkify.WEB_URLS |
+                        android.text.util.Linkify.PHONE_NUMBERS |
+                        android.text.util.Linkify.EMAIL_ADDRESSES);
+                    h.tvMessage.setText(spanned);
+                    int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
+                    h.tvMessage.setLinkTextColor(linkColor);
+                    h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                } else {
+                    h.tvMessage.setText(txt);
+                    h.tvMessage.setMovementMethod(null);
+                }
                 h.tvMessage.setHighlightColor(0x33FFFFFF);
                 h.tvMessage.setAlpha(1f);
                 h.tvMessage.setTextColor(
@@ -1798,8 +1811,22 @@ public class MessagePagingAdapter
 
     // ──────────────────────────────────────────────────────────────
     // Font Style — always default (typing style system removed)
+    /** Format a timestamp millis → date label without allocating a new Date each time. */
+    private String fmtDate(long ts) {
+        reuseDate.setTime(ts);
+        return dateLabelFmt.format(reuseDate);
+    }
+
+    /** Format a timestamp millis → "hh:mm a" without allocating a new Date each time. */
+    private String fmtTs(long ts) {
+        reuseDate.setTime(ts);
+        return timeFmt.format(reuseDate);
+    }
+
+    // applyFontStyle: font style system removed — default typeface already applied in XML.
+    // Typeface.create() per bind was allocating a new object every scroll frame; no-op now.
     private static void applyFontStyle(android.widget.TextView tv, int styleId) {
-        tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL));
+        // No-op: default typeface set in layout XML, no per-bind alloc needed.
     }
 
     // ──────────────────────────────────────────────────────────────

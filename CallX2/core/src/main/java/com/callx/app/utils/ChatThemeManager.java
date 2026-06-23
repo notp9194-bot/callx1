@@ -25,21 +25,25 @@ public class ChatThemeManager {
     public void setTheme(int id) {}
     public void clearBubbleCache() {}
 
+    // Cached bubble drawables — allocated once, reused on every bind.
+    // Avoids new GradientDrawable() + new float[8] on every scroll frame.
+    private GradientDrawable cachedSentBubble;
+    private GradientDrawable cachedReceivedBubble;
+
     public void applyBubble(android.view.View bubbleView, boolean sent, String msgType, boolean hasReply) {
         if (bubbleView == null) return;
-        float d = bubbleView.getContext().getResources().getDisplayMetrics().density;
-        float r = 18f * d;
-        float tail = 4f * d;
-
-        GradientDrawable gd = new GradientDrawable();
-        if (sent) {
-            gd.setColor(0xFF075E54); // WhatsApp-style dark green for sent
-            gd.setCornerRadii(new float[]{r, r, tail, tail, r, r, r, r});
-        } else {
-            gd.setColor(0xFFFFFFFF); // white for received
-            gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
+        if (cachedSentBubble == null) {
+            float d    = bubbleView.getContext().getResources().getDisplayMetrics().density;
+            float r    = 18f * d;
+            float tail = 4f * d;
+            cachedSentBubble = new GradientDrawable();
+            cachedSentBubble.setColor(0xFF075E54);
+            cachedSentBubble.setCornerRadii(new float[]{r, r, tail, tail, r, r, r, r});
+            cachedReceivedBubble = new GradientDrawable();
+            cachedReceivedBubble.setColor(0xFFFFFFFF);
+            cachedReceivedBubble.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
         }
-        bubbleView.setBackground(gd);
+        bubbleView.setBackground(sent ? cachedSentBubble : cachedReceivedBubble);
     }
 
     public int getTextColor(boolean sent) {
