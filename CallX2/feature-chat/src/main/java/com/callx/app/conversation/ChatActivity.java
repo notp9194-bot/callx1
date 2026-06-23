@@ -910,11 +910,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // isTaskRoot() = true means we're the only activity in the task.
                 // In that case, launch MainActivity first so back goes to chat list.
                 if (isTaskRoot()) {
-                    android.content.Intent main = new android.content.Intent(
-                            this, com.callx.app.activities.MainActivity.class);
-                    main.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
-                            | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                    startActivity(main);
+                    // Use string-based Intent — MainActivity is in :app module,
+                    // not accessible by class reference from :feature-chat.
+                    try {
+                        android.content.Intent main = new android.content.Intent()
+                            .setClassName(this, "com.callx.app.activities.MainActivity");
+                        main.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        startActivity(main);
+                    } catch (Exception ignored) {}
                 }
                 finish();
             }
