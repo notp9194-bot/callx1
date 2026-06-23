@@ -625,11 +625,9 @@ public class MessagePagingAdapter
         // Older: "3 Jan 2025" or just "3 Jan" if same year
         boolean sameYear = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR);
         if (sameYear) {
-            reuseDate.setTime(timestamp);
-            return new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(reuseDate);
+            return new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(new java.util.Date(timestamp));
         }
-        reuseDate.setTime(timestamp);
-        return new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(reuseDate);
+        return new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(new java.util.Date(timestamp));
     }
 
     private static boolean isSameDay(long ts1, long ts2) {
