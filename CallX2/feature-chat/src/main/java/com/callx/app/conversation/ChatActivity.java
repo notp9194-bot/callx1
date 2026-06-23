@@ -175,6 +175,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // (a genuinely new message arriving while the user is at the bottom).
     private boolean firstPageRendered = false;
 
+    // initialScrollDone: guards the one-time "first data on screen" scroll
+    // logic in onItemRangeInserted. Deliberately SEPARATE from firstPageRendered
+    // because firstPageRendered is also set early (line ~350) on a warm-cache hit,
+    // which caused onItemRangeInserted to skip the guard and call an explicit
+    // scrollToPosition() on an un-anchored RecyclerView — producing the visible
+    // "top → bottom" scroll animation every time chat opened from the cache.
+    private boolean initialScrollDone = false;
+
     // ── WhatsApp-style intelligent scroll state ───────────────────────────
     // SCROLL_PREFS: SharedPreferences key for persisting scroll position and
     // last-seen-message timestamp across chat screen opens/closes.
@@ -1056,13 +1064,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
                 super.onItemRangeInserted(positionStart, itemCount);
-                if (!firstPageRendered) {
-                    // First page rendered — stackFromEnd(true) anchored us at
-                    // the bottom. Now run the smart-scroll logic: jump to first
-                    // unread message (if any), or restore the previous position.
+                if (!initialScrollDone) {
+                    // Very first data on screen — whether it came from the
+                    // warm-cache path (firstPageRendered already true) or a
+                    // cold Paging 3 load.  stackFromEnd(true) will anchor the
+                    // layout at the bottom; we must NOT add an extra explicit
+                    // scrollToPosition() here or the user sees the "top → bottom"
+                    // animation flash.  post() fires AFTER the layout pass so
+                    // the smart-scroll (unread / saved position) lands correctly.
+                    initialScrollDone = true;
                     firstPageRendered = true;
-                    // post() ensures the layout pass has completed before we
-                    // scroll — prevents a no-op scrollTo on an unmeasured RV.
                     binding.rvMessages.post(() -> restoreScrollOrGoToUnread());
                     return;
                 }
@@ -1335,6 +1346,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (savedPos >= 0 && savedPos < total - 3) {
             LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
             if (llm2 != null) llm2.scrollToPositionWithOffset(savedPos, savedOffset);
+            // Mark as NOT at bottom so subsequent onItemRangeInserted calls don't
+            // override our restored position with an auto-scroll to the end.
+            isUserAtBottom = false;
         }
         // else: stackFromEnd already positioned at bottom — nothing more needed
     }
