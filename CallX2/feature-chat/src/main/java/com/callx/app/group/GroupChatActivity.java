@@ -118,7 +118,13 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── PERF FIX: don't fight stackFromEnd on the very first render ────────
     // See the matching field/comment in ChatActivity for the full reasoning.
+    // firstPageRendered: fires on very first PagingData insert (including empty snapshots).
+    // initialScrollDone: fires only once real items are present and we've run
+    //                    restoreScrollOrGoToUnread(). Keeps the two guards from
+    //                    colliding when paging loads from cache (which can deliver
+    //                    two onItemRangeInserted calls before any real Firebase data).
     private boolean firstPageRendered = false;
+    private boolean initialScrollDone = false;
 
     // ── WhatsApp-style intelligent scroll state ───────────────────────────
     private static final String SCROLL_PREFS = "group_scroll_prefs_v2";
@@ -554,9 +560,14 @@ public class GroupChatActivity extends AppCompatActivity
                 super.onItemRangeInserted(positionStart, itemCount);
                 if (!firstPageRendered) {
                     firstPageRendered = true;
+                }
+                int total2 = pagingAdapter.getItemCount();
+                if (!initialScrollDone && total2 > 0) {
+                    initialScrollDone = true;
                     binding.rvMessages.post(() -> restoreScrollOrGoToUnread());
                     return;
                 }
+                if (!initialScrollDone) return;
                 int total = pagingAdapter.getItemCount();
                 if (isUserAtBottom) {
                     binding.rvMessages.scrollToPosition(total - 1);
@@ -1375,8 +1386,13 @@ public class GroupChatActivity extends AppCompatActivity
     // ─────────────────────────────────────────────────────────────────────
 
     private void scrollToMessageId(String messageId) {
+        scrollToMessageId(messageId, 0);
+    }
+
+    private void scrollToMessageId(String messageId, int attempt) {
         if (messageId == null || messageId.isEmpty()) return;
-        for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
+        int count = pagingAdapter.getItemCount();
+        for (int i = 0; i < count; i++) {
             com.callx.app.models.Message m = pagingAdapter.peek(i);
             if (m != null && (messageId.equals(m.id) || messageId.equals(m.messageId))) {
                 com.callx.app.chat.ui.MessageHighlightAnimator.scrollAndHighlight(
@@ -1384,6 +1400,15 @@ public class GroupChatActivity extends AppCompatActivity
                 return;
             }
         }
+        // Some peek() slots returned null — paging hasn't loaded that page yet.
+        // Retry up to 3 times with increasing delay before falling back to DB approximation.
+        if (attempt < 3) {
+            binding.rvMessages.postDelayed(() -> scrollToMessageId(messageId, attempt + 1),
+                    200L * (attempt + 1));
+            return;
+        }
+        // Fallback: use DB to compute approximate adapter position and scroll there,
+        // then try to highlight once the page has had time to load.
         final String gId = groupId;
         ioExecutor.execute(() -> {
             if (db == null || gId == null) {
@@ -1404,13 +1429,18 @@ public class GroupChatActivity extends AppCompatActivity
                 if (binding.fabBackToLatest != null) {
                     binding.fabBackToLatest.setVisibility(View.VISIBLE);
                     binding.fabBackToLatest.setAlpha(1f);
-                    binding.fabBackToLatest.setVisibility(View.VISIBLE);
                 }
                 binding.rvMessages.scrollToPosition(safePos);
+                // Give paging time to bind the newly scrolled-to page, then highlight.
                 binding.rvMessages.postDelayed(() -> {
                     RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(safePos);
-                    if (vh != null) com.callx.app.chat.ui.MessageHighlightAnimator.flashHighlight(vh.itemView);
-                }, 500);
+                    if (vh != null) {
+                        com.callx.app.chat.ui.MessageHighlightAnimator.flashHighlight(vh.itemView);
+                    } else {
+                        // Page still not bound — last-resort: scroll once more to force bind
+                        binding.rvMessages.smoothScrollToPosition(safePos);
+                    }
+                }, 600);
             });
         });
     }
@@ -1470,7 +1500,11 @@ public class GroupChatActivity extends AppCompatActivity
         if (savedPos >= 0 && savedPos < total - 3) {
             LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
             if (llm2 != null) llm2.scrollToPositionWithOffset(savedPos, savedOffset);
+            // Critical: mark NOT at bottom so subsequent onItemRangeInserted calls
+            // don't override our restored position with an auto-scroll to the end.
+            isUserAtBottom = false;
         }
+        // else: stackFromEnd already positioned us at bottom — nothing more needed
     }
 
     private void updateNewMessagesIndicator(int count) {
