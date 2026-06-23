@@ -7,10 +7,6 @@ import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.animation.AnimatorSet;
-import android.animation.ObjectAnimator;
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
 import android.content.Intent;
 import android.view.*;
 import android.widget.*;
@@ -836,36 +832,21 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             iv.setVisibility(View.INVISIBLE);
             iv.setScaleX(0f); iv.setScaleY(0f); iv.setAlpha(0f);
         }
+        // Avatar peek loop animation removed for performance — show avatars statically
         runnableArr[0] = new Runnable() {
             int idx = 0;
             @Override public void run() {
                 if (!runningArr[0] || getContext() == null) return;
                 CircleImageView iv = views[idx % views.length]; idx++;
-                if (iv == null) { handlerArr[0].postDelayed(this, 500); return; }
-                iv.setScaleX(0f); iv.setScaleY(0f); iv.setAlpha(0f);
+                if (iv == null) { handlerArr[0].postDelayed(this, 3000); return; }
+                iv.setScaleX(1f); iv.setScaleY(1f); iv.setAlpha(1f);
                 iv.setVisibility(View.VISIBLE);
-                ObjectAnimator sxI = ObjectAnimator.ofFloat(iv,"scaleX",0f,1.05f,1.0f);
-                ObjectAnimator syI = ObjectAnimator.ofFloat(iv,"scaleY",0f,1.05f,1.0f);
-                ObjectAnimator aI  = ObjectAnimator.ofFloat(iv,"alpha",0f,1f);
-                sxI.setDuration(450); syI.setDuration(450); aI.setDuration(250);
-                AnimatorSet zIn = new AnimatorSet(); zIn.playTogether(sxI,syI,aI);
-                ObjectAnimator sxO = ObjectAnimator.ofFloat(iv,"scaleX",1.0f,0f);
-                ObjectAnimator syO = ObjectAnimator.ofFloat(iv,"scaleY",1.0f,0f);
-                ObjectAnimator aO  = ObjectAnimator.ofFloat(iv,"alpha",1f,0f);
-                sxO.setDuration(400); syO.setDuration(400); aO.setDuration(400);
-                AnimatorSet zOut = new AnimatorSet(); zOut.playTogether(sxO,syO,aO);
-                zOut.setStartDelay(3000);
-                AnimatorSet full = new AnimatorSet(); full.playSequentially(zIn, zOut);
                 final Runnable me = this;
-                full.addListener(new AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(Animator a) {
-                        iv.setVisibility(View.INVISIBLE);
-                        iv.setScaleX(0f); iv.setScaleY(0f); iv.setAlpha(0f);
-                        if (runningArr[0] && getContext() != null)
-                            handlerArr[0].postDelayed(me, 3000);
-                    }
-                });
-                full.start();
+                handlerArr[0].postDelayed(() -> {
+                    iv.setVisibility(View.INVISIBLE);
+                    if (runningArr[0] && getContext() != null)
+                        handlerArr[0].postDelayed(me, 1000);
+                }, 3000);
             }
         };
         handlerArr[0].postDelayed(runnableArr[0], 1500);

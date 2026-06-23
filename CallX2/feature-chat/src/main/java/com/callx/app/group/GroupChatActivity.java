@@ -1343,7 +1343,8 @@ public class GroupChatActivity extends AppCompatActivity
             runOnUiThread(() -> {
                 if (binding.fabBackToLatest != null) {
                     binding.fabBackToLatest.setVisibility(View.VISIBLE);
-                    binding.fabBackToLatest.animate().alpha(1f).setDuration(200).start();
+                    binding.fabBackToLatest.setAlpha(1f);
+                    binding.fabBackToLatest.setVisibility(View.VISIBLE);
                 }
                 binding.rvMessages.scrollToPosition(safePos);
                 binding.rvMessages.postDelayed(() -> {
@@ -1499,15 +1500,10 @@ public class GroupChatActivity extends AppCompatActivity
             return;
         }
 
-        binding.llTypingStrip.setAlpha(0f);
-        binding.llTypingStrip.setScaleX(0.85f);
-        binding.llTypingStrip.setScaleY(0.85f);
+        binding.llTypingStrip.setAlpha(1f);
+        binding.llTypingStrip.setScaleX(1f);
+        binding.llTypingStrip.setScaleY(1f);
         binding.llTypingStrip.setVisibility(View.VISIBLE);
-        binding.llTypingStrip.animate()
-                .alpha(1f).scaleX(1f).scaleY(1f)
-                .setDuration(220)
-                .setInterpolator(new android.view.animation.OvershootInterpolator(1.8f))
-                .start();
         com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripShown(
                 binding.llWatchingBanner, binding.llTypingStrip);
     }
@@ -1517,19 +1513,12 @@ public class GroupChatActivity extends AppCompatActivity
         if (binding.llTypingStrip.getVisibility() != View.VISIBLE) return;
 
         if (typingDotsAnimator != null) typingDotsAnimator.stop();
-        binding.llTypingStrip.animate()
-                .alpha(0f).scaleX(0.85f).scaleY(0.85f)
-                .setDuration(160)
-                .setInterpolator(new android.view.animation.AccelerateInterpolator())
-                .withEndAction(() -> {
-                    binding.llTypingStrip.setVisibility(View.GONE);
-                    binding.llTypingStrip.setAlpha(1f);
-                    binding.llTypingStrip.setScaleX(1f);
-                    binding.llTypingStrip.setScaleY(1f);
-                    com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripHidden(
-                            binding.llWatchingBanner);
-                })
-                .start();
+        binding.llTypingStrip.setVisibility(View.GONE);
+        binding.llTypingStrip.setAlpha(1f);
+        binding.llTypingStrip.setScaleX(1f);
+        binding.llTypingStrip.setScaleY(1f);
+        com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripHidden(
+                binding.llWatchingBanner);
     }
 
     // ─────────────────────────────────────────────────────────────────────

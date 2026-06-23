@@ -1,7 +1,6 @@
 package com.callx.app.chat.ui;
 
 import android.view.View;
-import android.view.animation.DecelerateInterpolator;
 
 /**
  * BannerPriorityCoordinator — resolves the visual-hierarchy collision when
@@ -64,24 +63,16 @@ public final class BannerPriorityCoordinator {
     }
 
     private static void recede(View banner) {
-        if (banner.getAlpha() <= RECEDED_ALPHA + 0.01f) return; // already receded
-        banner.animate().cancel();
-        banner.animate()
-                .alpha(RECEDED_ALPHA)
-                .scaleX(RECEDED_SCALE).scaleY(RECEDED_SCALE)
-                .setDuration(TRANSITION_MS)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
+        if (banner.getAlpha() <= RECEDED_ALPHA + 0.01f) return;
+        banner.setAlpha(RECEDED_ALPHA);
+        banner.setScaleX(RECEDED_SCALE);
+        banner.setScaleY(RECEDED_SCALE);
     }
 
     private static void restore(View banner) {
-        if (banner.getAlpha() >= 0.99f) return; // already full prominence
-        banner.animate().cancel();
-        banner.animate()
-                .alpha(1f)
-                .scaleX(1f).scaleY(1f)
-                .setDuration(TRANSITION_MS)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
+        if (banner.getAlpha() >= 0.99f) return;
+        banner.setAlpha(1f);
+        banner.setScaleX(1f);
+        banner.setScaleY(1f);
     }
 }

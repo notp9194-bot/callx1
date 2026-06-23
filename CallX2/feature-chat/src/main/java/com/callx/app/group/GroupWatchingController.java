@@ -3,8 +3,6 @@ package com.callx.app.group;
 import android.app.Activity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
-import android.view.animation.AccelerateInterpolator;
-import android.view.animation.OvershootInterpolator;
 
 import androidx.annotation.NonNull;
 
@@ -231,47 +229,9 @@ public class GroupWatchingController {
         boolean badgeVisible = badge != null && badge.getVisibility() == View.VISIBLE;
 
         fanOutInProgress = true;
-        android.view.animation.DecelerateInterpolator outInterp =
-                new android.view.animation.DecelerateInterpolator();
-
-        // First avatar drifts back-left and tilts slightly counter-clockwise.
-        if (a1 != null) {
-            a1.animate().cancel();
-            a1.animate()
-                    .translationX(-spread).translationY(-spread * 0.4f)
-                    .rotation(-8f)
-                    .setDuration(FAN_OUT_DURATION_MS)
-                    .setInterpolator(outInterp)
-                    .start();
-        }
-        // Second avatar stays roughly centered but lifts slightly — reads as
-        // the "middle" card of the fan.
-        if (a2Visible) {
-            a2.animate().cancel();
-            a2.animate()
-                    .translationY(-spread * 0.7f)
-                    .scaleX(1.05f).scaleY(1.05f)
-                    .setDuration(FAN_OUT_DURATION_MS)
-                    .setInterpolator(outInterp)
-                    .start();
-        }
-        // "+N" badge drifts forward-right and tilts clockwise — the badge
-        // itself is what got tapped, so it gets the most pronounced motion.
-        if (badgeVisible) {
-            badge.animate().cancel();
-            badge.animate()
-                    .translationX(spread * 1.3f).translationY(-spread * 0.2f)
-                    .rotation(10f)
-                    .scaleX(1.12f).scaleY(1.12f)
-                    .setDuration(FAN_OUT_DURATION_MS)
-                    .setInterpolator(outInterp)
-                    .start();
-        }
-
-        binding.llWatchingBanner.postDelayed(() -> {
-            showWatchersSheet();
-            snapFanBackToRest();
-        }, FAN_OUT_SHEET_DELAY_MS);
+        // Fan animation removed for performance — open sheet instantly
+        showWatchersSheet();
+        fanOutInProgress = false;
     }
 
     /** Restores the avatar stack to its normal overlapped resting position.
@@ -284,33 +244,8 @@ public class GroupWatchingController {
             fanOutInProgress = false;
             return;
         }
-        android.view.animation.DecelerateInterpolator backInterp =
-                new android.view.animation.DecelerateInterpolator();
-
-        if (binding.ivWatchingAvatar != null) {
-            binding.ivWatchingAvatar.animate().cancel();
-            binding.ivWatchingAvatar.animate()
-                    .translationX(0f).translationY(0f).rotation(0f)
-                    .setDuration(FAN_OUT_DURATION_MS).setInterpolator(backInterp).start();
-        }
-        if (binding.ivWatchingAvatar2 != null) {
-            binding.ivWatchingAvatar2.animate().cancel();
-            binding.ivWatchingAvatar2.animate()
-                    .translationX(0f).translationY(0f)
-                    .scaleX(1f).scaleY(1f)
-                    .setDuration(FAN_OUT_DURATION_MS).setInterpolator(backInterp).start();
-        }
-        if (binding.tvWatchingMore != null) {
-            binding.tvWatchingMore.animate().cancel();
-            binding.tvWatchingMore.animate()
-                    .translationX(0f).translationY(0f).rotation(0f)
-                    .scaleX(1f).scaleY(1f)
-                    .setDuration(FAN_OUT_DURATION_MS).setInterpolator(backInterp)
-                    .withEndAction(() -> fanOutInProgress = false)
-                    .start();
-        } else {
-            fanOutInProgress = false;
-        }
+        fanOutInProgress = false;
+        // Snap-back animation removed for performance
     }
 
     /** Jump to whatever message the Nth currently-shown watcher avatar
@@ -488,7 +423,7 @@ public class GroupWatchingController {
 
         cancelJustLeftWindow();
         final long leftAt = lastSeenActiveAt > 0 ? lastSeenActiveAt : System.currentTimeMillis();
-        binding.llWatchingBanner.animate().alpha(0.6f).setDuration(250).start();
+        binding.llWatchingBanner.setAlpha(0.6f);
 
         justLeftTickRunnable = new Runnable() {
             @Override public void run() {
@@ -565,29 +500,18 @@ public class GroupWatchingController {
             // just a refresh of the same people, stay silent.
             if (isNewJoin) {
                 binding.llWatchingBanner.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-                OvershootInterpolator pulseInterp = new OvershootInterpolator(2.2f);
-                binding.ivWatchingAvatar.animate().cancel();
-                binding.ivWatchingAvatar.setScaleX(0.85f);
-                binding.ivWatchingAvatar.setScaleY(0.85f);
-                binding.ivWatchingAvatar.animate().scaleX(1f).scaleY(1f)
-                        .setDuration(260).setInterpolator(pulseInterp).start();
+                // Pulse animation removed for performance
             }
             return;
         }
 
-        binding.ivWatchingAvatar.setScaleX(0f);
-        binding.ivWatchingAvatar.setScaleY(0f);
-        binding.ivWatchingAvatar2.setScaleX(0f);
-        binding.ivWatchingAvatar2.setScaleY(0f);
-        binding.tvWatchingMore.setScaleX(0f);
-        binding.tvWatchingMore.setScaleY(0f);
+        binding.ivWatchingAvatar.setScaleX(1f);
+        binding.ivWatchingAvatar.setScaleY(1f);
+        binding.ivWatchingAvatar2.setScaleX(1f);
+        binding.ivWatchingAvatar2.setScaleY(1f);
+        binding.tvWatchingMore.setScaleX(1f);
+        binding.tvWatchingMore.setScaleY(1f);
         binding.llWatchingBanner.setVisibility(View.VISIBLE);
-        binding.llWatchingBanner.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-
-        OvershootInterpolator interp = new OvershootInterpolator(2.2f);
-        binding.ivWatchingAvatar.animate().scaleX(1f).scaleY(1f).setDuration(380).setInterpolator(interp).start();
-        binding.ivWatchingAvatar2.animate().scaleX(1f).scaleY(1f).setDuration(380).setStartDelay(40).setInterpolator(interp).start();
-        binding.tvWatchingMore.animate().scaleX(1f).scaleY(1f).setDuration(380).setStartDelay(80).setInterpolator(interp).start();
 
         // New arrival — immediately yield to typing if it's already showing,
         // instead of waiting for the next typing Firebase tick.
@@ -612,15 +536,8 @@ public class GroupWatchingController {
         if (binding.llWatchingBanner == null) return;
         if (binding.llWatchingBanner.getVisibility() != View.VISIBLE) return;
 
-        AccelerateInterpolator interp = new AccelerateInterpolator();
-        binding.ivWatchingAvatar.animate().scaleX(0f).scaleY(0f).setDuration(200).setInterpolator(interp).start();
-        binding.ivWatchingAvatar2.animate().scaleX(0f).scaleY(0f).setDuration(200).setInterpolator(interp).start();
-        binding.tvWatchingMore.animate().scaleX(0f).scaleY(0f).setDuration(200).setInterpolator(interp)
-                .withEndAction(() -> {
-                    binding.llWatchingBanner.setVisibility(View.GONE);
-                    binding.llWatchingBanner.setAlpha(1f);
-                })
-                .start();
+        binding.llWatchingBanner.setVisibility(View.GONE);
+        binding.llWatchingBanner.setAlpha(1f);
     }
 
     // ── Cleanup ─────────────────────────────────────────────────────────────

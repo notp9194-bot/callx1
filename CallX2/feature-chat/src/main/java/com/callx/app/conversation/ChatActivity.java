@@ -617,14 +617,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // whatever bubble was being replied to.
         if (presenceController != null) presenceController.publishTypingReplyTarget();
         if (binding.llReplyBar == null) return;
-        binding.llReplyBar.animate()
-                .alpha(0f).translationY(20f).setDuration(150)
-                .withEndAction(() -> {
-                    binding.llReplyBar.setVisibility(View.GONE);
-                    binding.llReplyBar.setAlpha(1f);
-                    binding.llReplyBar.setTranslationY(0f);
-                })
-                .start();
+        binding.llReplyBar.setVisibility(View.GONE);
+        binding.llReplyBar.setAlpha(1f);
+        binding.llReplyBar.setTranslationY(0f);
         if (binding.ivReplyBarThumb != null) binding.ivReplyBarThumb.setVisibility(View.GONE);
     }
 
@@ -671,7 +666,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.llReplyBar.setVisibility(View.VISIBLE);
         binding.llReplyBar.setAlpha(0f);
         binding.llReplyBar.setTranslationY(40f);
-        binding.llReplyBar.animate().alpha(1f).translationY(0f).setDuration(200).start();
+        binding.llReplyBar.setAlpha(1f);
+        binding.llReplyBar.setTranslationY(0f);
+        binding.llReplyBar.setVisibility(View.VISIBLE);
         binding.etMessage.requestFocus();
         ReplyAnalyticsTracker.get().onSwipeTriggered();
     }
@@ -1654,7 +1651,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 runOnUiThread(() -> {
                     if (binding.fabBackToLatest != null) {
                         binding.fabBackToLatest.setVisibility(View.VISIBLE);
-                        binding.fabBackToLatest.animate().alpha(1f).setDuration(200).start();
+                        binding.fabBackToLatest.setAlpha(1f);
+                        binding.fabBackToLatest.setVisibility(View.VISIBLE);
                     }
                     binding.rvMessages.scrollToPosition(safePos);
                     binding.rvMessages.postDelayed(() -> {

@@ -1,9 +1,6 @@
 package com.callx.app.conversation.controllers;
 
-import android.view.HapticFeedbackConstants;
 import android.view.View;
-import android.view.animation.AccelerateInterpolator;
-import android.view.animation.OvershootInterpolator;
 
 import androidx.annotation.NonNull;
 
@@ -249,15 +246,10 @@ public class ChatPresenceController {
             return;
         }
 
-        binding.llTypingStrip.setAlpha(0f);
-        binding.llTypingStrip.setScaleX(0.85f);
-        binding.llTypingStrip.setScaleY(0.85f);
+        binding.llTypingStrip.setAlpha(1f);
+        binding.llTypingStrip.setScaleX(1f);
+        binding.llTypingStrip.setScaleY(1f);
         binding.llTypingStrip.setVisibility(View.VISIBLE);
-        binding.llTypingStrip.animate()
-                .alpha(1f).scaleX(1f).scaleY(1f)
-                .setDuration(220)
-                .setInterpolator(new OvershootInterpolator(1.8f))
-                .start();
         com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripShown(
                 binding.llWatchingBanner, binding.llTypingStrip);
     }
@@ -268,19 +260,12 @@ public class ChatPresenceController {
         if (binding.llTypingStrip.getVisibility() != View.VISIBLE) return;
 
         if (typingDotsAnimator != null) typingDotsAnimator.stop();
-        binding.llTypingStrip.animate()
-                .alpha(0f).scaleX(0.85f).scaleY(0.85f)
-                .setDuration(160)
-                .setInterpolator(new AccelerateInterpolator())
-                .withEndAction(() -> {
-                    binding.llTypingStrip.setVisibility(View.GONE);
-                    binding.llTypingStrip.setAlpha(1f);
-                    binding.llTypingStrip.setScaleX(1f);
-                    binding.llTypingStrip.setScaleY(1f);
-                    com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripHidden(
-                            binding.llWatchingBanner);
-                })
-                .start();
+        binding.llTypingStrip.setVisibility(View.GONE);
+        binding.llTypingStrip.setAlpha(1f);
+        binding.llTypingStrip.setScaleX(1f);
+        binding.llTypingStrip.setScaleY(1f);
+        com.callx.app.chat.ui.BannerPriorityCoordinator.onTypingStripHidden(
+                binding.llWatchingBanner);
     }
 
     // ── Per-message "replying to this" glow ─────────────────────────────────
@@ -622,15 +607,9 @@ public class ChatPresenceController {
             return;
         }
 
-        binding.ivWatchingAvatar.setScaleX(0f);
-        binding.ivWatchingAvatar.setScaleY(0f);
+        binding.ivWatchingAvatar.setScaleX(1f);
+        binding.ivWatchingAvatar.setScaleY(1f);
         binding.llWatchingBanner.setVisibility(View.VISIBLE);
-        binding.ivWatchingAvatar.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-        binding.ivWatchingAvatar.animate()
-                .scaleX(1f).scaleY(1f)
-                .setDuration(380)
-                .setInterpolator(new OvershootInterpolator(2.2f))
-                .start();
 
         // New arrival — immediately yield to typing if it's already showing,
         // instead of waiting for the next typing Firebase tick.
@@ -655,7 +634,7 @@ public class ChatPresenceController {
         final String label = name != null ? name : "";
         final long leftAt = lastSeenActiveAt > 0 ? lastSeenActiveAt : System.currentTimeMillis();
 
-        binding.llWatchingBanner.animate().alpha(0.6f).setDuration(250).start();
+        binding.llWatchingBanner.setAlpha(0.6f);
 
         justLeftTickRunnable = new Runnable() {
             @Override public void run() {
@@ -688,15 +667,8 @@ public class ChatPresenceController {
         if (binding.llWatchingBanner == null) return;
         if (binding.llWatchingBanner.getVisibility() != View.VISIBLE) return;
 
-        binding.ivWatchingAvatar.animate()
-                .scaleX(0f).scaleY(0f)
-                .setDuration(200)
-                .setInterpolator(new AccelerateInterpolator())
-                .withEndAction(() -> {
-                    binding.llWatchingBanner.setVisibility(View.GONE);
-                    binding.llWatchingBanner.setAlpha(1f);
-                })
-                .start();
+        binding.llWatchingBanner.setVisibility(View.GONE);
+        binding.llWatchingBanner.setAlpha(1f);
     }
 
     // ── Voice Recording Indicator ─────────────────────────────────────────
@@ -789,18 +761,10 @@ public class ChatPresenceController {
             return; // already showing — don't re-animate
         }
 
-        strip.setAlpha(0f);
-        strip.setScaleX(0.85f);
-        strip.setScaleY(0.85f);
+        strip.setAlpha(1f);
+        strip.setScaleX(1f);
+        strip.setScaleY(1f);
         strip.setVisibility(android.view.View.VISIBLE);
-        strip.animate()
-                .alpha(1f).scaleX(1f).scaleY(1f)
-                .setDuration(220)
-                .setInterpolator(new OvershootInterpolator(1.8f))
-                .start();
-
-        startWaveformAnimation(binding.getRoot());
-        startMicPulse(binding.getRoot());
     }
 
     private void hideVoiceRecordingStrip() {
@@ -811,45 +775,14 @@ public class ChatPresenceController {
         if (strip == null || strip.getVisibility() != android.view.View.VISIBLE) return;
 
         stopWaveformAnimation();
-        strip.animate()
-                .alpha(0f).scaleX(0.85f).scaleY(0.85f)
-                .setDuration(160)
-                .setInterpolator(new AccelerateInterpolator())
-                .withEndAction(() -> {
-                    strip.setVisibility(android.view.View.GONE);
-                    strip.setAlpha(1f);
-                    strip.setScaleX(1f);
-                    strip.setScaleY(1f);
-                })
-                .start();
+        strip.setVisibility(android.view.View.GONE);
+        strip.setAlpha(1f);
+        strip.setScaleX(1f);
+        strip.setScaleY(1f);
     }
 
-    /** Staggered scale animation on the 5 waveform bars — each bar pulses
-     *  up to its WAVE_PEAK_SCALES value and back down, offset by 80ms per bar,
-     *  looping every 500ms to simulate a live audio waveform. */
     private void startWaveformAnimation(android.view.View root) {
-        if (waveAnimRunning) return;
-        waveAnimRunning = true;
-        waveRunnable = new Runnable() {
-            int tick = 0;
-            @Override public void run() {
-                if (!waveAnimRunning) return;
-                for (int i = 0; i < WAVE_BAR_IDS.length; i++) {
-                    android.view.View bar = root.findViewById(WAVE_BAR_IDS[i]);
-                    if (bar == null) continue;
-                    float peak = (tick % 2 == 0) ? WAVE_PEAK_SCALES[i] : 0.2f;
-                    bar.animate()
-                            .scaleY(peak)
-                            .setStartDelay(i * 60L)
-                            .setDuration(180)
-                            .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                            .start();
-                }
-                tick++;
-                waveHandler.postDelayed(this, 400);
-            }
-        };
-        waveHandler.post(waveRunnable);
+        // Animation removed for performance
     }
 
     private void stopWaveformAnimation() {
@@ -860,27 +793,8 @@ public class ChatPresenceController {
         }
     }
 
-    /** Slow alpha pulse on the mic icon — 0.4 ↔ 1.0, 700ms per cycle. */
     private void startMicPulse(android.view.View root) {
-        android.widget.ImageView ivMic = root.findViewById(com.callx.app.chat.R.id.iv_recording_mic);
-        if (ivMic == null) return;
-        ivMic.animate().cancel();
-        ivMic.setAlpha(1.0f);
-        pulseMic(ivMic, true);
-    }
-
-    private void pulseMic(android.widget.ImageView ivMic, boolean fadeOut) {
-        if (!waveAnimRunning) {
-            ivMic.animate().cancel();
-            ivMic.setAlpha(1.0f);
-            return;
-        }
-        ivMic.animate()
-                .alpha(fadeOut ? 0.35f : 1.0f)
-                .setDuration(700)
-                .setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator())
-                .withEndAction(() -> pulseMic(ivMic, !fadeOut))
-                .start();
+        // Animation removed for performance
     }
 
     // ── Mute ─────────────────────────────────────────────────────────────

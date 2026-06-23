@@ -1324,15 +1324,10 @@ public class MessagePagingAdapter
                         int targetWidth = Math.round(parentWidth * (fPct / 100f));
                         Object tag = fillView.getTag();
                         int startWidth = (tag instanceof Integer) ? (Integer) tag : fillView.getWidth();
-                        android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofInt(startWidth, targetWidth);
-                        anim.setDuration(320);
-                        anim.setInterpolator(new android.view.animation.DecelerateInterpolator());
-                        anim.addUpdateListener(a -> {
-                            android.view.ViewGroup.LayoutParams lp = fillView.getLayoutParams();
-                            lp.width = (Integer) a.getAnimatedValue();
-                            fillView.setLayoutParams(lp);
-                        });
-                        anim.start();
+                        // Set width instantly — no animation for performance
+                        android.view.ViewGroup.LayoutParams lp = fillView.getLayoutParams();
+                        lp.width = targetWidth;
+                        fillView.setLayoutParams(lp);
                         fillView.setTag(targetWidth);
                     });
                 }
