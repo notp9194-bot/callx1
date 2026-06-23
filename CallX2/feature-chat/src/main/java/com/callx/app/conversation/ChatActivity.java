@@ -863,6 +863,24 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pagingAdapter.exitMultiSelectMode();
                 hideMultiSelectBar();
             } else {
+                if (isTaskRoot()) {
+                    // Launched from notification/shortcut — no back stack.
+                    // Go to app main screen instead of closing the whole app.
+                    try {
+                        Class<?> main = Class.forName("com.callx.app.activities.MainActivity");
+                        android.content.Intent i = new android.content.Intent(this, main);
+                        i.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        startActivity(i);
+                    } catch (ClassNotFoundException ex) {
+                        // Fallback to home screen
+                        android.content.Intent home = new android.content.Intent(
+                                android.content.Intent.ACTION_MAIN);
+                        home.addCategory(android.content.Intent.CATEGORY_HOME);
+                        home.setFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(home);
+                    }
+                }
                 finish();
             }
         });

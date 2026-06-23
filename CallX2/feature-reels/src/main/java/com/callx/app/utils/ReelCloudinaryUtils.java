@@ -282,11 +282,15 @@ public class ReelCloudinaryUtils {
 
     /** Read all bytes from a File; returns null on error or missing file. */
     private static byte[] readFileBytes(File file) {
-        if (file == null || !file.exists()) return null;
-        try (FileInputStream fis = new FileInputStream(file)) {
+        if (file == null || !file.exists() || file.length() == 0) return null;
+        try {
+            // Use RandomAccessFile.readFully() — guarantees ALL bytes are read,
+            // unlike InputStream.read() which can return fewer bytes.
+            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
             byte[] bytes = new byte[(int) file.length()];
-            int read = fis.read(bytes);
-            return read > 0 ? bytes : null;
+            raf.readFully(bytes);
+            raf.close();
+            return bytes;
         } catch (IOException e) {
             Log.e(TAG, "readFileBytes error: " + e.getMessage());
             return null;
