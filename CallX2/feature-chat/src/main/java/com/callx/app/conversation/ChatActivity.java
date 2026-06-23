@@ -175,6 +175,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // (a genuinely new message arriving while the user is at the bottom).
     private boolean firstPageRendered = false;
 
+    // ── WhatsApp-style intelligent scroll state ───────────────────────────
+    // SCROLL_PREFS: SharedPreferences key for persisting scroll position and
+    // last-seen-message timestamp across chat screen opens/closes.
+    private static final String SCROLL_PREFS   = "chat_scroll_prefs_v2";
+    // isUserAtBottom: true when user is within 3 items of the last message.
+    // Used to decide whether to auto-scroll on new inserts.
+    private boolean isUserAtBottom             = true;
+    // pendingNewMsgCount: count of messages from others that arrived while
+    // user was scrolled up. Shown in the "↓ N new messages" indicator.
+    private int     pendingNewMsgCount         = 0;
+
     // ── PERF FIX: don't show the skeleton at all for fast/cached loads ─────
     // Shimmer used to be set VISIBLE unconditionally the instant onCreate ran,
     // before Paging even had a chance to check whether Room already had this
@@ -476,6 +487,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onPause() {
         super.onPause();
+        // WhatsApp-style: persist scroll position + last-seen-ts so we can
+        // intelligently restore (or jump to first unread) on re-open.
+        saveScrollState();
         saveDraft();
         if (presenceController != null) {
             presenceController.clearOurTypingStatus();
@@ -1043,17 +1057,35 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
                 super.onItemRangeInserted(positionStart, itemCount);
                 if (!firstPageRendered) {
-                    // First-ever data for this screen: stackFromEnd(true) already
-                    // anchors the initial layout pass at the bottom. An extra
-                    // explicit scroll here is what caused the visible jump while
-                    // the chat was opening — skip it.
+                    // First page rendered — stackFromEnd(true) anchored us at
+                    // the bottom. Now run the smart-scroll logic: jump to first
+                    // unread message (if any), or restore the previous position.
                     firstPageRendered = true;
+                    // post() ensures the layout pass has completed before we
+                    // scroll — prevents a no-op scrollTo on an unmeasured RV.
+                    binding.rvMessages.post(() -> restoreScrollOrGoToUnread());
                     return;
                 }
                 int total = pagingAdapter.getItemCount();
-                int lastVis = llm.findLastVisibleItemPosition();
-                if (lastVis >= total - itemCount - 2) {
+                if (isUserAtBottom) {
+                    // User is at (or near) the bottom — auto-scroll to keep
+                    // the latest message visible, matching WhatsApp behaviour.
                     binding.rvMessages.scrollToPosition(total - 1);
+                } else {
+                    // User has scrolled up — do NOT interrupt them.
+                    // Count how many of the new items are from the other person
+                    // and update the "↓ N new messages" indicator.
+                    int othersCount = 0;
+                    for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
+                        Message m = pagingAdapter.peek(i);
+                        if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
+                            othersCount++;
+                        }
+                    }
+                    if (othersCount > 0) {
+                        pendingNewMsgCount += othersCount;
+                        updateNewMessagesIndicator(pendingNewMsgCount);
+                    }
                 }
             }
         });
@@ -1214,6 +1246,116 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // WHATSAPP-STYLE SCROLL STATE MANAGEMENT
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Saves the current scroll position and the last-seen message timestamp
+     * to SharedPreferences. Called from onPause() so it persists across
+     * screen closes (back-press, home, other screen navigations).
+     *
+     * Saved data:
+     *   "pos_<chatId>"    — first visible item index
+     *   "off_<chatId>"    — pixel offset of that item's top edge
+     *   "lastTs_<chatId>" — timestamp of the last message in the adapter
+     *                        (used to detect new messages on re-open)
+     */
+    private void saveScrollState() {
+        if (binding == null || chatId == null || pagingAdapter == null) return;
+        LinearLayoutManager llm = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+        if (llm == null) return;
+        int firstPos = llm.findFirstVisibleItemPosition();
+        if (firstPos < 0) return;
+        android.view.View firstView = llm.findViewByPosition(firstPos);
+        int offset = (firstView != null) ? firstView.getTop() : 0;
+        // Last message timestamp — used to detect messages that arrived
+        // while we were away from this chat.
+        long lastMsgTs = 0;
+        int total = pagingAdapter.getItemCount();
+        if (total > 0) {
+            Message last = pagingAdapter.peek(total - 1);
+            if (last != null && last.timestamp != null) lastMsgTs = last.timestamp;
+        }
+        getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
+                .putInt("pos_" + chatId, firstPos)
+                .putInt("off_" + chatId, offset)
+                .putLong("lastTs_" + chatId, lastMsgTs)
+                .apply();
+    }
+
+    /**
+     * WhatsApp-style smart scroll on first page render:
+     *
+     * Priority order:
+     *   1. Unread messages → scroll to FIRST unread, show "N new messages" indicator.
+     *   2. No unreads, previous scroll position saved → restore that position.
+     *   3. No saved state → stay at bottom (stackFromEnd already handles this).
+     *
+     * "Unread" = message from the other person with timestamp > savedLastTs
+     * (the timestamp of the last message the user saw before leaving the chat).
+     */
+    private void restoreScrollOrGoToUnread() {
+        if (pagingAdapter == null || binding == null) return;
+        int total = pagingAdapter.getItemCount();
+        if (total == 0) return;
+
+        android.content.SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
+        long savedLastTs = prefs.getLong("lastTs_" + chatId, 0);
+        int savedPos     = prefs.getInt("pos_" + chatId, -1);
+        int savedOffset  = prefs.getInt("off_" + chatId, 0);
+
+        if (savedLastTs > 0) {
+            // Walk backwards from the newest message to count messages from
+            // others that arrived AFTER the last time we had this chat open.
+            int newCount = 0;
+            for (int i = total - 1; i >= 0; i--) {
+                Message m = pagingAdapter.peek(i);
+                if (m == null) continue;
+                long ts = (m.timestamp != null) ? m.timestamp : 0L;
+                if (ts <= savedLastTs) break; // reached messages we already saw
+                if (m.senderId != null && !m.senderId.equals(currentUid)) newCount++;
+            }
+            if (newCount > 0) {
+                // Scroll to the first unread message
+                int firstUnreadPos = Math.max(0, total - newCount);
+                LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+                if (llm2 != null) llm2.scrollToPositionWithOffset(firstUnreadPos, 0);
+                // Show "↓ N new messages" indicator
+                pendingNewMsgCount = newCount;
+                updateNewMessagesIndicator(newCount);
+                isUserAtBottom = false;
+                return;
+            }
+        }
+
+        // No new messages — restore saved scroll position if not already at bottom
+        if (savedPos >= 0 && savedPos < total - 3) {
+            LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+            if (llm2 != null) llm2.scrollToPositionWithOffset(savedPos, savedOffset);
+        }
+        // else: stackFromEnd already positioned at bottom — nothing more needed
+    }
+
+    /** Shows or updates the "↓ N new messages" floating indicator chip. */
+    private void updateNewMessagesIndicator(int count) {
+        if (binding.tvNewMessagesIndicator == null) return;
+        String text = count == 1 ? "↓ 1 new message" : "↓ " + count + " new messages";
+        binding.tvNewMessagesIndicator.setText(text);
+        binding.tvNewMessagesIndicator.setVisibility(View.VISIBLE);
+        // Also make the FAB visible so both appear together
+        if (binding.fabBackToLatest != null) {
+            binding.fabBackToLatest.setVisibility(View.VISIBLE);
+            binding.fabBackToLatest.setAlpha(1f);
+        }
+    }
+
+    /** Hides the "↓ N new messages" indicator. */
+    private void hideNewMessagesIndicator() {
+        if (binding.tvNewMessagesIndicator == null) return;
+        binding.tvNewMessagesIndicator.setVisibility(View.GONE);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1683,17 +1825,50 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void setupFabBackToLatest() {
         if (binding.fabBackToLatest == null) return;
+
+        // "Back to latest" FAB — also clears the new-messages indicator
         binding.fabBackToLatest.setOnClickListener(v -> {
+            pendingNewMsgCount = 0;
+            hideNewMessagesIndicator();
             int last = pagingAdapter.getItemCount() - 1;
             if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
             MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
         });
+
+        // "↓ N new messages" indicator chip — tapping scrolls to bottom
+        if (binding.tvNewMessagesIndicator != null) {
+            binding.tvNewMessagesIndicator.setOnClickListener(v -> {
+                pendingNewMsgCount = 0;
+                hideNewMessagesIndicator();
+                int last = pagingAdapter.getItemCount() - 1;
+                if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+                MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+            });
+        }
+
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
                 if (lm == null) return;
-                if (lm.findLastVisibleItemPosition() >= pagingAdapter.getItemCount() - 3) {
+                int lastVis = lm.findLastVisibleItemPosition();
+                int total   = pagingAdapter.getItemCount();
+                boolean atBottom = (lastVis >= total - 3);
+                isUserAtBottom = atBottom;
+                if (atBottom) {
+                    // User reached (or is at) the bottom:
+                    //   • reset pending counter
+                    //   • hide the "new messages" indicator
+                    //   • hide the FAB
+                    pendingNewMsgCount = 0;
+                    hideNewMessagesIndicator();
                     MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+                } else if (dy < 0) {
+                    // User is scrolling UP away from the bottom — show FAB
+                    // (indicator only appears when new msgs arrive, not just on scroll)
+                    if (binding.fabBackToLatest.getVisibility() != View.VISIBLE) {
+                        binding.fabBackToLatest.setVisibility(View.VISIBLE);
+                        binding.fabBackToLatest.setAlpha(1f);
+                    }
                 }
             }
 

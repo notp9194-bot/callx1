@@ -119,6 +119,11 @@ public class GroupChatActivity extends AppCompatActivity
     // ── PERF FIX: don't fight stackFromEnd on the very first render ────────
     // See the matching field/comment in ChatActivity for the full reasoning.
     private boolean firstPageRendered = false;
+
+    // ── WhatsApp-style intelligent scroll state ───────────────────────────
+    private static final String SCROLL_PREFS = "group_scroll_prefs_v2";
+    private boolean isUserAtBottom            = true;
+    private int     pendingNewMsgCount        = 0;
     private DatabaseReference  typingRef;
     private ValueEventListener typingListener;
     private DatabaseReference  typingReplyRef;
@@ -280,6 +285,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     @Override
     protected void onPause() {
+        saveScrollState();
         typingHandler.removeCallbacks(stopTyping);
         setMyTyping(false);
         if (watchingController != null) {
@@ -485,11 +491,33 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.chat.performance.SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                if (lm == null) return;
+                int lastVis = lm.findLastVisibleItemPosition();
+                int total   = pagingAdapter.getItemCount();
+                boolean atBottom = (lastVis >= total - 3);
+                isUserAtBottom = atBottom;
+                if (atBottom) {
+                    pendingNewMsgCount = 0;
+                    hideNewMessagesIndicator();
+                    if (binding.fabBackToLatest != null) {
+                        com.callx.app.chat.ui.MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+                    }
+                } else if (dy < 0 && binding.fabBackToLatest != null
+                        && binding.fabBackToLatest.getVisibility() != android.view.View.VISIBLE) {
+                    binding.fabBackToLatest.setVisibility(android.view.View.VISIBLE);
+                    binding.fabBackToLatest.setAlpha(1f);
+                }
+            }
+
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
                 if (watchingController == null) return;
-                int pos = llm.findLastCompletelyVisibleItemPosition();
-                if (pos < 0) pos = llm.findLastVisibleItemPosition();
+                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                if (lm == null) return;
+                int pos = lm.findLastCompletelyVisibleItemPosition();
+                if (pos < 0) pos = lm.findLastVisibleItemPosition();
                 if (pos < 0 || pos >= pagingAdapter.getItemCount()) return;
                 com.callx.app.models.Message m = pagingAdapter.peek(pos);
                 if (m == null) return;
@@ -498,21 +526,53 @@ public class GroupChatActivity extends AppCompatActivity
             }
         });
 
+        // "Back to latest" FAB + "New Messages" indicator setup
+        if (binding.fabBackToLatest != null) {
+            binding.fabBackToLatest.setOnClickListener(v -> {
+                pendingNewMsgCount = 0;
+                hideNewMessagesIndicator();
+                int last = pagingAdapter.getItemCount() - 1;
+                if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+                com.callx.app.chat.ui.MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+            });
+        }
+        if (binding.tvNewMessagesIndicator != null) {
+            binding.tvNewMessagesIndicator.setOnClickListener(v -> {
+                pendingNewMsgCount = 0;
+                hideNewMessagesIndicator();
+                int last = pagingAdapter.getItemCount() - 1;
+                if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+                if (binding.fabBackToLatest != null) {
+                    com.callx.app.chat.ui.MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+                }
+            });
+        }
+
         // Auto-scroll when new message arrives at tail
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
                 super.onItemRangeInserted(positionStart, itemCount);
                 if (!firstPageRendered) {
-                    // stackFromEnd(true) already anchors the first layout pass
-                    // at the bottom — an extra explicit scroll here was causing
-                    // the visible jump while the group chat opened.
                     firstPageRendered = true;
+                    binding.rvMessages.post(() -> restoreScrollOrGoToUnread());
                     return;
                 }
-                int total  = pagingAdapter.getItemCount();
-                int lastVis = llm.findLastVisibleItemPosition();
-                if (lastVis >= total - itemCount - 2)
+                int total = pagingAdapter.getItemCount();
+                if (isUserAtBottom) {
                     binding.rvMessages.scrollToPosition(total - 1);
+                } else {
+                    int othersCount = 0;
+                    for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
+                        com.callx.app.models.Message m = pagingAdapter.peek(i);
+                        if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
+                            othersCount++;
+                        }
+                    }
+                    if (othersCount > 0) {
+                        pendingNewMsgCount += othersCount;
+                        updateNewMessagesIndicator(pendingNewMsgCount);
+                    }
+                }
             }
         });
 
@@ -1353,6 +1413,80 @@ public class GroupChatActivity extends AppCompatActivity
                 }, 500);
             });
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // WHATSAPP-STYLE SCROLL STATE MANAGEMENT
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void saveScrollState() {
+        if (binding == null || groupId == null || pagingAdapter == null) return;
+        LinearLayoutManager llm = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+        if (llm == null) return;
+        int firstPos = llm.findFirstVisibleItemPosition();
+        if (firstPos < 0) return;
+        android.view.View firstView = llm.findViewByPosition(firstPos);
+        int offset = (firstView != null) ? firstView.getTop() : 0;
+        long lastMsgTs = 0;
+        int total = pagingAdapter.getItemCount();
+        if (total > 0) {
+            com.callx.app.models.Message last = pagingAdapter.peek(total - 1);
+            if (last != null && last.timestamp != null) lastMsgTs = last.timestamp;
+        }
+        getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
+                .putInt("pos_" + groupId, firstPos)
+                .putInt("off_" + groupId, offset)
+                .putLong("lastTs_" + groupId, lastMsgTs)
+                .apply();
+    }
+
+    private void restoreScrollOrGoToUnread() {
+        if (pagingAdapter == null || binding == null) return;
+        int total = pagingAdapter.getItemCount();
+        if (total == 0) return;
+        android.content.SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
+        long savedLastTs = prefs.getLong("lastTs_" + groupId, 0);
+        int savedPos     = prefs.getInt("pos_" + groupId, -1);
+        int savedOffset  = prefs.getInt("off_" + groupId, 0);
+        if (savedLastTs > 0) {
+            int newCount = 0;
+            for (int i = total - 1; i >= 0; i--) {
+                com.callx.app.models.Message m = pagingAdapter.peek(i);
+                if (m == null) continue;
+                long ts = (m.timestamp != null) ? m.timestamp : 0L;
+                if (ts <= savedLastTs) break;
+                if (m.senderId != null && !m.senderId.equals(currentUid)) newCount++;
+            }
+            if (newCount > 0) {
+                int firstUnreadPos = Math.max(0, total - newCount);
+                LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+                if (llm2 != null) llm2.scrollToPositionWithOffset(firstUnreadPos, 0);
+                pendingNewMsgCount = newCount;
+                updateNewMessagesIndicator(newCount);
+                isUserAtBottom = false;
+                return;
+            }
+        }
+        if (savedPos >= 0 && savedPos < total - 3) {
+            LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+            if (llm2 != null) llm2.scrollToPositionWithOffset(savedPos, savedOffset);
+        }
+    }
+
+    private void updateNewMessagesIndicator(int count) {
+        if (binding.tvNewMessagesIndicator == null) return;
+        String text = count == 1 ? "↓ 1 new message" : "↓ " + count + " new messages";
+        binding.tvNewMessagesIndicator.setText(text);
+        binding.tvNewMessagesIndicator.setVisibility(android.view.View.VISIBLE);
+        if (binding.fabBackToLatest != null) {
+            binding.fabBackToLatest.setVisibility(android.view.View.VISIBLE);
+            binding.fabBackToLatest.setAlpha(1f);
+        }
+    }
+
+    private void hideNewMessagesIndicator() {
+        if (binding.tvNewMessagesIndicator == null) return;
+        binding.tvNewMessagesIndicator.setVisibility(android.view.View.GONE);
     }
 
     /** GroupWatchingController.Delegate — "jump to their position" entry point. */
