@@ -887,11 +887,8 @@
             android:focusable="false"
             android:visibility="gone"/>
 
-        <!-- "Back to latest" FAB — shown when navigating to original message -->
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
-
-        <!-- New Messages floating indicator chip — WhatsApp style
-             Appears above FAB when user has scrolled up and new messages arrived -->
+        <!-- New Messages floating indicator chip (WhatsApp style).
+             Appears above the FAB when user is scrolled up and new messages arrive. -->
         <TextView
             android:id="@+id/tv_new_messages_indicator"
             android:layout_width="wrap_content"
@@ -913,6 +910,8 @@
             android:focusable="true"
             android:visibility="gone"/>
 
+        <!-- Back to latest FAB — shown when navigating to original message -->
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_back_to_latest"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
