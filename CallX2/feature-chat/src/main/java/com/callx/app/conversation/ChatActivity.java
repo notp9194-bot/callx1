@@ -1027,6 +1027,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,   3);
         pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,  3);
         binding.rvMessages.setRecycledViewPool(pool);
+        // Recycle child views as soon as they detach — reduces rebind cost on rapid scrolls.
+        llm.setRecycleChildrenOnDetach(true);
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
         // WHATSAPP-STYLE FIX: kill the default ItemAnimator entirely.
         // DefaultItemAnimator fades/translates every inserted row in from
@@ -1084,7 +1086,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void observePagedMessages() {
         Pager<Integer, MessageEntity> pager = new Pager<>(
-                new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
+                new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD, 200),
                 () -> db.messageDao().getMessagesPagingSource(chatId)
         );
         Transformations.map(

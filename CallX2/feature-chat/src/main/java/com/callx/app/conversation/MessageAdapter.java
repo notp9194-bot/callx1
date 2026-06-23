@@ -236,7 +236,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             case "image": {
                 h.ivImage.setVisibility(View.VISIBLE);
                 String url = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
-                android.util.Log.d("ImageLoad", "Loading image/gif: " + url);
                 boolean isGif = "gif".equals(m.type);
                 // Check if already cached (only used for non-GIF types)
                 java.io.File cached = isGif ? null : MediaCache.getCached(ctx, url);
@@ -251,13 +250,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                             .placeholder(R.drawable.bg_circle_white)
                             .into(h.ivImage);
                 } else if (cached != null) {
-                    android.util.Log.d("ImageLoad", "Image found in cache: " + cached.getAbsolutePath());
                     Glide.with(ctx).load(cached)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
                             .into(h.ivImage);
                 } else {
-                    android.util.Log.d("ImageLoad", "Image NOT in cache, will download: " + url);
                     Glide.with(ctx).load(url)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
@@ -265,7 +262,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     // Background cache
                     MediaCache.get(ctx, url, new MediaCache.Callback() {
                         @Override public void onReady(java.io.File file) {
-                            android.util.Log.d("ImageLoad", "Image cached: " + file.getAbsolutePath());
                         }
                         @Override public void onError(String reason) {
                             android.util.Log.w("ImageLoad", "Failed to cache image: " + reason);
@@ -359,10 +355,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
                         java.io.File cachedAudio = MediaCache.getCached(ctx, m.mediaUrl);
                         if (cachedAudio == null) {
-                            android.util.Log.d("AudioLoad", "Pre-caching audio: " + m.mediaUrl);
                             MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
                                 @Override public void onReady(java.io.File file) {
-                                    android.util.Log.d("AudioLoad", "Audio cached: " + file.getAbsolutePath());
                                 }
                                 @Override public void onError(String reason) {
                                     android.util.Log.w("AudioLoad", "Failed to cache audio: " + reason);
@@ -422,10 +416,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
                         java.io.File cachedFile = MediaCache.getCached(ctx, m.mediaUrl);
                         if (cachedFile == null) {
-                            android.util.Log.d("FileLoad", "Pre-caching file: " + m.mediaUrl);
                             MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
                                 @Override public void onReady(java.io.File file) {
-                                    android.util.Log.d("FileLoad", "File cached: " + file.getAbsolutePath());
                                 }
                                 @Override public void onError(String reason) {
                                     android.util.Log.w("FileLoad", "Failed to cache file: " + reason);
@@ -439,16 +431,13 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                         // Pehle local cache check, agar cached hai to seedha kholo
                         java.io.File cached = MediaCache.getCached(ctx, m.mediaUrl);
                         if (cached != null) {
-                            android.util.Log.d("FileClick", "Opening cached file: " + cached.getAbsolutePath());
                             FileUtils.openOrDownload(ctx, cached.toURI().toString(), fName);
                             return;
                         }
                         // Nahi hai to download & cache karo
-                        android.util.Log.d("FileClick", "Downloading file: " + m.mediaUrl);
                         android.widget.Toast.makeText(ctx, "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
                         MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
                             @Override public void onReady(java.io.File file) {
-                                android.util.Log.d("FileClick", "Download complete: " + file.getAbsolutePath());
                                 FileUtils.openOrDownload(ctx, file.toURI().toString(), fName);
                             }
                             @Override public void onError(String reason) {
