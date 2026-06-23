@@ -1084,25 +1084,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     return;
                 }
                 int total = pagingAdapter.getItemCount();
-                if (isUserAtBottom) {
-                    // User is at (or near) the bottom — auto-scroll to keep
-                    // the latest message visible, matching WhatsApp behaviour.
-                    binding.rvMessages.scrollToPosition(total - 1);
-                } else {
-                    // User has scrolled up — do NOT interrupt them.
-                    // Count how many of the new items are from the other person
-                    // and update the "↓ N new messages" indicator.
-                    int othersCount = 0;
-                    for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
-                        Message m = pagingAdapter.peek(i);
-                        if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
-                            othersCount++;
-                        }
+                // AUTO-SCROLL DISABLED: new inserts no longer force the
+                // RecyclerView to jump to the bottom, regardless of whether
+                // the user is currently at the bottom or scrolled up. The
+                // list simply grows in place; the user explicitly taps the
+                // "↓ N new messages" indicator / FAB (or scrolls manually)
+                // to go to the latest message.
+                int othersCount = 0;
+                for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
+                    Message m = pagingAdapter.peek(i);
+                    if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
+                        othersCount++;
                     }
-                    if (othersCount > 0) {
-                        pendingNewMsgCount += othersCount;
-                        updateNewMessagesIndicator(pendingNewMsgCount);
-                    }
+                }
+                if (othersCount > 0 && !isUserAtBottom) {
+                    pendingNewMsgCount += othersCount;
+                    updateNewMessagesIndicator(pendingNewMsgCount);
                 }
             }
         });
@@ -1304,62 +1301,29 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * WhatsApp-style smart scroll on first page render:
-     *
-     * Priority order:
-     *   1. Unread messages → scroll to FIRST unread, show "N new messages" indicator.
-     *   2. No unreads, previous scroll position saved → restore that position.
-     *   3. No saved state → stay at bottom (stackFromEnd already handles this).
-     *
-     * "Unread" = message from the other person with timestamp > savedLastTs
-     * (the timestamp of the last message the user saw before leaving the chat).
+     * Chat-open scroll behaviour: ALWAYS land on the latest (bottom) message
+     * when the chat is opened, regardless of unread state or any previously
+     * saved scroll position. stackFromEnd(true) on the LayoutManager already
+     * anchors layout at the bottom for the first page, so in the common case
+     * this is a no-op confirmation. We still issue an explicit
+     * scrollToPosition(total-1) to cover the case where a partial page was
+     * already laid out (e.g. warm cache) and to guarantee bottom regardless
+     * of layout timing.
      */
     private void restoreScrollOrGoToUnread() {
         if (pagingAdapter == null || binding == null) return;
         int total = pagingAdapter.getItemCount();
         if (total == 0) return;
 
-        android.content.SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
-        long savedLastTs = prefs.getLong("lastTs_" + chatId, 0);
-        int savedPos     = prefs.getInt("pos_" + chatId, -1);
-        int savedOffset  = prefs.getInt("off_" + chatId, 0);
+        LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+        if (llm2 != null) llm2.scrollToPosition(total - 1);
 
-        if (savedLastTs > 0) {
-            // Walk backwards from the newest message to count messages from
-            // others that arrived AFTER the last time we had this chat open.
-            int newCount = 0;
-            for (int i = total - 1; i >= 0; i--) {
-                Message m = pagingAdapter.peek(i);
-                if (m == null) continue;
-                long ts = (m.timestamp != null) ? m.timestamp : 0L;
-                if (ts <= savedLastTs) break; // reached messages we already saw
-                if (m.senderId != null && !m.senderId.equals(currentUid)) newCount++;
-            }
-            if (newCount > 0) {
-                // Scroll to the first unread message
-                int firstUnreadPos = Math.max(0, total - newCount);
-                LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
-                if (llm2 != null) llm2.scrollToPositionWithOffset(firstUnreadPos, 0);
-                // Show "↓ N new messages" indicator
-                pendingNewMsgCount = newCount;
-                updateNewMessagesIndicator(newCount);
-                isUserAtBottom = false;
-                return;
-            }
-        }
-
-        // No new messages — restore saved scroll position if not already at bottom
-        if (savedPos >= 0 && savedPos < total - 3) {
-            LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
-            if (llm2 != null) llm2.scrollToPositionWithOffset(savedPos, savedOffset);
-            // Mark as NOT at bottom so subsequent onItemRangeInserted calls don't
-            // override our restored position with an auto-scroll to the end.
-            isUserAtBottom = false;
-        } else {
-            // stackFromEnd already placed us at bottom — allow subsequent inserts
-            // (own sent messages, incoming messages) to auto-scroll as expected.
-            isUserAtBottom = true;
-        }
+        // No unread indicator, no restored offset — chat always opens at
+        // the very bottom. Subsequent inserts also will NOT auto-scroll
+        // (see onItemRangeInserted), so mark bottom state accordingly.
+        pendingNewMsgCount = 0;
+        hideNewMessagesIndicator();
+        isUserAtBottom = true;
     }
 
     /** Shows or updates the "↓ N new messages" floating indicator chip. */
