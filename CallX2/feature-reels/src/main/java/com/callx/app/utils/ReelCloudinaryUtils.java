@@ -217,3 +217,85 @@ public class ReelCloudinaryUtils {
         UI.post(() -> cb.onError(msg));
     }
 }
+
+    // ── Comment Photo Upload (v9) ─────────────────────────────────────────────
+
+    /**
+     * Reel comment photo dual-upload (Instagram-style photo comments):
+     *   Step 1 → Thumbnail  (200×200 WebP ~30KB) → callx/reels/comment_thumbs/
+     *   Step 2 → Full image (max 1280px WebP ~400KB) → callx/reels/comment_photos/
+     *
+     * Both callbacks fire on the main thread.
+     * Upload starts in a background thread — no UI freeze.
+     */
+    public static void uploadCommentPhoto(Context ctx, Uri uri, CommentPhotoCallback cb) {
+        ImageCompressor.compress(ctx, uri, new ImageCompressor.Callback() {
+
+            @Override
+            public void onSuccess(ImageCompressor.Result result) {
+                new Thread(() -> {
+                    try {
+                        // ── Thumb ────────────────────────────────────────────
+                        byte[] thumbBytes = readFileBytes(result.thumbFile);
+                        String thumbUrl   = null;
+                        if (thumbBytes != null) {
+                            thumbUrl = uploadBytes(thumbBytes, "image/webp",
+                                    "comment_thumb.webp",
+                                    "callx/reels/comment_thumbs", "image");
+                        }
+
+                        // ── Full ─────────────────────────────────────────────
+                        byte[] fullBytes = readFileBytes(result.fullFile);
+                        String fullUrl   = null;
+                        if (fullBytes != null) {
+                            fullUrl = uploadBytes(fullBytes, "image/webp",
+                                    "comment_photo.webp",
+                                    "callx/reels/comment_photos", "image");
+                        }
+
+                        // Cleanup temp files
+                        if (result.thumbFile != null) result.thumbFile.delete();
+                        if (result.fullFile  != null) result.fullFile.delete();
+
+                        if (fullUrl == null) {
+                            UI.post(() -> cb.onError("Photo upload failed"));
+                            return;
+                        }
+
+                        final String fUrl = fullUrl;
+                        final String tUrl = thumbUrl != null ? thumbUrl : fullUrl;
+                        UI.post(() -> cb.onSuccess(fUrl, tUrl));
+
+                    } catch (Exception e) {
+                        Log.e(TAG, "uploadCommentPhoto network error", e);
+                        UI.post(() -> cb.onError(e.getMessage() != null
+                                ? e.getMessage() : "Upload error"));
+                    }
+                }).start();
+            }
+
+            @Override
+            public void onError(Exception e) {
+                Log.w(TAG, "Comment photo compression failed: " + e.getMessage());
+                UI.post(() -> cb.onError("Compression failed: " + e.getMessage()));
+            }
+        });
+    }
+
+    /** Callback for comment photo dual-upload. */
+    public interface CommentPhotoCallback {
+        void onSuccess(String fullUrl, String thumbUrl);
+        void onError(String message);
+    }
+
+    /** Read all bytes from a file; returns null on error. */
+    private static byte[] readFileBytes(java.io.File file) {
+        if (file == null || !file.exists()) return null;
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+            byte[] bytes = new byte[(int) file.length()];
+            int read = fis.read(bytes);
+            return read > 0 ? bytes : null;
+        } catch (java.io.IOException e) {
+            Log.e(TAG, "readFileBytes error: " + e.getMessage());
+            return null;
+}

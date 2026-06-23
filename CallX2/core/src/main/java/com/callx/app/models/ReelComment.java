@@ -27,6 +27,27 @@ public class ReelComment {
     /** Timestamp of the last edit (ms). */
     public long editedAt;
 
+    // ── v9: Photo-in-comment fields ──────────────────────────────────────
+    /**
+     * Full-resolution Cloudinary URL of the attached photo.
+     * Null / empty = text-only comment.
+     * Folder: callx/reels/comment_photos/
+     */
+    public String photoUrl;
+
+    /**
+     * Thumbnail (~30 KB WebP) URL shown inline in the comment list.
+     * Folder: callx/reels/comment_thumbs/
+     */
+    public String photoThumbUrl;
+
+    /** Original width in px — used to pre-size ImageView before Glide loads. */
+    public int photoWidth;
+
+    /** Original height in px. */
+    public int photoHeight;
+    // ────────────────────────────────────────────────────────────────────
+
     public ReelComment() {}
 
     public ReelComment(String commentId, String uid, String ownerName,
@@ -56,5 +77,10 @@ public class ReelComment {
     public String getMyReaction(String uid) {
         if (uid == null || reactions == null) return null;
         return reactions.get(uid);
+    }
+
+    /** Returns true when this comment has a photo attached. */
+    public boolean hasPhoto() {
+        return photoUrl != null && !photoUrl.isEmpty();
     }
 }
