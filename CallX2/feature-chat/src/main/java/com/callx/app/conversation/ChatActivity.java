@@ -1073,11 +1073,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (!initialScrollDone) {
                     // Very first data on screen — whether it came from the
                     // warm-cache path (firstPageRendered already true) or a
-                    // cold Paging 3 load.  stackFromEnd(true) will anchor the
-                    // layout at the bottom; we must NOT add an extra explicit
-                    // scrollToPosition() here or the user sees the "top → bottom"
-                    // animation flash.  post() fires AFTER the layout pass so
-                    // the smart-scroll (unread / saved position) lands correctly.
+                    // cold Paging 3 load. stackFromEnd(true) anchors the
+                    // layout at the bottom on its own; no scroll call is
+                    // issued here or in restoreScrollOrGoToUnread() — see
+                    // that method for why even a non-animated scroll call
+                    // was removed entirely.
                     initialScrollDone = true;
                     firstPageRendered = true;
                     binding.rvMessages.post(() -> restoreScrollOrGoToUnread());
@@ -1301,26 +1301,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
-     * Chat-open scroll behaviour: ALWAYS land on the latest (bottom) message
-     * when the chat is opened, regardless of unread state or any previously
-     * saved scroll position. stackFromEnd(true) on the LayoutManager already
-     * anchors layout at the bottom for the first page, so in the common case
-     * this is a no-op confirmation. We still issue an explicit
-     * scrollToPosition(total-1) to cover the case where a partial page was
-     * already laid out (e.g. warm cache) and to guarantee bottom regardless
-     * of layout timing.
+     * Chat-open scroll behaviour: land on the latest (bottom) message with
+     * ZERO programmatic scroll calls of any kind — no scrollToPosition(),
+     * no scrollToPositionWithOffset(), no smoothScroll. We rely entirely on
+     * LinearLayoutManager's stackFromEnd(true) (set in setupPagingRecyclerView),
+     * which anchors its FIRST layout pass at the last adapter item natively —
+     * the bottom message is simply where the view starts, not where it
+     * "scrolls to". Calling scrollToPosition() here — even though it's a
+     * non-animated jump — was occasionally visible as a one-frame snap when
+     * a second insert (warm-cache → real Room data reconciliation, or a
+     * Paging prefetch batch) landed between the layout pass and this post()
+     * callback running, since "total-1" could already be stale by then.
+     * Removing the call entirely eliminates that class of bug at the root:
+     * there is no longer any code path on chat-open that can move the list.
      */
     private void restoreScrollOrGoToUnread() {
         if (pagingAdapter == null || binding == null) return;
-        int total = pagingAdapter.getItemCount();
-        if (total == 0) return;
+        if (pagingAdapter.getItemCount() == 0) return;
 
-        LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
-        if (llm2 != null) llm2.scrollToPosition(total - 1);
-
-        // No unread indicator, no restored offset — chat always opens at
-        // the very bottom. Subsequent inserts also will NOT auto-scroll
-        // (see onItemRangeInserted), so mark bottom state accordingly.
+        // No scroll call. stackFromEnd already placed the bottom message
+        // in view on first layout. We only reset the indicator/state here.
         pendingNewMsgCount = 0;
         hideNewMessagesIndicator();
         isUserAtBottom = true;
