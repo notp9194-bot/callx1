@@ -84,6 +84,20 @@ public class MessagePagingAdapter
                 if (x == null || y == null) return false;
                 return x.equals(y);
             }
+
+            @Override
+            public Object getChangePayload(@NonNull Message a, @NonNull Message b) {
+                // Only status changed — return PAYLOAD_STATUS so onBind
+                // skips full rebind and only updates tv_status.
+                boolean onlyStatusChanged =
+                        safeEquals(a.text, b.text) &&
+                        safeEquals(a.type, b.type) &&
+                        a.timestamp == b.timestamp &&
+                        a.edited == b.edited &&
+                        !safeEquals(a.status, b.status);
+                if (onlyStatusChanged) return PAYLOAD_STATUS;
+                return null; // null → full rebind
+            }
         };
 
     // ── View types ────────────────────────────────────────────────
@@ -96,6 +110,9 @@ public class MessagePagingAdapter
      *  event — must render as nothing (0x0), since only the reel OWNER
      *  should ever see the bubble. See getItemViewType() below. */
     private static final int TYPE_HIDDEN      = 6;
+
+    // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
+    static final String PAYLOAD_STATUS = "status";
 
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
@@ -338,6 +355,21 @@ public class MessagePagingAdapter
         else                                   layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         return new VH(v);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull VH h, int position,
+                                 @NonNull java.util.List<Object> payloads) {
+        if (!payloads.isEmpty() && PAYLOAD_STATUS.equals(payloads.get(0))) {
+            // Fast path: only tick changed — update tv_status only, skip full bind
+            Message m = getItem(position);
+            if (m != null && h.tvStatus != null) {
+                bindStatusTick(h, m);
+            }
+            return;
+        }
+        // Full bind
+        onBindViewHolder(h, position);
     }
 
     @Override
@@ -1836,7 +1868,44 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // ViewHolder — covers all view IDs used in both item layouts
     // ──────────────────────────────────────────────────────────────
-    static class VH extends RecyclerView.ViewHolder {
+    /** Fast-path: rebind only the tick icon, called from payload-aware onBind. */
+    private void bindStatusTick(@NonNull VH h, @NonNull Message m) {
+        boolean sent = currentUid != null && currentUid.equals(m.senderId);
+        if (!sent || h.tvStatus == null) {
+            if (h.tvStatus != null) h.tvStatus.setVisibility(View.GONE);
+            return;
+        }
+        h.tvStatus.setVisibility(View.VISIBLE);
+        String s = m.status == null ? "" : m.status;
+        switch (s) {
+            case "read":
+                h.tvStatus.setText("✓✓");
+                h.tvStatus.setTextColor(0xFF4FC3F7);
+                h.tvStatus.setOnClickListener(null);
+                break;
+            case "delivered":
+                h.tvStatus.setText("✓✓");
+                h.tvStatus.setTextColor(0xAAFFFFFF);
+                h.tvStatus.setOnClickListener(null);
+                break;
+            case "sending":
+                h.tvStatus.setText("🕐");
+                h.tvStatus.setTextColor(0xFFAAAAAA);
+                h.tvStatus.setOnClickListener(null);
+                break;
+            case "failed":
+                h.tvStatus.setText("⚠");
+                h.tvStatus.setTextColor(0xFFFF5555);
+                break;
+            default:
+                h.tvStatus.setText("✓");
+                h.tvStatus.setTextColor(0xAAFFFFFF);
+                h.tvStatus.setOnClickListener(null);
+                break;
+        }
+    }
+
+        static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;
@@ -1936,6 +2005,8 @@ public class MessagePagingAdapter
             ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
             // Disappearing messages
             tvExpiry       = v.findViewById(R.id.tv_expiry);
+            // PERF: these are rarely shown — GONE by default avoids measure cost
+            if (tvExpiry != null) tvExpiry.setVisibility(android.view.View.GONE);
             // Polls
             llPoll           = v.findViewById(R.id.ll_poll);
             llPollOptions    = v.findViewById(R.id.ll_poll_options);

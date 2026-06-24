@@ -232,9 +232,9 @@
             android:layout_height="wrap_content"
             android:maxWidth="260dp"
             android:paddingStart="12dp"
-            android:paddingEnd="58dp"
+            android:paddingEnd="8dp"
             android:paddingTop="8dp"
-            android:paddingBottom="6dp"
+            android:paddingBottom="20dp"
             android:textColor="@color/bubble_sent_text"
             android:textSize="15sp"
             android:lineSpacingExtra="2dp"
@@ -467,30 +467,23 @@
                 android:layout_marginTop="6dp"/>
         </LinearLayout>
 
-        <!-- Footer: two separate pills — time pill (left) + tick pill (right) -->
-        <!-- Time pill: star + expiry + time — static, never changes after bind -->
+        <!-- Footer: single flat row — time + tick in one row, no pill background, minimal height -->
         <LinearLayout
-            android:id="@+id/ll_time_pill"
+            android:id="@+id/ll_msg_footer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
-            android:layout_marginEnd="58dp"
-            android:layout_marginBottom="4dp"
-            android:layout_marginTop="-20dp"
+            android:layout_marginEnd="6dp"
+            android:layout_marginBottom="3dp"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_time_pill"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp">
+            android:gravity="center_vertical">
             <TextView
                 android:id="@+id/tv_expiry"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#FFCC00"
                 android:textSize="9sp"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="3dp"
                 android:visibility="gone"/>
             <TextView
                 android:id="@+id/tv_starred_icon"
@@ -504,31 +497,14 @@
                 android:id="@+id/tv_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#FFFFFF"
+                android:textColor="#CCFFFFFF"
                 android:textSize="9sp"/>
-        </LinearLayout>
-
-        <!-- Tick pill: only status tick — updated via payload, time pill untouched -->
-        <LinearLayout
-            android:id="@+id/ll_tick_pill"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:layout_marginEnd="6dp"
-            android:layout_marginBottom="4dp"
-            android:layout_marginTop="-20dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_tick_pill"
-            android:paddingStart="5dp"
-            android:paddingEnd="5dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp">
             <TextView
                 android:id="@+id/tv_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="14sp"
+                android:layout_marginStart="3dp"
+                android:textSize="13sp"
                 android:visibility="gone"/>
         </LinearLayout>
 
