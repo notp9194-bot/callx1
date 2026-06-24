@@ -100,4 +100,17 @@ public interface ChatActivityDelegate {
      * chat is opened.
      */
     void queueMarkRead(String messageId);
+
+    /**
+     * Live-write race fix: call on the MAIN thread before any direct
+     * messages-table write outside the buffered Firebase flush path (e.g.
+     * ChatMessageSender's local-first insertMessage()/updateStatus()).
+     * Returns true if the caller must call reanchorPagingToBottom() once
+     * the write commits. See ChatActivity#severPagingIfAtBottom() for the
+     * full explanation of why this two-step sever/reanchor is needed.
+     */
+    boolean severPagingIfAtBottom();
+
+    /** Call from any thread after a write for which severPagingIfAtBottom() returned true. */
+    void reanchorPagingToBottom();
 }

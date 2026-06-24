@@ -48,8 +48,19 @@ public class ChatMessageSender {
         if (disappearMs > 0) m.expiresAt = m.timestamp + disappearMs;
 
         MessageEntity entity = messageToEntity(m, "pending");
-        Executors.newSingleThreadExecutor().execute(() ->
-                AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity));
+
+        // BUG FIX: this insertMessage() write happens IMMEDIATELY on send —
+        // before any Firebase round-trip — and bypasses ChatActivity's
+        // buffered flushPendingRoomWrites() entirely (this is a separate,
+        // direct write on its own executor). It needs the SAME sever-
+        // before-write / reanchor-after-write protection, or sending a
+        // message still triggers the old top-jump bug even though
+        // receiving is now fixed. See ChatActivity#severPagingIfAtBottom().
+        boolean willReanchor = delegate.severPagingIfAtBottom();
+        Executors.newSingleThreadExecutor().execute(() -> {
+            AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
+            if (willReanchor) delegate.reanchorPagingToBottom();
+        });
 
         if (delegate.isOnline()) {
             firebasePushMessage(m, key, previewText);
@@ -62,10 +73,17 @@ public class ChatMessageSender {
     /** Push to Firebase and update Room status to "sent". */
     public void firebasePushMessage(Message m, String key, String previewText) {
         delegate.getMessagesRef().child(key).setValue(m)
-                .addOnSuccessListener(unused ->
-                        Executors.newSingleThreadExecutor().execute(() ->
-                                AppDatabase.getInstance(delegate.getActivity())
-                                        .messageDao().updateStatus(key, "sent")))
+                .addOnSuccessListener(unused -> {
+                    // BUG FIX: same direct-write issue as insertMessage()
+                    // above — this status update bypasses the buffered
+                    // flush path too.
+                    boolean willReanchor = delegate.severPagingIfAtBottom();
+                    Executors.newSingleThreadExecutor().execute(() -> {
+                        AppDatabase.getInstance(delegate.getActivity())
+                                .messageDao().updateStatus(key, "sent");
+                        if (willReanchor) delegate.reanchorPagingToBottom();
+                    });
+                })
                 .addOnFailureListener(e -> {
                     // Firebase rejected — stays pending, retry on reconnect
                 });

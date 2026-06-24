@@ -1176,6 +1176,42 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingMediator.addSource(currentPagingLiveSource, pagingMediator::setValue);
     }
 
+    /**
+     * Call on the MAIN thread, BEFORE any direct write to the `messages`
+     * table that's part of the live send/receive flow (not just the
+     * buffered Firebase path — ChatMessageSender's local-first
+     * insertMessage() and its later updateStatus("sent") call are separate
+     * write paths that bypass flushPendingRoomWrites() entirely, and need
+     * the same protection). Returns true if it severed the old Pager
+     * (meaning the caller must call reanchorPagingToBottom() once the
+     * write completes); false if the user isn't at the bottom, in which
+     * case nothing is touched and Paging's own anchor-preserving refresh
+     * handles things as before.
+     */
+    @Override
+    public boolean severPagingIfAtBottom() {
+        if (!isUserAtBottom) return false;
+        if (currentPagingLiveSource != null && pagingMediator != null) {
+            pagingMediator.removeSource(currentPagingLiveSource);
+            currentPagingLiveSource = null;
+        }
+        return true;
+    }
+
+    /**
+     * Call from ANY thread, AFTER a live write commits, when
+     * severPagingIfAtBottom() returned true for that same write. Looks up
+     * the fresh row count and attaches a new Pager anchored at the true
+     * end (count - 1) on the main thread.
+     */
+    @Override
+    public void reanchorPagingToBottom() {
+        if (db == null || chatId == null) return;
+        int count = db.messageDao().getMessageCount(chatId);
+        Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
+        runOnUiThread(() -> attachPagerWithKey(initialKey));
+    }
+
     private void startRealtimeListenerEarly() {
         // PERF FIX v8: DB ready hone se PEHLE Firebase listener lagao.
         // Incoming messages pendingUpserts buffer mein queue hote hain.
@@ -1293,37 +1329,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         for (Message m : upsertsSnapshot) LastMessagesCache.getInstance().upsert(chatId, m);
         for (String removedId : removalsSnapshot) LastMessagesCache.getInstance().removeMessage(chatId, removedId);
 
-        // BUG FIX (v2): the previous attempt re-anchored the Pager AFTER
-        // applyBufferedChanges() returned — but Room's InvalidationTracker
-        // fires the OLD PagingSource's invalidation the instant that write
-        // commits, which can win the race and push its badly-centered
-        // refresh-key load into the adapter BEFORE our corrected Pager gets
-        // attached. That's why the top-jump kept happening even with the
-        // earlier fix in place.
-        //
-        // Real fix: sever the OLD Pager's LiveData source from the mediator
-        // HERE, on the main thread, BEFORE the write even starts. With no
-        // connection left, the old PagingSource's auto-refresh has nowhere
-        // to deliver its (badly anchored) result even if Room invalidates
-        // it mid-write — there's no race left to lose. We attach the new,
-        // correctly-anchored Pager once the write completes. Only applies
-        // when the user is at the bottom; scrolled-up readers are untouched.
-        boolean willReanchor = isUserAtBottom;
-        if (willReanchor && currentPagingLiveSource != null && pagingMediator != null) {
-            pagingMediator.removeSource(currentPagingLiveSource);
-            currentPagingLiveSource = null;
-        }
+        // BUG FIX (v2): sever the OLD Pager's source HERE, before the write
+        // starts — see severPagingIfAtBottom() doc above for why doing this
+        // after the write loses the race against Room's invalidation
+        // tracker (which is what caused the top-jump to persist even after
+        // the v1 fix). Shared with ChatMessageSender's direct write paths
+        // (insertMessage / updateStatus) which bypass this buffered method
+        // entirely — see severPagingIfAtBottom()/reanchorPagingToBottom().
+        boolean willReanchor = severPagingIfAtBottom();
 
         ioExecutor.execute(() -> {
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
 
-            if (willReanchor) {
-                int count = db.messageDao().getMessageCount(chatId);
-                Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-                runOnUiThread(() -> attachPagerWithKey(initialKey));
-            }
+            if (willReanchor) reanchorPagingToBottom();
         });
     }
 
