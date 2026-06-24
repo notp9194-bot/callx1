@@ -231,13 +231,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:maxWidth="@dimen/msg_bubble_max_width"
-            android:paddingStart="12dp"
+            android:paddingStart="8dp"
             android:paddingEnd="48dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="24dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="20dp"
             android:textColor="@color/bubble_sent_text"
             android:textSize="15sp"
-            android:lineSpacingExtra="2dp"
+            android:includeFontPadding="false"
+            android:lineSpacingExtra="0dp"
             android:visibility="gone"/>
 
         <!-- Image -->
