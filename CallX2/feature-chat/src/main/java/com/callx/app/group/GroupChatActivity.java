@@ -758,18 +758,23 @@ public class GroupChatActivity extends AppCompatActivity
         pendingRemovals.clear();
 
         if (db == null) return;
+
+        // BUG FIX (v2): sever the OLD Pager's source BEFORE the write — see
+        // ChatActivity.flushPendingRoomWrites() for full reasoning. Removing
+        // it after the write loses the race against Room's invalidation
+        // tracker, which is why the top-jump persisted with the earlier fix.
+        boolean willReanchor = isUserAtBottom;
+        if (willReanchor && currentPagingLiveSource != null && pagingMediator != null) {
+            pagingMediator.removeSource(currentPagingLiveSource);
+            currentPagingLiveSource = null;
+        }
+
         ioExecutor.execute(() -> {
             List<MessageEntity> entities = new ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, null);
 
-            // BUG FIX: see ChatActivity.flushPendingRoomWrites() comment —
-            // every write here invalidates the table, and Paging 3's own
-            // refresh-key centering was unreliable at this frequency,
-            // causing the list to jump to the top on every send/receive.
-            // Only re-anchor when the user is at the bottom; leave scrolled-
-            // up readers undisturbed.
-            if (isUserAtBottom) {
+            if (willReanchor) {
                 int count = db.messageDao().getMessageCount(groupId);
                 Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
                 runOnUiThread(() -> attachPagerWithKey(initialKey));

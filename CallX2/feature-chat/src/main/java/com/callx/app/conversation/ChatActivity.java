@@ -1292,24 +1292,34 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // onCreate() will have accurate, current data.
         for (Message m : upsertsSnapshot) LastMessagesCache.getInstance().upsert(chatId, m);
         for (String removedId : removalsSnapshot) LastMessagesCache.getInstance().removeMessage(chatId, removedId);
+
+        // BUG FIX (v2): the previous attempt re-anchored the Pager AFTER
+        // applyBufferedChanges() returned — but Room's InvalidationTracker
+        // fires the OLD PagingSource's invalidation the instant that write
+        // commits, which can win the race and push its badly-centered
+        // refresh-key load into the adapter BEFORE our corrected Pager gets
+        // attached. That's why the top-jump kept happening even with the
+        // earlier fix in place.
+        //
+        // Real fix: sever the OLD Pager's LiveData source from the mediator
+        // HERE, on the main thread, BEFORE the write even starts. With no
+        // connection left, the old PagingSource's auto-refresh has nowhere
+        // to deliver its (badly anchored) result even if Room invalidates
+        // it mid-write — there's no race left to lose. We attach the new,
+        // correctly-anchored Pager once the write completes. Only applies
+        // when the user is at the bottom; scrolled-up readers are untouched.
+        boolean willReanchor = isUserAtBottom;
+        if (willReanchor && currentPagingLiveSource != null && pagingMediator != null) {
+            pagingMediator.removeSource(currentPagingLiveSource);
+            currentPagingLiveSource = null;
+        }
+
         ioExecutor.execute(() -> {
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
 
-            // BUG FIX: every Room write here invalidates the messages table,
-            // and Paging 3's own refresh-key centering (based on the
-            // RecyclerView's anchorPosition at that exact instant) was
-            // unreliable for this high-frequency real-time case — it would
-            // often resolve near 0, causing the visible list to jump to the
-            // TOP and land at the bottom of whatever old batch got reloaded
-            // there, with each such reload also mis-tallying the "↓ N new
-            // messages" indicator as if a fresh batch of others' messages
-            // had arrived. Only do this when the user was at the bottom —
-            // if they're scrolled up reading older messages, leave Paging's
-            // own (separately-working) anchor-preserving refresh alone so
-            // their reading position is not disturbed.
-            if (isUserAtBottom) {
+            if (willReanchor) {
                 int count = db.messageDao().getMessageCount(chatId);
                 Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
                 runOnUiThread(() -> attachPagerWithKey(initialKey));
