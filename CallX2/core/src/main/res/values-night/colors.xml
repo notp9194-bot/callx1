@@ -7,17 +7,17 @@
     <color name="brand_gradient_start">#5B5BF6</color>
     <color name="brand_gradient_end">#7F4FFB</color>
 
-    <!-- Surfaces — TRUE DARK (YouTube style) -->
-    <color name="surface_bg">#0A0A0A</color>
-    <color name="surface_card">#111111</color>
-    <color name="surface_chat_bg">#0A0A0A</color>
+    <!-- Surfaces — TRUE DARK / AMOLED -->
+    <color name="surface_bg">#000000</color>
+    <color name="surface_card">#000000</color>
+    <color name="surface_chat_bg">#0B141A</color>
     <color name="surface_input">#1A1A1A</color>
 
-    <!-- Bar colors -->
-    <color name="bar_background">#0A0A0A</color>
+    <!-- Bar colors — WhatsApp dark -->
+    <color name="bar_background">#1F2C34</color>
     <color name="bar_on_background">#E8E8E8</color>
 
-    <!-- Text — soft white, not harsh -->
+    <!-- Text -->
     <color name="text_primary">#E8E8E8</color>
     <color name="text_secondary">#8A8A8A</color>
     <color name="text_muted">#555555</color>
@@ -25,13 +25,13 @@
     <color name="chat_time_color">#FFFFFF</color>
     <color name="text_on_primary">#FFFFFF</color>
 
-    <!-- Bubbles — Option 1: Teal Sent + Brand Purple Received -->
-    <color name="bubble_sent">#a855f7</color>
-    <color name="bubble_sent_end">#ec4899</color>
-    <color name="bubble_sent_text">#FFFFFF</color>
-    <color name="bubble_received">#10b981</color>
-    <color name="bubble_received_end">#84cc16</color>
-    <color name="bubble_received_text">#FFFFFF</color>
+    <!-- Bubbles — WhatsApp dark exact -->
+    <color name="bubble_sent">#005C4B</color>
+    <color name="bubble_sent_end">#005C4B</color>
+    <color name="bubble_sent_text">#E9EDEF</color>
+    <color name="bubble_received">#1F2C34</color>
+    <color name="bubble_received_end">#1F2C34</color>
+    <color name="bubble_received_text">#E9EDEF</color>
 
     <!-- Status / actions -->
     <color name="status_online">#22C55E</color>
