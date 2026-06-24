@@ -501,12 +501,12 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textColor="#FFFFFF"
-                        android:textSize="9sp"/>
+                        android:textSize="11sp"/>
                     <TextView
                         android:id="@+id/tv_status"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="9sp"
+                        android:textSize="18sp"
                         android:visibility="gone"/>
                 </LinearLayout>
 
