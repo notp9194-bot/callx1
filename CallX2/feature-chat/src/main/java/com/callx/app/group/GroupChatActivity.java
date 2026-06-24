@@ -17,6 +17,8 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.MediatorLiveData;
 import androidx.paging.LoadState;
 import androidx.paging.Pager;
 import androidx.paging.PagingConfig;
@@ -631,35 +633,52 @@ public class GroupChatActivity extends AppCompatActivity
         );
     }
 
+    private MediatorLiveData<PagingData<Message>> pagingMediator;
+    private LiveData<PagingData<Message>> currentPagingLiveSource;
+
     private void observePagedMessages() {
-        // ROOT-CAUSE FIX (same bug as ChatActivity — see its observePagedMessages()
-        // comment for full explanation): without an initialKey, Paging 3 always
-        // loads its first page from offset 0 of the ASC-ordered query, i.e. the
-        // OLDEST group messages, not the latest. stackFromEnd(true) then anchors
-        // that old batch's last row at the screen bottom — not the true latest
-        // message. Fix: look up the row count and pass (count - 1) as the
-        // initialKey so Room's PagingSource centers its first load around the
-        // END of the table, guaranteeing the real latest message is included.
+        // ROOT-CAUSE FIX (same bug/fix as ChatActivity — see its
+        // observePagedMessages() comment for full explanation): without an
+        // initialKey, Paging 3 always loads its first page from offset 0 of
+        // the ASC-ordered query (oldest group messages), not the latest.
+        // Look up the row count and pass (count - 1) as initialKey so the
+        // first page is anchored at the END of the table (true latest
+        // message) — and use a swappable MediatorLiveData so later writes
+        // (send/receive) can re-anchor on demand, see flushPendingRoomWrites().
+        pagingMediator = new MediatorLiveData<>();
+        pagingMediator.observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
+        attachFreshBottomAnchoredPager();
+    }
+
+    private void attachFreshBottomAnchoredPager() {
         ioExecutor.execute(() -> {
             int count = db.messageDao().getMessageCount(groupId);
             Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                Pager<Integer, MessageEntity> pager = new Pager<>(
-                        new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
-                        initialKey,
-                        () -> db.messageDao().getMessagesPagingSource(groupId)
-                );
-
-                androidx.lifecycle.Transformations.map(
-                        PagingLiveData.getLiveData(pager),
-                        pagingData -> PagingDataTransforms.map(
-                                pagingData, ioExecutor, GroupChatActivity::entityToModel)
-                ).observe(this, pagingData ->
-                        pagingAdapter.submitData(getLifecycle(), pagingData)
-                );
-            });
+            runOnUiThread(() -> attachPagerWithKey(initialKey));
         });
+    }
+
+    /**
+     * Replaces whatever Pager currently feeds the adapter with a brand new
+     * one anchored at initialKey. Removing the old LiveData source first
+     * means its own Room-invalidation-triggered auto-refresh (whose
+     * refresh-key centering was causing the jump-to-top bug on every
+     * send/receive) can never push another update into the adapter.
+     */
+    private void attachPagerWithKey(Integer initialKey) {
+        if (isFinishing() || isDestroyed() || binding == null || pagingMediator == null) return;
+        if (currentPagingLiveSource != null) pagingMediator.removeSource(currentPagingLiveSource);
+        Pager<Integer, MessageEntity> pager = new Pager<>(
+                new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
+                initialKey,
+                () -> db.messageDao().getMessagesPagingSource(groupId)
+        );
+        currentPagingLiveSource = androidx.lifecycle.Transformations.map(
+                PagingLiveData.getLiveData(pager),
+                pagingData -> PagingDataTransforms.map(
+                        pagingData, ioExecutor, GroupChatActivity::entityToModel)
+        );
+        pagingMediator.addSource(currentPagingLiveSource, pagingMediator::setValue);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -743,6 +762,18 @@ public class GroupChatActivity extends AppCompatActivity
             List<MessageEntity> entities = new ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, null);
+
+            // BUG FIX: see ChatActivity.flushPendingRoomWrites() comment —
+            // every write here invalidates the table, and Paging 3's own
+            // refresh-key centering was unreliable at this frequency,
+            // causing the list to jump to the top on every send/receive.
+            // Only re-anchor when the user is at the bottom; leave scrolled-
+            // up readers undisturbed.
+            if (isUserAtBottom) {
+                int count = db.messageDao().getMessageCount(groupId);
+                Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
+                runOnUiThread(() -> attachPagerWithKey(initialKey));
+            }
         });
     }
 

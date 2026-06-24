@@ -28,6 +28,8 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.MediatorLiveData;
 import androidx.lifecycle.Transformations;
 import androidx.paging.Pager;
 import androidx.paging.PagingConfig;
@@ -1128,43 +1130,50 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
     }
 
+    // Swappable Paging source: a MediatorLiveData lets us tear down the old
+    // Pager's LiveData and attach a brand-new, freshly-anchored one on demand
+    // (see attachPagerWithKey / reanchorPagingToBottomAfterWrite below) instead
+    // of being stuck with whatever refresh-key Paging 3's own Room-invalidation
+    // path decides to center on.
+    private MediatorLiveData<PagingData<Message>> pagingMediator;
+    private LiveData<PagingData<Message>> currentPagingLiveSource;
+
     private void observePagedMessages() {
-        // ROOT-CAUSE FIX (chat-open scroll bug):
-        // getMessagesPagingSource() is ORDER BY timestamp ASC (oldest→newest,
-        // required so adapter position 0 = oldest, matching every other
-        // index-based assumption in this file — search-jump, unread count,
-        // swipe-reply lookups, etc.). Paging 3's Pager, when constructed
-        // with NO initialKey, always loads its very FIRST page starting at
-        // offset 0 — i.e. the OLDEST messages in the chat, not the latest.
-        // stackFromEnd(true) then anchors THAT first page's last row at the
-        // bottom of the screen, which is "the bottom of whatever batch
-        // loaded" — NOT the chat's true latest message. That's exactly the
-        // symptom: chat opens at the bottom of an old batch, not the real
-        // bottom, and only catches up as later pages happen to load in.
-        //
-        // FIX: look up the row count first and pass (count - 1) as the
-        // Pager's initialKey. Room's generated LimitOffsetPagingSource
-        // treats the key as the anchor position to center the refresh
-        // load around, so the load window is pulled from the END of the
-        // table — guaranteeing the very last (true latest) message is
-        // part of the first page, so stackFromEnd lands on the real bottom
-        // immediately, with zero extra scroll calls needed.
+        pagingMediator = new MediatorLiveData<>();
+        pagingMediator.observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
+        attachFreshBottomAnchoredPager();
+    }
+
+    /** Looks up the current row count and attaches a Pager anchored at the true end. */
+    private void attachFreshBottomAnchoredPager() {
         ioExecutor.execute(() -> {
             int count = db.messageDao().getMessageCount(chatId);
             Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || binding == null) return;
-                Pager<Integer, MessageEntity> pager = new Pager<>(
-                        new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
-                        initialKey,
-                        () -> db.messageDao().getMessagesPagingSource(chatId)
-                );
-                Transformations.map(
-                        PagingLiveData.getLiveData(pager),
-                        pagingData -> PagingDataTransforms.map(pagingData, ioExecutor, ChatActivity::entityToModel)
-                ).observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
-            });
+            runOnUiThread(() -> attachPagerWithKey(initialKey));
         });
+    }
+
+    /**
+     * Replaces whatever Pager is currently feeding the adapter with a brand
+     * new one built with the given initialKey. Removing the old LiveData
+     * source first means the old Pager's own Room-invalidation-triggered
+     * auto-refresh (whose refresh-key centering is what was causing the
+     * "jumps to top / lands in some old batch" bug on every send/receive)
+     * can never push another update into the adapter once replaced.
+     */
+    private void attachPagerWithKey(Integer initialKey) {
+        if (isFinishing() || isDestroyed() || binding == null || pagingMediator == null) return;
+        if (currentPagingLiveSource != null) pagingMediator.removeSource(currentPagingLiveSource);
+        Pager<Integer, MessageEntity> pager = new Pager<>(
+                new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
+                initialKey,
+                () -> db.messageDao().getMessagesPagingSource(chatId)
+        );
+        currentPagingLiveSource = Transformations.map(
+                PagingLiveData.getLiveData(pager),
+                pagingData -> PagingDataTransforms.map(pagingData, ioExecutor, ChatActivity::entityToModel)
+        );
+        pagingMediator.addSource(currentPagingLiveSource, pagingMediator::setValue);
     }
 
     private void startRealtimeListenerEarly() {
@@ -1287,6 +1296,24 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
+
+            // BUG FIX: every Room write here invalidates the messages table,
+            // and Paging 3's own refresh-key centering (based on the
+            // RecyclerView's anchorPosition at that exact instant) was
+            // unreliable for this high-frequency real-time case — it would
+            // often resolve near 0, causing the visible list to jump to the
+            // TOP and land at the bottom of whatever old batch got reloaded
+            // there, with each such reload also mis-tallying the "↓ N new
+            // messages" indicator as if a fresh batch of others' messages
+            // had arrived. Only do this when the user was at the bottom —
+            // if they're scrolled up reading older messages, leave Paging's
+            // own (separately-working) anchor-preserving refresh alone so
+            // their reading position is not disturbed.
+            if (isUserAtBottom) {
+                int count = db.messageDao().getMessageCount(chatId);
+                Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
+                runOnUiThread(() -> attachPagerWithKey(initialKey));
+            }
         });
     }
 
