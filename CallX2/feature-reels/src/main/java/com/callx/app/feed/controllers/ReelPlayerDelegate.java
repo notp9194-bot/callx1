@@ -110,6 +110,8 @@ public interface ReelPlayerDelegate {
     void openCollabRepost();
     void openBookmarkCollections();
     void openSoundDetail();
+    /** Shows the Original Audio options sheet (volume slider + Use in Camera / Use in Gallery). */
+    void openOriginalAudioOptions();
     void openUserReels();
     void openOwnerStatus();
     void confirmDeleteReel();

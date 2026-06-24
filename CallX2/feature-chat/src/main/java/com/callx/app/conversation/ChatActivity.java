@@ -261,10 +261,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatMediaController    mediaController;
     private ChatMessageSender      messageSender;
     private ChatScreenshotNotifier screenshotNotifier;
-    /** v21 — listens to reelSeenEvents/{myUid}/{partnerUid} side-tree and
-     *  injects synthetic reel_seen rows into the adapter at display-time.
-     *  messages/{chatId} is never touched. */
-    private com.callx.app.conversation.controllers.ChatReelSeenController reelSeenController;
 
     // ─────────────────────────────────────────────────────────────────────
     // LIFECYCLE
@@ -333,7 +329,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         themeController    = new ChatThemeController(this);
         messageSender      = new ChatMessageSender(this);
         screenshotNotifier = new ChatScreenshotNotifier(this);
-        reelSeenController = new com.callx.app.conversation.controllers.ChatReelSeenController(this);
 
         setupToolbar();
         themeController.applyScreenTheme();
@@ -503,7 +498,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.onScreenResumed();
         }
         if (screenshotNotifier != null) screenshotNotifier.onScreenResumed();
-        if (reelSeenController != null) reelSeenController.attach();
     }
 
     @Override
@@ -526,7 +520,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             if (isRecording) presenceController.publishOurRecordingState(false);
         }
         if (screenshotNotifier != null) screenshotNotifier.onScreenPaused();
-        if (reelSeenController != null) reelSeenController.detach();
         if (liveTypingController != null) liveTypingController.clearOurPreview();
         typingHandler.removeCallbacks(stopTypingRunnable);
     }

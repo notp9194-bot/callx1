@@ -218,6 +218,11 @@ public class ReelPlayerController {
             }).show();
     }
 
+    /** Set playback volume from the Original Audio options sheet (0.0 – 1.0). */
+    public void setVolume(float volume) {
+        if (player != null) player.setVolume(volume);
+    }
+
     public void releasePlayer() {
         stopProgressTracking();
         delegate.stopPhotoSlideshow();

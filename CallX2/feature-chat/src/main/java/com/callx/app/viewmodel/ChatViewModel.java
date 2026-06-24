@@ -269,15 +269,13 @@ public class ChatViewModel extends AndroidViewModel {
             @Override
             public void onChildAdded(@NonNull DataSnapshot snap, String prev) {
                 Message msg = decryptAndTag(snap);
-                // v21: reel_seen rows no longer live in messages/{chatId}.
-                // Skip any legacy rows that may still exist in old chat trees.
-                if (msg != null && !"reel_seen".equals(msg.type)) queueUpsert(msg);
+                if (msg != null) queueUpsert(msg);
             }
 
             @Override
             public void onChildChanged(@NonNull DataSnapshot snap, String prev) {
                 Message msg = decryptAndTag(snap);
-                if (msg != null && !"reel_seen".equals(msg.type)) queueUpsert(msg);
+                if (msg != null) queueUpsert(msg);
             }
 
             @Override

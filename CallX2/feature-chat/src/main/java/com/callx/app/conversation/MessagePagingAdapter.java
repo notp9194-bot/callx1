@@ -179,7 +179,7 @@ public class MessagePagingAdapter
         changed.addAll(newIds);
         currentlyViewedMessageIds = newIds;
         for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItemAt(i);
+            Message m = getItem(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && changed.contains(id)) notifyItemChanged(i);
@@ -204,7 +204,7 @@ public class MessagePagingAdapter
         changed.addAll(newIds);
         replyTargetMessageIds = newIds;
         for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItemAt(i);
+            Message m = getItem(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && changed.contains(id)) notifyItemChanged(i);
@@ -227,58 +227,13 @@ public class MessagePagingAdapter
         changed.addAll(newIds);
         currentlyPlayingMessageIds = newIds;
         for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItemAt(i);
+            Message m = getItem(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && changed.contains(id)) notifyItemChanged(i);
         }
     }
     private MultiSelectListener multiSelectListener;
-
-    // ── Synthetic reel_seen rows (injected by ChatReelSeenController) ───────
-    // PLACEMENT: PREPENDED at positions [0 .. synth.size()-1].
-    // Chat RecyclerView uses stackFromEnd + reverseLayout, so position 0
-    // = bottom of screen. Prepending means bubbles appear at the bottom
-    // (most recent area) naturally, with real paged messages above them.
-    // No Room write, no Firebase messages/{chatId} write — display-only.
-    private java.util.List<com.callx.app.models.Message> syntheticReelSeenRows =
-            java.util.Collections.emptyList();
-
-    /**
-     * Called by ChatReelSeenController on the main thread whenever the
-     * live side-tree snapshot changes.
-     * Uses notifyDataSetChanged — safe because reel_seen events are
-     * infrequent, and avoids any position-index mismatch between the
-     * paged and synthetic regions during fast scrolling.
-     */
-    public void setSyntheticReelSeenRows(java.util.List<com.callx.app.models.Message> rows) {
-        if (rows == null) rows = java.util.Collections.emptyList();
-        syntheticReelSeenRows = new java.util.ArrayList<>(rows);
-        notifyDataSetChanged();
-    }
-
-    // ── Override getItemCount to include synthetic prefix ────────────────────
-    @Override
-    public int getItemCount() {
-        return super.getItemCount() + syntheticReelSeenRows.size();
-    }
-
-    /**
-     * Safe position resolver.
-     * [0 .. synthSize-1]     → synthetic reel_seen rows (prepended / bottom).
-     * [synthSize .. total-1] → real paged messages from Room.
-     * Returns null for out-of-range or paged placeholders — callers must null-check.
-     */
-    private com.callx.app.models.Message getItemAt(int position) {
-        if (position < 0) return null;
-        int synthSize = syntheticReelSeenRows.size();
-        if (position < synthSize) {
-            return syntheticReelSeenRows.get(position);
-        }
-        int pagedPos = position - synthSize;
-        if (pagedPos >= super.getItemCount()) return null;
-        return getItem(pagedPos); // PagingDataAdapter.getItem — may return null (placeholder)
-    }
 
     public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
     public ActionListener getActionListener() { return actionListener; }
@@ -313,7 +268,7 @@ public class MessagePagingAdapter
     public java.util.List<Message> getSelectedMessages() {
         java.util.List<Message> result = new java.util.ArrayList<>();
         for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItemAt(i);
+            Message m = getItem(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && selectedMessageIds.contains(id)) result.add(m);
@@ -354,7 +309,7 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     @Override
     public int getItemViewType(int position) {
-        Message m = getItemAt(position);
+        Message m = getItem(position);
         if (m == null) return TYPE_RECEIVED;
         if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
         if ("reel_seen".equals(m.type)) {
@@ -387,7 +342,7 @@ public class MessagePagingAdapter
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int position) {
-        Message m = getItemAt(position);
+        Message m = getItem(position);
         if (m == null) {
             // Placeholder — show shimmer or empty
             if (h.tvMessage != null) h.tvMessage.setVisibility(View.GONE);
@@ -730,7 +685,7 @@ public class MessagePagingAdapter
             if (position == 0) {
                 showHeader = true;
             } else {
-                Message prev = getItemAt(position - 1);
+                Message prev = getItem(position - 1);
                 showHeader = prev == null || prev.timestamp == null
                         || !isSameDay(prev.timestamp, m.timestamp);
             }
@@ -1433,14 +1388,14 @@ public class MessagePagingAdapter
         if (playingPos == position && player != null && player.isPlaying()) {
             player.pause();
             if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
-            notifyPlaybackChanged(getItemAt(position), false);
+            notifyPlaybackChanged(getItem(position), false);
             return;
         }
         if (playingPos != -1 && playingPos != position) {
             // Switching to a different bubble mid-playback — tell the
             // partner we stopped listening to the OLD one before the new
             // one's "started playing" callback fires.
-            notifyPlaybackChanged(getItemAt(playingPos), false);
+            notifyPlaybackChanged(getItem(playingPos), false);
         }
         if (player != null) {
             try { player.stop(); player.release(); } catch (Exception ignored) {}
@@ -1509,7 +1464,7 @@ public class MessagePagingAdapter
             player.setOnPreparedListener(mp -> {
                 mp.start();
                 if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_pause);
-                notifyPlaybackChanged(getItemAt(position), true);
+                notifyPlaybackChanged(getItem(position), true);
                 // FIX: SeekBar live progress update — runs every 250ms while playing
                 if (h.seekAudio != null) {
                     h.seekAudio.setMax(mp.getDuration());
@@ -1541,7 +1496,7 @@ public class MessagePagingAdapter
                 }
             });
             player.setOnCompletionListener(mp -> {
-                notifyPlaybackChanged(getItemAt(position), false);
+                notifyPlaybackChanged(getItem(position), false);
                 playingPos = -1;
                 seekHandler.removeCallbacks(seekUpdater);
                 if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
@@ -1551,7 +1506,7 @@ public class MessagePagingAdapter
             });
             player.setOnErrorListener((mp, what, extra) -> {
                 android.util.Log.e("AudioPlay", "Error: " + what + " extra: " + extra + " path: " + path);
-                notifyPlaybackChanged(getItemAt(position), false);
+                notifyPlaybackChanged(getItem(position), false);
                 playingPos = -1;
                 if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
                 return true;

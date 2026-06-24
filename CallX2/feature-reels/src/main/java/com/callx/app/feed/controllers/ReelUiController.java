@@ -387,8 +387,8 @@ public class ReelUiController {
         if (btnShare    != null) btnShare.setOnClickListener(v -> delegate.shareReel());
         if (btnMore     != null) btnMore.setOnClickListener(v -> delegate.showMoreOptions());
         if (btnDownload != null) btnDownload.setOnClickListener(v -> delegate.downloadReel());
-        if (tvMusicName != null) tvMusicName.setOnClickListener(v -> delegate.openSoundDetail());
-        if (ivMusicDisc != null) ivMusicDisc.setOnClickListener(v -> delegate.openSoundDetail());
+        if (tvMusicName != null) tvMusicName.setOnClickListener(v -> delegate.openOriginalAudioOptions());
+        if (ivMusicDisc != null) ivMusicDisc.setOnClickListener(v -> delegate.openOriginalAudioOptions());
         if (ivOwnerAvatar != null) ivOwnerAvatar.setOnClickListener(v -> delegate.openUserReels());
         if (tvOwnerName   != null) tvOwnerName.setOnClickListener(v -> delegate.openUserReels());
         if (ivOwnerStoryRing != null) ivOwnerStoryRing.setOnClickListener(v -> delegate.openOwnerStatus());

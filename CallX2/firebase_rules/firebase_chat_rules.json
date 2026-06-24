@@ -240,7 +240,7 @@
       }
     },
     "chatPlayback": {
-      "_comment": "ChatPlaybackPresenceController \u2014 chatPlayback/{chatId}/{uid} = messageId of the voice note/video that user currently has playing, removed the instant playback stops. Powers the per-bubble 'listening\u2026/watching\u2026' badge.",
+      "_comment": "ChatPlaybackPresenceController — chatPlayback/{chatId}/{uid} = messageId of the voice note/video that user currently has playing, removed the instant playback stops. Powers the per-bubble 'listening…/watching…' badge.",
       "$chatId": {
         ".read": "auth != null && $chatId.contains(auth.uid)",
         "$uid": {
@@ -250,52 +250,12 @@
       }
     },
     "scheduledMessages": {
-      "_comment": "ChatScheduledSendController \u2014 queued messages waiting for ChatScheduledMessageWorker to fire. Only the sender can read/write/cancel their own queued entries; the recipient never sees this node until the worker publishes into messages/{chatId}.",
+      "_comment": "ChatScheduledSendController — queued messages waiting for ChatScheduledMessageWorker to fire. Only the sender can read/write/cancel their own queued entries; the recipient never sees this node until the worker publishes into messages/{chatId}.",
       "$chatId": {
         ".read": "auth != null && $chatId.contains(auth.uid)",
         "$scheduleId": {
           ".write": "auth != null && $chatId.contains(auth.uid) && (!data.exists() || data.child('senderId').val() === auth.uid) && (!newData.exists() || newData.child('senderId').val() === auth.uid)",
           ".validate": "!newData.exists() || (newData.hasChildren(['senderId','chatId','sendAt']) && newData.child('sendAt').val() > now)"
-        }
-      }
-    },
-    "reelSeenDedup": {
-      "_comment": "ReelSeenTracker dedup \u2014 reelSeenDedup/{viewerUid}/{reelId} \u2192 last-bubbled-at ms. 1-hour window per reelId per viewer. Written and read only by the viewer themselves.",
-      "$viewerUid": {
-        ".read": "auth != null && auth.uid === $viewerUid",
-        ".write": "auth != null && auth.uid === $viewerUid",
-        "$reelId": {
-          ".validate": "newData.isNumber() && newData.val() <= now + 5000"
-        }
-      }
-    },
-    "reelSeenEvents": {
-      "_comment": "ReelSeenTracker v21 side-tree \u2014 reelSeenEvents/{ownerUid}/{viewerUid}/{eventId}. Viewer writes; owner reads. messages/{chatId} is never touched.",
-      "$ownerUid": {
-        "$viewerUid": {
-          ".read": "auth != null && auth.uid === $ownerUid",
-          "$eventId": {
-            ".write": "auth != null && auth.uid === $viewerUid",
-            ".validate": "newData.hasChildren(['senderId','reelId','timestamp']) && newData.child('senderId').val() === auth.uid && newData.child('timestamp').val() <= now + 5000",
-            "senderId": {
-              ".validate": "newData.val() === auth.uid"
-            },
-            "senderName": {
-              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 100)"
-            },
-            "senderPhoto": {
-              ".validate": "!newData.exists() || newData.isString()"
-            },
-            "reelId": {
-              ".validate": "newData.isString() && newData.val().length <= 200"
-            },
-            "reelThumbUrl": {
-              ".validate": "!newData.exists() || newData.isString()"
-            },
-            "timestamp": {
-              ".validate": "newData.isNumber() && newData.val() <= now + 5000"
-            }
-          }
         }
       }
     }
