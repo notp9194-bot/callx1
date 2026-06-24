@@ -7,32 +7,37 @@
     <color name="brand_gradient_start">#5B5BF6</color>
     <color name="brand_gradient_end">#7F4FFB</color>
 
-    <!-- Surfaces -->
+    <!-- Surfaces — GPU-optimal: solid flat, no gradients -->
     <color name="surface_bg">#F5F6FA</color>
     <color name="surface_card">#FFFFFF</color>
-    <color name="surface_chat_bg">#ECEEF5</color>
-    <color name="surface_input">#F1F3F8</color>
+    <!-- Chat bg: WhatsApp-style light wallpaper equivalent, flat solid -->
+    <color name="surface_chat_bg">#ECE5DD</color>
+    <!-- Input bg: same as card = zero overdraw on input bar -->
+    <color name="surface_input">#FFFFFF</color>
 
-    <!-- Bar colors (header + bottom nav) -->
-    <color name="bar_background">#FFFFFF</color>
-    <color name="bar_on_background">#1A1A1A</color>
+    <!-- Bar colors (header + bottom nav) — solid flat = GPU load zero -->
+    <color name="bar_background">#008069</color>
+    <color name="bar_on_background">#FFFFFF</color>
 
     <!-- Text -->
-    <color name="text_primary">#0F172A</color>
-    <color name="text_secondary">#64748B</color>
-    <color name="text_muted">#94A3B8</color>
-    <color name="chat_time_color">#333333</color>
+    <color name="text_primary">#111B21</color>
+    <color name="text_secondary">#54656F</color>
+    <color name="text_muted">#8696A0</color>
+    <color name="chat_time_color">#54656F</color>
     <color name="text_on_primary">#FFFFFF</color>
 
-    <!-- Bubbles — Hybrid: Magenta-Orange Sent + Gold-Green Received (default) -->
-    <color name="bubble_sent">#FF0080</color>
-    <color name="bubble_sent_end">#FF6B00</color>
-    <color name="bubble_sent_text">#FFFFFF</color>
-    <color name="bubble_received">#FFD700</color>
-    <color name="bubble_received_end">#00E676</color>
-    <color name="bubble_received_text">#1A1A1A</color>
+    <!-- Bubbles — SOLID flat colors, NO gradients = lowest GPU load + zero overdraw
+         Sent:     WhatsApp green  #D9FDD3 (light) / text dark
+         Received: Pure white      #FFFFFF / text dark
+         Both solid = 1 GPU draw pass only -->
+    <color name="bubble_sent">#D9FDD3</color>
+    <color name="bubble_sent_end">#D9FDD3</color>
+    <color name="bubble_sent_text">#111B21</color>
+    <color name="bubble_received">#FFFFFF</color>
+    <color name="bubble_received_end">#FFFFFF</color>
+    <color name="bubble_received_text">#111B21</color>
 
-    <!-- Chat Theme palette (reference — runtime values via ChatThemeManager) -->
+    <!-- Chat Theme palette -->
     <!-- Ocean -->
     <color name="theme_ocean_sent_s">#0EA5E9</color>
     <color name="theme_ocean_sent_e">#6366F1</color>

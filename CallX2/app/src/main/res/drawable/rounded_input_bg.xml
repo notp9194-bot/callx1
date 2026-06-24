@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Input field bg: solid flat = zero overdraw -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <solid android:color="@color/surface_input"/>
-    <corners android:radius="28dp"/>
+    <corners android:radius="20dp"/>
 </shape>
