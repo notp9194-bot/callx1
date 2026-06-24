@@ -1,6 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#8B5CF6"/>
-    <corners android:topLeftRadius="14dp" android:topRightRadius="14dp"
-        android:bottomLeftRadius="14dp" android:bottomRightRadius="4dp"/>
-</shape>
+<!-- WhatsApp-style outgoing bubble: rounded rect + pointed tail at bottom-right -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="40dp"
+    android:viewportWidth="100"
+    android:viewportHeight="85">
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M95,0
+            L10,0
+            A5,5 0 0 0 5,5
+            L5,68
+            A5,5 0 0 0 10,73
+            L80,73
+            C80,73 80,82 92,85
+            C87,77.5 88,73 95,73
+            A5,5 0 0 0 100,68
+            L100,5
+            A5,5 0 0 0 95,0
+            Z"/>
+</vector>
