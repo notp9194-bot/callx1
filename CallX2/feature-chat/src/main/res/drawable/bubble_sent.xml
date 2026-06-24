@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- WhatsApp-style outgoing bubble: solid flat color, min GPU load -->
-<!-- Uses shape (solid) instead of vector+path for lower overdraw -->
+<!-- WhatsApp-style sent bubble: simple solid shape, zero GPU rasterization -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <solid android:color="@color/bubble_sent"/>
-    <corners android:topLeftRadius="12dp"
-        android:topRightRadius="12dp"
-        android:bottomLeftRadius="12dp"
-        android:bottomRightRadius="3dp"/>
+    <corners android:topLeftRadius="18dp" android:topRightRadius="18dp"
+        android:bottomLeftRadius="18dp" android:bottomRightRadius="4dp"/>
 </shape>

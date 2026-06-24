@@ -1,10 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- WhatsApp-style outgoing bubble: solid flat color, min GPU load -->
-<!-- Uses shape (solid) instead of vector+path for lower overdraw -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="@color/bubble_sent"/>
-    <corners android:topLeftRadius="12dp"
-        android:topRightRadius="12dp"
-        android:bottomLeftRadius="12dp"
-        android:bottomRightRadius="3dp"/>
-</shape>
+<!-- WhatsApp-style outgoing bubble: rounded rect + pointed tail at bottom-right -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="40dp"
+    android:viewportWidth="100"
+    android:viewportHeight="85">
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M95,0
+            L10,0
+            A5,5 0 0 0 5,5
+            L5,68
+            A5,5 0 0 0 10,73
+            L80,73
+            C80,73 80,82 92,85
+            C87,77.5 88,73 95,73
+            A5,5 0 0 0 100,68
+            L100,5
+            A5,5 0 0 0 95,0
+            Z"/>
+</vector>

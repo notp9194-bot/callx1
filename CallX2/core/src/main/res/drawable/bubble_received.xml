@@ -1,9 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- WhatsApp-style incoming bubble: solid flat color, min GPU load -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="@color/bubble_received"/>
-    <corners android:topLeftRadius="3dp"
-        android:topRightRadius="12dp"
-        android:bottomLeftRadius="12dp"
-        android:bottomRightRadius="12dp"/>
-</shape>
+<!-- WhatsApp-style incoming bubble: rounded rect + pointed tail at bottom-left -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="40dp"
+    android:viewportWidth="100"
+    android:viewportHeight="85">
+    <path
+        android:fillColor="#2D2D3A"
+        android:pathData="M5,0
+            L90,0
+            A5,5 0 0 1 95,5
+            L95,68
+            A5,5 0 0 1 90,73
+            L20,73
+            C20,73 20,82 8,85
+            C13,77.5 12,73 5,73
+            A5,5 0 0 1 0,68
+            L0,5
+            A5,5 0 0 1 5,0
+            Z"/>
+</vector>
