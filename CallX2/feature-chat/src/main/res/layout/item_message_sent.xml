@@ -477,6 +477,13 @@
             android:layout_marginBottom="3dp"
             android:orientation="horizontal"
             android:gravity="center_vertical">
+            <!-- FIX: ll_tick_pill re-added (0dp, invisible) so VH.llTickPill binds
+                 non-null only in the sent layout — MessageAdapter.bindTickOnly() uses
+                 this null-check to distinguish sent vs received bubbles. -->
+            <LinearLayout
+                android:id="@+id/ll_tick_pill"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
             <TextView
                 android:id="@+id/tv_expiry"
                 android:layout_width="wrap_content"
