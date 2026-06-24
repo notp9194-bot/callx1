@@ -6,6 +6,7 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
+import androidx.lifecycle.MediatorLiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.paging.Pager;
 import androidx.paging.PagingConfig;
@@ -85,7 +86,11 @@ public class ChatViewModel extends AndroidViewModel {
     private final MutableLiveData<Boolean> networkStatus   = new MutableLiveData<>(true);
 
     // ── Paging LiveData (created once via initPaging) ──────────────────────
-    private LiveData<PagingData<MessageEntity>> pagedMessages;
+    // MediatorLiveData so getPagedMessages() never returns null while the
+    // background row-count lookup (needed for the initialKey fix below) is
+    // still in flight — the real Pager LiveData is attached as a source
+    // once the count comes back.
+    private final MediatorLiveData<PagingData<MessageEntity>> pagedMessages = new MediatorLiveData<>();
 
     // ── Firebase listeners (tracked for cleanup) ───────────────────────────
     private DatabaseReference  typingRef;
@@ -154,11 +159,23 @@ public class ChatViewModel extends AndroidViewModel {
     // ─────────────────────────────────────────────────────────────────────
 
     private void initPaging() {
-        Pager<Integer, MessageEntity> pager = new Pager<>(
-                new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
-                () -> db.messageDao().getMessagesPagingSource(chatId)
-        );
-        pagedMessages = PagingLiveData.getLiveData(pager);
+        // ROOT-CAUSE FIX — same bug/fix as ChatActivity.observePagedMessages():
+        // without an initialKey, Paging 3 loads its first page from offset 0
+        // of the ASC query (oldest messages), not the latest. Look up the row
+        // count first and pass (count - 1) as initialKey so the first page
+        // is anchored at the END of the table (the true latest message).
+        ioExecutor.execute(() -> {
+            int count = db.messageDao().getMessageCount(chatId);
+            Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
+            Pager<Integer, MessageEntity> pager = new Pager<>(
+                    new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
+                    initialKey,
+                    () -> db.messageDao().getMessagesPagingSource(chatId)
+            );
+            LiveData<PagingData<MessageEntity>> source = PagingLiveData.getLiveData(pager);
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                    pagedMessages.addSource(source, pagedMessages::setValue));
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────

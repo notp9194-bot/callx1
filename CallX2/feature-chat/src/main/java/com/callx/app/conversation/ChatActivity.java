@@ -1129,14 +1129,42 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private void observePagedMessages() {
-        Pager<Integer, MessageEntity> pager = new Pager<>(
-                new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
-                () -> db.messageDao().getMessagesPagingSource(chatId)
-        );
-        Transformations.map(
-                PagingLiveData.getLiveData(pager),
-                pagingData -> PagingDataTransforms.map(pagingData, ioExecutor, ChatActivity::entityToModel)
-        ).observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
+        // ROOT-CAUSE FIX (chat-open scroll bug):
+        // getMessagesPagingSource() is ORDER BY timestamp ASC (oldest→newest,
+        // required so adapter position 0 = oldest, matching every other
+        // index-based assumption in this file — search-jump, unread count,
+        // swipe-reply lookups, etc.). Paging 3's Pager, when constructed
+        // with NO initialKey, always loads its very FIRST page starting at
+        // offset 0 — i.e. the OLDEST messages in the chat, not the latest.
+        // stackFromEnd(true) then anchors THAT first page's last row at the
+        // bottom of the screen, which is "the bottom of whatever batch
+        // loaded" — NOT the chat's true latest message. That's exactly the
+        // symptom: chat opens at the bottom of an old batch, not the real
+        // bottom, and only catches up as later pages happen to load in.
+        //
+        // FIX: look up the row count first and pass (count - 1) as the
+        // Pager's initialKey. Room's generated LimitOffsetPagingSource
+        // treats the key as the anchor position to center the refresh
+        // load around, so the load window is pulled from the END of the
+        // table — guaranteeing the very last (true latest) message is
+        // part of the first page, so stackFromEnd lands on the real bottom
+        // immediately, with zero extra scroll calls needed.
+        ioExecutor.execute(() -> {
+            int count = db.messageDao().getMessageCount(chatId);
+            Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || binding == null) return;
+                Pager<Integer, MessageEntity> pager = new Pager<>(
+                        new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
+                        initialKey,
+                        () -> db.messageDao().getMessagesPagingSource(chatId)
+                );
+                Transformations.map(
+                        PagingLiveData.getLiveData(pager),
+                        pagingData -> PagingDataTransforms.map(pagingData, ioExecutor, ChatActivity::entityToModel)
+                ).observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
+            });
+        });
     }
 
     private void startRealtimeListenerEarly() {

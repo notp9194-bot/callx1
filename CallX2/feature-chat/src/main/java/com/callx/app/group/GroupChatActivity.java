@@ -573,20 +573,19 @@ public class GroupChatActivity extends AppCompatActivity
                 }
                 if (!initialScrollDone) return;
                 int total = pagingAdapter.getItemCount();
-                if (isUserAtBottom) {
-                    binding.rvMessages.scrollToPosition(total - 1);
-                } else {
-                    int othersCount = 0;
-                    for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
-                        com.callx.app.models.Message m = pagingAdapter.peek(i);
-                        if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
-                            othersCount++;
-                        }
+                // AUTO-SCROLL DISABLED — see ChatActivity's onItemRangeInserted
+                // comment. New inserts never force-scroll, regardless of
+                // bottom state; user taps the "↓ N new messages" indicator/FAB.
+                int othersCount = 0;
+                for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
+                    com.callx.app.models.Message m = pagingAdapter.peek(i);
+                    if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
+                        othersCount++;
                     }
-                    if (othersCount > 0) {
-                        pendingNewMsgCount += othersCount;
-                        updateNewMessagesIndicator(pendingNewMsgCount);
-                    }
+                }
+                if (othersCount > 0 && !isUserAtBottom) {
+                    pendingNewMsgCount += othersCount;
+                    updateNewMessagesIndicator(pendingNewMsgCount);
                 }
             }
         });
@@ -633,18 +632,34 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void observePagedMessages() {
-        Pager<Integer, MessageEntity> pager = new Pager<>(
-                new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
-                () -> db.messageDao().getMessagesPagingSource(groupId)
-        );
+        // ROOT-CAUSE FIX (same bug as ChatActivity — see its observePagedMessages()
+        // comment for full explanation): without an initialKey, Paging 3 always
+        // loads its first page from offset 0 of the ASC-ordered query, i.e. the
+        // OLDEST group messages, not the latest. stackFromEnd(true) then anchors
+        // that old batch's last row at the screen bottom — not the true latest
+        // message. Fix: look up the row count and pass (count - 1) as the
+        // initialKey so Room's PagingSource centers its first load around the
+        // END of the table, guaranteeing the real latest message is included.
+        ioExecutor.execute(() -> {
+            int count = db.messageDao().getMessageCount(groupId);
+            Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                Pager<Integer, MessageEntity> pager = new Pager<>(
+                        new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
+                        initialKey,
+                        () -> db.messageDao().getMessagesPagingSource(groupId)
+                );
 
-        androidx.lifecycle.Transformations.map(
-                PagingLiveData.getLiveData(pager),
-                pagingData -> PagingDataTransforms.map(
-                        pagingData, ioExecutor, GroupChatActivity::entityToModel)
-        ).observe(this, pagingData ->
-                pagingAdapter.submitData(getLifecycle(), pagingData)
-        );
+                androidx.lifecycle.Transformations.map(
+                        PagingLiveData.getLiveData(pager),
+                        pagingData -> PagingDataTransforms.map(
+                                pagingData, ioExecutor, GroupChatActivity::entityToModel)
+                ).observe(this, pagingData ->
+                        pagingAdapter.submitData(getLifecycle(), pagingData)
+                );
+            });
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1475,42 +1490,15 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void restoreScrollOrGoToUnread() {
+        // Chat-open scroll behaviour: ZERO programmatic scroll calls — see
+        // ChatActivity's restoreScrollOrGoToUnread() comment for full
+        // reasoning. stackFromEnd(true) alone anchors the bottom message
+        // on first layout; we only reset indicator/state here.
         if (pagingAdapter == null || binding == null) return;
-        int total = pagingAdapter.getItemCount();
-        if (total == 0) return;
-        android.content.SharedPreferences prefs = getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE);
-        long savedLastTs = prefs.getLong("lastTs_" + groupId, 0);
-        int savedPos     = prefs.getInt("pos_" + groupId, -1);
-        int savedOffset  = prefs.getInt("off_" + groupId, 0);
-        if (savedLastTs > 0) {
-            int newCount = 0;
-            for (int i = total - 1; i >= 0; i--) {
-                com.callx.app.models.Message m = pagingAdapter.peek(i);
-                if (m == null) continue;
-                long ts = (m.timestamp != null) ? m.timestamp : 0L;
-                if (ts <= savedLastTs) break;
-                if (m.senderId != null && !m.senderId.equals(currentUid)) newCount++;
-            }
-            if (newCount > 0) {
-                int firstUnreadPos = Math.max(0, total - newCount);
-                LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
-                if (llm2 != null) llm2.scrollToPositionWithOffset(firstUnreadPos, 0);
-                pendingNewMsgCount = newCount;
-                updateNewMessagesIndicator(newCount);
-                isUserAtBottom = false;
-                return;
-            }
-        }
-        if (savedPos >= 0 && savedPos < total - 3) {
-            LinearLayoutManager llm2 = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
-            if (llm2 != null) llm2.scrollToPositionWithOffset(savedPos, savedOffset);
-            // Critical: mark NOT at bottom so subsequent onItemRangeInserted calls
-            // don't override our restored position with an auto-scroll to the end.
-            isUserAtBottom = false;
-        } else {
-            // stackFromEnd placed us at bottom — allow auto-scroll on new inserts.
-            isUserAtBottom = true;
-        }
+        if (pagingAdapter.getItemCount() == 0) return;
+        pendingNewMsgCount = 0;
+        hideNewMessagesIndicator();
+        isUserAtBottom = true;
     }
 
     private void updateNewMessagesIndicator(int count) {
