@@ -14,7 +14,10 @@ import java.util.Map;
  *
  * Chat screen par B ko ek special "🎬 Watched your reel" bubble dikhta hai —
  * bilkul status_seen bubble jaisa — with A ka circular avatar, reel thumbnail
- * (tappable → opens reel), aur time.
+ * (tappable → opens reel), aur time. Sirf B (owner) ko dikhta hai — A (viewer)
+ * ko kabhi nahi, even though same Firebase node dono load karte hain. See
+ * MessageAdapter / MessagePagingAdapter getItemViewType() — wahan
+ * reelOwnerUid se decide hota hai kis user ko bubble render karna hai.
  *
  * Firebase path: messages/{chatId}/{msgId}
  *   (same node jo ChatActivity sun raha hai — "messages/{chatId}")
@@ -30,11 +33,33 @@ import java.util.Map;
  *   reelThumbUrl  — reel thumbnail URL (shown in bubble)
  *   timestamp     — ServerValue.TIMESTAMP
  *   seen          — false  (no unread badge — system event)
- *   reelOwnerUid  — owner UID (B) — both sides can filter if needed
+ *   reelOwnerUid  — owner UID (B) — used by chat adapters to gate visibility
  *
- * Dedup: within 1 hour per reelId — prevents flooding if user rewinds/re-opens.
- * Unlike status_seen (24h global dedup), reel dedup is per-reel so each reel
- * the viewer watches shows its own bubble.
+ * GATING (IMPORTANT — read before changing):
+ *   We only write a bubble if the viewer (A) and the owner (B) already have
+ *   an existing contact/chat relationship — i.e. contacts/{A}/{B} exists.
+ *   Without this gate, casually scrolling through reels from creators you've
+ *   never messaged would silently create a brand-new phantom chat thread in
+ *   Firebase for every single reel watched, plus 3 Firebase calls per view
+ *   (dedup read + profile read + write) — pure spam, since that chat would
+ *   never even surface in the viewer's or owner's inbox (ChatsFragment reads
+ *   from contacts/{uid}/{partnerUid}, which ReelSeenTracker never touches).
+ *
+ *   We check contacts/{A}/{B} (the VIEWER's own subtree) rather than
+ *   contacts/{B}/{A} (the owner's) because it's always readable — it's the
+ *   logged-in user's own data — regardless of how Firebase rules restrict
+ *   reads of other users' contact lists. Contacts are written bidirectionally
+ *   by ChatMessageSender on first real message, so checking either side's
+ *   copy is equivalent.
+ *
+ * DEDUP (IMPORTANT — read before changing):
+ *   Old approach scanned the last 5 chat messages with an orderByChild query
+ *   on every single reel view — expensive and pointless extra read. Now uses
+ *   one direct key: reelSeenDedup/{viewerUid}/{reelId} → last-bubbled-at ms.
+ *   Window: 1 hour per reelId per viewer — prevents flooding if user
+ *   rewinds/re-opens the same reel. Unlike status_seen (24h global dedup),
+ *   reel dedup is per-reel so each reel the viewer watches shows its own
+ *   bubble.
  */
 public final class ReelSeenTracker {
 
@@ -55,74 +80,101 @@ public final class ReelSeenTracker {
         String myUid = safeUid();
         if (myUid == null || myUid.equals(ownerUid)) return; // don't bubble own views
 
-        // Deterministic chatId — same algo as ChatActivity
-        String chatId = myUid.compareTo(ownerUid) < 0
-                ? myUid + "_" + ownerUid
-                : ownerUid + "_" + myUid;
-
-        // Path MUST match ChatActivity's messagesRef: "messages/{chatId}"
-        com.google.firebase.database.DatabaseReference messagesRef =
-                FirebaseUtils.db()
-                    .getReference("messages")
-                    .child(chatId);
-
         final String finalThumb = reelThumbUrl != null ? reelThumbUrl : "";
 
-        // Dedup check: find last reel_seen from this viewer for this specific reelId
-        messagesRef.orderByChild("timestamp").limitToLast(5)
+        // GATE: only bubble if we already have a chat relationship with the
+        // owner. Reading our OWN contacts subtree — cheap, always allowed,
+        // and equivalent to checking the owner's copy (written both ways).
+        FirebaseUtils.getContactsRef(myUid).child(ownerUid)
             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
                 @Override
-                public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
-                    long now = System.currentTimeMillis();
-
-                    for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
-                        String lastType   = child.child("type").getValue(String.class);
-                        String lastSender = child.child("senderId").getValue(String.class);
-                        String lastReel   = child.child("reelId").getValue(String.class);
-                        Long   lastTs     = child.child("timestamp").getValue(Long.class);
-
-                        if ("reel_seen".equals(lastType)
-                                && myUid.equals(lastSender)
-                                && reelId.equals(lastReel)
-                                && lastTs != null
-                                && (now - lastTs) < DEDUP_WINDOW_MS) {
-                            return; // same reel already seen within 1h — skip
-                        }
-                    }
-
-                    // Fetch viewer's name + photo, then write
-                    FirebaseUtils.db()
-                        .getReference("users")
-                        .child(myUid)
-                        .addListenerForSingleValueEvent(
-                            new com.google.firebase.database.ValueEventListener() {
-                                @Override
-                                public void onDataChange(
-                                        com.google.firebase.database.DataSnapshot userSnap) {
-                                    String viewerName  = userSnap.child("name").getValue(String.class);
-                                    String viewerPhoto = userSnap.child("photoUrl").getValue(String.class);
-                                    if (viewerPhoto == null)
-                                        viewerPhoto = userSnap.child("thumbUrl").getValue(String.class);
-                                    doWrite(messagesRef, myUid,
-                                            viewerName  != null ? viewerName  : "Someone",
-                                            viewerPhoto != null ? viewerPhoto : "",
-                                            ownerUid, reelId, finalThumb);
-                                }
-                                @Override
-                                public void onCancelled(
-                                        com.google.firebase.database.DatabaseError e) {
-                                    doWrite(messagesRef, myUid, "Someone", "",
-                                            ownerUid, reelId, finalThumb);
-                                }
-                            });
+                public void onDataChange(com.google.firebase.database.DataSnapshot contactSnap) {
+                    if (!contactSnap.exists()) return; // never chatted — skip, no writes at all
+                    checkDedupAndWrite(myUid, ownerUid, reelId, finalThumb);
                 }
 
                 @Override
                 public void onCancelled(com.google.firebase.database.DatabaseError e) {
-                    // Dedup check failed — write anyway (safe, user sees bubble)
-                    doWrite(messagesRef, myUid, "Someone", "", ownerUid, reelId, finalThumb);
+                    // Can't confirm the relationship — fail closed (skip) so a
+                    // transient read error never turns into phantom-thread spam.
                 }
             });
+    }
+
+    /**
+     * Cheap dedup via a single direct key read — no ordered query / scan.
+     * Path: reelSeenDedup/{viewerUid}/{reelId} → last-bubbled-at (client ms).
+     */
+    private static void checkDedupAndWrite(
+            String myUid, String ownerUid, String reelId, String finalThumb) {
+
+        com.google.firebase.database.DatabaseReference dedupRef =
+                FirebaseUtils.db()
+                    .getReference("reelSeenDedup")
+                    .child(myUid)
+                    .child(reelId);
+
+        dedupRef.addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+            @Override
+            public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
+                long now = System.currentTimeMillis();
+                Long lastTs = snap.getValue(Long.class);
+                if (lastTs != null && (now - lastTs) < DEDUP_WINDOW_MS) {
+                    return; // same reel already bubbled within 1h — skip
+                }
+                dedupRef.setValue(now);
+
+                // Deterministic chatId — same algo as ChatActivity
+                String chatId = myUid.compareTo(ownerUid) < 0
+                        ? myUid + "_" + ownerUid
+                        : ownerUid + "_" + myUid;
+
+                // Path MUST match ChatActivity's messagesRef: "messages/{chatId}"
+                com.google.firebase.database.DatabaseReference messagesRef =
+                        FirebaseUtils.db()
+                            .getReference("messages")
+                            .child(chatId);
+
+                // Fetch viewer's name + photo, then write
+                FirebaseUtils.db()
+                    .getReference("users")
+                    .child(myUid)
+                    .addListenerForSingleValueEvent(
+                        new com.google.firebase.database.ValueEventListener() {
+                            @Override
+                            public void onDataChange(
+                                    com.google.firebase.database.DataSnapshot userSnap) {
+                                String viewerName  = userSnap.child("name").getValue(String.class);
+                                String viewerPhoto = userSnap.child("photoUrl").getValue(String.class);
+                                if (viewerPhoto == null)
+                                    viewerPhoto = userSnap.child("thumbUrl").getValue(String.class);
+                                doWrite(messagesRef, myUid,
+                                        viewerName  != null ? viewerName  : "Someone",
+                                        viewerPhoto != null ? viewerPhoto : "",
+                                        ownerUid, reelId, finalThumb);
+                            }
+                            @Override
+                            public void onCancelled(
+                                    com.google.firebase.database.DatabaseError e) {
+                                doWrite(messagesRef, myUid, "Someone", "",
+                                        ownerUid, reelId, finalThumb);
+                            }
+                        });
+            }
+
+            @Override
+            public void onCancelled(com.google.firebase.database.DatabaseError e) {
+                // Dedup check failed — write anyway (safe, user sees bubble;
+                // worst case is one extra bubble, not a phantom thread since
+                // the contacts gate above already confirmed a real relationship).
+                String chatId = myUid.compareTo(ownerUid) < 0
+                        ? myUid + "_" + ownerUid
+                        : ownerUid + "_" + myUid;
+                com.google.firebase.database.DatabaseReference messagesRef =
+                        FirebaseUtils.db().getReference("messages").child(chatId);
+                doWrite(messagesRef, myUid, "Someone", "", ownerUid, reelId, finalThumb);
+            }
+        });
     }
 
     /** Push the reel_seen message node. */
