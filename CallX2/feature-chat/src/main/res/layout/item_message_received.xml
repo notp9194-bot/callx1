@@ -465,8 +465,9 @@
                         android:layout_marginTop="6dp"/>
                 </LinearLayout>
 
-                <!-- Footer: star + time + status — floats as a pill over bottom-right corner -->
+                <!-- Footer: time pill — received messages have no tick pill -->
                 <LinearLayout
+                    android:id="@+id/ll_time_pill"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="bottom|end"
@@ -494,19 +495,20 @@
                         android:layout_height="wrap_content"
                         android:text="⭐"
                         android:textSize="9sp"
-                        android:layout_marginEnd="3dp"
+                        android:layout_marginEnd="2dp"
                         android:visibility="gone"/>
                     <TextView
                         android:id="@+id/tv_time"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textColor="#FFFFFF"
-                        android:textSize="11sp"/>
+                        android:textSize="9sp"/>
+                    <!-- tv_status kept here (gone always for received) so VH find doesn't NPE -->
                     <TextView
                         android:id="@+id/tv_status"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="18sp"
+                        android:textSize="14sp"
                         android:visibility="gone"/>
                 </LinearLayout>
 

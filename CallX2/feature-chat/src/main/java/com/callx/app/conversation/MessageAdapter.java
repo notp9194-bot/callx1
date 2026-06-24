@@ -86,6 +86,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     }
 
     private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2, TYPE_STATUS_SEEN = 3, TYPE_REEL_SEEN = 4, TYPE_HIDDEN = 5;
+
+    /** Payload key for partial bind — only tick pill is updated, time pill stays intact. */
+    public static final String TICK_PAYLOAD = "TICK_PAYLOAD";
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
 
@@ -100,6 +103,22 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     }
 
     public void setActionListener(ActionListener l) { this.actionListener = l; }
+
+    /**
+     * Update only the tick pill of a message identified by its Firebase ID.
+     * Calls notifyItemChanged with TICK_PAYLOAD → only tv_status is redrawn,
+     * time pill is never touched → zero flicker.
+     */
+    public void updateMessageStatus(String messageId, String newStatus) {
+        for (int i = 0; i < messages.size(); i++) {
+            Message m = messages.get(i);
+            if (messageId != null && messageId.equals(m.id)) {
+                m.status = newStatus;
+                notifyItemChanged(i, TICK_PAYLOAD);
+                return;
+            }
+        }
+    }
 
     @Override public int getItemViewType(int pos) {
         Message m = messages.get(pos);
@@ -127,6 +146,17 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         else                                layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         return new VH(v);
+    }
+
+    @Override public void onBindViewHolder(@NonNull VH h, int pos,
+                                           @NonNull java.util.List<Object> payloads) {
+        if (!payloads.isEmpty() && payloads.contains(TICK_PAYLOAD)) {
+            // Partial bind — only update the tick pill, leave time pill alone
+            Message m = messages.get(pos);
+            bindTickOnly(h, m);
+            return;
+        }
+        onBindViewHolder(h, pos);
     }
 
     @Override public void onBindViewHolder(@NonNull VH h, int pos) {
@@ -824,6 +854,44 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             });
     }
 
+    /**
+     * Partial bind — updates ONLY the tick pill (tv_status + ll_tick_pill).
+     * Called both from bindFooter() and from the payload-based onBindViewHolder().
+     * Time pill is never touched here → no flicker, no unnecessary layout pass.
+     */
+    private void bindTickOnly(VH h, Message m) {
+        if (h.tvStatus == null) return;
+        // Tick only shown for sent messages (received messages have tvStatus GONE in XML)
+        // Detect sent by checking if ll_tick_pill exists (sent layout has it, received doesn't)
+        if (h.llTickPill != null) {
+            // Sent bubble
+            h.tvStatus.setVisibility(View.VISIBLE);
+            switch (m.status == null ? "sent" : m.status) {
+                case "read":
+                    h.tvStatus.setText("\u2713\u2713 ");
+                    h.tvStatus.setTextSize(14f);
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
+                    break;
+                case "delivered":
+                    h.tvStatus.setText("\u2713\u2713");
+                    h.tvStatus.setTextSize(14f);
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                    break;
+                default: // "sent" or null
+                    h.tvStatus.setText("\u2713");
+                    h.tvStatus.setTextSize(14f);
+                    h.tvStatus.setTextColor(
+                        com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                    break;
+            }
+        } else {
+            // Received bubble — no tick
+            h.tvStatus.setVisibility(View.GONE);
+        }
+    }
+
         private void bindFooter(VH h, Message m, boolean sent) {
         if (h.tvTime != null && m.timestamp != null)
             h.tvTime.setText(timeFmt.format(new Date(m.timestamp)));
@@ -832,33 +900,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             h.tvStarredIcon.setVisibility(
                     Boolean.TRUE.equals(m.starred) ? View.VISIBLE : View.GONE);
 
-        if (h.tvStatus != null) {
-            if (sent) {
-                h.tvStatus.setVisibility(View.VISIBLE);
-                switch (m.status == null ? "sent" : m.status) {
-                    case "read":
-                        h.tvStatus.setText("\u2713\u2713 ");
-                        h.tvStatus.setTextSize(14f);
-                        h.tvStatus.setTextColor(
-                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
-                        break;
-                    case "delivered":
-                        h.tvStatus.setText("\u2713\u2713");
-                        h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(
-                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
-                        break;
-                    default:
-                        h.tvStatus.setText("\u2713");
-                        h.tvStatus.setTextSize(13f);
-                        h.tvStatus.setTextColor(
-                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
-                        break;
-                }
-            } else {
-                h.tvStatus.setVisibility(View.GONE);
-            }
-        }
+        bindTickOnly(h, m);
 
         // ── Disappearing message countdown ────────────────────────────────
         if (h.activeCountDown != null) {
@@ -1320,6 +1362,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         CountDownTimer  activeCountDown;
         // ── Quick Forward Button ──
         android.widget.ImageButton btnQuickForward;
+        // ── Separate tick pill (sent layout only) ──
+        LinearLayout llTickPill;
 
         VH(View v) {
             super(v);
@@ -1356,6 +1400,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
             tvExpiry       = v.findViewById(R.id.tv_expiry);
             btnQuickForward = v.findViewById(R.id.btn_quick_forward);
+            llTickPill      = v.findViewById(R.id.ll_tick_pill);
         }
     }
 }

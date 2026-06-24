@@ -467,12 +467,14 @@
                 android:layout_marginTop="6dp"/>
         </LinearLayout>
 
-        <!-- Footer: star + time + status — floats as a pill over bottom-right corner -->
+        <!-- Footer: two separate pills — time pill (left) + tick pill (right) -->
+        <!-- Time pill: star + expiry + time — static, never changes after bind -->
         <LinearLayout
+            android:id="@+id/ll_time_pill"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="58dp"
             android:layout_marginBottom="4dp"
             android:layout_marginTop="-20dp"
             android:orientation="horizontal"
@@ -496,20 +498,37 @@
                 android:layout_height="wrap_content"
                 android:text="⭐"
                 android:textSize="9sp"
-                android:layout_marginEnd="3dp"
+                android:layout_marginEnd="2dp"
                 android:visibility="gone"/>
             <TextView
                 android:id="@+id/tv_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#FFFFFF"
-                android:textSize="11sp"/>
+                android:textSize="9sp"/>
+        </LinearLayout>
+
+        <!-- Tick pill: only status tick — updated via payload, time pill untouched -->
+        <LinearLayout
+            android:id="@+id/ll_tick_pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="6dp"
+            android:layout_marginBottom="4dp"
+            android:layout_marginTop="-20dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_tick_pill"
+            android:paddingStart="5dp"
+            android:paddingEnd="5dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp">
             <TextView
                 android:id="@+id/tv_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="18sp"
-                android:paddingStart="3dp"
+                android:textSize="14sp"
                 android:visibility="gone"/>
         </LinearLayout>
 
