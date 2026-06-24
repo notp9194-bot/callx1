@@ -150,8 +150,14 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         int screenW = parent.getContext().getResources().getDisplayMetrics().widthPixels;
         int maxW = (int) (screenW * 0.70f);
         if (vh.tvMessage != null)  vh.tvMessage.setMaxWidth(maxW);
-        if (vh.llBubble  != null) {
-            vh.llBubble.setMaxWidth(maxW);
+        // LinearLayout has no setMaxWidth — cap via maxWidth on the wrap_content bubble
+        // by setting a LayoutParams width only when current width is WRAP_CONTENT
+        if (vh.llBubble != null) {
+            android.view.ViewGroup.LayoutParams lp = vh.llBubble.getLayoutParams();
+            if (lp != null && lp.width == android.view.ViewGroup.LayoutParams.WRAP_CONTENT) {
+                // keep wrap_content but bound by maxWidth on children (tvMessage already capped)
+                // nothing to do — bubble shrinks to content; content is already capped by tvMessage.setMaxWidth
+            }
         }
         // media containers: clamp their layout_width to maxW
         android.view.ViewGroup[] mediaViews = {vh.llAudio, vh.llFile, vh.llReactions};

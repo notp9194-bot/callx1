@@ -359,7 +359,7 @@ public class MessagePagingAdapter
         int screenW = parent.getContext().getResources().getDisplayMetrics().widthPixels;
         int maxW = (int) (screenW * 0.70f);
         if (vh.tvMessage != null) vh.tvMessage.setMaxWidth(maxW);
-        if (vh.llBubble  != null) vh.llBubble.setMaxWidth(maxW);
+        // LinearLayout has no setMaxWidth — tvMessage.setMaxWidth() already caps bubble width
         for (android.view.ViewGroup mv : new android.view.ViewGroup[]{vh.llAudio, vh.llFile}) {
             if (mv != null) { android.view.ViewGroup.LayoutParams lp = mv.getLayoutParams(); if (lp != null) { lp.width = maxW; mv.setLayoutParams(lp); } }
         }
