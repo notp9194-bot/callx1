@@ -56,7 +56,18 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="end">
+        android:gravity="end|center_vertical">
+
+        <!-- Quick Forward Button — sent messages pe bubble ke left side pe -->
+        <ImageButton
+            android:id="@+id/btn_quick_forward"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_forward_msg"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:layout_marginEnd="4dp"
+            android:contentDescription="Forward"
+            android:visibility="gone"/>
 
         <LinearLayout
             android:id="@+id/ll_bubble"

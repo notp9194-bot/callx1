@@ -109,15 +109,6 @@ public class ReelCameraActivity extends AppCompatActivity {
     private String preSelectedSoundTitle = "";
     private String preSelectedSoundUrl   = "";
 
-    // ── Original Audio volume panel (shown when "Use in Camera" sends audio) ──
-    private android.widget.LinearLayout llAudioVolumePanel;
-    private android.widget.SeekBar      seekCameraOrigVol;
-    private android.widget.SeekBar      seekCameraMicVol;
-    private android.widget.TextView     tvCameraOrigVolLabel;
-    private android.widget.TextView     tvCameraMicVolLabel;
-    private float cameraOrigVol = 0.8f;  // 80% default
-    private float cameraMicVol  = 1.0f;  // 100% default
-
     // ✅ NEW: When true, mic audio is fully replaced by selected sound URL (no mixing).
     // Set when user comes from SoundDetailActivity → "Use in Camera".
     private boolean replaceAudioWithSound = false;
@@ -166,13 +157,6 @@ public class ReelCameraActivity extends AppCompatActivity {
         btnDrafts         = findViewById(R.id.btn_camera_drafts);
         btnCameraText     = findViewById(R.id.btn_camera_text);
         btnCameraStickers = findViewById(R.id.btn_camera_stickers);
-
-        // Volume panel (shown when original audio comes from "Use in Camera")
-        llAudioVolumePanel   = findViewById(R.id.ll_audio_volume_panel);
-        seekCameraOrigVol    = findViewById(R.id.seek_camera_orig_vol);
-        seekCameraMicVol     = findViewById(R.id.seek_camera_mic_vol);
-        tvCameraOrigVolLabel = findViewById(R.id.tv_camera_orig_vol_label);
-        tvCameraMicVolLabel  = findViewById(R.id.tv_camera_mic_vol_label);
 
         // ✅ NEW: Inject a transparent filter-tint overlay above the camera preview,
         // so live filters / text / stickers are visible WHILE recording (not just in editor).
@@ -240,46 +224,6 @@ public class ReelCameraActivity extends AppCompatActivity {
             btnCameraMusic.setContentDescription(preSelectedSoundTitle);
             Toast.makeText(this,
                 "Sound ready: " + preSelectedSoundTitle, Toast.LENGTH_SHORT).show();
-        }
-
-        // Show volume panel when original audio is pre-selected (from "Use in Camera")
-        if (!preSelectedSoundUrl.isEmpty() && llAudioVolumePanel != null) {
-            llAudioVolumePanel.setVisibility(View.VISIBLE);
-
-            // Update panel label with sound title
-            android.widget.TextView tvLabel = findViewById(R.id.tv_audio_panel_label);
-            if (tvLabel != null && !preSelectedSoundTitle.isEmpty())
-                tvLabel.setText("🎵 " + preSelectedSoundTitle);
-
-            // Original audio volume slider
-            if (seekCameraOrigVol != null) {
-                seekCameraOrigVol.setProgress(80);
-                seekCameraOrigVol.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-                    @Override
-                    public void onProgressChanged(android.widget.SeekBar sb, int progress, boolean fromUser) {
-                        cameraOrigVol = progress / 100f;
-                        if (tvCameraOrigVolLabel != null)
-                            tvCameraOrigVolLabel.setText("Original audio: " + progress + "%");
-                    }
-                    @Override public void onStartTrackingTouch(android.widget.SeekBar sb) {}
-                    @Override public void onStopTrackingTouch(android.widget.SeekBar sb) {}
-                });
-            }
-
-            // Mic volume slider
-            if (seekCameraMicVol != null) {
-                seekCameraMicVol.setProgress(100);
-                seekCameraMicVol.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-                    @Override
-                    public void onProgressChanged(android.widget.SeekBar sb, int progress, boolean fromUser) {
-                        cameraMicVol = progress / 100f;
-                        if (tvCameraMicVolLabel != null)
-                            tvCameraMicVolLabel.setText("Mic: " + progress + "%");
-                    }
-                    @Override public void onStartTrackingTouch(android.widget.SeekBar sb) {}
-                    @Override public void onStopTrackingTouch(android.widget.SeekBar sb) {}
-                });
-            }
         }
     }
 
@@ -447,11 +391,6 @@ public class ReelCameraActivity extends AppCompatActivity {
         if (!preSelectedSoundUrl.isEmpty())   intent.putExtra("selected_sound_url",   preSelectedSoundUrl);
         // If audio was already replaced at camera stage, tell upload NOT to mix again
         if (replaceAudioWithSound)            intent.putExtra("audio_already_replaced", true);
-        // Pass camera volume slider values → ReelEditorActivity → ReelAudioMixerActivity
-        if (!preSelectedSoundUrl.isEmpty()) {
-            intent.putExtra("camera_orig_vol", cameraOrigVol);
-            intent.putExtra("camera_mic_vol",  cameraMicVol);
-        }
 
         // ✅ NEW: Carry the live-applied filter + text/sticker overlays into the editor
         if (filterName != null && !filterName.isEmpty() && !filterName.equals("Normal")) {

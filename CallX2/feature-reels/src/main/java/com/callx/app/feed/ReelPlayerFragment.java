@@ -47,17 +47,9 @@ public class ReelPlayerFragment extends Fragment
     private static final float[] SPEED_STEPS  = {0.5f, 1.0f, 1.5f, 2.0f};
     private static final String[] SPEED_LABELS = {"0.5×", "1×", "1.5×", "2×"};
 
-    // Request code for gallery picker launched from OriginalAudioOptionsSheet
-    private static final int REQ_GALLERY_WITH_AUDIO = 8801;
-
     // ── Shared state ──────────────────────────────────────────────────────
     private ReelModel reel;
     private boolean   isVisible = false;
-
-    // Pending audio to pre-select when editor opens from gallery pick
-    private String pendingAudioUrl   = "";
-    private String pendingAudioTitle = "";
-    private String pendingAudioId    = "";
 
     // ── Controllers ───────────────────────────────────────────────────────
     private ReelPlayerController         playerController;
@@ -396,96 +388,8 @@ public class ReelPlayerFragment extends Fragment
     @Override public void openCollabRepost()       { duetController.openCollabRepost(); }
     @Override public void openBookmarkCollections() { duetController.openBookmarkCollections(); }
     @Override public void openSoundDetail()        { duetController.openSoundDetail(); }
-    @Override public void openOriginalAudioOptions() {
-        if (!isAdded() || reel == null) return;
-
-        // Pick the best audio URL: originalAudioUrl first, else fallback to videoUrl
-        String audioUrl = (reel.originalAudioUrl != null && !reel.originalAudioUrl.isEmpty())
-            ? reel.originalAudioUrl : (reel.videoUrl != null ? reel.videoUrl : "");
-
-        com.callx.app.feed.OriginalAudioOptionsSheet sheet =
-            com.callx.app.feed.OriginalAudioOptionsSheet.newInstance(
-                reel.musicName,
-                reel.musicArtist,
-                reel.musicCoverUrl,
-                audioUrl,
-                reel.reelId,
-                reel.ownerName);
-
-        sheet.setListener(new com.callx.app.feed.OriginalAudioOptionsSheet.Listener() {
-            @Override
-            public void onVolumeChanged(float volume) {
-                playerController.setVolume(volume);
-            }
-
-            @Override
-            public void onUseInCamera(String url, String soundTitle, String soundId) {
-                // Open ReelCameraActivity with this audio pre-selected
-                // Camera will pass it to ReelEditorActivity → ReelAudioMixerActivity
-                if (getActivity() == null) return;
-                android.content.Intent i = new android.content.Intent(
-                    getActivity(), com.callx.app.camera.ReelCameraActivity.class);
-                i.putExtra("selected_sound_id",    soundId);
-                i.putExtra("selected_sound_title", soundTitle);
-                i.putExtra("selected_sound_url",   url);
-                startActivity(i);
-            }
-
-            @Override
-            public void onUseInGallery(String url, String soundTitle, String soundId) {
-                // Open gallery video picker; result will launch ReelEditorActivity
-                // with audio pre-selected so AudioMixer shows volume sliders
-                if (getActivity() == null) return;
-                // Store audio extras to attach when editor opens
-                pendingAudioUrl   = url;
-                pendingAudioTitle = soundTitle;
-                pendingAudioId    = soundId;
-
-                android.content.Intent pick = new android.content.Intent(
-                    android.content.Intent.ACTION_GET_CONTENT);
-                pick.setType("video/*");
-                pick.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, false);
-                startActivityForResult(
-                    android.content.Intent.createChooser(pick, "Select video"),
-                    REQ_GALLERY_WITH_AUDIO);
-            }
-        });
-        sheet.show(getChildFragmentManager(), com.callx.app.feed.OriginalAudioOptionsSheet.TAG);
-    }
     @Override public void openUserReels()          { duetController.openUserReels(); }
     @Override public void openOwnerStatus()        { duetController.openOwnerStatus(); }
     @Override public void confirmDeleteReel()      { duetController.confirmDeleteReel(); }
     @Override public void blockReelOwner()         { duetController.blockReelOwner(); }
-
-    // ── Gallery pick result (from Use in Gallery in OriginalAudioOptionsSheet) ──
-
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, @androidx.annotation.Nullable android.content.Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQ_GALLERY_WITH_AUDIO
-                && resultCode == android.app.Activity.RESULT_OK
-                && data != null
-                && getActivity() != null) {
-
-            android.net.Uri videoUri = data.getData();
-            if (videoUri == null) return;
-
-            // Open ReelEditorActivity with the selected video + pre-selected original audio
-            // Editor will pass selected_sound_* to ReelAudioMixerActivity
-            android.content.Intent i = new android.content.Intent(
-                getActivity(), com.callx.app.editor.ReelEditorActivity.class);
-            i.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_VIDEO_URI,    videoUri.toString());
-            i.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_IS_FILE_PATH, false);
-            // Pre-select the original audio so AudioMixer opens with it + volume sliders
-            i.putExtra("selected_sound_id",    pendingAudioId);
-            i.putExtra("selected_sound_title", pendingAudioTitle);
-            i.putExtra("selected_sound_url",   pendingAudioUrl);
-            startActivity(i);
-
-            // Clear pending
-            pendingAudioUrl   = "";
-            pendingAudioTitle = "";
-            pendingAudioId    = "";
-        }
-    }
 }

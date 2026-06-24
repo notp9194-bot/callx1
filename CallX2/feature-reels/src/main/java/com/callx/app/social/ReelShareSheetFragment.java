@@ -6,12 +6,24 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ProgressBar;
 import android.widget.Toast;
+
+import androidx.core.content.FileProvider;
+
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.target.CustomTarget;
+import com.bumptech.glide.request.transition.Transition;
+
+import java.io.File;
+import java.io.FileOutputStream;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -258,11 +270,70 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     }
 
     private void shareExternal() {
-        String link = DEEP_LINK_PREFIX + reelId;
-        String text = (caption != null && !caption.isEmpty()) ? caption + "\n" + link : link;
+        final String link = DEEP_LINK_PREFIX + reelId;
+        final String shareText = (caption != null && !caption.isEmpty())
+                ? caption + "\n" + link
+                : link;
+
+        // Thumbnail available hai — Glide se download karke image+text share karo
+        if (thumbUrl != null && !thumbUrl.isEmpty() && isAdded() && getContext() != null) {
+            Glide.with(requireContext())
+                    .asBitmap()
+                    .load(thumbUrl)
+                    .into(new CustomTarget<Bitmap>() {
+                        @Override
+                        public void onResourceReady(@NonNull Bitmap bitmap,
+                                                    @Nullable Transition<? super Bitmap> transition) {
+                            if (!isAdded() || getContext() == null) return;
+                            try {
+                                // Cache dir mein thumbnail save karo
+                                File cacheDir = new File(requireContext().getCacheDir(), "reel_shares");
+                                //noinspection ResultOfMethodCallIgnored
+                                cacheDir.mkdirs();
+                                File imgFile = new File(cacheDir, "reel_thumb_" + reelId + ".jpg");
+                                FileOutputStream fos = new FileOutputStream(imgFile);
+                                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, fos);
+                                fos.flush();
+                                fos.close();
+
+                                // FileProvider content:// URI (file:// Android 7+ pe block hai)
+                                Uri imageUri = FileProvider.getUriForFile(
+                                        requireContext(),
+                                        requireContext().getPackageName() + ".fileprovider",
+                                        imgFile);
+
+                                Intent intent = new Intent(Intent.ACTION_SEND);
+                                intent.setType("image/jpeg");
+                                intent.putExtra(Intent.EXTRA_STREAM, imageUri);
+                                intent.putExtra(Intent.EXTRA_TEXT, shareText);
+                                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                startActivity(Intent.createChooser(intent, "Share Reel via…"));
+                                incrementShareCount();
+                                dismiss();
+                            } catch (Exception e) {
+                                shareExternalTextOnly(shareText);
+                            }
+                        }
+
+                        @Override
+                        public void onLoadCleared(@Nullable Drawable placeholder) {}
+
+                        @Override
+                        public void onLoadFailed(@Nullable Drawable errorDrawable) {
+                            shareExternalTextOnly(shareText);
+                        }
+                    });
+        } else {
+            shareExternalTextOnly(shareText);
+        }
+    }
+
+    /** Fallback: sirf text+link share (no image) */
+    private void shareExternalTextOnly(String shareText) {
+        if (!isAdded()) return;
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");
-        intent.putExtra(Intent.EXTRA_TEXT, text);
+        intent.putExtra(Intent.EXTRA_TEXT, shareText);
         startActivity(Intent.createChooser(intent, "Share Reel via…"));
         incrementShareCount();
         dismiss();

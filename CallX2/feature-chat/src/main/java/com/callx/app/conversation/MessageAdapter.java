@@ -173,6 +173,21 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             if (fwd) h.tvForwarded.setText("\u21AA Forwarded from " + m.forwardedFrom);
         }
 
+        // ── Quick Forward Button — image/video/audio/file/link messages pe dikhega ──
+        if (h.btnQuickForward != null) {
+            String mt = m.type != null ? m.type : "text";
+            boolean showFwdBtn = mt.equals("image") || mt.equals("video") || mt.equals("audio")
+                    || mt.equals("file") || mt.equals("reel_share")
+                    || (mt.equals("text") && m.text != null
+                        && (m.text.contains("http://") || m.text.contains("https://")));
+            h.btnQuickForward.setVisibility(showFwdBtn ? View.VISIBLE : View.GONE);
+            if (showFwdBtn) {
+                h.btnQuickForward.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onForward(m);
+                });
+            }
+        }
+
         // Group sender avatar (received only)
         if (h.ivSenderAvatar != null) {
             boolean showAvatar = isGroup && !sent && m.senderId != null;
@@ -1303,6 +1318,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         // ── Disappearing messages ──
         TextView        tvExpiry;
         CountDownTimer  activeCountDown;
+        // ── Quick Forward Button ──
+        android.widget.ImageButton btnQuickForward;
 
         VH(View v) {
             super(v);
@@ -1338,6 +1355,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvLinkDescription = v.findViewById(R.id.tv_link_description);
             ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
             tvExpiry       = v.findViewById(R.id.tv_expiry);
+            btnQuickForward = v.findViewById(R.id.btn_quick_forward);
         }
     }
 }

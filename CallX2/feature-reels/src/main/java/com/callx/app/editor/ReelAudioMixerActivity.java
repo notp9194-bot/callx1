@@ -97,12 +97,6 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         String musicTitle  = getIntent().getStringExtra(EXTRA_MUSIC_TITLE);
         String musicArtist = getIntent().getStringExtra(EXTRA_MUSIC_ARTIST);
 
-        // Pre-fill volumes from camera sliders (set by "Use in Camera" flow)
-        float presetOrigVol = getIntent().getFloatExtra("preset_orig_vol", -1f);
-        float presetMicVol  = getIntent().getFloatExtra("preset_mic_vol",  -1f);
-        if (presetOrigVol >= 0) origVol      = presetOrigVol;
-        if (presetMicVol  >= 0) voiceoverVol = presetMicVol;
-
         bindViews();
         populateMusicInfo(musicTitle, musicArtist);
         setupPlayer();
