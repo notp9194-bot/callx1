@@ -72,6 +72,8 @@ public class MessageEntity {
     public String reelId;
     /** Reel thumbnail URL — shown in reel_seen bubble. */
     public String reelThumbUrl;
+    /** UID of the reel owner — the bubble renders ONLY for this user. */
+    public String reelOwnerUid;
 
     /**
      * v18 IMPROVEMENT 5: Offline media upload queue.

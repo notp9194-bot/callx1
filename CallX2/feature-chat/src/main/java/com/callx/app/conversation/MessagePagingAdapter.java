@@ -92,6 +92,10 @@ public class MessagePagingAdapter
     private static final int TYPE_STATUS_SEEN = 3;
     private static final int TYPE_REEL_SEEN   = 4;
     private static final int TYPE_CALL_ENTRY  = 5;
+    /** reel_seen row that belongs to THIS viewer's own "watched X's reel"
+     *  event — must render as nothing (0x0), since only the reel OWNER
+     *  should ever see the bubble. See getItemViewType() below. */
+    private static final int TYPE_HIDDEN      = 6;
 
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
@@ -308,7 +312,12 @@ public class MessagePagingAdapter
         Message m = getItem(position);
         if (m == null) return TYPE_RECEIVED;
         if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
-        if ("reel_seen".equals(m.type))   return TYPE_REEL_SEEN;
+        if ("reel_seen".equals(m.type)) {
+            // Bubble must show ONLY to the reel's owner (the person who got
+            // watched), never to the viewer who did the watching — otherwise
+            // both sides see "watched your reel" for every reel view.
+            return currentUid.equals(m.reelOwnerUid) ? TYPE_REEL_SEEN : TYPE_HIDDEN;
+        }
         if ("call_entry".equals(m.type))  return TYPE_CALL_ENTRY;
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
     }
@@ -316,6 +325,11 @@ public class MessagePagingAdapter
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        if (viewType == TYPE_HIDDEN) {
+            View v = new View(parent.getContext());
+            v.setLayoutParams(new ViewGroup.LayoutParams(0, 0));
+            return new VH(v);
+        }
         int layout;
         if (viewType == TYPE_SENT)             layout = R.layout.item_message_sent;
         else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
@@ -341,6 +355,7 @@ public class MessagePagingAdapter
         }
         // ── REEL SEEN BUBBLE — special system event row ───────────────────
         if ("reel_seen".equals(m.type)) {
+            if (!currentUid.equals(m.reelOwnerUid)) return; // hidden for the viewer side
             bindReelSeenBubble(h, m);
             return;
         }

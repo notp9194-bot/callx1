@@ -85,7 +85,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         return result;
     }
 
-    private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2, TYPE_STATUS_SEEN = 3, TYPE_REEL_SEEN = 4;
+    private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2, TYPE_STATUS_SEEN = 3, TYPE_REEL_SEEN = 4, TYPE_HIDDEN = 5;
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
 
@@ -104,12 +104,22 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     @Override public int getItemViewType(int pos) {
         Message m = messages.get(pos);
         if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
-        if ("reel_seen".equals(m.type))   return TYPE_REEL_SEEN;
+        if ("reel_seen".equals(m.type)) {
+            // Bubble must show ONLY to the reel's owner (the person who got
+            // watched), never to the viewer who did the watching — otherwise
+            // both sides see "watched your reel" for every reel view.
+            return currentUid.equals(m.reelOwnerUid) ? TYPE_REEL_SEEN : TYPE_HIDDEN;
+        }
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
     }
 
     @NonNull @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        if (viewType == TYPE_HIDDEN) {
+            View v = new View(parent.getContext());
+            v.setLayoutParams(new ViewGroup.LayoutParams(0, 0));
+            return new VH(v);
+        }
         int layout;
         if (viewType == TYPE_SENT)          layout = R.layout.item_message_sent;
         else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
@@ -123,6 +133,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         Message m   = messages.get(pos);
         Context ctx = h.itemView.getContext();
         int viewType = getItemViewType(pos);
+
+        // ── HIDDEN — this viewer's own reel_seen event; not their bubble to see ──
+        if (viewType == TYPE_HIDDEN) {
+            return;
+        }
 
         // ── STATUS SEEN BUBBLE — special system event row ─────────────────────
         if (viewType == TYPE_STATUS_SEEN) {

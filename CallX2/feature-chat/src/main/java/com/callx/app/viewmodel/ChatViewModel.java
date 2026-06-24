@@ -617,6 +617,9 @@ public class ChatViewModel extends AndroidViewModel {
         e.forwardedFrom   = m.forwardedFrom;
         e.starred         = m.starred;
         e.pinned          = m.pinned;
+        e.reelId          = m.reelId;
+        e.reelThumbUrl    = m.reelThumbUrl;
+        e.reelOwnerUid    = m.reelOwnerUid;
         e.isGroup         = m.isGroup;
         e.fontStyle       = m.fontStyle;
         e.syncedAt        = System.currentTimeMillis();

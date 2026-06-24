@@ -1446,6 +1446,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.edited = e.edited; m.editedAt = e.editedAt; m.deleted = e.deleted; m.forwardedFrom = e.forwardedFrom;
         m.editHistory = com.callx.app.utils.EditHistoryJsonUtil.historyFromJson(e.editHistoryJson);
         m.starred = e.starred; m.pinned = e.pinned; m.reelId = e.reelId;
+        m.reelOwnerUid = e.reelOwnerUid;
         m.reactions = com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(e.reactionsJson);
         m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
         m.pollQuestion = e.pollQuestion;
@@ -1471,6 +1472,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         e.forwardedFrom = m.forwardedFrom; e.starred = Boolean.TRUE.equals(m.starred);
         e.reactionsJson = com.callx.app.utils.ReactionJsonUtil.reactionsToJson(m.reactions);
         e.pinned = Boolean.TRUE.equals(m.pinned); e.reelId = m.reelId;
+        e.reelOwnerUid = m.reelOwnerUid;
         e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
         e.pollQuestion    = m.pollQuestion;
         e.pollOptionsJson = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);

@@ -73,6 +73,11 @@ public class Message {
     public String reelId;
     /** Reel thumbnail URL — shown in the reel_seen bubble. */
     public String reelThumbUrl;
+    /** UID of the reel's owner — set when type = "reel_seen". The bubble
+     *  must render ONLY for this user (the person whose reel was watched),
+     *  never for the viewer who watched it. See MessageAdapter /
+     *  MessagePagingAdapter getItemViewType(). */
+    public String reelOwnerUid;
 
     // ── Feature 10: Status Seen Bubble ───────────────────────────
     /** Status owner UID — passed to StatusViewerActivity to load their statuses. */
