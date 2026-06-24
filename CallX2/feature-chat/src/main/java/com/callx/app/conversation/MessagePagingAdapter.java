@@ -179,7 +179,7 @@ public class MessagePagingAdapter
         changed.addAll(newIds);
         currentlyViewedMessageIds = newIds;
         for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItem(i);
+            Message m = getItemAt(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && changed.contains(id)) notifyItemChanged(i);
@@ -204,7 +204,7 @@ public class MessagePagingAdapter
         changed.addAll(newIds);
         replyTargetMessageIds = newIds;
         for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItem(i);
+            Message m = getItemAt(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && changed.contains(id)) notifyItemChanged(i);
@@ -227,7 +227,7 @@ public class MessagePagingAdapter
         changed.addAll(newIds);
         currentlyPlayingMessageIds = newIds;
         for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItem(i);
+            Message m = getItemAt(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && changed.contains(id)) notifyItemChanged(i);
@@ -236,49 +236,48 @@ public class MessagePagingAdapter
     private MultiSelectListener multiSelectListener;
 
     // ── Synthetic reel_seen rows (injected by ChatReelSeenController) ───────
-    // These live in reelSeenEvents/{myUid}/{partnerUid} — NOT in messages/{chatId}.
-    // They are appended AFTER the paged message list so that they never
-    // displace any real message from the warm-cache / limitToLast window.
-    // No Room write, no Firebase messages node write — display-only.
+    // PLACEMENT: PREPENDED at positions [0 .. synth.size()-1].
+    // Chat RecyclerView uses stackFromEnd + reverseLayout, so position 0
+    // = bottom of screen. Prepending means bubbles appear at the bottom
+    // (most recent area) naturally, with real paged messages above them.
+    // No Room write, no Firebase messages/{chatId} write — display-only.
     private java.util.List<com.callx.app.models.Message> syntheticReelSeenRows =
             java.util.Collections.emptyList();
 
     /**
-     * Called by ChatReelSeenController whenever the live side-tree snapshot
-     * changes. Must be called on the main thread.
-     * Appended items render after all real messages (bottom of the list).
+     * Called by ChatReelSeenController on the main thread whenever the
+     * live side-tree snapshot changes.
+     * Uses notifyDataSetChanged — safe because reel_seen events are
+     * infrequent, and avoids any position-index mismatch between the
+     * paged and synthetic regions during fast scrolling.
      */
     public void setSyntheticReelSeenRows(java.util.List<com.callx.app.models.Message> rows) {
         if (rows == null) rows = java.util.Collections.emptyList();
-        int oldSynth = syntheticReelSeenRows.size();
-        int newSynth = rows.size();
-        syntheticReelSeenRows = rows;
-        int pagedCount = super.getItemCount();
-        // Notify only the synthetic region at the tail.
-        int maxChange = Math.max(oldSynth, newSynth);
-        if (maxChange > 0) notifyItemRangeChanged(pagedCount, maxChange);
+        syntheticReelSeenRows = new java.util.ArrayList<>(rows);
+        notifyDataSetChanged();
     }
 
-    // ── Override getItemCount to include synthetic tail ──────────────────────
+    // ── Override getItemCount to include synthetic prefix ────────────────────
     @Override
     public int getItemCount() {
         return super.getItemCount() + syntheticReelSeenRows.size();
     }
 
     /**
-     * Returns the Message at position, routing tail positions to the
-     * synthetic list. Returns null for paged placeholders (same as super).
+     * Safe position resolver.
+     * [0 .. synthSize-1]     → synthetic reel_seen rows (prepended / bottom).
+     * [synthSize .. total-1] → real paged messages from Room.
+     * Returns null for out-of-range or paged placeholders — callers must null-check.
      */
     private com.callx.app.models.Message getItemAt(int position) {
-        int pagedCount = super.getItemCount();
-        if (position < pagedCount) {
-            return getItem(position); // PagingDataAdapter.getItem — may be null (placeholder)
+        if (position < 0) return null;
+        int synthSize = syntheticReelSeenRows.size();
+        if (position < synthSize) {
+            return syntheticReelSeenRows.get(position);
         }
-        int synthIndex = position - pagedCount;
-        if (synthIndex < syntheticReelSeenRows.size()) {
-            return syntheticReelSeenRows.get(synthIndex);
-        }
-        return null;
+        int pagedPos = position - synthSize;
+        if (pagedPos >= super.getItemCount()) return null;
+        return getItem(pagedPos); // PagingDataAdapter.getItem — may return null (placeholder)
     }
 
     public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
@@ -314,7 +313,7 @@ public class MessagePagingAdapter
     public java.util.List<Message> getSelectedMessages() {
         java.util.List<Message> result = new java.util.ArrayList<>();
         for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItem(i);
+            Message m = getItemAt(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && selectedMessageIds.contains(id)) result.add(m);
@@ -731,7 +730,7 @@ public class MessagePagingAdapter
             if (position == 0) {
                 showHeader = true;
             } else {
-                Message prev = getItem(position - 1);
+                Message prev = getItemAt(position - 1);
                 showHeader = prev == null || prev.timestamp == null
                         || !isSameDay(prev.timestamp, m.timestamp);
             }
