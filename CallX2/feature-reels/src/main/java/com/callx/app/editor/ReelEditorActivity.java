@@ -132,6 +132,9 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String preSelectedSoundId    = "";
     private String preSelectedSoundTitle = "";
     private String preSelectedSoundUrl   = "";
+    // Volume presets from camera sliders (passed to AudioMixer as initial values)
+    private float  presetOrigVol = -1f;  // -1 = not set, AudioMixer uses its own default
+    private float  presetMicVol  = -1f;
 
     // ── Tool result storage ───────────────────────────────────────────────
     // Filters
@@ -194,6 +197,11 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (si != null && !si.isEmpty()) preSelectedSoundId    = si;
         if (st != null && !st.isEmpty()) preSelectedSoundTitle = st;
         if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
+        // Camera volume values (from ReelCameraActivity volume sliders)
+        float cameraOrigVolRaw = getIntent().getFloatExtra("camera_orig_vol", -1f);
+        float cameraMicVolRaw  = getIntent().getFloatExtra("camera_mic_vol",  -1f);
+        if (cameraOrigVolRaw >= 0) presetOrigVol = cameraOrigVolRaw;
+        if (cameraMicVolRaw  >= 0) presetMicVol  = cameraMicVolRaw;
 
         if (videoUriStr == null || videoUriStr.isEmpty()) {
             Toast.makeText(this, "No video to edit", Toast.LENGTH_SHORT).show();
@@ -678,6 +686,9 @@ public class ReelEditorActivity extends AppCompatActivity {
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  preSelectedSoundTitle);
             i.putExtra(ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, "");
+            // Pre-fill volume sliders if camera slider values were set
+            if (presetOrigVol >= 0) i.putExtra("preset_orig_vol", presetOrigVol);
+            if (presetMicVol  >= 0) i.putExtra("preset_mic_vol",  presetMicVol);
             startActivityForResult(i, REQ_AUDIO_MIXER);
         });
 
