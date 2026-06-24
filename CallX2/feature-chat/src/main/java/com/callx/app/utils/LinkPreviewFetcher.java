@@ -64,9 +64,9 @@ public class LinkPreviewFetcher {
     private static final Pattern YT_SHORT = Pattern.compile(
             "(?:youtu\\.be/)([\\w\\-]{11})", Pattern.CASE_INSENSITIVE);
 
-    private static final int MAX_CACHE    = 200;
-    private static final int TIMEOUT_MS   = 6000;
-    private static final int MAX_HTML_BYTES = 65536; // 64 KB
+    private static final int MAX_CACHE      = 200;
+    private static final int TIMEOUT_MS     = 10000;  // 10s — Instagram/WhatsApp slow
+    private static final int MAX_HTML_BYTES = 131072; // 128 KB — OG tags sometimes deep
 
     private static final ExecutorService executor    = Executors.newFixedThreadPool(3);
     private static final Handler         mainHandler = new Handler(Looper.getMainLooper());
@@ -214,7 +214,12 @@ public class LinkPreviewFetcher {
             conn.setConnectTimeout(TIMEOUT_MS);
             conn.setReadTimeout(TIMEOUT_MS);
             conn.setRequestProperty("User-Agent",
-                    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (compatible; CallX/1.0)");
+                    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 "
+                    + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+            conn.setRequestProperty("Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
+            conn.setRequestProperty("Accept-Encoding", "identity"); // no gzip — easier to parse
             conn.setInstanceFollowRedirects(true);
             conn.connect();
 
@@ -241,8 +246,23 @@ public class LinkPreviewFetcher {
             String image       = extractMeta(html, "og:image");
             String description = extractMeta(html, "og:description");
 
+            // Fallback: twitter:image if og:image missing
+            if (image == null || image.isEmpty()) {
+                image = extractMeta(html, "twitter:image");
+            }
+            // Fallback: twitter:title
+            if (title == null || title.isEmpty()) {
+                title = extractMeta(html, "twitter:title");
+            }
             if (title == null) title = extractTitle(html);
             if (title == null || title.isEmpty()) return null;
+
+            // Handle relative image URLs
+            if (image != null && !image.isEmpty() && image.startsWith("/")) {
+                String scheme = url.getProtocol();
+                String host   = url.getHost();
+                image = scheme + "://" + host + image;
+            }
 
             return new Result(rawUrl, title.trim(), domain, image, description);
 

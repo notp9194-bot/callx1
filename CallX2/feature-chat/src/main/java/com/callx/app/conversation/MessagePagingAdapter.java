@@ -731,6 +731,22 @@ public class MessagePagingAdapter
         if (h.llPoll     != null) h.llPoll.setVisibility(View.GONE);
         if (h.tvTime     != null) h.tvTime.setVisibility(View.VISIBLE);
 
+        // ── Quick Forward Button — media/link messages pe dikhao ──────────
+        if (h.btnQuickForward != null) {
+            String mt = m.type != null ? m.type : "text";
+            boolean showFwd = mt.equals("image") || mt.equals("video") || mt.equals("audio")
+                    || mt.equals("file") || mt.equals("reel_share") || mt.equals("reel_link")
+                    || (mt.equals("text") && m.text != null
+                        && (m.text.contains("http://") || m.text.contains("https://")));
+            h.btnQuickForward.setVisibility(showFwd ? View.VISIBLE : View.GONE);
+            if (showFwd) {
+                final Message fwdMsg = m;
+                h.btnQuickForward.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onForward(fwdMsg);
+                });
+            }
+        }
+
         // Timestamp — append "(edited)" when applicable
         if (h.tvTime != null && m.timestamp > 0) {
             String timeStr = timeFmt.format(new java.util.Date(m.timestamp));
@@ -1863,6 +1879,8 @@ public class MessagePagingAdapter
         // every text/image/audio row, every bind). Cached here instead since
         // it's the hottest path in the adapter.
         View         llBubble;
+        // ── Quick Forward Button ──
+        android.widget.ImageButton btnQuickForward;
 
         // PERF: the following are for the rarer system-row layouts
         // (status_seen / reel_seen / call_entry). They used to be looked
@@ -1929,6 +1947,7 @@ public class MessagePagingAdapter
             viewSeenDot       = v.findViewById(R.id.view_seen_dot);
             tvListeningBadge  = v.findViewById(R.id.tv_listening_badge);
             llBubble          = v.findViewById(R.id.ll_bubble);
+            btnQuickForward   = v.findViewById(R.id.btn_quick_forward);
 
             // System-row layouts (status_seen / reel_seen / call_entry) —
             // these IDs only exist on their respective layouts, so they'll
