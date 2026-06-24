@@ -354,7 +354,18 @@ public class MessagePagingAdapter
         else if (viewType == TYPE_CALL_ENTRY)  layout = R.layout.item_call_entry_bubble;
         else                                   layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
-        return new VH(v);
+        VH vh = new VH(v);
+        // ── Apply 70% screen-width cap ──
+        int screenW = parent.getContext().getResources().getDisplayMetrics().widthPixels;
+        int maxW = (int) (screenW * 0.70f);
+        if (vh.tvMessage != null) vh.tvMessage.setMaxWidth(maxW);
+        if (vh.llBubble  != null) vh.llBubble.setMaxWidth(maxW);
+        for (android.view.ViewGroup mv : new android.view.ViewGroup[]{vh.llAudio, vh.llFile}) {
+            if (mv != null) { android.view.ViewGroup.LayoutParams lp = mv.getLayoutParams(); if (lp != null) { lp.width = maxW; mv.setLayoutParams(lp); } }
+        }
+        if (vh.flVideo != null) { android.view.ViewGroup.LayoutParams lp = vh.flVideo.getLayoutParams(); if (lp != null) { lp.width = maxW; vh.flVideo.setLayoutParams(lp); } }
+        if (vh.ivImage != null) { android.view.ViewGroup.LayoutParams lp = vh.ivImage.getLayoutParams(); if (lp != null) { lp.width = maxW; vh.ivImage.setLayoutParams(lp); } }
+        return vh;
     }
 
     @Override

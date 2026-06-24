@@ -145,7 +145,31 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         else if (viewType == TYPE_REEL_SEEN)   layout = R.layout.item_reel_seen_bubble;
         else                                layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
-        return new VH(v);
+        VH vh = new VH(v);
+        // ── Apply 70% screen-width cap to bubble and all fixed-width media ──
+        int screenW = parent.getContext().getResources().getDisplayMetrics().widthPixels;
+        int maxW = (int) (screenW * 0.70f);
+        if (vh.tvMessage != null)  vh.tvMessage.setMaxWidth(maxW);
+        if (vh.llBubble  != null) {
+            vh.llBubble.setMaxWidth(maxW);
+        }
+        // media containers: clamp their layout_width to maxW
+        android.view.ViewGroup[] mediaViews = {vh.llAudio, vh.llFile, vh.llReactions};
+        for (android.view.ViewGroup mv : mediaViews) {
+            if (mv != null) {
+                android.view.ViewGroup.LayoutParams lp = mv.getLayoutParams();
+                if (lp != null) { lp.width = maxW; mv.setLayoutParams(lp); }
+            }
+        }
+        if (vh.flVideo != null) {
+            android.view.ViewGroup.LayoutParams lp = vh.flVideo.getLayoutParams();
+            if (lp != null) { lp.width = maxW; vh.flVideo.setLayoutParams(lp); }
+        }
+        if (vh.ivImage != null) {
+            android.view.ViewGroup.LayoutParams lp = vh.ivImage.getLayoutParams();
+            if (lp != null) { lp.width = maxW; vh.ivImage.setLayoutParams(lp); }
+        }
+        return vh;
     }
 
     @Override public void onBindViewHolder(@NonNull VH h, int pos,
@@ -1364,6 +1388,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         android.widget.ImageButton btnQuickForward;
         // ── Separate tick pill (sent layout only) ──
         LinearLayout llTickPill;
+        // ── Bubble container — for 70% maxWidth constraint ──
+        LinearLayout llBubble;
+        ImageView    ivImage70; // alias used by applyBubbleMaxWidth
 
         VH(View v) {
             super(v);
@@ -1401,6 +1428,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             tvExpiry       = v.findViewById(R.id.tv_expiry);
             btnQuickForward = v.findViewById(R.id.btn_quick_forward);
             llTickPill      = v.findViewById(R.id.ll_tick_pill);
+            llBubble        = v.findViewById(R.id.ll_bubble);
         }
     }
 }

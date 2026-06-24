@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        msg_bubble_max_width: fallback static value.
+        The real ~70% width is set at runtime in MessageAdapter.onCreateViewHolder()
+        via: int maxW = (int)(Resources.getSystem().getDisplayMetrics().widthPixels * 0.70f);
+             tvMessage.setMaxWidth(maxW); llBubble.setMaxWidth(maxW); etc.
+        This static value (280dp) is just a safe default for layout preview / low-res devices.
+    -->
+    <dimen name="msg_bubble_max_width">280dp</dimen>
+</resources>

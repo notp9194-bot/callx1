@@ -154,7 +154,7 @@
         <!-- POLISH: Link preview card — visible only for text messages with URLs -->
         <LinearLayout
             android:id="@+id/ll_link_preview"
-            android:layout_width="240dp"
+            android:layout_width="@dimen/msg_bubble_max_width"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="@drawable/bg_reply_preview_sent"
@@ -230,11 +230,11 @@
             android:id="@+id/tv_message"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:maxWidth="260dp"
+            android:maxWidth="@dimen/msg_bubble_max_width"
             android:paddingStart="12dp"
-            android:paddingEnd="8dp"
+            android:paddingEnd="48dp"
             android:paddingTop="8dp"
-            android:paddingBottom="20dp"
+            android:paddingBottom="24dp"
             android:textColor="@color/bubble_sent_text"
             android:textSize="15sp"
             android:lineSpacingExtra="2dp"
@@ -245,7 +245,7 @@
              adjustViewBounds + wrap_content lets the image keep its natural aspect ratio. -->
         <ImageView
             android:id="@+id/iv_image"
-            android:layout_width="240dp"
+            android:layout_width="@dimen/msg_bubble_max_width"
             android:layout_height="wrap_content"
             android:maxHeight="320dp"
             android:adjustViewBounds="true"
@@ -255,7 +255,7 @@
         <!-- Video -->
         <FrameLayout
             android:id="@+id/fl_video"
-            android:layout_width="240dp"
+            android:layout_width="@dimen/msg_bubble_max_width"
             android:layout_height="160dp"
             android:visibility="gone">
             <ImageView
@@ -306,7 +306,7 @@
         <!-- Audio -->
         <LinearLayout
             android:id="@+id/ll_audio"
-            android:layout_width="240dp"
+            android:layout_width="@dimen/msg_bubble_max_width"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:paddingStart="10dp"
@@ -340,7 +340,7 @@
         <!-- File -->
         <LinearLayout
             android:id="@+id/ll_file"
-            android:layout_width="240dp"
+            android:layout_width="@dimen/msg_bubble_max_width"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:padding="12dp"
@@ -380,7 +380,7 @@
              question type, status chip (Closed/Anonymous), tappable options. -->
         <LinearLayout
             android:id="@+id/ll_poll"
-            android:layout_width="266dp"
+            android:layout_width="@dimen/msg_bubble_max_width"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="@drawable/bg_poll_card"
