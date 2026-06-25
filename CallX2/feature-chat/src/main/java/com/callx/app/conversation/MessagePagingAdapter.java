@@ -41,6 +41,7 @@ import com.callx.app.chat.ui.AudioWaveformView;
  *   viewModel.getPagedMessages(chatId).observe(this, pagingAdapter::submitData);
  */
 public class MessagePagingAdapter
+        extends PagingDataAdapter<Message, MessagePagingAdapter.VH> {
 
     // PERF FIX 1: Scroll guard — suppress link preview fetches during scroll.
     private volatile boolean isScrollingPaused = false;
@@ -48,7 +49,6 @@ public class MessagePagingAdapter
     /** Called by ChatActivity OnScrollListener. */
     public void setScrollingPaused(boolean paused) { this.isScrollingPaused = paused; }
 
-        extends PagingDataAdapter<Message, MessagePagingAdapter.VH> {
 
     // ── DiffUtil — required by PagingDataAdapter ──────────────────
     private static final DiffUtil.ItemCallback<Message> DIFF =
