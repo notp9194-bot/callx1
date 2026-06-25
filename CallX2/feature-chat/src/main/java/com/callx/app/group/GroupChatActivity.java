@@ -534,10 +534,12 @@ public class GroupChatActivity extends AppCompatActivity
                 // PERF: Glide pause during fling — avoids decoding images for items
                 // that scroll past before becoming visible; resume on idle/drag so
                 // images load as soon as the user stops or slows down.
-                if (newState == RecyclerView.SCROLL_STATE_FLING) {
+                if (newState == RecyclerView.SCROLL_STATE_SETTLING) {
+                    // SETTLING = user released, list is flinging — pause Glide.
                     com.bumptech.glide.Glide.with(GroupChatActivity.this).pauseRequests();
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE
                         || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    // IDLE/DRAGGING = stopped or slow drag — resume Glide.
                     com.bumptech.glide.Glide.with(GroupChatActivity.this).resumeRequests();
                 }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;

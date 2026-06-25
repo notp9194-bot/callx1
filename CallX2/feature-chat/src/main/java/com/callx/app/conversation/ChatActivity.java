@@ -1956,10 +1956,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // will scroll past before they're needed. Resuming on idle/settling
                 // lets it catch up with whatever is now actually visible.
                 // This mirrors WhatsApp's image-loading strategy.
-                if (newState == RecyclerView.SCROLL_STATE_FLING) {
+                if (newState == RecyclerView.SCROLL_STATE_SETTLING) {
+                    // SETTLING = user released, list is flinging — pause Glide
+                    // so it doesn't decode images for items that scroll past.
                     com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequests();
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE
                         || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    // IDLE/DRAGGING = stopped or slow drag — resume Glide.
                     com.bumptech.glide.Glide.with(ChatActivity.this).resumeRequests();
                 }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
