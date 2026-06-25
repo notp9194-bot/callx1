@@ -2096,7 +2096,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         binding.fabBackToLatest.setAlpha(1f);
                         binding.fabBackToLatest.setVisibility(View.VISIBLE);
                     }
-                    binding.rvMessages.scrollToPosition(safePos);
+                    // scrollToPositionWithOffset centres the target item near the top of
+                    // the viewport (offset 0 = flush top). Avoids the jank of scrollToPosition()
+                    // which can leave the item partially off-screen and then snap again.
+                    LinearLayoutManager jumpLlm =
+                            (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+                    if (jumpLlm != null) jumpLlm.scrollToPositionWithOffset(safePos, 0);
                     binding.rvMessages.postDelayed(() -> {
                         RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(safePos);
                         if (vh != null) MessageHighlightAnimator.flashHighlight(vh.itemView);
@@ -2148,7 +2153,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             pendingNewMsgCount = 0;
             hideNewMessagesIndicator();
             int last = pagingAdapter.getItemCount() - 1;
-            if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+            if (last >= 0) {
+                // scrollToPositionWithOffset(pos, 0) anchors the target item flush at the
+                // top of the viewport instantly — no animation, no jank, no mid-scroll
+                // layout invalidations. smoothScrollToPosition() was visually janky when
+                // the user was far from the bottom (list flew past many items).
+                ((LinearLayoutManager) binding.rvMessages.getLayoutManager())
+                        .scrollToPositionWithOffset(last, 0);
+            }
             MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
         });
 
@@ -2158,7 +2170,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pendingNewMsgCount = 0;
                 hideNewMessagesIndicator();
                 int last = pagingAdapter.getItemCount() - 1;
-                if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+                if (last >= 0) {
+                    ((LinearLayoutManager) binding.rvMessages.getLayoutManager())
+                            .scrollToPositionWithOffset(last, 0);
+                }
                 MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
             });
         }
@@ -2198,6 +2213,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 return com.bumptech.glide.Glide.with(ChatActivity.this)
                         .load(url)
                         .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                        .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
                         .override(320, 320);
             }
         };

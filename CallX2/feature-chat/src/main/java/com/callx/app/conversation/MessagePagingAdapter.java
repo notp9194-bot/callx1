@@ -14,7 +14,9 @@ import androidx.paging.PagingDataAdapter;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
 import com.callx.app.models.Message;
@@ -118,6 +120,14 @@ public class MessagePagingAdapter
 
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
     static final String PAYLOAD_STATUS = "status";
+
+    // PERF: RGB_565 for thumbnail-sized images — half the memory of ARGB_8888.
+    // Thumbnails (avatars, video covers, reply previews, status/reel chips) have
+    // no alpha channel, so the extra byte per pixel in ARGB_8888 is pure waste.
+    // Full-size image loads (720×720) keep ARGB_8888 for quality.
+    private static final RequestOptions THUMB_RGB565 = new RequestOptions()
+            .format(DecodeFormat.PREFER_RGB_565)
+            .diskCacheStrategy(DiskCacheStrategy.ALL);
     // ── Payload key for presence-only updates (viewing-dot / reply-glow /
     //    playing-badge) — lets setViewingMessageIds() etc. refresh just
     //    those three views instead of re-running the entire bindMessage()
@@ -618,7 +628,7 @@ public class MessagePagingAdapter
             if (!photo.isEmpty()) {
                 com.bumptech.glide.Glide.with(ctx)
                     .load(photo)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .apply(THUMB_RGB565)
                     .override(96, 96)
                     .dontAnimate()
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
@@ -640,7 +650,7 @@ public class MessagePagingAdapter
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
                 com.bumptech.glide.Glide.with(ctx)
                     .load(thumb)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .apply(THUMB_RGB565)
                     .override(240, 240)
                     .centerCrop()
                     .placeholder(R.drawable.bg_skeleton_rect)
@@ -712,7 +722,7 @@ public class MessagePagingAdapter
             if (!photo.isEmpty()) {
                 com.bumptech.glide.Glide.with(ctx)
                     .load(photo)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .apply(THUMB_RGB565)
                     .override(96, 96)
                     .dontAnimate()
                     .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
@@ -745,7 +755,7 @@ public class MessagePagingAdapter
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
                 com.bumptech.glide.Glide.with(ctx)
                     .load(thumb)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .apply(THUMB_RGB565)
                     .override(240, 240)
                     .centerCrop()
                     .placeholder(R.drawable.bg_skeleton_rect)
@@ -949,7 +959,7 @@ public class MessagePagingAdapter
                         h.ivReplyThumb.setVisibility(View.VISIBLE);
                         com.bumptech.glide.Glide.with(ctx)
                                 .load(thumbUrl)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .apply(THUMB_RGB565)
                                 .override(120, 120)
                                 .centerCrop()
                                 .into(h.ivReplyThumb);
@@ -1030,7 +1040,7 @@ public class MessagePagingAdapter
                         // Step 1: Show thumbnail instantly (tiny, ~30KB)
                         Glide.with(ctx)
                             .load(thumbUrl)
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .apply(THUMB_RGB565)
                             .override(200, 200)
                             .into(h.ivImage);
 
@@ -1057,7 +1067,7 @@ public class MessagePagingAdapter
                             Glide.with(ctx)
                                 .asGif()
                                 .load(fullUrl)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .apply(THUMB_RGB565)
                                 .override(480, 480) // PERF: GIFs are heavy to decode/animate at full res
                                 .placeholder(R.drawable.ic_file)
                                 .error(R.drawable.ic_file)
@@ -1139,7 +1149,7 @@ public class MessagePagingAdapter
                     String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                             ? m.thumbnailUrl : vUrl;
                     Glide.with(ctx).load(thumbUrl)
-                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .apply(THUMB_RGB565)
                         .override(480, 480)
                         .placeholder(R.drawable.ic_file)
                         .into(h.ivImage);
