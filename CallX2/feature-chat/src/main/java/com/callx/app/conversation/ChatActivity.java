@@ -1284,22 +1284,42 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     return;
                 }
                 int total = pagingAdapter.getItemCount();
-                // AUTO-SCROLL DISABLED: new inserts no longer force the
-                // RecyclerView to jump to the bottom, regardless of whether
-                // the user is currently at the bottom or scrolled up. The
-                // list simply grows in place; the user explicitly taps the
-                // "↓ N new messages" indicator / FAB (or scrolls manually)
-                // to go to the latest message.
+
+                // Check inserted items for own vs others messages
+                boolean ownMsgInserted = false;
                 int othersCount = 0;
                 for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
                     Message m = pagingAdapter.peek(i);
-                    if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
-                        othersCount++;
+                    if (m != null && m.senderId != null) {
+                        if (m.senderId.equals(currentUid)) {
+                            ownMsgInserted = true;
+                        } else {
+                            othersCount++;
+                        }
                     }
                 }
+
+                // WHATSAPP-STYLE: When the user sends their own message,
+                // instantly scroll to the bottom without animation.
+                // scrollToPosition() is instant (no animator) so the list
+                // doesn't "jump" — it just snaps cleanly like WhatsApp.
+                // This also prevents the stackFromEnd re-anchor flicker
+                // that caused upper messages to flash/jitter on send.
+                if (ownMsgInserted) {
+                    binding.rvMessages.scrollToPosition(total - 1);
+                    isUserAtBottom = true;
+                    pendingNewMsgCount = 0;
+                    hideNewMessagesIndicator();
+                    MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+                    return;
+                }
+
                 if (othersCount > 0 && !isUserAtBottom) {
                     pendingNewMsgCount += othersCount;
                     updateNewMessagesIndicator(pendingNewMsgCount);
+                } else if (othersCount > 0 && isUserAtBottom) {
+                    // User is at bottom and others' message arrived — snap to bottom
+                    binding.rvMessages.scrollToPosition(total - 1);
                 }
             }
         });

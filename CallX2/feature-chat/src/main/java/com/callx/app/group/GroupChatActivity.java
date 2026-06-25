@@ -676,19 +676,37 @@ public class GroupChatActivity extends AppCompatActivity
                 }
                 if (!initialScrollDone) return;
                 int total = pagingAdapter.getItemCount();
-                // AUTO-SCROLL DISABLED — see ChatActivity's onItemRangeInserted
-                // comment. New inserts never force-scroll, regardless of
-                // bottom state; user taps the "↓ N new messages" indicator/FAB.
+
+                // Check inserted items for own vs others messages
+                boolean ownMsgInserted = false;
                 int othersCount = 0;
                 for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
                     com.callx.app.models.Message m = pagingAdapter.peek(i);
-                    if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
-                        othersCount++;
+                    if (m != null && m.senderId != null) {
+                        if (m.senderId.equals(currentUid)) {
+                            ownMsgInserted = true;
+                        } else {
+                            othersCount++;
+                        }
                     }
                 }
+
+                // WHATSAPP-STYLE: When the user sends their own message,
+                // instantly scroll to bottom — no animation, no flicker.
+                if (ownMsgInserted) {
+                    binding.rvMessages.scrollToPosition(total - 1);
+                    isUserAtBottom = true;
+                    pendingNewMsgCount = 0;
+                    hideNewMessagesIndicator();
+                    com.callx.app.chat.ui.MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+                    return;
+                }
+
                 if (othersCount > 0 && !isUserAtBottom) {
                     pendingNewMsgCount += othersCount;
                     updateNewMessagesIndicator(pendingNewMsgCount);
+                } else if (othersCount > 0 && isUserAtBottom) {
+                    binding.rvMessages.scrollToPosition(total - 1);
                 }
             }
         });
