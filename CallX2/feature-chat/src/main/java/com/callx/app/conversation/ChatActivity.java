@@ -25,6 +25,7 @@ import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -85,6 +86,7 @@ import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1184,7 +1186,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             else hideMultiSelectBar();
         });
 
-        LinearLayoutManager llm = new LinearLayoutManager(this);
+        // PERF: Custom LinearLayoutManager — overrides calculateExtraLayoutSpace()
+        // to pre-layout one full screen worth of items beyond each edge.
+        // Default is 0: RV only lays out exactly what fits on screen, so fast
+        // flings hit blank frames before new items are laid out. One extra
+        // screen (display height pixels) hides that entirely.
+        LinearLayoutManager llm = new LinearLayoutManager(this) {
+            @Override
+            protected void calculateExtraLayoutSpace(@NonNull RecyclerView.State state,
+                                                     @NonNull int[] extraLayoutSpace) {
+                int screenHeight = getResources().getDisplayMetrics().heightPixels;
+                // Pre-layout one full screen in both directions.
+                // [0] = extra space before first item, [1] = after last item.
+                extraLayoutSpace[0] = screenHeight;
+                extraLayoutSpace[1] = screenHeight;
+            }
+        };
         llm.setStackFromEnd(true);
         llm.setReverseLayout(false);
         // FIX #2a: Tell LinearLayoutManager how many items to prefetch.
@@ -1192,6 +1209,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // during idle time before the user scrolls to them (no stutter).
         llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
+        // PERF: setScrollingTouchSlop(TOUCH_SLOP_DEFAULT) — RV defaults to
+        // TOUCH_SLOP_PAGING (larger tolerance, designed for ViewPagers).
+        // TOUCH_SLOP_DEFAULT is the standard touch threshold used by ListView/ScrollView.
+        // Result: scroll starts responding earlier → feels snappier.
+        binding.rvMessages.setScrollingTouchSlop(RecyclerView.TOUCH_SLOP_DEFAULT);
         binding.rvMessages.setAdapter(pagingAdapter);
         // FIX #2b: setHasFixedSize(true) — RecyclerView won't re-measure
         // its own size every time an item changes; valid because the RV fills
@@ -1347,7 +1369,29 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         );
         currentPagingLiveSource = Transformations.map(
                 PagingLiveData.getLiveData(pager),
-                pagingData -> PagingDataTransforms.map(pagingData, ioExecutor, ChatActivity::entityToModel)
+                pagingData -> {
+                    PagingData<Message> mapped =
+                            PagingDataTransforms.map(pagingData, ioExecutor, ChatActivity::entityToModel);
+                    // Insert date separators as synthetic Message rows (type="date_separator").
+                    // insertSeparators() is called with (before, after):
+                    //   • before=null  → after is first item → always insert a date chip above it.
+                    //   • after=null   → before is last item  → no chip needed at the end.
+                    //   • both non-null → insert chip only when they belong to different days.
+                    return PagingDataTransforms.insertSeparators(mapped, ioExecutor,
+                            (before, after) -> {
+                                if (after == null) return null; // end of list — no separator needed
+                                boolean differentDay = before == null  // first item
+                                        || before.timestamp == null
+                                        || after.timestamp == null
+                                        || !isSamePagingDay(before.timestamp, after.timestamp);
+                                if (!differentDay) return null;
+                                Message sep = new Message();
+                                sep.type = "date_separator";
+                                sep.messageId = "sep_" + (after.timestamp != null ? after.timestamp : 0);
+                                sep.text = formatPagingDateLabel(after.timestamp != null ? after.timestamp : 0);
+                                return sep;
+                            });
+                }
         );
         pagingMediator.addSource(currentPagingLiveSource, pagingMediator::setValue);
     }
@@ -1609,6 +1653,29 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
     // ENTITY ↔ MODEL CONVERSION
     // ─────────────────────────────────────────────────────────────────────
+
+    // ── Date separator helpers — used by insertSeparators() in the paging pipeline ──
+    private static boolean isSamePagingDay(long ts1, long ts2) {
+        return (ts1 / 86_400_000L) == (ts2 / 86_400_000L);
+    }
+
+    private static String formatPagingDateLabel(long timestamp) {
+        java.util.Calendar msgCal = java.util.Calendar.getInstance();
+        msgCal.setTimeInMillis(timestamp);
+        java.util.Calendar today = java.util.Calendar.getInstance();
+        java.util.Calendar yesterday = java.util.Calendar.getInstance();
+        yesterday.add(java.util.Calendar.DAY_OF_YEAR, -1);
+        boolean isToday = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR)
+                && msgCal.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR);
+        boolean isYesterday = msgCal.get(java.util.Calendar.YEAR) == yesterday.get(java.util.Calendar.YEAR)
+                && msgCal.get(java.util.Calendar.DAY_OF_YEAR) == yesterday.get(java.util.Calendar.DAY_OF_YEAR);
+        if (isToday) return "Today";
+        if (isYesterday) return "Yesterday";
+        boolean sameYear = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR);
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat(
+                sameYear ? "d MMM" : "d MMM yyyy", java.util.Locale.getDefault());
+        return fmt.format(new java.util.Date(timestamp));
+    }
 
     static Message entityToModel(MessageEntity e) {
         Message m = new Message();
@@ -2095,6 +2162,50 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
             });
         }
+
+        // PERF: Glide RecyclerViewPreloader — prefetches images for upcoming items
+        // in the scroll direction before they're needed. The preloader integrates with
+        // the existing pause/resume strategy: Glide is paused on SETTLING/DRAGGING,
+        // so preloads are queued and executed on IDLE when loads are safe to start.
+        // PreloadSizeProvider uses fixed 320x320 — matches typical chat image thumbnail size.
+        com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>
+                sizeProvider = item -> {
+            if (item == null || item.mediaUrl == null) return null;
+            return new int[]{320, 320};
+        };
+        com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>
+                modelProvider = new com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>() {
+            @NonNull @Override
+            public List<com.callx.app.models.Message> getPreloadItems(int position) {
+                com.callx.app.models.Message m = pagingAdapter.peek(position);
+                if (m == null) return java.util.Collections.emptyList();
+                String type = m.type != null ? m.type : "";
+                boolean isMedia = "image".equals(type) || "gif".equals(type)
+                        || "video".equals(type);
+                if (!isMedia || (m.mediaUrl == null && m.thumbnailUrl == null))
+                    return java.util.Collections.emptyList();
+                return java.util.Collections.singletonList(m);
+            }
+            @Nullable @Override
+            public com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable>
+                    getPreloadRequestBuilder(@NonNull com.callx.app.models.Message item) {
+                String url = "video".equals(item.type)
+                        ? (item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl)
+                        : (item.mediaUrl != null ? item.mediaUrl : item.imageUrl);
+                if (url == null) return null;
+                return com.bumptech.glide.Glide.with(ChatActivity.this)
+                        .load(url)
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                        .override(320, 320);
+            }
+        };
+        com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<com.callx.app.models.Message>
+                glidePreloader = new com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<>(
+                        com.bumptech.glide.Glide.with(this),
+                        modelProvider,
+                        sizeProvider,
+                        5 /* preload 5 items in the scroll direction */);
+        binding.rvMessages.addOnScrollListener(glidePreloader);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {

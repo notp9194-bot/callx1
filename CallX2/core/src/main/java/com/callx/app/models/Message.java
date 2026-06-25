@@ -1,6 +1,7 @@
 package com.callx.app.models;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Represents a single chat message (1-on-1 or group).
@@ -125,4 +126,38 @@ public class Message {
     public Boolean pollMultiChoice;
 
     public Message() {}
+
+    /**
+     * Fast structural equality — used by DiffUtil's areContentsTheSame().
+     * Map fields (reactions, pollVotes) use their own equals() which iterates
+     * entries; keeping this method here ensures the comparison happens once
+     * per diff cycle, not scattered across anonymous DiffUtil callbacks.
+     */
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (!(obj instanceof Message)) return false;
+        Message o = (Message) obj;
+        // Fast-exit on the most commonly-changing field first
+        if (!java.util.Objects.equals(status, o.status))       return false;
+        if (!java.util.Objects.equals(text, o.text))           return false;
+        if (!java.util.Objects.equals(type, o.type))           return false;
+        if (!java.util.Objects.equals(messageId, o.messageId)) return false;
+        if (!java.util.Objects.equals(id, o.id))               return false;
+        if (!java.util.Objects.equals(edited, o.edited))       return false;
+        if (!java.util.Objects.equals(deleted, o.deleted))     return false;
+        if (!java.util.Objects.equals(starred, o.starred))     return false;
+        if (!java.util.Objects.equals(pinned, o.pinned))       return false;
+        if (!java.util.Objects.equals(pollClosed, o.pollClosed)) return false;
+        // Expensive map comparisons last — only reached if scalar fields match
+        if (!java.util.Objects.equals(reactions, o.reactions))  return false;
+        if (!java.util.Objects.equals(pollVotes, o.pollVotes))  return false;
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        String key = (messageId != null ? messageId : (id != null ? id : "")) + status;
+        return key.hashCode();
+    }
 }

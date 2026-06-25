@@ -111,7 +111,10 @@ public class MessagePagingAdapter
     /** reel_seen row that belongs to THIS viewer's own "watched X's reel"
      *  event — must render as nothing (0x0), since only the reel OWNER
      *  should ever see the bubble. See getItemViewType() below. */
-    private static final int TYPE_HIDDEN      = 6;
+    private static final int TYPE_HIDDEN         = 6;
+    /** Standalone date separator chip — injected by insertSeparators() in ChatActivity.
+     *  Stored as a synthetic Message with type="date_separator"; text holds the label. */
+    private static final int TYPE_DATE_SEPARATOR = 7;
 
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
     static final String PAYLOAD_STATUS = "status";
@@ -415,6 +418,7 @@ public class MessagePagingAdapter
     public int getItemViewType(int position) {
         Message m = getItem(position);
         if (m == null) return TYPE_RECEIVED;
+        if ("date_separator".equals(m.type)) return TYPE_DATE_SEPARATOR;
         if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
         if ("reel_seen".equals(m.type)) {
             // Bubble must show ONLY to the reel's owner (the person who got
@@ -432,6 +436,12 @@ public class MessagePagingAdapter
         if (viewType == TYPE_HIDDEN) {
             View v = new View(parent.getContext());
             v.setLayoutParams(new ViewGroup.LayoutParams(0, 0));
+            return new VH(v);
+        }
+        if (viewType == TYPE_DATE_SEPARATOR) {
+            View v = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_date_separator, parent, false);
+            v.setSaveEnabled(false);
             return new VH(v);
         }
         int layout;
@@ -494,6 +504,12 @@ public class MessagePagingAdapter
         if (m == null) {
             // Placeholder — show shimmer or empty
             if (h.tvMessage != null) h.tvMessage.setVisibility(View.GONE);
+            return;
+        }
+        // ── DATE SEPARATOR — standalone chip row ─────────────────────────
+        if ("date_separator".equals(m.type)) {
+            TextView tvLabel = h.itemView.findViewById(R.id.tv_date_label);
+            if (tvLabel != null) tvLabel.setText(m.text != null ? m.text : "");
             return;
         }
         // ── STATUS SEEN BUBBLE — special system event row ─────────────────
@@ -848,26 +864,6 @@ public class MessagePagingAdapter
                 h.tvListeningBadge.setText(isVideoMsg ? "▶ watching…" : "🎧 listening…");
             }
             h.tvListeningBadge.setVisibility(playing ? View.VISIBLE : View.GONE);
-        }
-
-        // ── Date separator chip ───────────────────────────────────────────
-        if (h.tvDateHeader != null && m.timestamp != null && m.timestamp > 0) {
-            boolean showHeader;
-            if (position == 0) {
-                showHeader = true;
-            } else {
-                Message prev = getItem(position - 1);
-                showHeader = prev == null || prev.timestamp == null
-                        || !isSameDay(prev.timestamp, m.timestamp);
-            }
-            if (showHeader) {
-                h.tvDateHeader.setText(formatDateLabel(m.timestamp));
-                h.tvDateHeader.setVisibility(View.VISIBLE);
-            } else {
-                h.tvDateHeader.setVisibility(View.GONE);
-            }
-        } else if (h.tvDateHeader != null) {
-            h.tvDateHeader.setVisibility(View.GONE);
         }
 
         // ── Theme-aware bubble background ─────────────────────────────────
