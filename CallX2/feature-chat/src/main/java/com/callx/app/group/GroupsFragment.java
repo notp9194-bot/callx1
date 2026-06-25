@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.view.*;
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
@@ -105,8 +106,7 @@ public class GroupsFragment extends Fragment {
                     // CRASH FIX: isAdded() check before touching adapter/views
                     if (!isAdded() || adapter == null) return;
                     if (groups.isEmpty()) {
-                        groups.addAll(roomGroups);
-                        adapter.notifyDataSetChanged();
+                        diffUpdateGroups(roomGroups);
                         if (emptyState != null)
                             emptyState.setVisibility(groups.isEmpty() ? View.VISIBLE : View.GONE);
                     }
@@ -125,15 +125,20 @@ public class GroupsFragment extends Fragment {
                 // CRASH FIX: isAdded() check on every UI operation in outer callback
                 if (!isAdded() || adapter == null) return;
 
-                groups.clear();
                 if (!snap.hasChildren()) {
-                    adapter.notifyDataSetChanged();
+                    diffUpdateGroups(new ArrayList<>());
                     if (emptyState != null) emptyState.setVisibility(View.VISIBLE);
                     return;
                 }
                 if (emptyState != null) emptyState.setVisibility(View.GONE);
                 final int[] pending = {(int) snap.getChildrenCount()};
                 final List<GroupEntity> toSave = new ArrayList<>();
+                // PERF: fetch into a local list, NOT the live `groups` field —
+                // diffUpdateGroups() needs the pre-fetch `groups` contents as the
+                // "old" side of the diff. Mutating `groups` directly while fetching
+                // (old behaviour) made that comparison impossible and forced a
+                // brute notifyDataSetChanged() once every group landed.
+                final List<Group> fetched = new ArrayList<>();
 
                 for (DataSnapshot g : snap.getChildren()) {
                     String gid = g.getKey();
@@ -143,7 +148,7 @@ public class GroupsFragment extends Fragment {
                                 Group gr = ds.getValue(Group.class);
                                 if (gr != null) {
                                     if (gr.id == null) gr.id = ds.getKey();
-                                    groups.add(gr);
+                                    fetched.add(gr);
 
                                     GroupEntity entity = new GroupEntity();
                                     entity.id            = gr.id;
@@ -157,7 +162,7 @@ public class GroupsFragment extends Fragment {
                                     toSave.add(entity);
                                 }
                                 if (--pending[0] == 0) {
-                                    if (isAdded() && adapter != null) adapter.notifyDataSetChanged();
+                                    if (isAdded() && adapter != null) diffUpdateGroups(fetched);
                                     if (isAdded() && getContext() != null && !toSave.isEmpty()) {
                                         AppDatabase db = AppDatabase.getInstance(getContext());
                                         Executors.newSingleThreadExecutor().execute(() ->
@@ -170,7 +175,7 @@ public class GroupsFragment extends Fragment {
                                     if (getActivity() != null) {
                                         getActivity().runOnUiThread(() -> {
                                             if (isAdded() && adapter != null)
-                                                adapter.notifyDataSetChanged();
+                                                diffUpdateGroups(fetched);
                                         });
                                     }
                                 }
@@ -181,5 +186,45 @@ public class GroupsFragment extends Fragment {
             @Override public void onCancelled(DatabaseError e) {}
         };
         FirebaseUtils.getUserGroupsRef(uid).addValueEventListener(groupsListener);
+    }
+
+    /**
+     * PERF (same fix as ChatsFragment#diffUpdateContacts): replace brute-force
+     * notifyDataSetChanged() with DiffUtil so a Firebase update only rebinds the
+     * group rows that actually changed (renamed group, new last-message preview,
+     * new icon) instead of every visible row in the groups list.
+     */
+    private void diffUpdateGroups(List<Group> newList) {
+        final List<Group> oldList = new ArrayList<>(groups);
+        DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override public int getOldListSize() { return oldList.size(); }
+            @Override public int getNewListSize() { return newList.size(); }
+
+            @Override
+            public boolean areItemsTheSame(int oldPos, int newPos) {
+                Group a = oldList.get(oldPos), b = newList.get(newPos);
+                return a.id != null && a.id.equals(b.id);
+            }
+
+            @Override
+            public boolean areContentsTheSame(int oldPos, int newPos) {
+                Group a = oldList.get(oldPos), b = newList.get(newPos);
+                return safeEq(a.name, b.name)
+                    && safeEq(a.lastMessage, b.lastMessage)
+                    && safeEq(a.lastSenderName, b.lastSenderName)
+                    && safeEq(a.iconUrl, b.iconUrl)
+                    && longEq(a.lastMessageAt, b.lastMessageAt);
+            }
+
+            private boolean safeEq(String x, String y) {
+                return x == null ? y == null : x.equals(y);
+            }
+            private boolean longEq(Long x, Long y) {
+                return x == null ? y == null : x.equals(y);
+            }
+        });
+        groups.clear();
+        groups.addAll(newList);
+        if (adapter != null) result.dispatchUpdatesTo(adapter);
     }
 }

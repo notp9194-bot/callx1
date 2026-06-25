@@ -14,7 +14,19 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.List;
 public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
     private final List<Group> groups;
-    public GroupAdapter(List<Group> groups) { this.groups = groups; }
+    public GroupAdapter(List<Group> groups) {
+        this.groups = groups;
+        // PERF: stable IDs — same fix as ChatListAdapter — lets DiffUtil-driven
+        // updates (see GroupsFragment#diffUpdateGroups) avoid unnecessary rebinds
+        // for rows whose position didn't change.
+        setHasStableIds(true);
+    }
+    @Override
+    public long getItemId(int position) {
+        if (position < 0 || position >= groups.size()) return RecyclerView.NO_ID;
+        String id = groups.get(position).id;
+        return id != null ? id.hashCode() : position;
+    }
     @NonNull @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext())
