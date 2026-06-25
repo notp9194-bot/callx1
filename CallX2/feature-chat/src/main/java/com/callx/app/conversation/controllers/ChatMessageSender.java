@@ -49,17 +49,15 @@ public class ChatMessageSender {
 
         MessageEntity entity = messageToEntity(m, "pending");
 
-        // BUG FIX: this insertMessage() write happens IMMEDIATELY on send —
-        // before any Firebase round-trip — and bypasses ChatActivity's
-        // buffered flushPendingRoomWrites() entirely (this is a separate,
-        // direct write on its own executor). It needs the SAME sever-
-        // before-write / reanchor-after-write protection, or sending a
-        // message still triggers the old top-jump bug even though
-        // receiving is now fixed. See ChatActivity#severPagingIfAtBottom().
-        boolean willReanchor = delegate.severPagingIfAtBottom();
+        // FLICKER FIX v46: severPagingIfAtBottom()+reanchorPagingToBottom() hata diya.
+        // Woh approach pura Pager destroy karke naya banata tha — DiffUtil puri list
+        // reset karta tha aur existing messages blink/flicker karte the (WhatsApp mein
+        // yeh kabhi nahi hota). Room ka InvalidationTracker khud Room write detect
+        // karega, Paging 3 incremental diff karega, aur onItemRangeInserted observer
+        // scrollToPosition(total-1) call karega. stackFromEnd=true bhi already hai.
+        // Koi Pager restart nahi = zero flicker.
         Executors.newSingleThreadExecutor().execute(() -> {
             AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
-            if (willReanchor) delegate.reanchorPagingToBottom();
         });
 
         if (delegate.isOnline()) {
@@ -74,14 +72,12 @@ public class ChatMessageSender {
     public void firebasePushMessage(Message m, String key, String previewText) {
         delegate.getMessagesRef().child(key).setValue(m)
                 .addOnSuccessListener(unused -> {
-                    // BUG FIX: same direct-write issue as insertMessage()
-                    // above — this status update bypasses the buffered
-                    // flush path too.
-                    boolean willReanchor = delegate.severPagingIfAtBottom();
+                    // FLICKER FIX v46: sever+reanchor hata diya yahan bhi.
+                    // Status update (pending→sent) ek sirf field change hai —
+                    // Pager restart ki zaroorat nahi, Room diff khud handle karega.
                     Executors.newSingleThreadExecutor().execute(() -> {
                         AppDatabase.getInstance(delegate.getActivity())
                                 .messageDao().updateStatus(key, "sent");
-                        if (willReanchor) delegate.reanchorPagingToBottom();
                     });
                 })
                 .addOnFailureListener(e -> {

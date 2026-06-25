@@ -878,26 +878,12 @@ public class GroupChatActivity extends AppCompatActivity
 
         if (db == null) return;
 
-        // BUG FIX (v2): sever the OLD Pager's source BEFORE the write — see
-        // ChatActivity.flushPendingRoomWrites() for full reasoning. Removing
-        // it after the write loses the race against Room's invalidation
-        // tracker, which is why the top-jump persisted with the earlier fix.
-        boolean willReanchor = isUserAtBottom;
-        if (willReanchor && currentPagingLiveSource != null && pagingMediator != null) {
-            pagingMediator.removeSource(currentPagingLiveSource);
-            currentPagingLiveSource = null;
-        }
-
+        // FLICKER FIX v46: severPaging+reanchor hata diya — same fix as ChatActivity.
+        // Room InvalidationTracker khud diff karega, Pager restart se blink band hoga.
         ioExecutor.execute(() -> {
             List<MessageEntity> entities = new ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, null);
-
-            if (willReanchor) {
-                int count = db.messageDao().getMessageCount(groupId);
-                Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-                runOnUiThread(() -> attachPagerWithKey(initialKey));
-            }
         });
     }
 

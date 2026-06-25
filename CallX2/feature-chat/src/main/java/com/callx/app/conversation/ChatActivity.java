@@ -1569,21 +1569,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         for (Message m : upsertsSnapshot) LastMessagesCache.getInstance().upsert(chatId, m);
         for (String removedId : removalsSnapshot) LastMessagesCache.getInstance().removeMessage(chatId, removedId);
 
-        // BUG FIX (v2): sever the OLD Pager's source HERE, before the write
-        // starts — see severPagingIfAtBottom() doc above for why doing this
-        // after the write loses the race against Room's invalidation
-        // tracker (which is what caused the top-jump to persist even after
-        // the v1 fix). Shared with ChatMessageSender's direct write paths
-        // (insertMessage / updateStatus) which bypass this buffered method
-        // entirely — see severPagingIfAtBottom()/reanchorPagingToBottom().
-        boolean willReanchor = severPagingIfAtBottom();
-
+        // FLICKER FIX v46: severPagingIfAtBottom()+reanchorPagingToBottom() yahan se
+        // bhi hata diya. Incoming messages ka flush (Firebase → Room) ab sirf Room
+        // write karta hai — Paging 3 ka InvalidationTracker diff karega, existing
+        // messages kabhi remove+re-add nahi honge. Zero blink on receive bhi.
         ioExecutor.execute(() -> {
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
-
-            if (willReanchor) reanchorPagingToBottom();
         });
     }
 
