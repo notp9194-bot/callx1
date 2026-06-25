@@ -1239,6 +1239,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   3);
         binding.rvMessages.setRecycledViewPool(pool);
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
+        // PERF FIX 4: Attach pooled MotionEvent listener for swipe gesture path
+        binding.rvMessages.addOnItemTouchListener(
+                com.callx.app.chat.gesture.SwipeReplyHandler.buildPooledTouchListener());
         // WHATSAPP-STYLE FIX: kill the default ItemAnimator entirely.
         // DefaultItemAnimator fades/translates every inserted row in from
         // its previous position. When 20-30 messages land in one bulk
@@ -2264,6 +2267,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // NEW: pause on SETTLING (fling) AND DRAGGING (while finger
                 //   moves), resume ONLY on IDLE (list fully stopped).
                 //   This mirrors Glide's own RecyclerViewPreloader recommendation.
+                // PERF FIX 1: Pause link preview fetches during scroll.
+                if (pagingAdapter != null) {
+                    pagingAdapter.setScrollingPaused(
+                        newState == RecyclerView.SCROLL_STATE_DRAGGING
+                     || newState == RecyclerView.SCROLL_STATE_SETTLING);
+                }
                 if (newState == RecyclerView.SCROLL_STATE_SETTLING
                         || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     // Finger moving or list flinging — halt all pending decodes.

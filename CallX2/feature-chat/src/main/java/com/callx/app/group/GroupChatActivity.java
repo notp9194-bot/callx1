@@ -484,7 +484,21 @@ public class GroupChatActivity extends AppCompatActivity
             }
         });
 
-        LinearLayoutManager llm = new LinearLayoutManager(this);
+        // PERF FIX 6: Custom LLM with 1.5x extra layout space for group chats.
+        // Group chats scroll faster (more avatars, senderName labels, larger bubbles)
+        // and trigger more offscreen binds per fling. 1.5× screen height pre-layout
+        // means 50% more items ready before the user reaches the edge — eliminates
+        // blank frames on fast scroll in busy group chats.
+        LinearLayoutManager llm = new LinearLayoutManager(this) {
+            @Override
+            protected void calculateExtraLayoutSpace(@androidx.annotation.NonNull RecyclerView.State state,
+                                                     @androidx.annotation.NonNull int[] extraLayoutSpace) {
+                int screenH = getResources().getDisplayMetrics().heightPixels;
+                int extra = (int) (screenH * 1.5f); // 1.5× for group chats
+                extraLayoutSpace[0] = extra; // before first item
+                extraLayoutSpace[1] = extra; // after last item
+            }
+        };
         llm.setStackFromEnd(true);
         llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
@@ -502,6 +516,9 @@ public class GroupChatActivity extends AppCompatActivity
         groupPool.setMaxRecycledViews(5,  3);
         binding.rvMessages.setRecycledViewPool(groupPool);
         com.callx.app.chat.performance.SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
+        // PERF FIX 4: pooled MotionEvent listener for swipe gesture
+        binding.rvMessages.addOnItemTouchListener(
+                com.callx.app.chat.gesture.SwipeReplyHandler.buildPooledTouchListener());
         binding.rvMessages.setItemAnimator(null);
         binding.rvMessages.setNestedScrollingEnabled(false);
         // PERF OPT: same three micro-opts as 1:1 ChatActivity

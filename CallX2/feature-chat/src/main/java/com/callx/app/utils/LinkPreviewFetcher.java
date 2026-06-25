@@ -135,6 +135,12 @@ public class LinkPreviewFetcher {
         });
     }
 
+    /** Returns cached result synchronously, or null if not yet fetched. Used by scroll guard. */
+    public static Result getCached(String url) {
+        if (url == null) return null;
+        synchronized (cache) { return cache.get(url); }
+    }
+
     public static void invalidate(String url) {
         synchronized (cache) { cache.remove(url); }
     }

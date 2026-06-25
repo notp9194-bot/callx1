@@ -13,7 +13,12 @@ import androidx.annotation.NonNull;
 @Entity(
     tableName = "messages",
     indices = {
-        @Index(value = {"chatId", "timestamp"}),
+        // PERF FIX 5: DESC ordering on timestamp — Paging queries use ORDER BY timestamp DESC.
+        // Without this, SQLite sorts the result set after the index scan (filesort),
+        // adding O(N) work per page load. With DESC, the b-tree scan direction matches
+        // the query ORDER BY → zero sort step. Room generates the correct CREATE INDEX
+        // with DESC from the orders attribute.
+        @Index(value = {"chatId", "timestamp"}, orders = {androidx.room.Index.Order.ASC, androidx.room.Index.Order.DESC}),
         @Index(value = {"chatId", "starred"}),
         @Index(value = {"syncedAt"}),
         // PERF FIX: Speeds up getPendingMessages() and getAllPendingMessages()

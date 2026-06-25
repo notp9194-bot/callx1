@@ -3,9 +3,9 @@ package com.callx.app.conversation;
 import android.content.Context;
 import android.content.Intent;
 import android.media.MediaPlayer;
-import android.os.CountDownTimer;
 import android.view.*;
 import android.widget.*;
+import com.callx.app.chat.ui.AudioWaveformView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.text.PrecomputedTextCompat;
@@ -160,6 +160,72 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
 
     /** Payload key for partial bind — only tick pill is updated. */
     public static final String TICK_PAYLOAD = "TICK_PAYLOAD";
+
+    // PERF FIX 1: Scroll guard — suppress LinkPreviewFetcher.fetch() during scroll.
+    // RecyclerView binds items during scroll; each bind was firing a network call.
+    // ChatActivity calls setScrollingPaused(true/false) from OnScrollListener.
+    private volatile boolean isScrollingPaused = false;
+
+    /** Called by ChatActivity's OnScrollListener. True = suppress link preview fetches. */
+    public void setScrollingPaused(boolean paused) { this.isScrollingPaused = paused; }
+
+    // PERF FIX 2: Single shared Handler ticks ALL disappearing-message countdowns.
+    // Before: 100 disappearing messages = 100 CountDownTimers (100 threads each sleeping 1s).
+    // Now: 1 Handler.postDelayed() fires every second, iterates only visible VHs.
+    // Overhead: ~0 — Handler reuses the main Looper's MessageQueue.
+    private final android.os.Handler expiryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private androidx.recyclerview.widget.RecyclerView attachedRv;
+    private boolean expiryTickRunning = false;
+
+    private final Runnable expiryTickRunnable = new Runnable() {
+        @Override public void run() {
+            if (attachedRv == null) { expiryTickRunning = false; return; }
+            boolean hasExpiring = false;
+            int childCount = attachedRv.getChildCount();
+            for (int i = 0; i < childCount; i++) {
+                android.view.View child = attachedRv.getChildAt(i);
+                androidx.recyclerview.widget.RecyclerView.ViewHolder rawVh =
+                        attachedRv.getChildViewHolder(child);
+                if (!(rawVh instanceof VH)) continue;
+                VH vh = (VH) rawVh;
+                if (vh.tvExpiry == null || vh.tvExpiry.getVisibility() != android.view.View.VISIBLE) continue;
+                // Peek expiresAt from tag set during bind
+                Object tag = vh.tvExpiry.getTag();
+                if (!(tag instanceof Long)) continue;
+                long expiresAt = (Long) tag;
+                long remaining = expiresAt - System.currentTimeMillis();
+                if (remaining > 0) {
+                    vh.tvExpiry.setText("⏳ " + formatRemaining(remaining));
+                    hasExpiring = true;
+                } else {
+                    vh.tvExpiry.setText("⏳ 0s");
+                }
+            }
+            if (hasExpiring) expiryHandler.postDelayed(this, 1000L);
+            else expiryTickRunning = false;
+        }
+    };
+
+    @Override
+    public void onAttachedToRecyclerView(@androidx.annotation.NonNull androidx.recyclerview.widget.RecyclerView rv) {
+        super.onAttachedToRecyclerView(rv);
+        attachedRv = rv;
+    }
+
+    @Override
+    public void onDetachedFromRecyclerView(@androidx.annotation.NonNull androidx.recyclerview.widget.RecyclerView rv) {
+        super.onDetachedFromRecyclerView(rv);
+        expiryHandler.removeCallbacks(expiryTickRunnable);
+        expiryTickRunning = false;
+        attachedRv = null;
+    }
+
+    private void startExpiryTickIfNeeded() {
+        if (!expiryTickRunning) {
+            expiryTickRunning = true;
+            expiryHandler.postDelayed(expiryTickRunnable, 1000L);
+        }
+    }
 
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
@@ -475,6 +541,26 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 h.btnPlayAudio.setOnClickListener(v -> togglePlay(h, m, fPos));
                 h.btnPlayAudio.setImageResource(
                         playingPos == pos ? R.drawable.ic_pause : R.drawable.ic_play);
+                // FIX 3: Show fake waveform using message ID as seed for deterministic bars
+                if (h.waveformAudio != null) {
+                    int seed = m.id != null ? m.id.hashCode() : pos;
+                    h.waveformAudio.setFakeWaveform(seed);
+                    h.waveformAudio.setProgress(playingPos == pos && player != null
+                            ? (float) player.getCurrentPosition() / Math.max(1, player.getDuration())
+                            : 0f);
+                    boolean isSent2 = sent;
+                    h.waveformAudio.setColors(
+                            isSent2 ? 0xFF25D366 : 0xFF2196F3,  // played
+                            isSent2 ? 0x6625D366 : 0x662196F3); // unplayed
+                    final String msgUrl = m.mediaUrl;
+                    final int fPosCopy = fPos;
+                    h.waveformAudio.setOnSeekListener(p -> {
+                        if (player != null && playingPos == fPosCopy) {
+                            int seekMs = (int) (p * player.getDuration());
+                            player.seekTo(seekMs);
+                        }
+                    });
+                }
                 if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
                     if (MediaCache.getCached(ctx, m.mediaUrl) == null) {
                         MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
@@ -627,6 +713,11 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                     ensureLinkPreviewInflated(h, sent);
                     h.llLinkPreview.setTag(previewUrl);
                     h.llLinkPreview.setVisibility(View.INVISIBLE);
+                    // PERF FIX 1: Skip fetch when scrolling — saves network + thread churn.
+                    // Cache hits (common case) are still served instantly from LinkPreviewFetcher.
+                    if (isScrollingPaused && com.callx.app.utils.LinkPreviewFetcher.getCached(previewUrl) == null) {
+                        h.llLinkPreview.setVisibility(View.GONE);
+                    } else
                     com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
                             new com.callx.app.utils.LinkPreviewFetcher.Callback() {
                         @Override
@@ -718,7 +809,8 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         h.stubAudio.inflate();
         h.llAudio      = h.itemView.findViewById(R.id.ll_audio);
         h.btnPlayAudio = h.itemView.findViewById(R.id.btn_play_pause);
-        h.seekAudio    = h.itemView.findViewById(R.id.seek_audio);
+        // FIX 3: waveform replaces seekbar — wired below in ensureAudioInflated
+            h.waveformAudio = h.itemView.findViewById(R.id.waveform_audio);
         h.tvAudioDur   = h.itemView.findViewById(R.id.tv_audio_dur);
         // Set text color after inflation (single shared layout, color set programmatically)
         if (h.tvAudioDur != null) {
@@ -1029,23 +1121,18 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         if (h.tvStarredIcon != null)
             h.tvStarredIcon.setVisibility(Boolean.TRUE.equals(m.starred) ? View.VISIBLE : View.GONE);
         bindTickOnly(h, m);
-        // Disappearing message countdown
-        if (h.activeCountDown != null) { h.activeCountDown.cancel(); h.activeCountDown = null; }
+        // PERF FIX 2: No per-VH CountDownTimer — shared Handler ticks all VHs.
+        // expiresAt stored as tag on tvExpiry; expiryTickRunnable reads it each second.
         if (h.tvExpiry != null) {
             long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
             long remaining = expiresAt - System.currentTimeMillis();
             if (expiresAt > 0 && remaining > 0) {
+                h.tvExpiry.setTag(expiresAt);          // shared tick reads this
                 h.tvExpiry.setVisibility(View.VISIBLE);
                 h.tvExpiry.setText("⏳ " + formatRemaining(remaining));
-                h.activeCountDown = new CountDownTimer(remaining, 1000L) {
-                    @Override public void onTick(long ms) {
-                        h.tvExpiry.setText("⏳ " + formatRemaining(ms));
-                    }
-                    @Override public void onFinish() {
-                        h.tvExpiry.setText("⏳ 0s");
-                    }
-                }.start();
+                startExpiryTickIfNeeded();             // kick the shared ticker
             } else {
+                h.tvExpiry.setTag(null);
                 h.tvExpiry.setVisibility(View.GONE);
             }
         }
@@ -1411,7 +1498,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         LinearLayout llBubble;
 
         // ── Countdown for disappearing messages ──
-        CountDownTimer activeCountDown;
+        // FIX 2: VH no longer owns a CountDownTimer — shared Handler in adapter tick all VHs.
 
         // ── ViewStub references — null after inflation (stub replaced in-place) ──
         ViewStub stubVideo;
@@ -1428,7 +1515,8 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         // Audio
         LinearLayout llAudio;
         ImageButton  btnPlayAudio;
-        SeekBar      seekAudio;
+        // FIX 3: SeekBar replaced by zero-measure-pass waveform view
+        AudioWaveformView waveformAudio;
         TextView     tvAudioDur;
         // File
         LinearLayout llFile;
@@ -1476,7 +1564,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
             tvVideoDuration = null;
             llAudio         = null;
             btnPlayAudio    = null;
-            seekAudio       = null;
+            waveformAudio   = null;
             tvAudioDur      = null;
             llFile          = null;
             tvFileName      = null;
