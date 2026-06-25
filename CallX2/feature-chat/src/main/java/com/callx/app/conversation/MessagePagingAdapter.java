@@ -26,7 +26,6 @@ import com.callx.app.utils.MediaCache;
 import java.text.SimpleDateFormat;
 import java.util.Locale;
 import com.callx.app.utils.LinkPreviewFetcher;
-import com.callx.app.chat.ui.AudioWaveformView;
 
 /**
  * MessagePagingAdapter — Paging 3 PagingDataAdapter for chat messages.
@@ -42,13 +41,6 @@ import com.callx.app.chat.ui.AudioWaveformView;
  */
 public class MessagePagingAdapter
         extends PagingDataAdapter<Message, MessagePagingAdapter.VH> {
-
-    // PERF FIX 1: Scroll guard — suppress link preview fetches during scroll.
-    private volatile boolean isScrollingPaused = false;
-
-    /** Called by ChatActivity OnScrollListener. */
-    public void setScrollingPaused(boolean paused) { this.isScrollingPaused = paused; }
-
 
     // ── DiffUtil — required by PagingDataAdapter ──────────────────
     private static final DiffUtil.ItemCallback<Message> DIFF =
@@ -1178,6 +1170,10 @@ public class MessagePagingAdapter
                 if (h.llAudio != null && h.btnPlayPause != null) {
                     h.llAudio.setVisibility(View.VISIBLE);
                     String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    if (h.seekAudio != null) {
+                        h.seekAudio.setSeed(aUrl);
+                        h.seekAudio.setProgress(0f);
+                    }
                     final int pos = position;
                     h.btnPlayPause.setOnClickListener(v -> toggleAudio(h, aUrl, pos));
                     // FIX v14: Audio preload — MediaStreamCache se pehle 512KB cache karo
@@ -1364,10 +1360,6 @@ public class MessagePagingAdapter
                         h.llLinkPreview.setVisibility(View.INVISIBLE); // reserve space while loading
                         // FIX: must be final for use inside anonymous inner class
                         final String finalPreviewUrl = previewUrl;
-                        // PERF FIX 1: skip fetch during scroll; cache hits pass through instantly
-                        if (isScrollingPaused && com.callx.app.utils.LinkPreviewFetcher.getCached(finalPreviewUrl) == null) {
-                            h.llLinkPreview.setVisibility(android.view.View.GONE);
-                        } else
                         com.callx.app.utils.LinkPreviewFetcher.fetch(finalPreviewUrl,
                                 new com.callx.app.utils.LinkPreviewFetcher.Callback() {
                             @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
@@ -1448,17 +1440,16 @@ public class MessagePagingAdapter
         }
 
         // ── Disappearing message countdown ────────────────────────────────
-        if (h.activeCountDown != null) {
-            h.activeCountDown.cancel();
-            h.activeCountDown = null;
-        }
+        // PERF: shared ExpiryTickManager handler instead of a per-row CountDownTimer.
+        com.callx.app.utils.ExpiryTickManager.get().unregister(h);
         if (h.tvExpiry != null) {
             long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
             long remaining = expiresAt - System.currentTimeMillis();
             if (expiresAt > 0 && remaining > 0) {
                 h.tvExpiry.setVisibility(View.VISIBLE);
                 h.tvExpiry.setText("⏳ " + formatRemaining(remaining));
-                h.activeCountDown = new android.os.CountDownTimer(remaining, 1000L) {
+                com.callx.app.utils.ExpiryTickManager.get().register(h, expiresAt,
+                        new com.callx.app.utils.ExpiryTickManager.Listener() {
                     @Override public void onTick(long ms) {
                         if (h.tvExpiry != null)
                             h.tvExpiry.setText("⏳ " + formatRemaining(ms));
@@ -1466,7 +1457,7 @@ public class MessagePagingAdapter
                     @Override public void onFinish() {
                         if (h.tvExpiry != null) h.tvExpiry.setVisibility(View.GONE);
                     }
-                }.start();
+                });
             } else {
                 h.tvExpiry.setVisibility(View.GONE);
             }
@@ -1725,7 +1716,7 @@ public class MessagePagingAdapter
                 seekHandler.removeCallbacks(seekUpdater);
                 if (playingVH.btnPlayPause != null)
                     playingVH.btnPlayPause.setImageResource(R.drawable.ic_play);
-                if (playingVH.seekAudio != null) playingVH.seekAudio.setProgress(0);
+                if (playingVH.seekAudio != null) playingVH.seekAudio.setProgress(0f);
             }
             if (player != null) { try { player.release(); } catch (Exception ignored) {} }
             player = new MediaPlayer();
@@ -1754,13 +1745,13 @@ public class MessagePagingAdapter
                 notifyPlaybackChanged(getItem(position), true);
                 // FIX: SeekBar live progress update — runs every 250ms while playing
                 if (h.seekAudio != null) {
-                    h.seekAudio.setMax(mp.getDuration());
+                    final int durationMs = mp.getDuration();
                     seekHandler.removeCallbacks(seekUpdater);
                     seekUpdater = new Runnable() {
                         @Override public void run() {
                             if (player != null && player.isPlaying()) {
                                 int cur = player.getCurrentPosition();
-                                h.seekAudio.setProgress(cur);
+                                if (durationMs > 0) h.seekAudio.setProgress((float) cur / durationMs);
                                 // Update duration label if present
                                 if (h.tvAudioDur != null) {
                                     long sec = cur / 1000;
@@ -1773,12 +1764,8 @@ public class MessagePagingAdapter
                     };
                     seekHandler.post(seekUpdater);
                     // Allow user to scrub
-                    h.seekAudio.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-                        @Override public void onProgressChanged(android.widget.SeekBar sb, int prog, boolean fromUser) {
-                            if (fromUser && player != null) player.seekTo(prog);
-                        }
-                        @Override public void onStartTrackingTouch(android.widget.SeekBar sb) {}
-                        @Override public void onStopTrackingTouch(android.widget.SeekBar sb) {}
+                    h.seekAudio.setOnSeekListener(fraction -> {
+                        if (player != null && durationMs > 0) player.seekTo((int) (fraction * durationMs));
                     });
                 }
             });
@@ -1787,7 +1774,7 @@ public class MessagePagingAdapter
                 playingPos = -1;
                 seekHandler.removeCallbacks(seekUpdater);
                 if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
-                if (h.seekAudio != null) h.seekAudio.setProgress(0);
+                if (h.seekAudio != null) h.seekAudio.setProgress(0f);
                 try { mp.release(); } catch (Exception ignored) {}
                 player = null;
             });
@@ -2085,7 +2072,6 @@ public class MessagePagingAdapter
         h.llAudio      = h.itemView.findViewById(R.id.ll_audio);
         h.btnPlayPause = h.itemView.findViewById(R.id.btn_play_pause);
         h.seekAudio    = h.itemView.findViewById(R.id.seek_audio);
-            h.waveformAudio = h.itemView.findViewById(R.id.waveform_audio);
         h.tvAudioDur   = h.itemView.findViewById(R.id.tv_audio_dur);
         if (h.tvAudioDur != null) {
             try {
@@ -2138,11 +2124,8 @@ public class MessagePagingAdapter
         if (holder.ivVideoThumb      != null) Glide.with(ctx).clear(holder.ivVideoThumb);
         if (holder.ivStatusSeenThumb != null) Glide.with(ctx).clear(holder.ivStatusSeenThumb);
         if (holder.ivReelSeenThumb   != null) Glide.with(ctx).clear(holder.ivReelSeenThumb);
-        // Cancel any running countdown timer to prevent leaks on recycled views
-        if (holder.activeCountDown != null) {
-            holder.activeCountDown.cancel();
-            holder.activeCountDown = null;
-        }
+        // Stop any pending tick updates from the shared manager to prevent leaks on recycled views
+        com.callx.app.utils.ExpiryTickManager.get().unregister(holder);
         // Invalidate any in-flight async PrecomputedText work for this
         // holder — it may still be running on TEXT_PRECOMPUTE_EXECUTOR
         // when the holder goes back into the pool. The posted callback
@@ -2290,9 +2273,8 @@ public class MessagePagingAdapter
         LinearLayout llAudio, llFile;
         ImageButton  btnPlayPause;
         ImageView    btnDownload;
-        // FIX: SeekBar + duration label — wired for live progress updates
-        android.widget.SeekBar seekAudio;
-        AudioWaveformView waveformAudio; // FIX 3
+        // FIX: AudioWaveformView — pre-rendered bitmap waveform, wired for live progress updates
+        com.callx.app.chat.ui.AudioWaveformView seekAudio;
         TextView     tvAudioDur;
         // SwipeReplySystem v1: reply preview views
         LinearLayout llReplyPreview;
@@ -2311,7 +2293,6 @@ public class MessagePagingAdapter
         ImageView    ivLinkThumb;
         // ── Disappearing messages ──
         TextView                  tvExpiry;
-        android.os.CountDownTimer activeCountDown;
         // ── Polls ──
         LinearLayout llPoll, llPollOptions;
         TextView     tvPollQuestion, tvPollTotalVotes, tvPollStatusBadge, tvPollSubtitle;

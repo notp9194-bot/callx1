@@ -17,21 +17,11 @@
         android:src="@drawable/ic_play"
         android:background="@drawable/circle_primary"/>
 
-    <!-- FIX 3: AudioWaveformView replaces SeekBar — seek_audio kept for backward compat -->
     <com.callx.app.chat.ui.AudioWaveformView
-        android:id="@+id/waveform_audio"
-        android:layout_width="0dp"
-        android:layout_height="48dp"
-        android:layout_weight="1"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"/>
-
-    <SeekBar
         android:id="@+id/seek_audio"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="0"
-        android:visibility="gone"
+        android:layout_height="28dp"
+        android:layout_weight="1"
         android:layout_marginStart="8dp"
         android:layout_marginEnd="8dp"/>
 

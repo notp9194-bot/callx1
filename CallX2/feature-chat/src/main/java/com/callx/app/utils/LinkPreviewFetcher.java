@@ -86,6 +86,33 @@ public class LinkPreviewFetcher {
     private static final Map<String, java.util.List<Callback>> inFlight =
             new java.util.HashMap<>();
 
+    // FIX: Scroll guard — during a fast fling/drag the adapter binds dozens of rows per
+    // second; every newly-bound link-preview row used to fire a fresh fetch() immediately,
+    // which meant a burst of HTTP connections opening for rows that will scroll past
+    // before the response even returns. Cold (non-cached) fetches are now queued while
+    // scrollGuardActive is true and flushed the moment scrolling settles. Cache hits are
+    // NOT held back since they cost no network/IO — only a map lookup.
+    private static volatile boolean scrollGuardActive = false;
+    private static final java.util.List<Runnable> pendingFetches = new java.util.ArrayList<>();
+
+    /** Call from the RecyclerView's onScrollStateChanged: true while DRAGGING/SETTLING,
+     *  false on IDLE. Flushes any deferred cold fetches once scrolling stops. */
+    public static void setScrolling(boolean scrolling) {
+        boolean wasScrolling = scrollGuardActive;
+        scrollGuardActive = scrolling;
+        if (wasScrolling && !scrolling) flushPending();
+    }
+
+    private static void flushPending() {
+        java.util.List<Runnable> toRun;
+        synchronized (pendingFetches) {
+            if (pendingFetches.isEmpty()) return;
+            toRun = new java.util.ArrayList<>(pendingFetches);
+            pendingFetches.clear();
+        }
+        for (Runnable r : toRun) mainHandler.post(r);
+    }
+
     private LinkPreviewFetcher() {}
 
     // ── Public API ────────────────────────────────────────────────────────
@@ -102,12 +129,22 @@ public class LinkPreviewFetcher {
     public static void fetch(String url, Callback callback) {
         if (url == null || callback == null) return;
         synchronized (cache) {
-            // Cache hit — deliver immediately
+            // Cache hit — deliver immediately, regardless of scroll state (no network cost)
             Result cached = cache.get(url);
             if (cached != null) {
                 mainHandler.post(() -> callback.onResult(cached));
                 return;
             }
+        }
+        // Cold fetch during an active scroll/fling — defer it. The row may scroll past
+        // before this would have even completed, so don't open a connection yet.
+        if (scrollGuardActive) {
+            synchronized (pendingFetches) {
+                pendingFetches.add(() -> fetch(url, callback));
+            }
+            return;
+        }
+        synchronized (cache) {
             // In-flight — queue this callback; the active fetch will notify all waiters
             if (inFlight.containsKey(url)) {
                 inFlight.get(url).add(callback);
@@ -133,12 +170,6 @@ public class LinkPreviewFetcher {
                 });
             }
         });
-    }
-
-    /** Returns cached result synchronously, or null if not yet fetched. Used by scroll guard. */
-    public static Result getCached(String url) {
-        if (url == null) return null;
-        synchronized (cache) { return cache.get(url); }
     }
 
     public static void invalidate(String url) {
