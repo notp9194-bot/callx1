@@ -8,6 +8,8 @@ import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.core.text.PrecomputedTextCompat;
+import androidx.core.widget.TextViewCompat;
 import androidx.paging.PagingDataAdapter;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
@@ -359,11 +361,9 @@ public class MessagePagingAdapter
         int screenW = parent.getContext().getResources().getDisplayMetrics().widthPixels;
         int maxW = (int) (screenW * 0.70f);
         if (vh.tvMessage != null) vh.tvMessage.setMaxWidth(maxW);
-        // LinearLayout has no setMaxWidth — tvMessage.setMaxWidth() already caps bubble width
-        for (android.view.ViewGroup mv : new android.view.ViewGroup[]{vh.llAudio, vh.llFile}) {
-            if (mv != null) { android.view.ViewGroup.LayoutParams lp = mv.getLayoutParams(); if (lp != null) { lp.width = maxW; mv.setLayoutParams(lp); } }
-        }
-        if (vh.flVideo != null) { android.view.ViewGroup.LayoutParams lp = vh.flVideo.getLayoutParams(); if (lp != null) { lp.width = maxW; vh.flVideo.setLayoutParams(lp); } }
+        // llAudio / llFile / flVideo / llLinkPreview / llPoll are now ViewStubs —
+        // their LayoutParams are set via android:layout_width in the stub tag
+        // (= @dimen/msg_bubble_max_width), so no runtime width override is needed.
         if (vh.ivImage != null) { android.view.ViewGroup.LayoutParams lp = vh.ivImage.getLayoutParams(); if (lp != null) { lp.width = maxW; vh.ivImage.setLayoutParams(lp); } }
         return vh;
     }
@@ -973,6 +973,7 @@ public class MessagePagingAdapter
                 // POLISH: Use fl_video + iv_video_thumb (thumbnail + play overlay)
                 // Prefer thumbnailUrl (Cloudinary thumb) over raw video URL for preview
                 final String vMid = m.messageId != null ? m.messageId : m.id;
+                ensureVideoInflated(h); // ViewStub lazy inflate
                 if (h.flVideo != null && h.ivVideoThumb != null) {
                     h.flVideo.setVisibility(View.VISIBLE);
                     if (h.ivImage != null) h.ivImage.setVisibility(View.GONE);
@@ -1030,6 +1031,7 @@ public class MessagePagingAdapter
                 break;
             }
             case "audio":
+                ensureAudioInflated(h, ctx, sent); // ViewStub lazy inflate
                 if (h.llAudio != null && h.btnPlayPause != null) {
                     h.llAudio.setVisibility(View.VISIBLE);
                     String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
@@ -1056,6 +1058,7 @@ public class MessagePagingAdapter
                 break;
             case "file":
             case "document":
+                ensureFileInflated(h, ctx, sent); // ViewStub lazy inflate
                 if (h.llFile != null && h.tvFileName != null) {
                     h.llFile.setVisibility(View.VISIBLE);
                     String fName = m.fileName != null ? m.fileName : "File";
@@ -1086,6 +1089,7 @@ public class MessagePagingAdapter
                 }
                 break;
             case "poll":
+                ensurePollInflated(h); // ViewStub lazy inflate
                 if (h.llPoll != null) {
                     bindPoll(h, m, sent);
                 } else {
@@ -1094,23 +1098,20 @@ public class MessagePagingAdapter
                 }
                 break;
             default: // "text", "emoji", etc.
-                // POLISH: hide link preview by default before checking for URL
-                if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
                 h.tvMessage.setVisibility(View.VISIBLE);
                 String txt = m.text != null ? m.text : "";
                 if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
-                // ── Font Style: sender ke selected typing style ko receiver pe bhi apply karo ──
+                // ── Font Style ───────────────────────────────────────────────
                 applyFontStyle(h.tvMessage, m.fontStyle);
-                // ── Font Size: globally selected message text size ──────────
+                // ── Font Size ────────────────────────────────────────────────
                 h.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
                     com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
-                // ── Clickable links: URLs, phone numbers, emails ────────────
+                // ── Clickable links: URLs, phone numbers, emails ─────────────
                 android.text.SpannableString spanned = new android.text.SpannableString(txt);
                 android.text.util.Linkify.addLinks(spanned,
                     android.text.util.Linkify.WEB_URLS |
                     android.text.util.Linkify.PHONE_NUMBERS |
                     android.text.util.Linkify.EMAIL_ADDRESSES);
-                h.tvMessage.setText(spanned);
                 // Link color matching bubble theme
                 boolean isSentMsg = currentUid.equals(m.senderId);
                 int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
@@ -1121,6 +1122,29 @@ public class MessagePagingAdapter
                 h.tvMessage.setTextColor(
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
 
+                // ── PrecomputedTextCompat — avoids expensive text-layout measure
+                //    on the UI thread for long messages (news links, long texts).
+                //    For short messages, plain setText() is faster.  ──────────
+                if (txt.length() > 80) {
+                    try {
+                        PrecomputedTextCompat.Params params =
+                                TextViewCompat.getTextMetricsParams(h.tvMessage);
+                        PrecomputedTextCompat pct =
+                                PrecomputedTextCompat.create(spanned, params);
+                        TextViewCompat.setPrecomputedText(h.tvMessage, pct);
+                    } catch (Exception e) {
+                        h.tvMessage.setText(spanned);
+                    }
+                } else {
+                    h.tvMessage.setText(spanned);
+                }
+
+                // ── Link preview (ViewStub lazy inflate) ─────────────────────
+                // Hide stale link preview before checking for URL
+                if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
+                if (m.text != null) {
+                    ensureLinkPreviewInflated(h, isSentMsg); // inflate once on demand
+                }
                 // POLISH: Link preview — detect URL, fetch OG data async, bind card
                 if (h.llLinkPreview != null && m.text != null) {
                     // PERF: cache extracted URL in tvMessage tag — regex won't run again
@@ -1838,6 +1862,64 @@ public class MessagePagingAdapter
         dialog.show();
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    //  ViewStub inflation helpers — one-time inflate + child ref caching.
+    //  Each method is a no-op after first call (h.flVideo != null, etc.).
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private void ensureVideoInflated(@NonNull VH h) {
+        if (h.flVideo != null || h.stubVideo == null) return;
+        h.stubVideo.inflate(); h.stubVideo = null;
+        h.flVideo      = h.itemView.findViewById(R.id.fl_video);
+        h.ivVideoThumb = h.itemView.findViewById(R.id.iv_video_thumb);
+        h.tvDuration   = h.itemView.findViewById(R.id.tv_duration);
+    }
+
+    private void ensureAudioInflated(@NonNull VH h, Context ctx, boolean sent) {
+        if (h.llAudio != null || h.stubAudio == null) return;
+        h.stubAudio.inflate(); h.stubAudio = null;
+        h.llAudio      = h.itemView.findViewById(R.id.ll_audio);
+        h.btnPlayPause = h.itemView.findViewById(R.id.btn_play_pause);
+        h.seekAudio    = h.itemView.findViewById(R.id.seek_audio);
+        h.tvAudioDur   = h.itemView.findViewById(R.id.tv_audio_dur);
+        if (h.tvAudioDur != null) {
+            try {
+                int color = ctx.getResources().getColor(
+                        sent ? R.color.bubble_sent_text : R.color.bubble_received_text);
+                h.tvAudioDur.setTextColor(color);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void ensureFileInflated(@NonNull VH h, Context ctx, boolean sent) {
+        if (h.llFile != null || h.stubFile == null) return;
+        h.stubFile.inflate(); h.stubFile = null;
+        h.llFile      = h.itemView.findViewById(R.id.ll_file);
+        h.tvFileName  = h.itemView.findViewById(R.id.tv_file_name);
+        h.btnDownload = h.itemView.findViewById(R.id.btn_download);
+    }
+
+    private void ensurePollInflated(@NonNull VH h) {
+        if (h.llPoll != null || h.stubPoll == null) return;
+        h.stubPoll.inflate(); h.stubPoll = null;
+        h.llPoll            = h.itemView.findViewById(R.id.ll_poll);
+        h.llPollOptions     = h.itemView.findViewById(R.id.ll_poll_options);
+        h.tvPollQuestion    = h.itemView.findViewById(R.id.tv_poll_question);
+        h.tvPollTotalVotes  = h.itemView.findViewById(R.id.tv_poll_total_votes);
+        h.tvPollStatusBadge = h.itemView.findViewById(R.id.tv_poll_status_badge);
+        h.tvPollSubtitle    = h.itemView.findViewById(R.id.tv_poll_subtitle);
+        h.ivPollIcon        = h.itemView.findViewById(R.id.iv_poll_icon);
+    }
+
+    private void ensureLinkPreviewInflated(@NonNull VH h, boolean sent) {
+        if (h.llLinkPreview != null || h.stubLinkPreview == null) return;
+        h.stubLinkPreview.inflate(); h.stubLinkPreview = null;
+        h.llLinkPreview = h.itemView.findViewById(R.id.ll_link_preview);
+        h.tvLinkTitle   = h.itemView.findViewById(R.id.tv_link_title);
+        h.tvLinkDomain  = h.itemView.findViewById(R.id.tv_link_domain);
+        h.ivLinkThumb   = h.itemView.findViewById(R.id.iv_link_thumb);
+    }
+
     @Override
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
@@ -1921,6 +2003,17 @@ public class MessagePagingAdapter
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;
         TextView     tvStatus;   // tv_status in both item layouts
+
+        // ── ViewStub refs — each replaced in-place on first inflate ──────────
+        // After inflate() the stub removes itself from the view tree;
+        // we null the field to signal "already inflated" to ensure*Inflated().
+        android.view.ViewStub stubVideo;
+        android.view.ViewStub stubAudio;
+        android.view.ViewStub stubFile;
+        android.view.ViewStub stubPoll;
+        android.view.ViewStub stubLinkPreview;
+
+        // ── Heavy view refs — null until their stub is inflated ──────────────
         LinearLayout llAudio, llFile;
         ImageButton  btnPlayPause;
         ImageView    btnDownload;
@@ -1989,14 +2082,20 @@ public class MessagePagingAdapter
             tvDateHeader   = v.findViewById(R.id.tv_date_header);
             ivImage        = v.findViewById(R.id.iv_image);
             tvStatus       = v.findViewById(R.id.tv_status);
-            llAudio        = v.findViewById(R.id.ll_audio);
-            btnPlayPause   = v.findViewById(R.id.btn_play_pause);
-            // FIX: bind SeekBar so we can update progress during playback
-            seekAudio      = v.findViewById(R.id.seek_audio);
-            tvAudioDur     = v.findViewById(R.id.tv_audio_dur);
-            llFile         = v.findViewById(R.id.ll_file);
-            tvFileName     = v.findViewById(R.id.tv_file_name);
-            btnDownload    = v.findViewById(R.id.btn_download);
+            // ── ViewStub bindings — heavy child layouts inflate only on demand ──
+            stubVideo       = v.findViewById(R.id.stub_video);
+            stubAudio       = v.findViewById(R.id.stub_audio);
+            stubFile        = v.findViewById(R.id.stub_file);
+            stubPoll        = v.findViewById(R.id.stub_poll);
+            stubLinkPreview = v.findViewById(R.id.stub_link_preview);
+            // Heavy child refs start null; populated by ensure*Inflated() below
+            llAudio = null; btnPlayPause = null; seekAudio = null; tvAudioDur = null;
+            llFile  = null; tvFileName   = null; btnDownload = null;
+            flVideo = null; ivVideoThumb = null; tvDuration  = null;
+            llLinkPreview = null; tvLinkTitle = null; tvLinkDomain = null; ivLinkThumb = null;
+            llPoll = null; llPollOptions = null; tvPollQuestion = null;
+            tvPollTotalVotes = null; tvPollStatusBadge = null; tvPollSubtitle = null;
+            ivPollIcon = null;
             // SwipeReplySystem v1
             llReplyPreview = v.findViewById(R.id.ll_reply_preview);
             tvReplySender  = v.findViewById(R.id.tv_reply_sender);
@@ -2005,27 +2104,10 @@ public class MessagePagingAdapter
             // Reactions
             llReactions    = v.findViewById(R.id.ll_reactions);
             tvReactions    = v.findViewById(R.id.tv_reactions);
-            // POLISH: Video FrameLayout with thumbnail + play overlay
-            flVideo        = v.findViewById(R.id.fl_video);
-            ivVideoThumb   = v.findViewById(R.id.iv_video_thumb);
-            tvDuration     = v.findViewById(R.id.tv_duration);
-            // POLISH: Link preview card
-            llLinkPreview  = v.findViewById(R.id.ll_link_preview);
-            tvLinkTitle    = v.findViewById(R.id.tv_link_title);
-            tvLinkDomain   = v.findViewById(R.id.tv_link_domain);
-            ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
             // Disappearing messages
             tvExpiry       = v.findViewById(R.id.tv_expiry);
             // PERF: these are rarely shown — GONE by default avoids measure cost
             if (tvExpiry != null) tvExpiry.setVisibility(android.view.View.GONE);
-            // Polls
-            llPoll           = v.findViewById(R.id.ll_poll);
-            llPollOptions    = v.findViewById(R.id.ll_poll_options);
-            tvPollQuestion   = v.findViewById(R.id.tv_poll_question);
-            tvPollTotalVotes = v.findViewById(R.id.tv_poll_total_votes);
-            tvPollStatusBadge = v.findViewById(R.id.tv_poll_status_badge);
-            tvPollSubtitle    = v.findViewById(R.id.tv_poll_subtitle);
-            ivPollIcon        = v.findViewById(R.id.iv_poll_icon);
             viewSeenDot       = v.findViewById(R.id.view_seen_dot);
             tvListeningBadge  = v.findViewById(R.id.tv_listening_badge);
             llBubble          = v.findViewById(R.id.ll_bubble);
