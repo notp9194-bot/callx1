@@ -116,6 +116,35 @@ public class MessagePagingAdapter
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
     static final String PAYLOAD_STATUS = "status";
 
+    // ── ASYNC PrecomputedTextCompat ─────────────────────────────────
+    // Small background pool so long-message text layout (line-breaking,
+    // measuring) happens off the UI thread instead of inline during
+    // onBindViewHolder. Low priority so it never competes with the main
+    // thread for CPU during a fling.
+    private static final java.util.concurrent.ExecutorService TEXT_PRECOMPUTE_EXECUTOR =
+            java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
+                Thread t = new Thread(r, "msg-text-precompute");
+                t.setPriority(Thread.NORM_PRIORITY - 1);
+                return t;
+            });
+
+    // LRU cache (messageId + text-hash → PrecomputedTextCompat) so scrolling
+    // back to an already-seen long message reuses the previous result
+    // instantly instead of recomputing. Capped at 80 entries — generous for
+    // a chat screen's worth of long messages without growing unbounded.
+    // Accessed from both the UI thread (read on bind) and the background
+    // executor threads (write on completion) — all access MUST go through
+    // precomputeCacheLock.
+    private final Object precomputeCacheLock = new Object();
+    private final java.util.LinkedHashMap<String, PrecomputedTextCompat> precomputedTextCache =
+            new java.util.LinkedHashMap<String, PrecomputedTextCompat>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, PrecomputedTextCompat> eldest) {
+                    return size() > 80;
+                }
+            };
+
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
     private final boolean isGroup;
@@ -1123,21 +1152,68 @@ public class MessagePagingAdapter
                 h.tvMessage.setTextColor(
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
 
-                // ── PrecomputedTextCompat — avoids expensive text-layout measure
-                //    on the UI thread for long messages (news links, long texts).
-                //    For short messages, plain setText() is faster.  ──────────
+                // ── PrecomputedTextCompat — now genuinely async ──────────────
+                // 1) setText(spanned) immediately, always — nothing is ever
+                //    blank, and this costs the same as before.
+                // 2) Bump h.textBindToken on EVERY full text-bind (even for
+                //    short messages) — this is the staleness guard. It
+                //    invalidates any in-flight background result left over
+                //    from whatever message this recycled holder showed
+                //    previously, regardless of how long the new text is.
+                // 3) For long messages, check a small LRU cache keyed by
+                //    messageId+text-hash first — scrolling back to an
+                //    already-seen long message reuses the prior result
+                //    instantly, no background hop needed.
+                // 4) On a cache miss, only the cheap Params extraction
+                //    (current font/size/width — already configured on
+                //    h.tvMessage above) stays on the UI thread. The actual
+                //    expensive work, PrecomputedTextCompat.create() (line
+                //    breaking + measuring), runs on TEXT_PRECOMPUTE_EXECUTOR.
+                //    The result is applied on the main thread ONLY if
+                //    h.textBindToken still matches what was captured before
+                //    dispatch — otherwise the holder has since been rebound
+                //    (or recycled) and the stale result is dropped silently.
+                h.tvMessage.setText(spanned);
+                final int myTextBindToken = ++h.textBindToken;
                 if (txt.length() > 80) {
-                    try {
-                        PrecomputedTextCompat.Params params =
-                                TextViewCompat.getTextMetricsParams(h.tvMessage);
-                        PrecomputedTextCompat pct =
-                                PrecomputedTextCompat.create(spanned, params);
-                        TextViewCompat.setPrecomputedText(h.tvMessage, pct);
-                    } catch (Exception e) {
-                        h.tvMessage.setText(spanned);
+                    final String mid = m.messageId != null ? m.messageId : m.id;
+                    final String cacheKey = (mid != null ? mid : "") + "#" + txt.hashCode();
+
+                    PrecomputedTextCompat cachedPct;
+                    synchronized (precomputeCacheLock) {
+                        cachedPct = precomputedTextCache.get(cacheKey);
                     }
-                } else {
-                    h.tvMessage.setText(spanned);
+                    if (cachedPct != null) {
+                        // Fast path: already computed on a previous bind.
+                        // Must go through TextViewCompat.setPrecomputedText()
+                        // (not plain setText) so the existing measured
+                        // layout is actually reused instead of being
+                        // remeasured from scratch.
+                        TextViewCompat.setPrecomputedText(h.tvMessage, cachedPct);
+                    } else {
+                        final VH holderRef = h;
+                        final android.text.SpannableString finalSpanned = spanned;
+                        // Cheap — must run on UI thread since it reads the
+                        // TextView's current paint/typeface/width.
+                        final PrecomputedTextCompat.Params params =
+                                TextViewCompat.getTextMetricsParams(h.tvMessage);
+                        TEXT_PRECOMPUTE_EXECUTOR.execute(() -> {
+                            PrecomputedTextCompat pct;
+                            try {
+                                pct = PrecomputedTextCompat.create(finalSpanned, params);
+                            } catch (Exception e) {
+                                return; // plain text already on screen — nothing to upgrade
+                            }
+                            synchronized (precomputeCacheLock) {
+                                precomputedTextCache.put(cacheKey, pct);
+                            }
+                            holderRef.itemView.post(() -> {
+                                // Staleness guard — discard if holder moved on.
+                                if (holderRef.textBindToken != myTextBindToken) return;
+                                TextViewCompat.setPrecomputedText(holderRef.tvMessage, pct);
+                            });
+                        });
+                    }
                 }
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
@@ -1939,6 +2015,13 @@ public class MessagePagingAdapter
             holder.activeCountDown.cancel();
             holder.activeCountDown = null;
         }
+        // Invalidate any in-flight async PrecomputedText work for this
+        // holder — it may still be running on TEXT_PRECOMPUTE_EXECUTOR
+        // when the holder goes back into the pool. The posted callback
+        // checks textBindToken before applying, so bumping it here makes
+        // any such result a guaranteed no-op even if it lands while the
+        // holder is sitting unused in the pool.
+        holder.textBindToken++;
     }
 
     // ── Disappearing messages — format remaining time ─────────────────────
@@ -2004,6 +2087,12 @@ public class MessagePagingAdapter
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;
         TextView     tvStatus;   // tv_status in both item layouts
+
+        // ASYNC PrecomputedTextCompat staleness guard — bumped on every
+        // full text-bind AND on recycle (see onViewRecycled). A pending
+        // background precompute result is only applied if this still
+        // matches the token it captured at dispatch time.
+        volatile int textBindToken = 0;
 
         // ── ViewStub refs — each replaced in-place on first inflate ──────────
         // After inflate() the stub removes itself from the view tree;
