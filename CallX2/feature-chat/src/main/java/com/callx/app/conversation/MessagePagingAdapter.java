@@ -115,6 +115,13 @@ public class MessagePagingAdapter
 
     // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
     static final String PAYLOAD_STATUS = "status";
+    // ── Payload key for presence-only updates (viewing-dot / reply-glow /
+    //    playing-badge) — lets setViewingMessageIds() etc. refresh just
+    //    those three views instead of re-running the entire bindMessage()
+    //    (Glide reloads, Linkify, GradientDrawable alloc, CountDownTimer
+    //    restart...) every time a presence broadcast comes in. See
+    //    bindPresenceOnly() and the payload check in onBindViewHolder().
+    static final String PAYLOAD_PRESENCE = "presence";
 
     // ── ASYNC PrecomputedTextCompat ─────────────────────────────────
     // Small background pool so long-message text layout (line-breaking,
@@ -230,7 +237,10 @@ public class MessagePagingAdapter
             Message m = getItem(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
-            if (id != null && changed.contains(id)) notifyItemChanged(i);
+            // PERF: payload-only refresh — see PAYLOAD_PRESENCE. Avoids
+            // re-running the full bindMessage() (Glide reloads, Linkify,
+            // bubble redraw, countdown restart) just to flip a dot.
+            if (id != null && changed.contains(id)) notifyItemChanged(i, PAYLOAD_PRESENCE);
         }
     }
 
@@ -255,7 +265,8 @@ public class MessagePagingAdapter
             Message m = getItem(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
-            if (id != null && changed.contains(id)) notifyItemChanged(i);
+            // PERF: payload-only refresh — see PAYLOAD_PRESENCE.
+            if (id != null && changed.contains(id)) notifyItemChanged(i, PAYLOAD_PRESENCE);
         }
     }
 
@@ -278,7 +289,8 @@ public class MessagePagingAdapter
             Message m = getItem(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;
-            if (id != null && changed.contains(id)) notifyItemChanged(i);
+            // PERF: payload-only refresh — see PAYLOAD_PRESENCE.
+            if (id != null && changed.contains(id)) notifyItemChanged(i, PAYLOAD_PRESENCE);
         }
     }
     private MultiSelectListener multiSelectListener;
@@ -405,6 +417,15 @@ public class MessagePagingAdapter
             Message m = getItem(position);
             if (m != null && h.tvStatus != null) {
                 bindStatusTick(h, m);
+            }
+            return;
+        }
+        if (!payloads.isEmpty() && PAYLOAD_PRESENCE.equals(payloads.get(0))) {
+            // Fast path: a viewing/typing-reply/playback broadcast changed —
+            // update only the dot/glow/badge, skip full bind entirely.
+            Message m = getItem(position);
+            if (m != null) {
+                bindPresenceOnly(h, m);
             }
             return;
         }
@@ -2079,6 +2100,39 @@ public class MessagePagingAdapter
                 h.tvStatus.setTextColor(0xAAFFFFFF);
                 h.tvStatus.setOnClickListener(null);
                 break;
+        }
+    }
+
+    /** Fast-path: rebind ONLY the three presence-driven views — the
+     *  "someone's viewing this" dot, the "someone's playing this" badge,
+     *  and the "someone's replying to this" bubble glow. Called from the
+     *  payload-aware onBind for PAYLOAD_PRESENCE, so a viewing/typing/
+     *  playback broadcast no longer re-runs the whole bindMessage() (no
+     *  Glide reload, no Linkify, no new GradientDrawable, no countdown
+     *  restart) just to flip a dot. Logic mirrors the equivalent blocks
+     *  inside bindMessage() exactly — keep both in sync if either changes. */
+    private void bindPresenceOnly(@NonNull VH h, @NonNull Message m) {
+        String mid = m.messageId != null ? m.messageId : m.id;
+
+        if (h.viewSeenDot != null) {
+            boolean viewing = mid != null && currentlyViewedMessageIds.contains(mid);
+            h.viewSeenDot.setVisibility(viewing ? View.VISIBLE : View.GONE);
+        }
+
+        if (h.tvListeningBadge != null) {
+            boolean playing = mid != null && currentlyPlayingMessageIds.contains(mid);
+            if (playing) {
+                boolean isVideoMsg = "video".equals(m.type);
+                h.tvListeningBadge.setText(isVideoMsg ? "▶ watching…" : "🎧 listening…");
+            }
+            h.tvListeningBadge.setVisibility(playing ? View.VISIBLE : View.GONE);
+        }
+
+        if (h.llBubble != null) {
+            boolean isReplyTarget = mid != null && replyTargetMessageIds.contains(mid);
+            h.llBubble.setForeground(isReplyTarget
+                    ? ContextCompat.getDrawable(h.itemView.getContext(), R.drawable.bg_reply_target_highlight)
+                    : null);
         }
     }
 
