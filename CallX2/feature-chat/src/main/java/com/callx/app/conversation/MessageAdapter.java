@@ -7,6 +7,11 @@ import android.os.CountDownTimer;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.text.PrecomputedTextCompat;
+import androidx.core.widget.TextViewCompat;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.ListAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
@@ -21,13 +26,75 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 /**
- * Production-grade MessageAdapter.
- * Supports all original features (1–8) + new features:
- *   N4 Copy Message
- *   N7 Message Info
+ * Production-grade MessageAdapter — DiffUtil + ViewStub + PrecomputedText edition.
+ *
+ * Optimizations applied:
+ *   • Migrated to ListAdapter (AsyncListDiffer under the hood) — no notifyDataSetChanged()
+ *   • DiffUtil.ItemCallback compares by messageId, then full object equality
+ *   • TICK_PAYLOAD partial bind still works — only tv_status redrawn for status changes
+ *   • ViewStub lazy inflation for heavy layouts (video, audio, file, poll, link_preview)
+ *   • PrecomputedTextCompat for long text messages — avoids heavy measure on UI thread
+ *   • Multi-select now uses notifyItemRangeChanged() instead of notifyDataSetChanged()
  */
-public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
+public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
 
+    // ── DiffUtil callback ─────────────────────────────────────────────────────
+    private static final DiffUtil.ItemCallback<Message> DIFF_CALLBACK =
+            new DiffUtil.ItemCallback<Message>() {
+                @Override
+                public boolean areItemsTheSame(@NonNull Message oldItem, @NonNull Message newItem) {
+                    // Identity check — same database row / Firebase node
+                    String oldId = oldItem.id != null ? oldItem.id : oldItem.messageId;
+                    String newId = newItem.id != null ? newItem.id : newItem.messageId;
+                    if (oldId == null || newId == null) return oldItem == newItem;
+                    return oldId.equals(newId);
+                }
+
+                @Override
+                public boolean areContentsTheSame(@NonNull Message oldItem, @NonNull Message newItem) {
+                    // Full structural equality — if false, onBindViewHolder is called with empty payload
+                    return Objects.equals(oldItem.id,             newItem.id)
+                        && Objects.equals(oldItem.text,           newItem.text)
+                        && Objects.equals(oldItem.type,           newItem.type)
+                        && Objects.equals(oldItem.status,         newItem.status)
+                        && Objects.equals(oldItem.mediaUrl,       newItem.mediaUrl)
+                        && Objects.equals(oldItem.thumbnailUrl,   newItem.thumbnailUrl)
+                        && Objects.equals(oldItem.fileName,       newItem.fileName)
+                        && Objects.equals(oldItem.fileSize,       newItem.fileSize)
+                        && Objects.equals(oldItem.duration,       newItem.duration)
+                        && Objects.equals(oldItem.reactions,      newItem.reactions)
+                        && Objects.equals(oldItem.edited,         newItem.edited)
+                        && Objects.equals(oldItem.deleted,        newItem.deleted)
+                        && Objects.equals(oldItem.starred,        newItem.starred)
+                        && Objects.equals(oldItem.pinned,         newItem.pinned)
+                        && Objects.equals(oldItem.replyToText,    newItem.replyToText)
+                        && Objects.equals(oldItem.replyToSenderName, newItem.replyToSenderName)
+                        && Objects.equals(oldItem.forwardedFrom,  newItem.forwardedFrom)
+                        && Objects.equals(oldItem.pollVotes,      newItem.pollVotes)
+                        && Objects.equals(oldItem.pollClosed,     newItem.pollClosed)
+                        && Objects.equals(oldItem.expiresAt,      newItem.expiresAt);
+                }
+
+                @Nullable
+                @Override
+                public Object getChangePayload(@NonNull Message oldItem, @NonNull Message newItem) {
+                    // Deliver TICK_PAYLOAD when ONLY the status field changed
+                    // → onBindViewHolder will handle it with a partial bind (tick only)
+                    boolean onlyStatusChanged =
+                            Objects.equals(oldItem.id,           newItem.id)
+                         && !Objects.equals(oldItem.status,      newItem.status)
+                         && Objects.equals(oldItem.text,         newItem.text)
+                         && Objects.equals(oldItem.type,         newItem.type)
+                         && Objects.equals(oldItem.reactions,    newItem.reactions)
+                         && Objects.equals(oldItem.edited,       newItem.edited)
+                         && Objects.equals(oldItem.deleted,      newItem.deleted)
+                         && Objects.equals(oldItem.starred,      newItem.starred)
+                         && Objects.equals(oldItem.pinned,       newItem.pinned);
+                    return onlyStatusChanged ? TICK_PAYLOAD : null;
+                }
+            };
+
+    // ────────────────────────────────────────────────────────────────────────
     public interface ActionListener {
         void onReply(Message m);
         void onEdit(Message m);
@@ -37,23 +104,21 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         void onStar(Message m);
         void onPin(Message m);
         void onReactionTap(Message m);
-        void onCopy(Message m);   // N4
-        void onInfo(Message m);   // N7
+        void onCopy(Message m);
+        void onInfo(Message m);
     }
 
-    // ── Multi-select interface ────────────────────────────────────────────
     public interface MultiSelectListener {
-        void onSelectionChanged(int count);  // count = selected messages count
+        void onSelectionChanged(int count);
     }
 
-    private final List<Message> messages;
     private final String currentUid;
     private final boolean isGroup;
     private ActionListener actionListener;
 
-    // ── Multi-select state ───────────────────────────────────────────────
+    // ── Multi-select state ────────────────────────────────────────────────────
     private boolean multiSelectMode = false;
-    private final java.util.Set<String> selectedMessageIds = new java.util.HashSet<>();
+    private final Set<String> selectedMessageIds = new HashSet<>();
     private MultiSelectListener multiSelectListener;
 
     public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }
@@ -64,39 +129,46 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         if (firstMessage != null && firstMessage.id != null) {
             selectedMessageIds.add(firstMessage.id);
         }
-        notifyDataSetChanged();
-        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+        // Refresh all visible items without destroying ViewHolders
+        notifyItemRangeChanged(0, getItemCount());
+        if (multiSelectListener != null)
+            multiSelectListener.onSelectionChanged(selectedMessageIds.size());
     }
 
     public void exitMultiSelectMode() {
         multiSelectMode = false;
         selectedMessageIds.clear();
-        notifyDataSetChanged();
+        notifyItemRangeChanged(0, getItemCount());
         if (multiSelectListener != null) multiSelectListener.onSelectionChanged(0);
     }
 
     public boolean isInMultiSelectMode() { return multiSelectMode; }
 
-    public java.util.List<Message> getSelectedMessages() {
-        java.util.List<Message> result = new java.util.ArrayList<>();
-        for (Message m : messages) {
+    public List<Message> getSelectedMessages() {
+        List<Message> result = new ArrayList<>();
+        for (Message m : getCurrentList()) {
             if (m.id != null && selectedMessageIds.contains(m.id)) result.add(m);
         }
         return result;
     }
 
-    private static final int TYPE_SENT = 1, TYPE_RECEIVED = 2, TYPE_STATUS_SEEN = 3, TYPE_REEL_SEEN = 4, TYPE_HIDDEN = 5;
+    private static final int TYPE_SENT       = 1;
+    private static final int TYPE_RECEIVED   = 2;
+    private static final int TYPE_STATUS_SEEN = 3;
+    private static final int TYPE_REEL_SEEN  = 4;
+    private static final int TYPE_HIDDEN     = 5;
 
-    /** Payload key for partial bind — only tick pill is updated, time pill stays intact. */
+    /** Payload key for partial bind — only tick pill is updated. */
     public static final String TICK_PAYLOAD = "TICK_PAYLOAD";
+
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
 
     private MediaPlayer player;
     private int playingPos = -1;
 
-    public MessageAdapter(List<Message> messages, String currentUid, boolean isGroup) {
-        this.messages   = messages;
+    public MessageAdapter(String currentUid, boolean isGroup) {
+        super(DIFF_CALLBACK);
         this.currentUid = currentUid;
         this.isGroup    = isGroup;
         setHasStableIds(false);
@@ -105,13 +177,14 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     public void setActionListener(ActionListener l) { this.actionListener = l; }
 
     /**
-     * Update only the tick pill of a message identified by its Firebase ID.
-     * Calls notifyItemChanged with TICK_PAYLOAD → only tv_status is redrawn,
-     * time pill is never touched → zero flicker.
+     * Update only the tick pill of a message by Firebase ID.
+     * Uses notifyItemChanged(pos, TICK_PAYLOAD) → partial bind, zero flicker.
+     * Also updates the in-memory status so the next full bind is correct.
      */
     public void updateMessageStatus(String messageId, String newStatus) {
-        for (int i = 0; i < messages.size(); i++) {
-            Message m = messages.get(i);
+        List<Message> list = getCurrentList();
+        for (int i = 0; i < list.size(); i++) {
+            Message m = list.get(i);
             if (messageId != null && messageId.equals(m.id)) {
                 m.status = newStatus;
                 notifyItemChanged(i, TICK_PAYLOAD);
@@ -121,12 +194,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     }
 
     @Override public int getItemViewType(int pos) {
-        Message m = messages.get(pos);
+        Message m = getItem(pos);
         if ("status_seen".equals(m.type)) return TYPE_STATUS_SEEN;
         if ("reel_seen".equals(m.type)) {
-            // Bubble must show ONLY to the reel's owner (the person who got
-            // watched), never to the viewer who did the watching — otherwise
-            // both sides see "watched your reel" for every reel view.
             return currentUid.equals(m.reelOwnerUid) ? TYPE_REEL_SEEN : TYPE_HIDDEN;
         }
         return currentUid.equals(m.senderId) ? TYPE_SENT : TYPE_RECEIVED;
@@ -140,100 +210,68 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             return new VH(v);
         }
         int layout;
-        if (viewType == TYPE_SENT)          layout = R.layout.item_message_sent;
+        if (viewType == TYPE_SENT)             layout = R.layout.item_message_sent;
         else if (viewType == TYPE_STATUS_SEEN) layout = R.layout.item_status_seen_bubble;
         else if (viewType == TYPE_REEL_SEEN)   layout = R.layout.item_reel_seen_bubble;
-        else                                layout = R.layout.item_message_received;
+        else                                   layout = R.layout.item_message_received;
+
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         VH vh = new VH(v);
-        // ── Apply 70% screen-width cap to bubble and all fixed-width media ──
+
+        // ── 70% screen-width cap on bubble and text ──────────────────────────
         int screenW = parent.getContext().getResources().getDisplayMetrics().widthPixels;
-        int maxW = (int) (screenW * 0.70f);
+        int maxW    = (int) (screenW * 0.70f);
         if (vh.tvMessage != null)  vh.tvMessage.setMaxWidth(maxW);
-        // LinearLayout has no setMaxWidth — cap via maxWidth on the wrap_content bubble
-        // by setting a LayoutParams width only when current width is WRAP_CONTENT
-        if (vh.llBubble != null) {
-            android.view.ViewGroup.LayoutParams lp = vh.llBubble.getLayoutParams();
-            if (lp != null && lp.width == android.view.ViewGroup.LayoutParams.WRAP_CONTENT) {
-                // keep wrap_content but bound by maxWidth on children (tvMessage already capped)
-                // nothing to do — bubble shrinks to content; content is already capped by tvMessage.setMaxWidth
-            }
-        }
-        // media containers: clamp their layout_width to maxW
-        android.view.ViewGroup[] mediaViews = {vh.llAudio, vh.llFile, vh.llReactions};
-        for (android.view.ViewGroup mv : mediaViews) {
-            if (mv != null) {
-                android.view.ViewGroup.LayoutParams lp = mv.getLayoutParams();
-                if (lp != null) { lp.width = maxW; mv.setLayoutParams(lp); }
-            }
-        }
-        if (vh.flVideo != null) {
-            android.view.ViewGroup.LayoutParams lp = vh.flVideo.getLayoutParams();
-            if (lp != null) { lp.width = maxW; vh.flVideo.setLayoutParams(lp); }
-        }
-        if (vh.ivImage != null) {
-            android.view.ViewGroup.LayoutParams lp = vh.ivImage.getLayoutParams();
-            if (lp != null) { lp.width = maxW; vh.ivImage.setLayoutParams(lp); }
+        if (vh.llReactions != null) {
+            ViewGroup.LayoutParams lp = vh.llReactions.getLayoutParams();
+            if (lp != null) { lp.width = maxW; vh.llReactions.setLayoutParams(lp); }
         }
         return vh;
     }
 
     @Override public void onBindViewHolder(@NonNull VH h, int pos,
-                                           @NonNull java.util.List<Object> payloads) {
+                                           @NonNull List<Object> payloads) {
         if (!payloads.isEmpty() && payloads.contains(TICK_PAYLOAD)) {
-            // Partial bind — only update the tick pill, leave time pill alone
-            Message m = messages.get(pos);
-            bindTickOnly(h, m);
+            // Partial bind — only redraw tick pill, nothing else
+            bindTickOnly(h, getItem(pos));
             return;
         }
         onBindViewHolder(h, pos);
     }
 
     @Override public void onBindViewHolder(@NonNull VH h, int pos) {
-        Message m   = messages.get(pos);
+        Message m   = getItem(pos);
         Context ctx = h.itemView.getContext();
         int viewType = getItemViewType(pos);
 
-        // ── HIDDEN — this viewer's own reel_seen event; not their bubble to see ──
-        if (viewType == TYPE_HIDDEN) {
-            return;
-        }
+        if (viewType == TYPE_HIDDEN)      { return; }
+        if (viewType == TYPE_STATUS_SEEN) { bindStatusSeenBubble(h, m, ctx); return; }
+        if (viewType == TYPE_REEL_SEEN)   { bindReelSeenBubble(h, m, ctx);   return; }
 
-        // ── STATUS SEEN BUBBLE — special system event row ─────────────────────
-        if (viewType == TYPE_STATUS_SEEN) {
-            bindStatusSeenBubble(h, m, ctx);
-            return;
-        }
+        boolean sent = (viewType == TYPE_SENT);
 
-        // ── REEL SEEN BUBBLE — special system event row ───────────────────────
-        if (viewType == TYPE_REEL_SEEN) {
-            bindReelSeenBubble(h, m, ctx);
-            return;
-        }
-
-        boolean sent = viewType == TYPE_SENT;
-
+        // ── Reset all content views (only those already inflated need hiding) ─
         h.tvMessage.setVisibility(View.GONE);
         h.ivImage.setVisibility(View.GONE);
-        if (h.flVideo  != null) h.flVideo.setVisibility(View.GONE);
-        if (h.llAudio  != null) h.llAudio.setVisibility(View.GONE);
-        if (h.llFile   != null) h.llFile.setVisibility(View.GONE);
-        if (h.tvEdited     != null) h.tvEdited.setVisibility(View.GONE);
+        if (h.flVideo       != null) h.flVideo.setVisibility(View.GONE);
+        if (h.llAudio       != null) h.llAudio.setVisibility(View.GONE);
+        if (h.llFile        != null) h.llFile.setVisibility(View.GONE);
+        if (h.llPoll        != null) h.llPoll.setVisibility(View.GONE);
         if (h.llLinkPreview != null) h.llLinkPreview.setVisibility(View.GONE);
+        if (h.tvEdited      != null) h.tvEdited.setVisibility(View.GONE);
 
-        // Feature 8: Pinned label
+        // Pinned label
         if (h.tvPinnedLabel != null)
-            h.tvPinnedLabel.setVisibility(
-                    Boolean.TRUE.equals(m.pinned) ? View.VISIBLE : View.GONE);
+            h.tvPinnedLabel.setVisibility(Boolean.TRUE.equals(m.pinned) ? View.VISIBLE : View.GONE);
 
-        // Feature 6: Forwarded label
+        // Forwarded label
         if (h.tvForwarded != null) {
             boolean fwd = m.forwardedFrom != null && !m.forwardedFrom.isEmpty();
             h.tvForwarded.setVisibility(fwd ? View.VISIBLE : View.GONE);
             if (fwd) h.tvForwarded.setText("\u21AA Forwarded from " + m.forwardedFrom);
         }
 
-        // ── Quick Forward Button — image/video/audio/file/link messages pe dikhega ──
+        // Quick Forward Button
         if (h.btnQuickForward != null) {
             String mt = m.type != null ? m.type : "text";
             boolean showFwdBtn = mt.equals("image") || mt.equals("video") || mt.equals("audio")
@@ -251,45 +289,44 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         // Group sender avatar (received only)
         if (h.ivSenderAvatar != null) {
             boolean showAvatar = isGroup && !sent && m.senderId != null;
-            h.ivSenderAvatar.setVisibility(showAvatar ? android.view.View.VISIBLE : android.view.View.GONE);
+            h.ivSenderAvatar.setVisibility(showAvatar ? View.VISIBLE : View.GONE);
             if (showAvatar) {
-                loadSenderAvatar(h.itemView.getContext(), m.senderId, h.ivSenderAvatar);
+                loadSenderAvatar(ctx, m.senderId, h.ivSenderAvatar);
                 final String sUid  = m.senderId;
                 final String sName = m.senderName;
                 h.ivSenderAvatar.setOnClickListener(v -> {
                     if (sUid == null) return;
-                    android.content.Intent i = new android.content.Intent().setClassName(h.itemView.getContext(), "com.callx.app.conversation.ChatActivity");
+                    Intent i = new Intent().setClassName(ctx,
+                            "com.callx.app.conversation.ChatActivity");
                     i.putExtra("partnerUid",  sUid);
                     i.putExtra("partnerName", sName != null ? sName : "");
-                    h.itemView.getContext().startActivity(i);
+                    ctx.startActivity(i);
                 });
             } else {
                 h.ivSenderAvatar.setOnClickListener(null);
             }
         }
 
-                // Group sender name (received only)
+        // Group sender name
         if (h.tvSenderName != null) {
             boolean show = isGroup && !sent;
             h.tvSenderName.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (show) h.tvSenderName.setText(
-                    m.senderName != null ? m.senderName : "Unknown");
+            if (show) h.tvSenderName.setText(m.senderName != null ? m.senderName : "Unknown");
         }
 
-        // Feature 2: Reply preview
+        // Reply preview
         if (h.llReplyPreview != null) {
             boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
             h.llReplyPreview.setVisibility(hasReply ? View.VISIBLE : View.GONE);
             if (hasReply) {
                 if (h.tvReplySender != null)
-                    h.tvReplySender.setText(
-                            m.replyToSenderName != null ? m.replyToSenderName : "");
+                    h.tvReplySender.setText(m.replyToSenderName != null ? m.replyToSenderName : "");
                 if (h.tvReplyText != null)
                     h.tvReplyText.setText(m.replyToText);
             }
         }
 
-        // Feature 5: Deleted state
+        // Deleted state — short-circuit
         if (Boolean.TRUE.equals(m.deleted)) {
             h.tvMessage.setVisibility(View.VISIBLE);
             h.tvMessage.setText("\uD83D\uDEAB  This message was deleted");
@@ -302,332 +339,295 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             return;
         }
 
+        // Resolve type
         String type = m.type == null ? "text" : m.type;
         if ("image".equals(type) || (m.imageUrl != null && !m.imageUrl.isEmpty()
                 && (m.mediaUrl == null || m.mediaUrl.isEmpty())))
             type = "image";
-        // GIF ko bhi image ki tarah treat karo — Glide GIF auto-play karta hai
         if ("gif".equals(type)) type = "gif";
 
-        // ── Per-type bubble background — ChatThemeManager (runtime gradient) ──
+        // Bubble background (runtime gradient via ChatThemeManager)
         try {
-            android.view.View llBubble = h.itemView.findViewById(R.id.ll_bubble);
+            View llBubble = h.itemView.findViewById(R.id.ll_bubble);
             if (llBubble != null) {
                 boolean hasReply = m.replyToText != null && !m.replyToText.isEmpty();
-                com.callx.app.utils.ChatThemeManager
-                        .get(ctx)
+                com.callx.app.utils.ChatThemeManager.get(ctx)
                         .applyBubble(llBubble, sent, type, hasReply);
-
             }
         } catch (Exception ignored) {}
 
         switch (type) {
+            // ── IMAGE / GIF ─────────────────────────────────────────────────
             case "gif":
             case "image": {
                 h.ivImage.setVisibility(View.VISIBLE);
                 String url = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
                 android.util.Log.d("ImageLoad", "Loading image/gif: " + url);
                 boolean isGif = "gif".equals(m.type);
-                // Check if already cached (only used for non-GIF types)
                 java.io.File cached = isGif ? null : MediaCache.getCached(ctx, url);
                 if (isGif) {
-                    // GIF: Glide ke DiskCache pe rely karo — MediaCache file se load
-                    // karne par .gif extension nahi hoti, Glide decode fail karta hai.
-                    // URL directly load karo, Glide DiskCacheStrategy.ALL GIF cache karega.
-                    Glide.with(ctx)
-                            .asGif()
-                            .load(url)
+                    Glide.with(ctx).asGif().load(url)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
                             .into(h.ivImage);
                 } else if (cached != null) {
-                    android.util.Log.d("ImageLoad", "Image found in cache: " + cached.getAbsolutePath());
                     Glide.with(ctx).load(cached)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
                             .into(h.ivImage);
                 } else {
-                    android.util.Log.d("ImageLoad", "Image NOT in cache, will download: " + url);
                     Glide.with(ctx).load(url)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.bg_circle_white)
                             .into(h.ivImage);
-                    // Background cache
                     MediaCache.get(ctx, url, new MediaCache.Callback() {
-                        @Override public void onReady(java.io.File file) {
-                            android.util.Log.d("ImageLoad", "Image cached: " + file.getAbsolutePath());
-                        }
-                        @Override public void onError(String reason) {
-                            android.util.Log.w("ImageLoad", "Failed to cache image: " + reason);
-                        }
+                        @Override public void onReady(java.io.File f) {}
+                        @Override public void onError(String r) {}
                     });
                 }
                 final String fu = url;
                 final String tu = m.thumbnailUrl;
                 h.ivImage.setOnClickListener(v -> showImageActionSheet(ctx, m, fu, tu != null ? tu : fu));
-                h.ivImage.setOnLongClickListener(v -> {
-                    openActionSheet(ctx, m);
-                    return true;
+                h.ivImage.setOnLongClickListener(v -> { openActionSheet(ctx, m); return true; });
+                break;
+            }
+
+            // ── VIDEO ────────────────────────────────────────────────────────
+            case "video": {
+                ensureVideoInflated(h);
+                h.flVideo.setVisibility(View.VISIBLE);
+                String thumb    = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                        ? m.thumbnailUrl : m.mediaUrl;
+                final String videoUrl = m.mediaUrl;
+                java.io.File cachedThumb = MediaCache.getCached(ctx, thumb);
+                if (cachedThumb != null) {
+                    Glide.with(ctx).load(cachedThumb).centerCrop().into(h.ivVideoThumb);
+                } else {
+                    Glide.with(ctx).load(thumb).centerCrop()
+                            .placeholder(R.drawable.ic_video).into(h.ivVideoThumb);
+                    MediaCache.get(ctx, thumb, new MediaCache.Callback() {
+                        @Override public void onReady(java.io.File f) {}
+                        @Override public void onError(String r) {}
+                    });
+                }
+                if (h.tvVideoDuration != null) {
+                    if (m.duration != null && m.duration > 0) {
+                        h.tvVideoDuration.setVisibility(View.VISIBLE);
+                        h.tvVideoDuration.setText(formatVideoDuration(m.duration));
+                    } else {
+                        h.tvVideoDuration.setVisibility(View.GONE);
+                    }
+                }
+                java.io.File cachedVideo = MediaCache.getCached(ctx, videoUrl);
+                if (cachedVideo == null && videoUrl != null && !videoUrl.isEmpty()) {
+                    MediaCache.get(ctx, videoUrl, new MediaCache.Callback() {
+                        @Override public void onReady(java.io.File f) {}
+                        @Override public void onError(String r) {}
+                    });
+                }
+                h.flVideo.setOnClickListener(v -> {
+                    Intent intent = new Intent()
+                            .setClassName(ctx, "com.callx.app.player.VideoPlayerActivity");
+                    intent.putExtra("videoUrl", videoUrl);
+                    intent.putExtra("thumbUrl", m.thumbnailUrl);
+                    intent.putExtra("durationMs", m.duration != null ? m.duration.intValue() : 0);
+                    ctx.startActivity(intent);
                 });
                 break;
             }
-            case "video": {
-                if (h.flVideo != null) {
-                    h.flVideo.setVisibility(View.VISIBLE);
 
-                    // Thumbnail: proper WebP generated by VideoCompressor
-                    String thumb    = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
-                            ? m.thumbnailUrl : m.mediaUrl;
-                    final String videoUrl = m.mediaUrl;
-
-                    // Load thumbnail (fast — cached WebP ~30KB)
-                    java.io.File cachedThumb = com.callx.app.utils.MediaCache.getCached(ctx, thumb);
-                    if (cachedThumb != null) {
-                        Glide.with(ctx).load(cachedThumb)
-                                .centerCrop().into(h.ivVideoThumb);
-                    } else {
-                        Glide.with(ctx).load(thumb)
-                                .centerCrop()
-                                .placeholder(R.drawable.ic_video)
-                                .into(h.ivVideoThumb);
-                        com.callx.app.utils.MediaCache.get(ctx, thumb,
-                                new com.callx.app.utils.MediaCache.Callback() {
-                                    @Override public void onReady(java.io.File f) {}
-                                    @Override public void onError(String r) {}
-                                });
-                    }
-
-                    // Duration badge (e.g. "1:24")
-                    if (h.tvVideoDuration != null) {
-                        if (m.duration != null && m.duration > 0) {
-                            h.tvVideoDuration.setVisibility(View.VISIBLE);
-                            h.tvVideoDuration.setText(formatVideoDuration(m.duration));
-                        } else {
-                            h.tvVideoDuration.setVisibility(View.GONE);
-                        }
-                    }
-
-                    // Pre-cache video in background (for instant replay)
-                    java.io.File cachedVideo = com.callx.app.utils.MediaCache.getCached(ctx, videoUrl);
-                    if (cachedVideo == null && videoUrl != null && !videoUrl.isEmpty()) {
-                        com.callx.app.utils.MediaCache.get(ctx, videoUrl,
-                                new com.callx.app.utils.MediaCache.Callback() {
-                                    @Override public void onReady(java.io.File f) {}
-                                    @Override public void onError(String r) {}
-                                });
-                    }
-
-                    // Click → VideoPlayerActivity (full ExoPlayer)
-                    h.flVideo.setOnClickListener(v -> {
-                        android.content.Intent intent = new android.content.Intent()
-                                .setClassName(ctx, "com.callx.app.player.VideoPlayerActivity");
-                        intent.putExtra(
-                                "videoUrl",
-                                videoUrl);
-                        intent.putExtra(
-                                "thumbUrl",
-                                m.thumbnailUrl);
-                        intent.putExtra(
-                                "durationMs",
-                                m.duration != null ? m.duration.intValue() : 0);
-                        ctx.startActivity(intent);
-                    });
-                }
-                break;
-            }
+            // ── AUDIO ────────────────────────────────────────────────────────
             case "audio": {
-                if (h.llAudio != null) {
-                    h.llAudio.setVisibility(View.VISIBLE);
-                    h.tvAudioDur.setText(m.duration != null
-                            ? FileUtils.formatDuration(m.duration) : "0:00");
-                    final int fPos = pos;
-                    h.btnPlayAudio.setOnClickListener(v -> togglePlay(h, m, fPos));
-                    h.btnPlayAudio.setImageResource(
-                            playingPos == pos ? R.drawable.ic_pause : R.drawable.ic_play);
-                    
-                    // Pre-cache audio in background
-                    if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
-                        java.io.File cachedAudio = MediaCache.getCached(ctx, m.mediaUrl);
-                        if (cachedAudio == null) {
-                            android.util.Log.d("AudioLoad", "Pre-caching audio: " + m.mediaUrl);
-                            MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
-                                @Override public void onReady(java.io.File file) {
-                                    android.util.Log.d("AudioLoad", "Audio cached: " + file.getAbsolutePath());
-                                }
-                                @Override public void onError(String reason) {
-                                    android.util.Log.w("AudioLoad", "Failed to cache audio: " + reason);
-                                }
-                            });
-                        }
+                ensureAudioInflated(h, ctx, sent);
+                h.llAudio.setVisibility(View.VISIBLE);
+                h.tvAudioDur.setText(m.duration != null
+                        ? FileUtils.formatDuration(m.duration) : "0:00");
+                final int fPos = pos;
+                h.btnPlayAudio.setOnClickListener(v -> togglePlay(h, m, fPos));
+                h.btnPlayAudio.setImageResource(
+                        playingPos == pos ? R.drawable.ic_pause : R.drawable.ic_play);
+                if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
+                    if (MediaCache.getCached(ctx, m.mediaUrl) == null) {
+                        MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
+                            @Override public void onReady(java.io.File f) {}
+                            @Override public void onError(String r) {}
+                        });
                     }
                 }
                 break;
             }
+
+            // ── FILE ─────────────────────────────────────────────────────────
             case "file": {
-                if (h.llFile != null) {
-                    h.llFile.setVisibility(View.VISIBLE);
-                    String fName = m.fileName != null ? m.fileName : "File";
-                    h.tvFileName.setText(fName);
-                    h.tvFileMeta.setText(m.fileSize != null
-                            ? FileUtils.humanSize(m.fileSize) : "Document");
-
-                    // FIX: Download button — only show for RECEIVED messages
-                    if (h.ivDownload != null) {
-                        if (!sent && m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
-                            h.ivDownload.setVisibility(View.VISIBLE);
-                            java.io.File alreadyCached = MediaCache.getCached(ctx, m.mediaUrl);
-                            // Show download icon if not cached, open icon if cached
-                            h.ivDownload.setImageResource(alreadyCached != null
-                                    ? R.drawable.ic_file : R.drawable.ic_file);
-                            final String fUrl = m.mediaUrl;
-                            final String fFileName = fName;
-                            h.ivDownload.setOnClickListener(v -> {
-                                java.io.File cached2 = MediaCache.getCached(ctx, fUrl);
-                                if (cached2 != null) {
-                                    // Already downloaded — open directly
-                                    FileUtils.openOrDownload(ctx, cached2.toURI().toString(), fFileName);
-                                } else {
-                                    // Download karo
-                                    android.widget.Toast.makeText(ctx, "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
-                                    h.ivDownload.setEnabled(false);
-                                    MediaCache.get(ctx, fUrl, new MediaCache.Callback() {
-                                        @Override public void onReady(java.io.File file) {
-                                            h.ivDownload.setEnabled(true);
-                                            android.widget.Toast.makeText(ctx, "Downloaded!", android.widget.Toast.LENGTH_SHORT).show();
-                                            FileUtils.openOrDownload(ctx, file.toURI().toString(), fFileName);
-                                        }
-                                        @Override public void onError(String reason) {
-                                            h.ivDownload.setEnabled(true);
-                                            android.widget.Toast.makeText(ctx, "Download failed", android.widget.Toast.LENGTH_SHORT).show();
-                                        }
-                                    });
-                                }
-                            });
-                        } else {
-                            h.ivDownload.setVisibility(View.GONE);
-                        }
-                    }
-
-                    // Pre-cache file in background
-                    if (m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
-                        java.io.File cachedFile = MediaCache.getCached(ctx, m.mediaUrl);
-                        if (cachedFile == null) {
-                            android.util.Log.d("FileLoad", "Pre-caching file: " + m.mediaUrl);
-                            MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
-                                @Override public void onReady(java.io.File file) {
-                                    android.util.Log.d("FileLoad", "File cached: " + file.getAbsolutePath());
-                                }
-                                @Override public void onError(String reason) {
-                                    android.util.Log.w("FileLoad", "Failed to cache file: " + reason);
-                                }
-                            });
-                        }
-                    }
-                    
-                    h.llFile.setOnClickListener(v -> {
-                        if (m.mediaUrl == null) return;
-                        // Pehle local cache check, agar cached hai to seedha kholo
-                        java.io.File cached = MediaCache.getCached(ctx, m.mediaUrl);
-                        if (cached != null) {
-                            android.util.Log.d("FileClick", "Opening cached file: " + cached.getAbsolutePath());
-                            FileUtils.openOrDownload(ctx, cached.toURI().toString(), fName);
-                            return;
-                        }
-                        // Nahi hai to download & cache karo
-                        android.util.Log.d("FileClick", "Downloading file: " + m.mediaUrl);
-                        android.widget.Toast.makeText(ctx, "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
-                        MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
-                            @Override public void onReady(java.io.File file) {
-                                android.util.Log.d("FileClick", "Download complete: " + file.getAbsolutePath());
-                                FileUtils.openOrDownload(ctx, file.toURI().toString(), fName);
-                            }
-                            @Override public void onError(String reason) {
-                                android.util.Log.e("FileClick", "Download failed: " + reason);
-                                FileUtils.openOrDownload(ctx, m.mediaUrl, fName);
+                ensureFileInflated(h, ctx, sent);
+                h.llFile.setVisibility(View.VISIBLE);
+                String fName = m.fileName != null ? m.fileName : "File";
+                h.tvFileName.setText(fName);
+                h.tvFileMeta.setText(m.fileSize != null
+                        ? FileUtils.humanSize(m.fileSize) : "Document");
+                if (h.ivDownload != null) {
+                    if (!sent && m.mediaUrl != null && !m.mediaUrl.isEmpty()) {
+                        h.ivDownload.setVisibility(View.VISIBLE);
+                        h.ivDownload.setImageResource(R.drawable.ic_file);
+                        final String fUrl      = m.mediaUrl;
+                        final String fFileName = fName;
+                        h.ivDownload.setOnClickListener(v -> {
+                            java.io.File cached2 = MediaCache.getCached(ctx, fUrl);
+                            if (cached2 != null) {
+                                FileUtils.openOrDownload(ctx, cached2.toURI().toString(), fFileName);
+                            } else {
+                                android.widget.Toast.makeText(ctx, "Downloading…",
+                                        android.widget.Toast.LENGTH_SHORT).show();
+                                h.ivDownload.setEnabled(false);
+                                MediaCache.get(ctx, fUrl, new MediaCache.Callback() {
+                                    @Override public void onReady(java.io.File file) {
+                                        h.ivDownload.setEnabled(true);
+                                        android.widget.Toast.makeText(ctx, "Downloaded!",
+                                                android.widget.Toast.LENGTH_SHORT).show();
+                                        FileUtils.openOrDownload(ctx,
+                                                file.toURI().toString(), fFileName);
+                                    }
+                                    @Override public void onError(String reason) {
+                                        h.ivDownload.setEnabled(true);
+                                        android.widget.Toast.makeText(ctx, "Download failed",
+                                                android.widget.Toast.LENGTH_SHORT).show();
+                                    }
+                                });
                             }
                         });
+                    } else {
+                        h.ivDownload.setVisibility(View.GONE);
+                    }
+                }
+                if (m.mediaUrl != null && !m.mediaUrl.isEmpty()
+                        && MediaCache.getCached(ctx, m.mediaUrl) == null) {
+                    MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
+                        @Override public void onReady(java.io.File f) {}
+                        @Override public void onError(String r) {}
                     });
                 }
+                h.llFile.setOnClickListener(v -> {
+                    if (m.mediaUrl == null) return;
+                    java.io.File cached = MediaCache.getCached(ctx, m.mediaUrl);
+                    if (cached != null) {
+                        FileUtils.openOrDownload(ctx, cached.toURI().toString(), fName);
+                        return;
+                    }
+                    android.widget.Toast.makeText(ctx, "Downloading…",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    MediaCache.get(ctx, m.mediaUrl, new MediaCache.Callback() {
+                        @Override public void onReady(java.io.File file) {
+                            FileUtils.openOrDownload(ctx, file.toURI().toString(), fName);
+                        }
+                        @Override public void onError(String reason) {
+                            FileUtils.openOrDownload(ctx, m.mediaUrl, fName);
+                        }
+                    });
+                });
                 break;
             }
+
+            // ── POLL ─────────────────────────────────────────────────────────
+            case "poll": {
+                ensurePollInflated(h);
+                h.llPoll.setVisibility(View.VISIBLE);
+                bindPoll(h, m, ctx, sent);
+                break;
+            }
+
+            // ── TEXT (default) ───────────────────────────────────────────────
             default: {
                 h.tvMessage.setVisibility(View.VISIBLE);
                 h.tvMessage.setTextColor(
                         com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent));
-                h.tvMessage.setTextSize(15f);
-                // ── Font Style: sender ke selected typing style ko apply karo ──
-                applyFontStyle(h.tvMessage, m.fontStyle);
                 h.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
-                    com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
+                        com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
+                applyFontStyle(h.tvMessage, m.fontStyle);
                 if (h.tvEdited != null && Boolean.TRUE.equals(m.edited))
                     h.tvEdited.setVisibility(View.VISIBLE);
-                // ── Clickable links: URLs, phone numbers, emails ────────────
+
                 String rawText = m.text != null ? m.text : "";
+
+                // ── Linkify ──────────────────────────────────────────────────
                 android.text.SpannableString spanned = new android.text.SpannableString(rawText);
                 android.text.util.Linkify.addLinks(spanned,
-                    android.text.util.Linkify.WEB_URLS |
-                    android.text.util.Linkify.PHONE_NUMBERS |
-                    android.text.util.Linkify.EMAIL_ADDRESSES);
-                h.tvMessage.setText(spanned);
-                // Link color matching bubble theme
+                        android.text.util.Linkify.WEB_URLS |
+                        android.text.util.Linkify.PHONE_NUMBERS |
+                        android.text.util.Linkify.EMAIL_ADDRESSES);
                 int linkColor = sent ? 0xFFB3E5FC : 0xFF1565C0;
                 h.tvMessage.setLinkTextColor(linkColor);
                 h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                 h.tvMessage.setHighlightColor(0x33FFFFFF);
 
-                // ── Link Preview Card ────────────────────────────────────
-                if (h.llLinkPreview != null) {
-                    String previewUrl = com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(rawText);
-                    if (previewUrl != null) {
-                        h.llLinkPreview.setTag(previewUrl);
-                        h.llLinkPreview.setVisibility(View.INVISIBLE);
-                        com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
-                                new com.callx.app.utils.LinkPreviewFetcher.Callback() {
-                            @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
-                                if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
-                                h.llLinkPreview.setVisibility(View.VISIBLE);
-                                if (h.tvLinkDomain != null) h.tvLinkDomain.setText(r.domain);
-                                if (h.tvLinkTitle  != null) h.tvLinkTitle.setText(r.title);
-                                // Description (e.g. YouTube channel name, OG description)
-                                if (h.tvLinkDescription != null) {
-                                    if (r.description != null && !r.description.isEmpty()) {
-                                        h.tvLinkDescription.setText(r.description);
-                                        h.tvLinkDescription.setVisibility(View.VISIBLE);
-                                    } else {
-                                        h.tvLinkDescription.setVisibility(View.GONE);
-                                    }
+                // ── PrecomputedTextCompat — avoids heavy text-layout measure on UI thread ──
+                // For long messages (>80 chars), pre-compute layout metadata so the
+                // TextView's measure/draw passes are cheaper.
+                if (rawText.length() > 80) {
+                    try {
+                        PrecomputedTextCompat.Params params =
+                                TextViewCompat.getTextMetricsParams(h.tvMessage);
+                        PrecomputedTextCompat pct =
+                                PrecomputedTextCompat.create(spanned, params);
+                        TextViewCompat.setPrecomputedText(h.tvMessage, pct);
+                    } catch (Exception e) {
+                        h.tvMessage.setText(spanned);
+                    }
+                } else {
+                    h.tvMessage.setText(spanned);
+                }
+
+                // ── Link Preview ─────────────────────────────────────────────
+                String previewUrl =
+                        com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(rawText);
+                if (previewUrl != null) {
+                    ensureLinkPreviewInflated(h, sent);
+                    h.llLinkPreview.setTag(previewUrl);
+                    h.llLinkPreview.setVisibility(View.INVISIBLE);
+                    com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
+                            new com.callx.app.utils.LinkPreviewFetcher.Callback() {
+                        @Override
+                        public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
+                            if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
+                            h.llLinkPreview.setVisibility(View.VISIBLE);
+                            if (h.tvLinkDomain != null)      h.tvLinkDomain.setText(r.domain);
+                            if (h.tvLinkTitle  != null)      h.tvLinkTitle.setText(r.title);
+                            if (h.tvLinkDescription != null) {
+                                if (r.description != null && !r.description.isEmpty()) {
+                                    h.tvLinkDescription.setText(r.description);
+                                    h.tvLinkDescription.setVisibility(View.VISIBLE);
+                                } else {
+                                    h.tvLinkDescription.setVisibility(View.GONE);
                                 }
-                                if (h.ivLinkThumb  != null) {
-                                    if (r.imageUrl != null && !r.imageUrl.isEmpty()) {
-                                        h.ivLinkThumb.setVisibility(View.VISIBLE);
-                                        Glide.with(ctx)
+                            }
+                            if (h.ivLinkThumb != null) {
+                                if (r.imageUrl != null && !r.imageUrl.isEmpty()) {
+                                    h.ivLinkThumb.setVisibility(View.VISIBLE);
+                                    Glide.with(ctx)
                                             .load(r.imageUrl)
                                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                                             .centerCrop()
                                             .placeholder(android.R.color.darker_gray)
                                             .into(h.ivLinkThumb);
-                                    } else {
-                                        h.ivLinkThumb.setVisibility(View.GONE);
-                                    }
+                                } else {
+                                    h.ivLinkThumb.setVisibility(View.GONE);
                                 }
-                                h.llLinkPreview.setOnClickListener(v -> {
-                                    openInCustomTab(ctx, r.url);
-                                });
                             }
-                            @Override public void onError(String url) {
-                                if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
-                                h.llLinkPreview.setVisibility(View.GONE);
-                            }
-                        });
-                    } else {
-                        h.llLinkPreview.setVisibility(View.GONE);
-                    }
+                            h.llLinkPreview.setOnClickListener(v -> openInCustomTab(ctx, r.url));
+                        }
+                        @Override
+                        public void onError(String url) {
+                            if (!previewUrl.equals(h.llLinkPreview.getTag())) return;
+                            h.llLinkPreview.setVisibility(View.GONE);
+                        }
+                    });
+                } else if (h.llLinkPreview != null) {
+                    h.llLinkPreview.setVisibility(View.GONE);
                 }
                 break;
             }
         }
 
-        // Feature 3: Reactions
+        // ── Reactions ────────────────────────────────────────────────────────
         if (h.llReactions != null && h.tvReactions != null) {
             if (m.reactions != null && !m.reactions.isEmpty()) {
                 Map<String, Integer> counts = new LinkedHashMap<>();
@@ -655,67 +655,178 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  bindStatusSeenBubble — renders the "👁 Seen your status" row.
-    //
-    //  Layout: item_status_seen_bubble.xml (received side only — always A's event)
-    //   • Circular avatar  → iv_status_seen_avatar  (Glide + circleCrop)
-    //   • Status thumbnail → iv_status_seen_thumb   (tappable → StatusViewerActivity)
-    //   • "👁 Seen your status" → tv_status_seen_label  (in XML)
-    //   • Sender name (optional, group-only) → tv_status_seen_name
-    //   • Time → tv_status_seen_time
-    //
-    //  No long-press menu, no reactions, no reply — it's a system event.
+    //  ViewStub inflation helpers — each ensures one-time inflation and caches
+    //  child view references on the VH for fast access on subsequent rebinds.
     // ══════════════════════════════════════════════════════════════════════════
-    private void bindStatusSeenBubble(@NonNull VH h, Message m, Context ctx) {
-        // Avatar
-        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
-            h.itemView.findViewById(com.callx.app.chat.R.id.iv_status_seen_avatar);
-        if (ivAvatar != null) {
-            String photo = m.senderPhoto != null ? m.senderPhoto : "";
-            if (!photo.isEmpty()) {
-                com.bumptech.glide.Glide.with(ctx)
-                    .load(photo)
-                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                    .placeholder(com.callx.app.chat.R.drawable.ic_person)
-                    .into(ivAvatar);
+
+    private void ensureVideoInflated(@NonNull VH h) {
+        if (h.flVideo != null) return;
+        if (h.stubVideo == null) return;
+        h.stubVideo.inflate();
+        h.flVideo        = h.itemView.findViewById(R.id.fl_video);
+        h.ivVideoThumb   = h.itemView.findViewById(R.id.iv_video_thumb);
+        h.tvVideoDuration = h.itemView.findViewById(R.id.tv_duration);
+    }
+
+    private void ensureAudioInflated(@NonNull VH h, Context ctx, boolean sent) {
+        if (h.llAudio != null) return;
+        if (h.stubAudio == null) return;
+        h.stubAudio.inflate();
+        h.llAudio      = h.itemView.findViewById(R.id.ll_audio);
+        h.btnPlayAudio = h.itemView.findViewById(R.id.btn_play_pause);
+        h.seekAudio    = h.itemView.findViewById(R.id.seek_audio);
+        h.tvAudioDur   = h.itemView.findViewById(R.id.tv_audio_dur);
+        // Set text color after inflation (single shared layout, color set programmatically)
+        if (h.tvAudioDur != null) {
+            try {
+                int color = ctx.getResources().getColor(
+                        sent ? R.color.bubble_sent_text : R.color.bubble_received_text);
+                h.tvAudioDur.setTextColor(color);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void ensureFileInflated(@NonNull VH h, Context ctx, boolean sent) {
+        if (h.llFile != null) return;
+        if (h.stubFile == null) return;
+        h.stubFile.inflate();
+        h.llFile     = h.itemView.findViewById(R.id.ll_file);
+        h.tvFileName = h.itemView.findViewById(R.id.tv_file_name);
+        h.tvFileMeta = h.itemView.findViewById(R.id.tv_file_meta);
+        h.ivDownload = h.itemView.findViewById(R.id.btn_download);
+        // Set text colors after inflation
+        try {
+            int color = ctx.getResources().getColor(
+                    sent ? R.color.bubble_sent_text : R.color.bubble_received_text);
+            if (h.tvFileName != null) h.tvFileName.setTextColor(color);
+        } catch (Exception ignored) {}
+    }
+
+    private void ensurePollInflated(@NonNull VH h) {
+        if (h.llPoll != null) return;
+        if (h.stubPoll == null) return;
+        h.stubPoll.inflate();
+        h.llPoll = h.itemView.findViewById(R.id.ll_poll);
+    }
+
+    private void ensureLinkPreviewInflated(@NonNull VH h, boolean sent) {
+        if (h.llLinkPreview != null) return;
+        if (h.stubLinkPreview == null) return;
+        h.stubLinkPreview.inflate();
+        h.llLinkPreview     = h.itemView.findViewById(R.id.ll_link_preview);
+        h.tvLinkDomain      = h.itemView.findViewById(R.id.tv_link_domain);
+        h.tvLinkTitle       = h.itemView.findViewById(R.id.tv_link_title);
+        h.tvLinkDescription = h.itemView.findViewById(R.id.tv_link_description);
+        h.ivLinkThumb       = h.itemView.findViewById(R.id.iv_link_thumb);
+    }
+
+    // ── Poll bind helper ──────────────────────────────────────────────────────
+    private void bindPoll(@NonNull VH h, Message m, Context ctx, boolean sent) {
+        if (h.llPoll == null) return;
+        TextView tvQuestion = h.llPoll.findViewById(R.id.tv_poll_question);
+        TextView tvSubtitle = h.llPoll.findViewById(R.id.tv_poll_subtitle);
+        TextView tvBadge    = h.llPoll.findViewById(R.id.tv_poll_status_badge);
+        TextView tvVotes    = h.llPoll.findViewById(R.id.tv_poll_total_votes);
+        LinearLayout llOptions = h.llPoll.findViewById(R.id.ll_poll_options);
+
+        if (tvQuestion != null && m.pollQuestion != null)
+            tvQuestion.setText(m.pollQuestion);
+
+        if (tvSubtitle != null)
+            tvSubtitle.setText(Boolean.TRUE.equals(m.pollMultiChoice)
+                    ? "Select all that apply" : "Select one answer");
+
+        if (tvBadge != null) {
+            if (Boolean.TRUE.equals(m.pollClosed)) {
+                tvBadge.setVisibility(View.VISIBLE);
+                tvBadge.setText("CLOSED");
+            } else if (Boolean.TRUE.equals(m.pollAnonymous)) {
+                tvBadge.setVisibility(View.VISIBLE);
+                tvBadge.setText("ANONYMOUS");
             } else {
-                ivAvatar.setImageResource(com.callx.app.chat.R.drawable.ic_person);
+                tvBadge.setVisibility(View.GONE);
             }
         }
 
-        // Status thumbnail (tappable → open StatusViewerActivity)
-        android.view.View flThumb =
-            h.itemView.findViewById(com.callx.app.chat.R.id.fl_status_seen_thumb);
-        android.widget.ImageView ivThumb =
-            h.itemView.findViewById(com.callx.app.chat.R.id.iv_status_seen_thumb);
-        android.widget.ImageView ivEye =
-            h.itemView.findViewById(com.callx.app.chat.R.id.iv_status_seen_eye);
+        // Total votes count
+        int totalVotes = 0;
+        if (m.pollVotes != null) {
+            for (List<Integer> v : m.pollVotes.values()) totalVotes += (v != null ? 1 : 0);
+        }
+        if (tvVotes != null)
+            tvVotes.setText(totalVotes + " vote" + (totalVotes != 1 ? "s" : ""));
+
+        // Options
+        if (llOptions != null && m.pollOptions != null) {
+            llOptions.removeAllViews();
+            List<Integer> myVotes = (m.pollVotes != null && currentUid != null)
+                    ? m.pollVotes.get(currentUid) : null;
+            for (int idx = 0; idx < m.pollOptions.size(); idx++) {
+                final int optIdx = idx;
+                String option = m.pollOptions.get(idx);
+
+                // Count votes for this option
+                int optVotes = 0;
+                if (m.pollVotes != null) {
+                    for (List<Integer> vl : m.pollVotes.values()) {
+                        if (vl != null && vl.contains(idx)) optVotes++;
+                    }
+                }
+                int pct = totalVotes > 0 ? (optVotes * 100 / totalVotes) : 0;
+                boolean voted = myVotes != null && myVotes.contains(idx);
+
+                View optView = LayoutInflater.from(ctx)
+                        .inflate(android.R.layout.simple_list_item_1, llOptions, false);
+                if (optView instanceof TextView) {
+                    String label = (voted ? "✓ " : "") + option + "  " + pct + "%";
+                    ((TextView) optView).setText(label);
+                    ((TextView) optView).setTextColor(0xFFFFFFFF);
+                    ((TextView) optView).setPadding(0, 8, 0, 8);
+                }
+                llOptions.addView(optView);
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Status Seen Bubble
+    // ══════════════════════════════════════════════════════════════════════════
+    private void bindStatusSeenBubble(@NonNull VH h, Message m, Context ctx) {
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar =
+            h.itemView.findViewById(R.id.iv_status_seen_avatar);
+        if (ivAvatar != null) {
+            String photo = m.senderPhoto != null ? m.senderPhoto : "";
+            if (!photo.isEmpty()) {
+                Glide.with(ctx).load(photo)
+                        .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                        .placeholder(R.drawable.ic_person)
+                        .into(ivAvatar);
+            } else {
+                ivAvatar.setImageResource(R.drawable.ic_person);
+            }
+        }
+        View flThumb = h.itemView.findViewById(R.id.fl_status_seen_thumb);
+        ImageView ivThumb = h.itemView.findViewById(R.id.iv_status_seen_thumb);
+        ImageView ivEye   = h.itemView.findViewById(R.id.iv_status_seen_eye);
         if (ivThumb != null && flThumb != null) {
             String thumb = m.statusThumbUrl != null ? m.statusThumbUrl : "";
             if (!thumb.isEmpty()) {
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
-                com.bumptech.glide.Glide.with(ctx)
-                    .load(thumb)
-                    .centerCrop()
-                    .placeholder(com.callx.app.chat.R.drawable.bg_skeleton_rect)
-                    .into(ivThumb);
+                Glide.with(ctx).load(thumb).centerCrop()
+                        .placeholder(R.drawable.bg_skeleton_rect).into(ivThumb);
             } else {
                 flThumb.setVisibility(View.GONE);
                 if (ivEye != null) ivEye.setVisibility(View.GONE);
             }
         }
-
-        // Click handler on the whole bubble → open status
         final String ownerUid  = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
                                  ? m.statusOwnerUid : m.senderId;
         final String ownerName = m.statusOwnerName != null ? m.statusOwnerName
                                  : (m.senderName != null ? m.senderName : "");
-        android.view.View.OnClickListener openStatus = v -> {
+        View.OnClickListener openStatus = v -> {
             if (ownerUid == null || ownerUid.isEmpty()) return;
-            // Implicit intent — no compile-time dep on feature-status
-            android.content.Intent intent = new android.content.Intent(
-                    com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
+            Intent intent = new Intent(com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
             intent.putExtra("ownerUid",  ownerUid);
             intent.putExtra("ownerName", ownerName);
             intent.setPackage(ctx.getPackageName());
@@ -727,216 +838,153 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         };
         h.itemView.setOnClickListener(openStatus);
         if (flThumb != null) flThumb.setOnClickListener(openStatus);
-
-        // Sender name (shown in group chat)
-        android.widget.TextView tvName =
-            h.itemView.findViewById(com.callx.app.chat.R.id.tv_status_seen_name);
+        TextView tvName = h.itemView.findViewById(R.id.tv_status_seen_name);
         if (tvName != null) {
             if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
-                tvName.setText(m.senderName);
-                tvName.setVisibility(View.VISIBLE);
-            } else {
-                tvName.setVisibility(View.GONE);
-            }
+                tvName.setText(m.senderName); tvName.setVisibility(View.VISIBLE);
+            } else { tvName.setVisibility(View.GONE); }
         }
-
-        // Time
-        android.widget.TextView tvTime =
-            h.itemView.findViewById(com.callx.app.chat.R.id.tv_status_seen_time);
-        if (tvTime != null && m.timestamp != null) {
+        TextView tvTime = h.itemView.findViewById(R.id.tv_status_seen_time);
+        if (tvTime != null && m.timestamp != null)
             tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
-        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  bindReelSeenBubble — renders the "🎬 Watched your reel" row.
-    //
-    //  Layout: item_reel_seen_bubble.xml
-    //   • iv_reel_seen_avatar  → Glide + circleCrop
-    //   • fl_reel_seen_thumb   → FrameLayout container (tappable → opens reel)
-    //   • iv_reel_seen_thumb   → reel thumbnail
-    //   • iv_reel_seen_play    → play icon overlay on thumbnail
-    //   • tv_reel_seen_name    → sender name (group only)
-    //   • tv_reel_seen_time    → formatted timestamp
+    //  Reel Seen Bubble
     // ══════════════════════════════════════════════════════════════════════════
     private void bindReelSeenBubble(@NonNull VH h, Message m, Context ctx) {
-        // Avatar
         de.hdodenhof.circleimageview.CircleImageView ivAvatar =
-            h.itemView.findViewById(com.callx.app.chat.R.id.iv_reel_seen_avatar);
+            h.itemView.findViewById(R.id.iv_reel_seen_avatar);
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
-                com.bumptech.glide.Glide.with(ctx)
-                    .load(photo)
-                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                    .placeholder(com.callx.app.chat.R.drawable.ic_person)
-                    .into(ivAvatar);
-            } else {
-                ivAvatar.setImageResource(com.callx.app.chat.R.drawable.ic_person);
-            }
+                Glide.with(ctx).load(photo)
+                        .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                        .placeholder(R.drawable.ic_person).into(ivAvatar);
+            } else { ivAvatar.setImageResource(R.drawable.ic_person); }
         }
-
-        // Click handler — reelId se reel kholo (thumb ho ya na ho, click always kaam kare)
         final String reelId = m.reelId;
-        android.view.View.OnClickListener openReel = v -> {
+        View.OnClickListener openReel = v -> {
             if (reelId == null || reelId.isEmpty()) return;
-            android.content.Intent intent = new android.content.Intent(
-                    com.callx.app.utils.Constants.ACTION_OPEN_REEL);
+            Intent intent = new Intent(com.callx.app.utils.Constants.ACTION_OPEN_REEL);
             intent.putExtra("reelId", reelId);
             intent.setPackage(ctx.getPackageName());
             ctx.startActivity(intent);
         };
-
-        // Reel thumbnail + play icon
-        android.view.View flThumb =
-            h.itemView.findViewById(com.callx.app.chat.R.id.fl_reel_seen_thumb);
-        android.widget.ImageView ivThumb =
-            h.itemView.findViewById(com.callx.app.chat.R.id.iv_reel_seen_thumb);
-        android.widget.ImageView ivPlay =
-            h.itemView.findViewById(com.callx.app.chat.R.id.iv_reel_seen_play);
+        View flThumb   = h.itemView.findViewById(R.id.fl_reel_seen_thumb);
+        ImageView ivThumb = h.itemView.findViewById(R.id.iv_reel_seen_thumb);
+        ImageView ivPlay  = h.itemView.findViewById(R.id.iv_reel_seen_play);
         if (ivThumb != null) {
             String thumb = m.reelThumbUrl != null ? m.reelThumbUrl : "";
             if (!thumb.isEmpty()) {
                 ivThumb.setVisibility(View.VISIBLE);
                 if (ivPlay != null) ivPlay.setVisibility(View.VISIBLE);
-                com.bumptech.glide.Glide.with(ctx)
-                    .load(thumb)
-                    .centerCrop()
-                    .placeholder(com.callx.app.chat.R.drawable.bg_skeleton_rect)
-                    .into(ivThumb);
+                Glide.with(ctx).load(thumb).centerCrop()
+                        .placeholder(R.drawable.bg_skeleton_rect).into(ivThumb);
             } else {
                 ivThumb.setVisibility(View.GONE);
                 if (ivPlay != null) ivPlay.setVisibility(View.GONE);
             }
         }
-        // Click on thumbnail container, play icon, AND whole item view
         if (flThumb != null) flThumb.setOnClickListener(openReel);
         if (ivPlay  != null) ivPlay.setOnClickListener(openReel);
         h.itemView.setOnClickListener(openReel);
-
-        // Sender name (group only)
-        android.widget.TextView tvName =
-            h.itemView.findViewById(com.callx.app.chat.R.id.tv_reel_seen_name);
+        TextView tvName = h.itemView.findViewById(R.id.tv_reel_seen_name);
         if (tvName != null) {
             if (isGroup && m.senderName != null && !m.senderName.isEmpty()) {
-                tvName.setText(m.senderName);
-                tvName.setVisibility(View.VISIBLE);
-            } else {
-                tvName.setVisibility(View.GONE);
-            }
+                tvName.setText(m.senderName); tvName.setVisibility(View.VISIBLE);
+            } else { tvName.setVisibility(View.GONE); }
         }
-
-        // Time
-        android.widget.TextView tvTime =
-            h.itemView.findViewById(com.callx.app.chat.R.id.tv_reel_seen_time);
-        if (tvTime != null && m.timestamp != null) {
+        TextView tvTime = h.itemView.findViewById(R.id.tv_reel_seen_time);
+        if (tvTime != null && m.timestamp != null)
             tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
-        }
     }
 
-    private final java.util.Map<String, String> photoCache = new java.util.HashMap<>();
-    // UIDs jinka Firebase fetch chal raha hai — duplicate requests rok ne ke liye
-    private final java.util.Set<String> photoFetchInFlight = new java.util.HashSet<>();
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Sender avatar — photo-cache deduplication
+    // ══════════════════════════════════════════════════════════════════════════
+    private final Map<String, String> photoCache        = new HashMap<>();
+    private final Set<String>         photoFetchInFlight = new HashSet<>();
 
-    private void loadSenderAvatar(android.content.Context ctx, String uid,
+    private void loadSenderAvatar(Context ctx, String uid,
             de.hdodenhof.circleimageview.CircleImageView iv) {
         if (uid == null || ctx == null || iv == null) return;
         String cached = photoCache.get(uid);
         if (cached != null) {
-            // Cache hit — seedha load karo, no network call
             if (!cached.isEmpty())
-                com.bumptech.glide.Glide.with(ctx).load(cached)
-                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person).into(iv);
+                Glide.with(ctx).load(cached)
+                        .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                        .placeholder(R.drawable.ic_person).into(iv);
             else iv.setImageResource(R.drawable.ic_person);
             return;
         }
-
-        // ── PERF FIX: Firebase call per-row nahi ──────────────────────────
-        // Pehle placeholder dikhao — screen turant render hogi.
-        // Firebase fetch sirf ek baar hoga (in-flight deduplication).
-        // Fetch complete hone par notifyDataSetChanged nahi karte —
-        // sirf woh row update hogi jab woh dubara bind hogi (cache hit).
         iv.setImageResource(R.drawable.ic_person);
-
-        if (photoFetchInFlight.contains(uid)) return; // already fetching
+        if (photoFetchInFlight.contains(uid)) return;
         photoFetchInFlight.add(uid);
-
         com.callx.app.utils.FirebaseUtils.getUserRef(uid)
             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
                 @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
                     photoFetchInFlight.remove(uid);
                     String photo = snap.child("photoUrl").getValue(String.class);
                     photoCache.put(uid, photo != null ? photo : "");
-                    // Sirf is ImageView pe load karo agar still valid hai
                     if (photo != null && !photo.isEmpty()) {
                         try {
-                            com.bumptech.glide.Glide.with(ctx).load(photo)
-                                .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                                .placeholder(R.drawable.ic_person).into(iv);
+                            Glide.with(ctx).load(photo)
+                                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                                    .placeholder(R.drawable.ic_person).into(iv);
                         } catch (Exception ignored) {}
                     }
                 }
                 @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {
                     photoFetchInFlight.remove(uid);
-                    photoCache.put(uid, ""); // don't retry this session
+                    photoCache.put(uid, "");
                 }
             });
     }
 
-    /**
-     * Partial bind — updates ONLY the tick pill (tv_status + ll_tick_pill).
-     * Called both from bindFooter() and from the payload-based onBindViewHolder().
-     * Time pill is never touched here → no flicker, no unnecessary layout pass.
-     */
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Tick pill — partial bind, zero flicker
+    // ══════════════════════════════════════════════════════════════════════════
     private void bindTickOnly(VH h, Message m) {
         if (h.tvStatus == null) return;
-        // Tick only shown for sent messages (received messages have tvStatus GONE in XML)
-        // Detect sent by checking if ll_tick_pill exists (sent layout has it, received doesn't)
         if (h.llTickPill != null) {
-            // Sent bubble
             h.tvStatus.setVisibility(View.VISIBLE);
             switch (m.status == null ? "sent" : m.status) {
                 case "read":
                     h.tvStatus.setText("\u2713\u2713 ");
                     h.tvStatus.setTextSize(14f);
                     h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(true));
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext())
+                                    .getTickColor(true));
                     break;
                 case "delivered":
                     h.tvStatus.setText("\u2713\u2713");
                     h.tvStatus.setTextSize(14f);
                     h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext())
+                                    .getTickColor(false));
                     break;
-                default: // "sent" or null
+                default:
                     h.tvStatus.setText("\u2713");
                     h.tvStatus.setTextSize(14f);
                     h.tvStatus.setTextColor(
-                        com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext()).getTickColor(false));
+                            com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext())
+                                    .getTickColor(false));
                     break;
             }
         } else {
-            // Received bubble — no tick
             h.tvStatus.setVisibility(View.GONE);
         }
     }
 
-        private void bindFooter(VH h, Message m, boolean sent) {
+    private void bindFooter(VH h, Message m, boolean sent) {
         if (h.tvTime != null && m.timestamp != null)
-            h.tvTime.setText(timeFmt.format(new Date(m.timestamp)));
-
+            h.tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         if (h.tvStarredIcon != null)
-            h.tvStarredIcon.setVisibility(
-                    Boolean.TRUE.equals(m.starred) ? View.VISIBLE : View.GONE);
-
+            h.tvStarredIcon.setVisibility(Boolean.TRUE.equals(m.starred) ? View.VISIBLE : View.GONE);
         bindTickOnly(h, m);
-
-        // ── Disappearing message countdown ────────────────────────────────
-        if (h.activeCountDown != null) {
-            h.activeCountDown.cancel();
-            h.activeCountDown = null;
-        }
+        // Disappearing message countdown
+        if (h.activeCountDown != null) { h.activeCountDown.cancel(); h.activeCountDown = null; }
         if (h.tvExpiry != null) {
             long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
             long remaining = expiresAt - System.currentTimeMillis();
@@ -945,11 +993,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 h.tvExpiry.setText("⏳ " + formatRemaining(remaining));
                 h.activeCountDown = new CountDownTimer(remaining, 1000L) {
                     @Override public void onTick(long ms) {
-                        if (h.tvExpiry != null)
-                            h.tvExpiry.setText("⏳ " + formatRemaining(ms));
+                        h.tvExpiry.setText("⏳ " + formatRemaining(ms));
                     }
                     @Override public void onFinish() {
-                        if (h.tvExpiry != null) h.tvExpiry.setVisibility(View.GONE);
+                        h.tvExpiry.setText("⏳ 0s");
                     }
                 }.start();
             } else {
@@ -958,23 +1005,24 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         }
     }
 
-    /** Convert ms remaining → "23h", "45m", "30s" */
     private static String formatRemaining(long ms) {
-        long secs  = ms / 1000;
-        long mins  = secs / 60;
-        long hours = mins / 60;
-        long days  = hours / 24;
-        if (days  > 0) return days  + "d";
-        if (hours > 0) return hours + "h";
-        if (mins  > 0) return mins  + "m";
-        return secs + "s";
+        long s = ms / 1000;
+        if (s < 60)  return s + "s";
+        if (s < 3600) return (s / 60) + "m";
+        return (s / 3600) + "h";
     }
 
     private void setupLongPress(VH h, Message m, boolean sent, Context ctx) {
         h.itemView.setOnLongClickListener(v -> {
-            if (!multiSelectMode) {
-                // Long press pe multi-select mode start karo
-                enterMultiSelectMode(m);
+            if (multiSelectMode) {
+                String id = m.id != null ? m.id : m.messageId;
+                if (id != null) {
+                    if (selectedMessageIds.contains(id)) selectedMessageIds.remove(id);
+                    else selectedMessageIds.add(id);
+                    notifyItemChanged(h.getAdapterPosition());
+                    if (multiSelectListener != null)
+                        multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+                }
             } else {
                 showActionSheet(ctx, m, sent);
             }
@@ -982,35 +1030,25 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         });
         h.itemView.setOnClickListener(v -> {
             if (multiSelectMode) {
-                // Multi-select mode mein tap = toggle select
-                String id = m.id;
+                String id = m.id != null ? m.id : m.messageId;
                 if (id != null) {
-                    if (selectedMessageIds.contains(id)) {
-                        selectedMessageIds.remove(id);
-                    } else {
-                        selectedMessageIds.add(id);
-                    }
+                    if (selectedMessageIds.contains(id)) selectedMessageIds.remove(id);
+                    else selectedMessageIds.add(id);
                     notifyItemChanged(h.getAdapterPosition());
                     if (multiSelectListener != null)
                         multiSelectListener.onSelectionChanged(selectedMessageIds.size());
-                    // Agar sab deselect ho gaye toh mode exit karo
-                    if (selectedMessageIds.isEmpty()) exitMultiSelectMode();
                 }
             }
-            // Normal mode mein click ka koi action nahi (scroll mein use hota)
         });
     }
 
-    /** Apply or remove selection highlight on a VH */
     private void applySelectionHighlight(VH h, Message m) {
         boolean selected = m.id != null && selectedMessageIds.contains(m.id);
         if (multiSelectMode) {
             h.itemView.setActivated(selected);
             h.itemView.setAlpha(selected ? 1.0f : 0.6f);
-            // Light blue tint for selected messages
             h.itemView.setBackgroundResource(selected
-                    ? android.R.color.holo_blue_light
-                    : android.R.color.transparent);
+                    ? android.R.color.holo_blue_light : android.R.color.transparent);
         } else {
             h.itemView.setActivated(false);
             h.itemView.setAlpha(1.0f);
@@ -1020,11 +1058,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
     private void showActionSheet(Context ctx, Message m, boolean sent) {
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
-        View sv = LayoutInflater.from(ctx)
-                .inflate(R.layout.bottom_sheet_message_actions, null);
-
-        // Emoji quick-react row
-        String[] emojis  = {"❤️", "👍", "😂", "😮", "😢", "🙏"};
+        View sv = LayoutInflater.from(ctx).inflate(R.layout.bottom_sheet_message_actions, null);
+        String[] emojis   = {"❤️", "👍", "😂", "😮", "😢", "🙏"};
         int[]    emojiIds = {
             R.id.emoji_heart, R.id.emoji_thumb, R.id.emoji_laugh,
             R.id.emoji_wow,   R.id.emoji_sad,   R.id.emoji_pray};
@@ -1032,8 +1067,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             TextView et = sv.findViewById(emojiIds[i]);
             final String emoji = emojis[i];
             if (et != null) {
-                boolean already = m.reactions != null &&
-                        emoji.equals(m.reactions.get(currentUid));
+                boolean already = m.reactions != null && emoji.equals(m.reactions.get(currentUid));
                 et.setAlpha(already ? 1.0f : 0.65f);
                 et.setScaleX(already ? 1.2f : 1.0f);
                 et.setScaleY(already ? 1.2f : 1.0f);
@@ -1043,14 +1077,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 });
             }
         }
-
-        // Reply
         sv.findViewById(R.id.action_reply).setOnClickListener(v -> {
             sheet.dismiss();
             if (actionListener != null) actionListener.onReply(m);
         });
-
-        // Edit — sender only, text only, not deleted
         TextView editBtn = sv.findViewById(R.id.action_edit);
         if (sent && "text".equals(m.type) && !Boolean.TRUE.equals(m.deleted)) {
             editBtn.setVisibility(View.VISIBLE);
@@ -1059,11 +1089,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 if (actionListener != null) actionListener.onEdit(m);
             });
         }
-
-        // N4: Copy — text messages only
         TextView copyBtn = sv.findViewById(R.id.action_copy);
         if (copyBtn != null) {
-            boolean isText = "text".equals(m.type) || m.type == null;
+            boolean isText  = "text".equals(m.type) || m.type == null;
             boolean hasText = m.text != null && !m.text.isEmpty();
             if (isText && hasText && !Boolean.TRUE.equals(m.deleted)) {
                 copyBtn.setVisibility(View.VISIBLE);
@@ -1071,31 +1099,20 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     sheet.dismiss();
                     if (actionListener != null) actionListener.onCopy(m);
                 });
-            } else {
-                copyBtn.setVisibility(View.GONE);
-            }
+            } else { copyBtn.setVisibility(View.GONE); }
         }
-
-        // Forward
         if (!Boolean.TRUE.equals(m.deleted)) {
             sv.findViewById(R.id.action_forward).setOnClickListener(v -> {
                 sheet.dismiss();
                 if (actionListener != null) actionListener.onForward(m);
             });
-        } else {
-            sv.findViewById(R.id.action_forward).setVisibility(View.GONE);
-        }
-
-        // Star / Unstar
+        } else { sv.findViewById(R.id.action_forward).setVisibility(View.GONE); }
         TextView starBtn = sv.findViewById(R.id.action_star);
-        starBtn.setText(Boolean.TRUE.equals(m.starred)
-                ? "\u2606  Unstar" : "\u2605  Star Message");
+        starBtn.setText(Boolean.TRUE.equals(m.starred) ? "\u2606  Unstar" : "\u2605  Star Message");
         starBtn.setOnClickListener(v -> {
             sheet.dismiss();
             if (actionListener != null) actionListener.onStar(m);
         });
-
-        // Pin / Unpin
         TextView pinBtn = sv.findViewById(R.id.action_pin);
         pinBtn.setText(Boolean.TRUE.equals(m.pinned)
                 ? "\uD83D\uDCCC  Unpin" : "\uD83D\uDCCC  Pin Message");
@@ -1103,8 +1120,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             sheet.dismiss();
             if (actionListener != null) actionListener.onPin(m);
         });
-
-        // N7: Info (sender only)
         TextView infoBtn = sv.findViewById(R.id.action_info);
         if (infoBtn != null) {
             if (sent) {
@@ -1113,12 +1128,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                     sheet.dismiss();
                     if (actionListener != null) actionListener.onInfo(m);
                 });
-            } else {
-                infoBtn.setVisibility(View.GONE);
-            }
+            } else { infoBtn.setVisibility(View.GONE); }
         }
-
-        // Delete
         TextView deleteBtn = sv.findViewById(R.id.action_delete);
         if (!Boolean.TRUE.equals(m.deleted)) {
             deleteBtn.setVisibility(View.VISIBLE);
@@ -1127,42 +1138,29 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 if (actionListener != null) actionListener.onDelete(m);
             });
         }
-
         sheet.setContentView(sv);
         sheet.show();
     }
 
-    // ── Chrome Custom Tabs: force browser, block native app deep links ────────
     private void openInCustomTab(Context ctx, String url) {
         if (url == null || url.isEmpty()) return;
         try {
             android.net.Uri uri = android.net.Uri.parse(url);
-
-            // Find the best browser package that supports Custom Tabs.
-            // We do this manually so we can set the package explicitly —
-            // that forces Chrome/browser to open instead of native apps (YouTube, Instagram etc.)
             String browserPkg = getBrowserPackage(ctx);
-
             androidx.browser.customtabs.CustomTabColorSchemeParams colorParams =
                 new androidx.browser.customtabs.CustomTabColorSchemeParams.Builder()
-                    .setToolbarColor(0xFF1565C0)
-                    .build();
+                    .setToolbarColor(0xFF1565C0).build();
             androidx.browser.customtabs.CustomTabsIntent customTab =
                 new androidx.browser.customtabs.CustomTabsIntent.Builder()
                     .setDefaultColorSchemeParams(colorParams)
                     .setShowTitle(true)
                     .setShareState(androidx.browser.customtabs.CustomTabsIntent.SHARE_STATE_ON)
-                    .setCloseButtonPosition(androidx.browser.customtabs.CustomTabsIntent.CLOSE_BUTTON_POSITION_START)
+                    .setCloseButtonPosition(
+                            androidx.browser.customtabs.CustomTabsIntent.CLOSE_BUTTON_POSITION_START)
                     .build();
-
-            // Explicitly set browser package → Android won't redirect to native apps
-            if (browserPkg != null) {
-                customTab.intent.setPackage(browserPkg);
-            }
-
+            if (browserPkg != null) customTab.intent.setPackage(browserPkg);
             customTab.launchUrl(ctx, uri);
         } catch (Exception e) {
-            // Last-resort fallback
             try {
                 Intent fallback = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
                 fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -1171,31 +1169,20 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         }
     }
 
-    // Returns package name of a browser that supports Custom Tabs, preferring Chrome.
     private String getBrowserPackage(Context ctx) {
-        // Preferred browsers in order
         String[] preferred = {
-            "com.android.chrome",
-            "com.chrome.beta",
-            "com.chrome.dev",
-            "org.mozilla.firefox",
-            "com.microsoft.emmx",
-            "com.brave.browser"
+            "com.android.chrome", "com.chrome.beta", "com.chrome.dev",
+            "org.mozilla.firefox", "com.microsoft.emmx", "com.brave.browser"
         };
         android.content.pm.PackageManager pm = ctx.getPackageManager();
         for (String pkg : preferred) {
-            try {
-                pm.getPackageInfo(pkg, 0);
-                return pkg; // installed → use it
-            } catch (android.content.pm.PackageManager.NameNotFoundException ignored) {}
+            try { pm.getPackageInfo(pkg, 0); return pkg; }
+            catch (android.content.pm.PackageManager.NameNotFoundException ignored) {}
         }
-        // Fallback: find any browser that handles http
         Intent browserIntent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("http://"));
         android.content.pm.ResolveInfo info = pm.resolveActivity(browserIntent, 0);
-        if (info != null && info.activityInfo != null) {
-            return info.activityInfo.packageName;
-        }
-        return null; // no browser found — Custom Tabs will pick default
+        if (info != null && info.activityInfo != null) return info.activityInfo.packageName;
+        return null;
     }
 
     private void openActionSheet(Context ctx, Message m) {
@@ -1206,19 +1193,17 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
     private void showImageActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer) {
         com.google.android.material.bottomsheet.BottomSheetDialog bsd =
                 new com.google.android.material.bottomsheet.BottomSheetDialog(ctx);
-        android.widget.LinearLayout root = new android.widget.LinearLayout(ctx);
-        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+        LinearLayout root = new LinearLayout(ctx);
+        root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(android.graphics.Color.parseColor("#1E1E1E"));
-
         String[] labels = {"🖼  View", "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
-        int[] colors    = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFF5252};
+        int[]    colors = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFF5252};
         boolean isOwn   = currentUid != null && currentUid.equals(m.senderId);
         float density   = ctx.getResources().getDisplayMetrics().density;
         int px20 = (int)(20 * density), px15 = (int)(15 * density);
-
         for (int idx = 0; idx < labels.length; idx++) {
             if (labels[idx].contains("Delete") && !isOwn) continue;
-            android.widget.TextView tv = new android.widget.TextView(ctx);
+            TextView tv = new TextView(ctx);
             tv.setText(labels[idx]);
             tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
             tv.setTextColor(colors[idx]);
@@ -1234,11 +1219,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 if (lbl.contains("View")) {
                     openMedia(ctx, fullUrl, "image");
                 } else if (lbl.contains("Share")) {
-                    android.content.Intent s = new android.content.Intent(
-                            android.content.Intent.ACTION_SEND);
+                    Intent s = new Intent(Intent.ACTION_SEND);
                     s.setType("text/plain");
-                    s.putExtra(android.content.Intent.EXTRA_TEXT, fullUrl);
-                    ctx.startActivity(android.content.Intent.createChooser(s, "Share via"));
+                    s.putExtra(Intent.EXTRA_TEXT, fullUrl);
+                    ctx.startActivity(Intent.createChooser(s, "Share via"));
                 } else if (lbl.contains("Forward") && actionListener != null) {
                     actionListener.onForward(m);
                 } else if (lbl.contains("Star") && actionListener != null) {
@@ -1248,10 +1232,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
                 }
             });
             root.addView(tv);
-            android.view.View div = new android.view.View(ctx);
-            android.widget.LinearLayout.LayoutParams dlp =
-                    new android.widget.LinearLayout.LayoutParams(
-                            android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
+            View div = new View(ctx);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 1);
             dlp.setMarginStart(px20);
             div.setLayoutParams(dlp);
             div.setBackgroundColor(android.graphics.Color.parseColor("#333333"));
@@ -1264,16 +1247,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
 
     private void openMedia(Context ctx, String url, String type) {
         if (url == null || url.isEmpty()) return;
-        Intent i = new Intent().setClassName(ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
+        Intent i = new Intent().setClassName(ctx.getPackageName(),
+                "com.callx.app.activities.MediaViewerActivity");
         i.putExtra("url", url); i.putExtra("type", type);
         ctx.startActivity(i);
     }
 
-    // v21: Video duration formatter  e.g. 75000ms → "1:15"
     private static String formatVideoDuration(long ms) {
         long totalSec = ms / 1000;
-        long min = totalSec / 60;
-        long sec = totalSec % 60;
+        long min = totalSec / 60, sec = totalSec % 60;
         return String.format(java.util.Locale.US, "%d:%02d", min, sec);
     }
 
@@ -1287,14 +1269,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         if (player != null) { try { player.release(); } catch (Exception ignored) {} player = null; }
         playingPos = pos;
         h.btnPlayAudio.setImageResource(R.drawable.ic_pause);
-
-        // Pehle cached file check karo — agar hai to seedha play karo (zero data)
         java.io.File cached = MediaCache.getCached(h.itemView.getContext(), m.mediaUrl);
-        if (cached != null) {
-            playFromFile(h, cached.getAbsolutePath(), pos);
-            return;
-        }
-        // Cache nahi hai — download karo phir play karo
+        if (cached != null) { playFromFile(h, cached.getAbsolutePath(), pos); return; }
         MediaCache.get(h.itemView.getContext(), m.mediaUrl, new MediaCache.Callback() {
             @Override public void onReady(java.io.File file) { playFromFile(h, file.getAbsolutePath(), pos); }
             @Override public void onError(String reason)     { playFromFile(h, m.mediaUrl, pos); }
@@ -1305,21 +1281,14 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         try {
             if (player != null) { try { player.release(); } catch (Exception ignored) {} }
             player = new MediaPlayer();
-            
-            // Local file - use FileDescriptor
             if (!path.startsWith("http")) {
                 java.io.File f = new java.io.File(path);
                 if (f.exists()) {
                     try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
                         player.setDataSource(fis.getFD());
                     }
-                } else {
-                    player.setDataSource(path);
-                }
-            } else {
-                player.setDataSource(path);
-            }
-            
+                } else { player.setDataSource(path); }
+            } else { player.setDataSource(path); }
             player.prepareAsync();
             player.setOnPreparedListener(MediaPlayer::start);
             player.setOnCompletionListener(mp -> {
@@ -1329,11 +1298,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
             });
             player.setOnErrorListener((mp, what, extra) -> {
                 android.util.Log.e("AudioPlay", "Error: " + what + " path: " + path);
-                playingPos = -1;
-                return true;
+                playingPos = -1; return true;
             });
         } catch (Exception e) {
-            android.util.Log.e("AudioPlay", "playFromFile error: " + e.getMessage() + " path: " + path);
+            android.util.Log.e("AudioPlay", "playFromFile error: " + e.getMessage());
             if (player != null) { try { player.release(); } catch (Exception ignored) {} player = null; }
         }
     }
@@ -1345,36 +1313,28 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         }
     }
 
-    @Override public int getItemCount() { return messages.size(); }
+    private static void applyFontStyle(TextView tv, int styleId) {
+        tv.setTypeface(android.graphics.Typeface.create(
+                android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL));
+    }
 
     @Override
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
-        // Cancel any running countdown timer to prevent leaks on recycled views
         if (holder.activeCountDown != null) {
             holder.activeCountDown.cancel();
             holder.activeCountDown = null;
         }
     }
 
-    // Font Style — always default (typing style system removed)
-    private static void applyFontStyle(android.widget.TextView tv, int styleId) {
-        tv.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL));
-    }
-
+    // ══════════════════════════════════════════════════════════════════════════
+    //  ViewHolder
+    // ══════════════════════════════════════════════════════════════════════════
     static class VH extends RecyclerView.ViewHolder {
+
+        // ── Always-present views (in root item layout) ──
         TextView     tvMessage, tvTime, tvSenderName;
-        ImageView    ivImage, ivVideoThumb;
-        FrameLayout  flVideo;
-        android.widget.TextView tvVideoDuration; // v21: video duration badge
-        LinearLayout llAudio;
-        ImageButton  btnPlayAudio;
-        SeekBar      seekAudio;
-        TextView     tvAudioDur;
-        LinearLayout llFile;
-        TextView     tvFileName, tvFileMeta;
-        ImageButton  ivDownload; // FIX: Download button for received file messages
-        TextView     tvStatus;
+        ImageView    ivImage;
         LinearLayout llReplyPreview;
         TextView     tvReplySender, tvReplyText;
         LinearLayout llReactions;
@@ -1383,58 +1343,91 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.VH> {
         TextView     tvPinnedLabel;
         TextView     tvForwarded;
         TextView     tvStarredIcon;
+        TextView     tvStatus;
         de.hdodenhof.circleimageview.CircleImageView ivSenderAvatar;
+        TextView     tvExpiry;
+        ImageButton  btnQuickForward;
+        LinearLayout llTickPill;
+        LinearLayout llBubble;
+
+        // ── Countdown for disappearing messages ──
+        CountDownTimer activeCountDown;
+
+        // ── ViewStub references — null after inflation (stub replaced in-place) ──
+        ViewStub stubVideo;
+        ViewStub stubAudio;
+        ViewStub stubFile;
+        ViewStub stubPoll;
+        ViewStub stubLinkPreview;
+
+        // ── Heavy view refs — null until the stub is inflated ──
+        // Video
+        FrameLayout flVideo;
+        ImageView   ivVideoThumb;
+        TextView    tvVideoDuration;
+        // Audio
+        LinearLayout llAudio;
+        ImageButton  btnPlayAudio;
+        SeekBar      seekAudio;
+        TextView     tvAudioDur;
+        // File
+        LinearLayout llFile;
+        TextView     tvFileName, tvFileMeta;
+        ImageButton  ivDownload;
+        // Poll
+        LinearLayout llPoll;
+        // Link preview
         LinearLayout llLinkPreview;
         TextView     tvLinkTitle, tvLinkDomain, tvLinkDescription;
         ImageView    ivLinkThumb;
-        // ── Disappearing messages ──
-        TextView        tvExpiry;
-        CountDownTimer  activeCountDown;
-        // ── Quick Forward Button ──
-        android.widget.ImageButton btnQuickForward;
-        // ── Separate tick pill (sent layout only) ──
-        LinearLayout llTickPill;
-        // ── Bubble container — for 70% maxWidth constraint ──
-        LinearLayout llBubble;
-        ImageView    ivImage70; // alias used by applyBubbleMaxWidth
 
         VH(View v) {
             super(v);
-            tvMessage    = v.findViewById(R.id.tv_message);
-            tvTime       = v.findViewById(R.id.tv_time);
-            tvSenderName = v.findViewById(R.id.tv_sender_name);
-            ivImage      = v.findViewById(R.id.iv_image);
-            flVideo      = v.findViewById(R.id.fl_video);
-            ivVideoThumb = v.findViewById(R.id.iv_video_thumb);
-            tvVideoDuration = v.findViewById(R.id.tv_duration); // v21
-            llAudio      = v.findViewById(R.id.ll_audio);
-            btnPlayAudio = v.findViewById(R.id.btn_play_pause);
-            seekAudio    = v.findViewById(R.id.seek_audio);
-            tvAudioDur   = v.findViewById(R.id.tv_audio_dur);
-            llFile       = v.findViewById(R.id.ll_file);
-            tvFileName   = v.findViewById(R.id.tv_file_name);
-            tvFileMeta   = v.findViewById(R.id.tv_file_meta);
-            ivDownload   = v.findViewById(R.id.btn_download); // FIX: bind download button
-            tvStatus     = v.findViewById(R.id.tv_status);
-            llReplyPreview = v.findViewById(R.id.ll_reply_preview);
-            tvReplySender  = v.findViewById(R.id.tv_reply_sender);
-            tvReplyText    = v.findViewById(R.id.tv_reply_text);
-            llReactions  = v.findViewById(R.id.ll_reactions);
-            tvReactions  = v.findViewById(R.id.tv_reactions);
-            tvEdited     = v.findViewById(R.id.tv_edited);
-            tvPinnedLabel = v.findViewById(R.id.tv_pinned_label);
-            tvForwarded  = v.findViewById(R.id.tv_forwarded);
-            tvStarredIcon = v.findViewById(R.id.tv_starred_icon);
-            ivSenderAvatar = v.findViewById(R.id.iv_sender_avatar);
-            llLinkPreview  = v.findViewById(R.id.ll_link_preview);
-            tvLinkTitle    = v.findViewById(R.id.tv_link_title);
-            tvLinkDomain   = v.findViewById(R.id.tv_link_domain);
-            tvLinkDescription = v.findViewById(R.id.tv_link_description);
-            ivLinkThumb    = v.findViewById(R.id.iv_link_thumb);
-            tvExpiry       = v.findViewById(R.id.tv_expiry);
+            tvMessage       = v.findViewById(R.id.tv_message);
+            tvTime          = v.findViewById(R.id.tv_time);
+            tvSenderName    = v.findViewById(R.id.tv_sender_name);
+            ivImage         = v.findViewById(R.id.iv_image);
+            llReplyPreview  = v.findViewById(R.id.ll_reply_preview);
+            tvReplySender   = v.findViewById(R.id.tv_reply_sender);
+            tvReplyText     = v.findViewById(R.id.tv_reply_text);
+            llReactions     = v.findViewById(R.id.ll_reactions);
+            tvReactions     = v.findViewById(R.id.tv_reactions);
+            tvEdited        = v.findViewById(R.id.tv_edited);
+            tvPinnedLabel   = v.findViewById(R.id.tv_pinned_label);
+            tvForwarded     = v.findViewById(R.id.tv_forwarded);
+            tvStarredIcon   = v.findViewById(R.id.tv_starred_icon);
+            tvStatus        = v.findViewById(R.id.tv_status);
+            ivSenderAvatar  = v.findViewById(R.id.iv_sender_avatar);
+            tvExpiry        = v.findViewById(R.id.tv_expiry);
             btnQuickForward = v.findViewById(R.id.btn_quick_forward);
             llTickPill      = v.findViewById(R.id.ll_tick_pill);
             llBubble        = v.findViewById(R.id.ll_bubble);
+
+            // Bind ViewStub references — these are replaced when inflate() is called
+            stubVideo       = v.findViewById(R.id.stub_video);
+            stubAudio       = v.findViewById(R.id.stub_audio);
+            stubFile        = v.findViewById(R.id.stub_file);
+            stubPoll        = v.findViewById(R.id.stub_poll);
+            stubLinkPreview = v.findViewById(R.id.stub_link_preview);
+
+            // Heavy view refs start null — populated lazily by ensureXxxInflated()
+            flVideo         = null;
+            ivVideoThumb    = null;
+            tvVideoDuration = null;
+            llAudio         = null;
+            btnPlayAudio    = null;
+            seekAudio       = null;
+            tvAudioDur      = null;
+            llFile          = null;
+            tvFileName      = null;
+            tvFileMeta      = null;
+            ivDownload      = null;
+            llPoll          = null;
+            llLinkPreview   = null;
+            tvLinkTitle     = null;
+            tvLinkDomain    = null;
+            tvLinkDescription = null;
+            ivLinkThumb     = null;
         }
     }
 }
