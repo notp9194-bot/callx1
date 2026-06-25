@@ -164,21 +164,6 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
     private final SimpleDateFormat timeFmt =
             new SimpleDateFormat("hh:mm a", Locale.getDefault());
 
-    // ── Timestamp formatting cache — avoids SimpleDateFormat + Date allocation per bind ──
-    private final android.util.LruCache<Long, String> timeStringCache =
-            new android.util.LruCache<>(256);
-    private final java.util.Date reuseDate = new java.util.Date();
-
-    private String formatTime(long timestamp) {
-        long key = (timestamp / 60_000L) * 60_000L;
-        String cached = timeStringCache.get(key);
-        if (cached != null) return cached;
-        reuseDate.setTime(timestamp);
-        String s = timeFmt.format(reuseDate);
-        timeStringCache.put(key, s);
-        return s;
-    }
-
     private MediaPlayer player;
     private int playingPos = -1;
 
@@ -232,17 +217,6 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
 
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         VH vh = new VH(v);
-
-        // ── One-time constant setup — moves work out of onBindViewHolder ────
-        if (vh.tvStatus != null) vh.tvStatus.setTextSize(14f);
-        // tvMessage text size is constant — set once here, MessageFontSizeManager value
-        // is read-once; dynamic changes (if user changes font size) should call notifyDataSetChanged.
-        if (vh.tvMessage != null) {
-            Context createCtx = parent.getContext();
-            vh.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
-                    com.callx.app.utils.MessageFontSizeManager.get(createCtx).getFontSizeSp());
-            vh.tvMessage.setTypeface(TF_NORMAL);
-        }
 
         // ── 70% screen-width cap on bubble and text ──────────────────────────
         int screenW = parent.getContext().getResources().getDisplayMetrics().widthPixels;
@@ -566,7 +540,9 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 h.tvMessage.setVisibility(View.VISIBLE);
                 h.tvMessage.setTextColor(
                         com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(sent));
-                // setTextSize + applyFontStyle moved to onCreateViewHolder (constants)
+                h.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                        com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
+                applyFontStyle(h.tvMessage, m.fontStyle);
                 if (h.tvEdited != null && Boolean.TRUE.equals(m.edited))
                     h.tvEdited.setVisibility(View.VISIBLE);
 
@@ -588,17 +564,13 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                             android.text.util.Linkify.WEB_URLS |
                             android.text.util.Linkify.PHONE_NUMBERS |
                             android.text.util.Linkify.EMAIL_ADDRESSES);
-                    // Only set MovementMethod when we actually have links — avoids
-                    // unnecessary touch-event interception on plain-text rows.
-                    int linkColor = sent ? 0xFFB3E5FC : 0xFF1565C0;
-                    h.tvMessage.setLinkTextColor(linkColor);
-                    h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-                    h.tvMessage.setHighlightColor(0x33FFFFFF);
                 } else {
                     spanned = new android.text.SpannableString(rawText);
-                    // No links — remove MovementMethod so RecyclerView gets touch events back
-                    h.tvMessage.setMovementMethod(null);
                 }
+                int linkColor = sent ? 0xFFB3E5FC : 0xFF1565C0;
+                h.tvMessage.setLinkTextColor(linkColor);
+                h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                h.tvMessage.setHighlightColor(0x33FFFFFF);
 
                 // ── PrecomputedTextCompat — avoids heavy text-layout measure on UI thread ──
                 // For long messages (>80 chars), pre-compute layout metadata so the
@@ -797,17 +769,16 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         if (tvVotes != null)
             tvVotes.setText(totalVotes + " vote" + (totalVotes != 1 ? "s" : ""));
 
-        // Options — recycle existing TextViews instead of removeAllViews + re-inflate
+        // Options
         if (llOptions != null && m.pollOptions != null) {
-            int optCount = m.pollOptions.size();
-            // Reuse existing child views; add or remove only the delta
-            while (llOptions.getChildCount() > optCount) {
-                llOptions.removeViewAt(llOptions.getChildCount() - 1);
-            }
+            llOptions.removeAllViews();
             List<Integer> myVotes = (m.pollVotes != null && currentUid != null)
                     ? m.pollVotes.get(currentUid) : null;
-            for (int idx = 0; idx < optCount; idx++) {
+            for (int idx = 0; idx < m.pollOptions.size(); idx++) {
+                final int optIdx = idx;
                 String option = m.pollOptions.get(idx);
+
+                // Count votes for this option
                 int optVotes = 0;
                 if (m.pollVotes != null) {
                     for (List<Integer> vl : m.pollVotes.values()) {
@@ -817,18 +788,15 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 int pct = totalVotes > 0 ? (optVotes * 100 / totalVotes) : 0;
                 boolean voted = myVotes != null && myVotes.contains(idx);
 
-                TextView optView;
-                if (idx < llOptions.getChildCount()) {
-                    // Reuse
-                    optView = (TextView) llOptions.getChildAt(idx);
-                } else {
-                    // Create new only when needed
-                    optView = new TextView(ctx);
-                    optView.setTextColor(0xFFFFFFFF);
-                    optView.setPadding(0, 8, 0, 8);
-                    llOptions.addView(optView);
+                View optView = LayoutInflater.from(ctx)
+                        .inflate(android.R.layout.simple_list_item_1, llOptions, false);
+                if (optView instanceof TextView) {
+                    String label = (voted ? "✓ " : "") + option + "  " + pct + "%";
+                    ((TextView) optView).setText(label);
+                    ((TextView) optView).setTextColor(0xFFFFFFFF);
+                    ((TextView) optView).setPadding(0, 8, 0, 8);
                 }
-                optView.setText((voted ? "✓ " : "") + option + "  " + pct + "%");
+                llOptions.addView(optView);
             }
         }
     }
@@ -891,7 +859,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         }
         TextView tvTime = h.itemView.findViewById(R.id.tv_status_seen_time);
         if (tvTime != null && m.timestamp != null)
-            tvTime.setText(formatTime(m.timestamp));
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -942,7 +910,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         }
         TextView tvTime = h.itemView.findViewById(R.id.tv_reel_seen_time);
         if (tvTime != null && m.timestamp != null)
-            tvTime.setText(formatTime(m.timestamp));
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -994,22 +962,24 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         if (h.tvStatus == null) return;
         if (h.llTickPill != null) {
             h.tvStatus.setVisibility(View.VISIBLE);
-            // setTextSize(14f) removed — constant, set once when view is first bound
             switch (m.status == null ? "sent" : m.status) {
                 case "read":
                     h.tvStatus.setText("\u2713\u2713 ");
+                    h.tvStatus.setTextSize(14f);
                     h.tvStatus.setTextColor(
                             com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext())
                                     .getTickColor(true));
                     break;
                 case "delivered":
                     h.tvStatus.setText("\u2713\u2713");
+                    h.tvStatus.setTextSize(14f);
                     h.tvStatus.setTextColor(
                             com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext())
                                     .getTickColor(false));
                     break;
                 default:
                     h.tvStatus.setText("\u2713");
+                    h.tvStatus.setTextSize(14f);
                     h.tvStatus.setTextColor(
                             com.callx.app.utils.ChatThemeManager.get(h.itemView.getContext())
                                     .getTickColor(false));
@@ -1022,7 +992,7 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
 
     private void bindFooter(VH h, Message m, boolean sent) {
         if (h.tvTime != null && m.timestamp != null)
-            h.tvTime.setText(formatTime(m.timestamp));
+            h.tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         if (h.tvStarredIcon != null)
             h.tvStarredIcon.setVisibility(Boolean.TRUE.equals(m.starred) ? View.VISIBLE : View.GONE);
         bindTickOnly(h, m);
@@ -1085,27 +1055,17 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         });
     }
 
-    // Tag key for tracking selection state on itemView — avoids redundant setBackgroundResource calls
-    private static final int TAG_KEY_SELECTED = 0x7F_0A_0001; // arbitrary non-conflicting int
-
     private void applySelectionHighlight(VH h, Message m) {
         boolean selected = m.id != null && selectedMessageIds.contains(m.id);
         if (multiSelectMode) {
             h.itemView.setActivated(selected);
             h.itemView.setAlpha(selected ? 1.0f : 0.6f);
-            Boolean wasSelected = (Boolean) h.itemView.getTag(TAG_KEY_SELECTED);
-            if (wasSelected == null || wasSelected != selected) {
-                h.itemView.setBackgroundResource(selected
-                        ? android.R.color.holo_blue_light : android.R.color.transparent);
-                h.itemView.setTag(TAG_KEY_SELECTED, selected);
-            }
+            h.itemView.setBackgroundResource(selected
+                    ? android.R.color.holo_blue_light : android.R.color.transparent);
         } else {
-            if (h.itemView.isActivated()) {
-                h.itemView.setActivated(false);
-                h.itemView.setAlpha(1.0f);
-                h.itemView.setBackgroundResource(android.R.color.transparent);
-                h.itemView.setTag(TAG_KEY_SELECTED, null);
-            }
+            h.itemView.setActivated(false);
+            h.itemView.setAlpha(1.0f);
+            h.itemView.setBackgroundResource(android.R.color.transparent);
         }
     }
 
@@ -1366,13 +1326,9 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         }
     }
 
-    // Cached normal typeface — Typeface.create() is expensive, cache once
-    private static final android.graphics.Typeface TF_NORMAL =
-            android.graphics.Typeface.create(
-                    android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL);
-
     private static void applyFontStyle(TextView tv, int styleId) {
-        tv.setTypeface(TF_NORMAL);
+        tv.setTypeface(android.graphics.Typeface.create(
+                android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL));
     }
 
     @Override
