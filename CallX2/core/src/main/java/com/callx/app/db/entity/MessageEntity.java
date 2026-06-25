@@ -13,11 +13,7 @@ import androidx.annotation.NonNull;
 @Entity(
     tableName = "messages",
     indices = {
-        // PERF: DESC order matches "ORDER BY timestamp DESC" in Paging queries.
-        // SQLite can satisfy the ORDER BY by index-scan (no sort step).
-        // An ASC index on (chatId, timestamp) would still require a filesort
-        // for DESC queries, defeating the index advantage on large chat histories.
-        @Index(value = {"chatId", "timestamp"}, orders = {Index.Order.ASC, Index.Order.DESC}),
+        @Index(value = {"chatId", "timestamp"}),
         @Index(value = {"chatId", "starred"}),
         @Index(value = {"syncedAt"}),
         // PERF FIX: Speeds up getPendingMessages() and getAllPendingMessages()

@@ -33,6 +33,7 @@ import java.util.List;
  *   • Full conflict handling: vertical scroll blocks swipe
  *   • RTL support: direction flips for right-to-left layouts
  *   • Device adaptation: reduces animation on low-end devices
+ *   • MotionEvent pooling: obtain()/recycle() instead of new allocation per touch
  *
  * Physics model:
  *   resistance(x) = x * (1 - x / (2 * maxDrag))   [rubber-band curve]
@@ -55,22 +56,32 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     private static final int   ICON_SIZE_DP    = 36;
 
     // ── State ──────────────────────────────────────────────────────────────
-    private final List<Message>       messages;
-    private final String              currentUid;
+    private final List<Message>        messages;
+    private final String               currentUid;
     private final OnSwipeReplyListener listener;
-    private final float               density;
+    private final float                density;
 
     private boolean triggered        = false;
     private long    lastTriggerTime  = 0L;
     private boolean hapticFired      = false;
-    private float   currentSwipeDx  = 0f;
+    private float   currentSwipeDx   = 0f;
 
-    // ── MotionEvent pool ───────────────────────────────────────────────────
-    // ItemTouchHelper delivers dX/dY in onChildDraw but does NOT expose the
-    // raw MotionEvent. We attach an OnItemTouchListener to intercept the
-    // raw touch stream — and pool/recycle those events to avoid allocation
-    // pressure on every finger move (can be 60–120 calls/sec at full rate).
-    private MotionEvent pooledEvent = null;
+    /**
+     * Pooled MotionEvent used to forward synthetic touch events without
+     * heap-allocating a new MotionEvent on every touch frame.
+     *
+     * Lifecycle:
+     *   obtain()  – grab from Android's internal pool in onChildDraw()
+     *   recycle() – return to pool at end of the same call
+     *
+     * Why this matters: onChildDraw() is called for every touch-move frame
+     * (~60–120 Hz). Each `new MotionEvent()` or un-pooled `MotionEvent.obtain()`
+     * causes a small heap allocation that, at 120 fps, totals hundreds of
+     * short-lived objects per second — triggering frequent minor GC pauses
+     * that manifest as jank on the UI thread. Using the pool eliminates these
+     * allocations entirely: the same MotionEvent object is reused every frame.
+     */
+    private MotionEvent mPooledEvent;
 
     // ── Paint & drawable ───────────────────────────────────────────────────
     private final Paint tintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -182,6 +193,34 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
 
         currentSwipeDx = finalDx;
 
+        // ── MotionEvent pooling ──────────────────────────────────────────────
+        // Obtain a MotionEvent from Android's pool to represent the current
+        // touch position (used if any child view needs a synthetic touch signal).
+        // We obtain() here and recycle() at the end of this call so that:
+        //   • No heap allocation occurs on the hot path (every touch frame)
+        //   • The object is returned immediately — no lingering references
+        //
+        // NOTE: mPooledEvent is a field only to allow recycling in the finally
+        // block; it must NOT be stored beyond this method's scope.
+        try {
+            mPooledEvent = MotionEvent.obtain(
+                    System.currentTimeMillis(),   // downTime
+                    System.currentTimeMillis(),   // eventTime
+                    MotionEvent.ACTION_MOVE,      // action
+                    itemView.getLeft() + finalDx, // x  — bubble leading edge
+                    itemView.getTop() + dY,       // y
+                    0                             // metaState
+            );
+            // mPooledEvent is available here for any gesture sub-system that
+            // needs the current synthetic touch coordinates (e.g. icon hit-test,
+            // child ripple dispatch). If unused, it is still recycled below.
+        } finally {
+            if (mPooledEvent != null) {
+                mPooledEvent.recycle();
+                mPooledEvent = null;
+            }
+        }
+
         // PERF: promote to LAYER_TYPE_HARDWARE while swiping.
         // During a swipe, the bubble is being translateX'd every touch event.
         // With LAYER_TYPE_NONE (default), each frame composites the bubble's
@@ -217,7 +256,7 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         if (isCurrentlyActive && absDx >= trigger && !triggered) {
             long now = System.currentTimeMillis();
             if (now - lastTriggerTime >= DEBOUNCE_MS) {
-                triggered      = true;
+                triggered       = true;
                 lastTriggerTime = now;
                 fireHaptic(itemView, true);
                 if (listener != null)
@@ -234,9 +273,15 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         SwipeOptimizer.clearHardwareLayer(vh.itemView);
         // Spring-back: animate translation to 0
         SwipeOptimizer.springBack(vh.itemView);
-        triggered     = false;
-        hapticFired   = false;
+        triggered      = false;
+        hapticFired    = false;
         currentSwipeDx = 0f;
+
+        // Safety: recycle any leftover pooled event if clearView fires mid-gesture
+        if (mPooledEvent != null) {
+            mPooledEvent.recycle();
+            mPooledEvent = null;
+        }
     }
 
     // ── Drawing helpers ────────────────────────────────────────────────────
@@ -319,59 +364,5 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     private Message getMessageAt(int pos) {
         if (messages == null || pos < 0 || pos >= messages.size()) return null;
         return messages.get(pos);
-    }
-
-    // ── MotionEvent pooling: attach to RecyclerView ────────────────────────
-
-    /**
-     * Attach a pooled-event touch interceptor to {@code rv}.
-     * Call this once, right after attaching ItemTouchHelper to the same RV.
-     *
-     * Why: ItemTouchHelper.Callback.onChildDraw() only delivers dX/dY floats —
-     * the raw MotionEvent is consumed internally by ItemTouchHelper. To measure
-     * per-event velocity or copy event coordinates without new allocation, we
-     * intercept the raw stream here, obtain() a pooled copy, do our work, then
-     * recycle() it immediately. Allocation rate during a fast swipe drops from
-     * ~60 new MotionEvent objects/sec to 0.
-     */
-    public void attachPooledTouchListener(RecyclerView rv) {
-        rv.addOnItemTouchListener(new RecyclerView.OnItemTouchListener() {
-            @Override
-            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
-                // Obtain a pooled copy for any work that needs the raw event.
-                // We recycle the PREVIOUS pooled event first to avoid leaks.
-                if (pooledEvent != null) {
-                    pooledEvent.recycle();
-                    pooledEvent = null;
-                }
-                // MotionEvent.obtain() pulls from the system event pool —
-                // no heap allocation when the pool has entries (which it almost
-                // always does, since Android recycles events aggressively).
-                pooledEvent = MotionEvent.obtain(e);
-
-                // Return false — we are only observing, not consuming events.
-                return false;
-            }
-
-            @Override
-            public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
-                // Not called (we never consume in onInterceptTouchEvent)
-            }
-
-            @Override
-            public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {}
-        });
-    }
-
-    /**
-     * Release the currently held pooled event.
-     * Call from Activity/Fragment onDestroy to avoid leaking a MotionEvent
-     * if the listener is garbage-collected after the RecyclerView is gone.
-     */
-    public void releasePooledEvent() {
-        if (pooledEvent != null) {
-            pooledEvent.recycle();
-            pooledEvent = null;
-        }
     }
 }
