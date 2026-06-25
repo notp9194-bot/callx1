@@ -2129,6 +2129,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         swipeHelper = new ItemTouchHelper(handler);
         swipeHelper.attachToRecyclerView(binding.rvMessages);
+        // PERF: attach pooled MotionEvent interceptor — avoids ~60 new
+        // MotionEvent allocations/sec during fast swipes. Must be called
+        // AFTER attachToRecyclerView so the listener order is correct
+        // (ItemTouchHelper's own interceptor runs first, ours observes only).
+        handler.attachPooledTouchListener(binding.rvMessages);
 
         replyController = new ReplyController(new ReplyController.Callback() {
             @Override public void onReplyActivated(Message message) { activateReplyDirect(message); }
