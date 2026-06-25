@@ -41,6 +41,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.target.CustomTarget;
+import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.cache.LastMessagesCache;
 import com.callx.app.chat.R;
@@ -243,6 +245,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Selection toolbar ──────────────────────────────────────────────────
     private boolean selectionToolbarSetup = false;
+
+    // ── Glide preload state ────────────────────────────────────────────────
+    // Strong references to in-flight WarmCacheTargets so Glide cannot GC/cancel
+    // them before the decoded Bitmap is stored in the LRU memory cache.
+    // Cleared (and the requests cancelled) in onPause() and onDestroy().
+    private final java.util.List<WarmCacheTarget> activePreloadTargets = new java.util.ArrayList<>();
+    // Timestamp of the last preload run — used to debounce onResume() calls
+    // (e.g. returning immediately from a permission dialog should not re-fire).
+    private long lastPreloadTimeMs = 0L;
+    private static final long PRELOAD_DEBOUNCE_MS = 3_000L; // 3 s between warm-up runs
 
     // ── Controllers ────────────────────────────────────────────────────────
     private ChatBlockController    blockController;
@@ -498,11 +510,148 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.onScreenResumed();
         }
         if (screenshotNotifier != null) screenshotNotifier.onScreenResumed();
+
+        // PERF: warm the Glide cache with the last 10 image-bearing messages so
+        // the first scroll feels instant — decoded Bitmaps land in Glide's LRU
+        // memory cache before the user ever touches the list.
+        preloadLastImageMessages();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GLIDE CACHE WARM-UP
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Silent no-op Glide target used purely to warm the in-memory and on-disk
+     * Glide caches before the RecyclerView asks for those images.
+     *
+     * Why CustomTarget and not just preload(w, h)?
+     *   • preload() returns a fire-and-forget Target that Glide holds only
+     *     weakly — it can be collected before the decode finishes under
+     *     memory pressure, making the cache-warm guarantee unreliable.
+     *   • A strong reference held in {@link #activePreloadTargets} keeps
+     *     every request alive until onResourceReady() fires, at which point
+     *     the decoded Bitmap is guaranteed to be in Glide's LRU memory cache.
+     *     onResourceReady() intentionally does nothing — the cache entry IS
+     *     the side-effect we want.
+     *   • Instances are cleared (and the requests cancelled) in
+     *     {@link #clearActivePreloadTargets()}, called from onPause() and
+     *     onDestroy(), so they never outlive the activity.
+     *
+     * Dimensions are passed at construction time so each target matches the
+     * actual pixel size the RecyclerView will request — Glide's memory-cache
+     * key is size-specific, so a mismatch means the preloaded entry is never
+     * reused by the adapter.
+     */
+    private static final class WarmCacheTarget extends CustomTarget<android.graphics.drawable.Drawable> {
+
+        /** @param widthPx  exact pixel width the RecyclerView will request */
+        WarmCacheTarget(int widthPx, int heightPx) {
+            super(widthPx, heightPx);
+        }
+
+        @Override
+        public void onResourceReady(
+                @NonNull android.graphics.drawable.Drawable resource,
+                @androidx.annotation.Nullable Transition<? super android.graphics.drawable.Drawable> transition) {
+            // Intentionally empty — the decoded Bitmap is already stored in
+            // Glide's LRU memory cache as a side-effect of this call completing.
+        }
+
+        @Override
+        public void onLoadCleared(
+                @androidx.annotation.Nullable android.graphics.drawable.Drawable placeholder) {
+            // Intentionally empty — we hold no view reference to null out.
+        }
+    }
+
+    /**
+     * Reads the last ≤10 image/gif/video messages from the in-memory
+     * {@link LastMessagesCache} (zero I/O — already populated on previous
+     * open or from onDbReady's seed) and fires a Glide preload for each
+     * media URL via a strongly-held {@link WarmCacheTarget}.
+     *
+     * Debounced: consecutive onResume() calls within {@link #PRELOAD_DEBOUNCE_MS}
+     * (e.g. returning from a system permission dialog) are ignored.
+     *
+     * Pixel sizes match what MessagePagingAdapter requests at runtime so
+     * every preloaded Bitmap is reused directly from Glide's LRU memory
+     * cache without a re-decode:
+     *   • image / gif  → 720 px wide  (full-width bubble thumbnail)
+     *   • video thumb  → 480 px wide  (video preview card, slightly narrower)
+     */
+    private void preloadLastImageMessages() {
+        if (chatId == null || isFinishing() || isDestroyed()) return;
+
+        // Debounce — skip if we ran less than PRELOAD_DEBOUNCE_MS ago.
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - lastPreloadTimeMs < PRELOAD_DEBOUNCE_MS) return;
+        lastPreloadTimeMs = nowMs;
+
+        java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
+        if (cached == null || cached.isEmpty()) return;
+
+        int preloaded = 0;
+        // Walk newest → oldest so the most-likely-visible images are decoded
+        // first (conversation is anchored at the bottom).
+        for (int i = cached.size() - 1; i >= 0 && preloaded < 10; i--) {
+            Message m = cached.get(i);
+            if (m == null || Boolean.TRUE.equals(m.deleted)) continue;
+
+            String url     = null;
+            int    widthPx = 720;   // default: full-width image bubble
+            int    htPx    = 720;
+
+            if ("image".equals(m.type) || "gif".equals(m.type)) {
+                // Prefer mediaUrl; fall back to legacy imageUrl field.
+                url = (m.mediaUrl != null && !m.mediaUrl.isEmpty()) ? m.mediaUrl : m.imageUrl;
+                // image/gif bubbles render at full recycler width — 720 px covers
+                // xxhdpi (3×) at ~240 dp, matching the typical bubble max-width.
+                widthPx = 720; htPx = 720;
+            } else if ("video".equals(m.type)) {
+                // For video we only preload the thumbnail — full assets are
+                // streamed on demand and far too large to cache eagerly.
+                url = m.thumbnailUrl;
+                // Video cards are slightly narrower than full-width image bubbles.
+                widthPx = 480; htPx = 480;
+            }
+
+            if (url == null || url.isEmpty()) continue;
+
+            // Build a strongly-referenced target so Glide cannot collect it
+            // before the decode finishes.  Glide.with(Activity) is main-thread-
+            // safe here because onResume() always runs on the main thread.
+            WarmCacheTarget target = new WarmCacheTarget(widthPx, htPx);
+            activePreloadTargets.add(target);
+
+            Glide.with(this)
+                    .load(url)
+                    .override(widthPx, htPx)
+                    .into(target);
+
+            preloaded++;
+        }
+    }
+
+    /**
+     * Cancels every in-flight Glide preload and releases the strong
+     * references so the targets can be collected normally.
+     * Called from {@link #onPause()} and {@link #onDestroy()}.
+     */
+    private void clearActivePreloadTargets() {
+        for (WarmCacheTarget t : activePreloadTargets) {
+            Glide.with(this).clear(t);
+        }
+        activePreloadTargets.clear();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        // Cancel any in-flight Glide preloads so we don't decode images for a
+        // chat the user just left.  Clearing the strong references also lets
+        // Glide GC the targets normally.
+        clearActivePreloadTargets();
         // WhatsApp-style: persist scroll position + last-seen-ts so we can
         // intelligently restore (or jump to first unread) on re-open.
         saveScrollState();
@@ -528,6 +677,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     protected void onDestroy() {
         super.onDestroy();
         saveDraft();
+        // Cancel any remaining Glide preloads before the activity is torn down.
+        clearActivePreloadTargets();
         shimmerHandler.removeCallbacks(shimmerShowRunnable);
 
         if (messagesRef != null && messageListener != null)
