@@ -2167,24 +2167,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // in the scroll direction before they're needed. The preloader integrates with
         // the existing pause/resume strategy: Glide is paused on SETTLING/DRAGGING,
         // so preloads are queued and executed on IDLE when loads are safe to start.
-        // PreloadSizeProvider uses fixed 320x320 — matches typical chat image thumbnail size.
         com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>
-                sizeProvider = item -> {
-            if (item == null || item.mediaUrl == null) return null;
-            return new int[]{320, 320};
+                sizeProvider = new com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>() {
+            @Override
+            public int[] getPreloadSize(@NonNull com.callx.app.models.Message item,
+                                        int adapterPosition, int perItemPosition) {
+                if (item.mediaUrl == null && item.thumbnailUrl == null) return null;
+                return new int[]{320, 320};
+            }
         };
         com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>
                 modelProvider = new com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>() {
             @NonNull @Override
             public List<com.callx.app.models.Message> getPreloadItems(int position) {
                 com.callx.app.models.Message m = pagingAdapter.peek(position);
-                if (m == null) return java.util.Collections.emptyList();
+                if (m == null) return Collections.emptyList();
                 String type = m.type != null ? m.type : "";
-                boolean isMedia = "image".equals(type) || "gif".equals(type)
-                        || "video".equals(type);
+                boolean isMedia = "image".equals(type) || "gif".equals(type) || "video".equals(type);
                 if (!isMedia || (m.mediaUrl == null && m.thumbnailUrl == null))
-                    return java.util.Collections.emptyList();
-                return java.util.Collections.singletonList(m);
+                    return Collections.emptyList();
+                return Collections.singletonList(m);
             }
             @Nullable @Override
             public com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable>

@@ -2329,7 +2329,7 @@ public class MessagePagingAdapter
             tvMessage      = v.findViewById(R.id.tv_message);
             tvTime         = v.findViewById(R.id.tv_time);
             tvSenderName   = v.findViewById(R.id.tv_sender_name);
-            tvDateHeader   = v.findViewById(R.id.tv_date_header);
+            tvDateHeader   = null; // removed from item layouts — date chip is now a separate ViewHolder type
             ivImage        = v.findViewById(R.id.iv_image);
             tvStatus       = v.findViewById(R.id.tv_status);
             // ── ViewStub bindings — heavy child layouts inflate only on demand ──
