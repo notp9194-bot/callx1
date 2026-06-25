@@ -61,7 +61,12 @@ public class ChatThemeManager {
             bubbleCache.put(cacheKey, gd);
         }
 
-        bubbleView.setBackground(gd);
+        // PERF SAFETY: GradientDrawable is mutable — sharing the same instance
+        // across multiple Views means setColor()/setAlpha() on one bubble would
+        // visually affect every other bubble with the same cache key (same
+        // sent/hasReply combo). mutate() ensures each View owns an independent
+        // copy of the state while still reusing the pre-configured corner radii.
+        bubbleView.setBackground(gd.mutate());
     }
 
     /** Text color for bubble content — from color resources. */

@@ -231,6 +231,9 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
         else                                   layout = R.layout.item_message_received;
 
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
+        // PERF: item-level micro-optimizations applied once at create time
+        v.setSaveEnabled(false);
+        v.setLayerType(View.LAYER_TYPE_NONE, null);
         VH vh = new VH(v);
 
         // ── One-time constant setup — moves work out of onBindViewHolder ────

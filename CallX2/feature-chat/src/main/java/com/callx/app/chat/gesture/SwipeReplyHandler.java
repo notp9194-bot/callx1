@@ -174,6 +174,15 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
 
         currentSwipeDx = finalDx;
 
+        // PERF: promote to LAYER_TYPE_HARDWARE while swiping.
+        // During a swipe, the bubble is being translateX'd every touch event.
+        // With LAYER_TYPE_NONE (default), each frame composites the bubble's
+        // entire sub-tree from scratch. LAYER_TYPE_HARDWARE caches the bubble
+        // into a GPU texture once; subsequent translation frames are nearly
+        // free (just a matrix multiply on the GPU). Cleared in clearView().
+        if (itemView.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+            SwipeOptimizer.enableHardwareLayer(itemView);
+        }
         // Move ONLY translationX — zero layout passes
         SwipeOptimizer.setTranslationXSafe(itemView, finalDx);
 
@@ -212,6 +221,9 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     @Override
     public void clearView(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
         super.clearView(rv, vh);
+        // PERF: remove hardware layer — bubble is no longer moving, no need
+        // to keep it as a GPU texture (wastes VRAM and blocks invalidation).
+        SwipeOptimizer.clearHardwareLayer(vh.itemView);
         // Spring-back: animate translation to 0
         SwipeOptimizer.springBack(vh.itemView);
         triggered     = false;

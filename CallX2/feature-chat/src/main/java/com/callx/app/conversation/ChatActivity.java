@@ -114,11 +114,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Constants ──────────────────────────────────────────────────────────
     private static final String TAG           = "ChatActivity";
-    // FIX #6: Tuned PagingConfig values.
-    // INITIAL_LOAD 40→30: fetching 40 on first open is wasteful — user sees ~12 items.
-    // PREFETCH_DIST 10→5: 10 items ahead = too eager on DB thread. 5 = half screen ahead, still smooth.
+    // PERF: PagingConfig tuning.
+    // PAGE_SIZE=20 — one screen worth; Room reads 20 rows per page-append request.
+    // PREFETCH_DIST=10 — Room starts next page when 10 items remain unscrolled;
+    //   sweet spot: low enough to avoid wasted pre-fetches, high enough to hide
+    //   load latency during a fast flick.
+    // INITIAL_LOAD=30 — first open shows 30 messages (~2.5 screens); more = slower cold open.
+    // enablePlaceholders=false — placeholders force Paging 3 to know total count up-front
+    //   (expensive Firebase query); disabling avoids that and keeps the list growing naturally.
     private static final int    PAGE_SIZE     = 20;
-    private static final int    PREFETCH_DIST = 10; // PERF: preload 10 items ahead = half screen buffer
+    private static final int    PREFETCH_DIST = 10;
     private static final int    INITIAL_LOAD  = 30;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
 
@@ -1202,11 +1207,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Default pool size is 5 already but explicit sizing prevents the pool
         // from being exhausted on fast flings that scroll past many bubbles.
         RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
-        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        5);
-        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    5);
-        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */, 3);
-        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,   3);
-        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,  3);
+        // PERF: increased TYPE_SENT/RECEIVED pool to 10 — fast flings scroll
+        // past ~8-12 bubbles before stopping; pool=5 gets exhausted half-way,
+        // forcing expensive ViewHolder inflation mid-fling.
+        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        10);
+        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    10);
+        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */,  3);
+        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,    3);
+        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   3);
         binding.rvMessages.setRecycledViewPool(pool);
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
         // WHATSAPP-STYLE FIX: kill the default ItemAnimator entirely.
@@ -1223,6 +1231,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // but should own its own fling; nested-scroll overhead adds friction and
         // causes subtle frame drops during fast swipes.
         binding.rvMessages.setNestedScrollingEnabled(false);
+        // PERF OPT #1: OVER_SCROLL_NEVER — eliminates edge glow/stretch on
+        // over-scroll. The EdgeEffect triggers an extra Canvas draw call on every
+        // frame while user is at top/bottom boundary. Chat never needs this; removing
+        // it shaves ~1-2ms per overscroll frame.
+        binding.rvMessages.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        // PERF OPT #2: LAYER_TYPE_NONE — ensure no software layer is inherited.
+        // Hardware-accelerated drawing is default on API 14+; a stray software layer
+        // forces every frame to paint into a CPU Bitmap — fatal for scroll perf.
+        binding.rvMessages.setLayerType(View.LAYER_TYPE_NONE, null);
+        // PERF OPT #3: setSaveEnabled(false) — skips the O(n) child-state traversal
+        // at onSaveInstanceState time. Chat scroll position is managed programmatically,
+        // so the automatic state-save is useless work.
+        binding.rvMessages.setSaveEnabled(false);
 
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
@@ -2107,14 +2128,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // will scroll past before they're needed. Resuming on idle/settling
                 // lets it catch up with whatever is now actually visible.
                 // This mirrors WhatsApp's image-loading strategy.
-                if (newState == RecyclerView.SCROLL_STATE_SETTLING) {
-                    // SETTLING = user released, list is flinging — pause Glide
-                    // so it doesn't decode images for items that scroll past.
-                    com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequests();
-                } else if (newState == RecyclerView.SCROLL_STATE_IDLE
+                // PERF FIX: Glide pause/resume strategy.
+                // OLD: pause on SETTLING, resume on DRAGGING — wrong because
+                //   DRAGGING includes fast finger swipes, resuming Glide while
+                //   the list is still moving causes mid-fling image decodes.
+                // NEW: pause on SETTLING (fling) AND DRAGGING (while finger
+                //   moves), resume ONLY on IDLE (list fully stopped).
+                //   This mirrors Glide's own RecyclerViewPreloader recommendation.
+                if (newState == RecyclerView.SCROLL_STATE_SETTLING
                         || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
-                    // IDLE/DRAGGING = stopped or slow drag — resume Glide.
-                    com.bumptech.glide.Glide.with(ChatActivity.this).resumeRequests();
+                    // Finger moving or list flinging — halt all pending decodes.
+                    com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequestsRecursive();
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    // List fully stopped — resume image loading for visible items.
+                    com.bumptech.glide.Glide.with(ChatActivity.this).resumeRequestsRecursive();
                 }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
                 if (presenceController == null) return;

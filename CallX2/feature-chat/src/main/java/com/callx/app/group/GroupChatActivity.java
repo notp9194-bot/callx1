@@ -494,20 +494,20 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setItemViewCacheSize(20);
         androidx.recyclerview.widget.RecyclerView.RecycledViewPool groupPool =
                 new androidx.recyclerview.widget.RecyclerView.RecycledViewPool();
-        groupPool.setMaxRecycledViews(1, 5);
-        groupPool.setMaxRecycledViews(2, 5);
-        groupPool.setMaxRecycledViews(3, 3);
-        groupPool.setMaxRecycledViews(4, 3);
-        groupPool.setMaxRecycledViews(5, 3);
+        // PERF: pool sizes 5→10 for sent/received — same reasoning as 1:1 chat.
+        groupPool.setMaxRecycledViews(1, 10);
+        groupPool.setMaxRecycledViews(2, 10);
+        groupPool.setMaxRecycledViews(3,  3);
+        groupPool.setMaxRecycledViews(4,  3);
+        groupPool.setMaxRecycledViews(5,  3);
         binding.rvMessages.setRecycledViewPool(groupPool);
         com.callx.app.chat.performance.SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
-        // PERF: kill default item animator — same WhatsApp-level fix as 1:1 chat.
-        // DefaultItemAnimator fades/moves every inserted row; with 20-30 messages
-        // landing on open, that shows as visible jank. Null = instant layout pass.
         binding.rvMessages.setItemAnimator(null);
-        // PERF: disable nested scrolling — reduces scroll event overhead in
-        // CoordinatorLayout, gives smoother continuous flings.
         binding.rvMessages.setNestedScrollingEnabled(false);
+        // PERF OPT: same three micro-opts as 1:1 ChatActivity
+        binding.rvMessages.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        binding.rvMessages.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
+        binding.rvMessages.setSaveEnabled(false);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {

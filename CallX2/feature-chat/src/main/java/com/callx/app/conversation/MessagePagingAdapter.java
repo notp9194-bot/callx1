@@ -441,6 +441,11 @@ public class MessagePagingAdapter
         else if (viewType == TYPE_CALL_ENTRY)  layout = R.layout.item_call_entry_bubble;
         else                                   layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
+        // PERF: item-level micro-optimizations (applied once at create time)
+        // setSaveEnabled(false) — skip useless per-item state parcelling
+        // LAYER_TYPE_NONE       — ensure no stray software layer from XML
+        v.setSaveEnabled(false);
+        v.setLayerType(View.LAYER_TYPE_NONE, null);
         VH vh = new VH(v);
         // ── One-time constant setup — keeps onBindViewHolder lean ────────────
         if (vh.tvMessage != null) {
@@ -2126,6 +2131,28 @@ public class MessagePagingAdapter
         // any such result a guaranteed no-op even if it lands while the
         // holder is sitting unused in the pool.
         holder.textBindToken++;
+    }
+
+    // PERF: onViewDetachedFromWindow — called when the ViewHolder scrolls off
+    // the screen but hasn't been recycled yet. Stop audio playback for this
+    // holder so a voice note playing in a bubble that scrolled off-screen stops
+    // immediately rather than continuing silently (and tying up the MediaPlayer).
+    @Override
+    public void onViewDetachedFromWindow(@NonNull VH holder) {
+        super.onViewDetachedFromWindow(holder);
+        // If THIS holder was the playing one, stop audio
+        if (player != null && playingVH == holder) {
+            try { player.stop(); player.release(); } catch (Exception ignored) {}
+            player = null;
+            playingPos = -1;
+            playingVH  = null;
+            if (seekUpdater != null) { seekHandler.removeCallbacks(seekUpdater); seekUpdater = null; }
+        }
+        // Stop any in-progress link-preview load for this row — the URL tag
+        // was already used as a stale-result guard in the fetch callback, but
+        // clearing it here prevents a VISIBLE slot from showing a loading card
+        // for a URL that belongs to a different (now-recycled) message.
+        if (holder.llLinkPreview != null) holder.llLinkPreview.setTag(null);
     }
 
     // ── Disappearing messages — format remaining time ─────────────────────
