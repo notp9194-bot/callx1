@@ -3,6 +3,7 @@ package com.callx.app.utils;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
+import android.util.SparseArray;
 import android.view.View;
 
 /**
@@ -16,6 +17,10 @@ public class ChatThemeManager {
     // Kept for any lingering references — noop
     public static final int THEME_HYBRID = 0;
 
+    // Bubble drawable cache keyed by (sent<<1 | hasReply).
+    // 4 possible combos: sent+reply, sent+noReply, recv+reply, recv+noReply.
+    private final SparseArray<GradientDrawable> bubbleCache = new SparseArray<>(4);
+
     private ChatThemeManager(Context ctx) {}
 
     public static ChatThemeManager get(Context ctx) {
@@ -24,31 +29,38 @@ public class ChatThemeManager {
     }
 
     public int getCurrentTheme() { return THEME_HYBRID; }
-    public void setTheme(int id) {}
-    public void clearBubbleCache() {}
+    public void setTheme(int id) { bubbleCache.clear(); }
+    public void clearBubbleCache() { bubbleCache.clear(); }
 
-    /** Apply bubble background — reads from color resources for correct light/dark support. */
+    /** Apply bubble background — cached per (sent, hasReply) combo to avoid GC pressure. */
     public void applyBubble(View bubbleView, boolean sent, String msgType, boolean hasReply) {
         if (bubbleView == null) return;
 
-        Context ctx = bubbleView.getContext();
-        float d = ctx.getResources().getDisplayMetrics().density;
-        float r = 18f * d;
-        float tail = 4f * d;
+        // Cache key: bit0 = sent, bit1 = hasReply  →  4 possible drawables total
+        int cacheKey = (sent ? 1 : 0) | (hasReply ? 2 : 0);
+        GradientDrawable gd = bubbleCache.get(cacheKey);
 
-        int color = resolveColor(ctx, sent
-                ? com.callx.app.core.R.color.bubble_sent
-                : com.callx.app.core.R.color.bubble_received);
+        if (gd == null) {
+            Context ctx = bubbleView.getContext();
+            float d = ctx.getResources().getDisplayMetrics().density;
+            float r = 18f * d;
+            float tail = 4f * d;
 
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(color);
+            int color = resolveColor(ctx, sent
+                    ? com.callx.app.core.R.color.bubble_sent
+                    : com.callx.app.core.R.color.bubble_received);
 
-        if (sent) {
-            // top-left, top-right, bottom-right, bottom-left (each corner = 2 floats)
-            gd.setCornerRadii(new float[]{r, r, r, r, tail, tail, r, r});
-        } else {
-            gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
+            gd = new GradientDrawable();
+            gd.setColor(color);
+
+            if (sent) {
+                gd.setCornerRadii(new float[]{r, r, r, r, tail, tail, r, r});
+            } else {
+                gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
+            }
+            bubbleCache.put(cacheKey, gd);
         }
+
         bubbleView.setBackground(gd);
     }
 

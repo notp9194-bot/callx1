@@ -549,11 +549,24 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
                 String rawText = m.text != null ? m.text : "";
 
                 // ── Linkify ──────────────────────────────────────────────────
-                android.text.SpannableString spanned = new android.text.SpannableString(rawText);
-                android.text.util.Linkify.addLinks(spanned,
-                        android.text.util.Linkify.WEB_URLS |
-                        android.text.util.Linkify.PHONE_NUMBERS |
-                        android.text.util.Linkify.EMAIL_ADDRESSES);
+                // Quick pre-check: only allocate SpannableString + run Linkify regex
+                // when text is likely to contain a linkable pattern.
+                // Plain-text messages (no URL/phone/email) skip the allocation entirely.
+                boolean mightHaveLink = rawText.contains("http://")
+                        || rawText.contains("https://")
+                        || rawText.contains("www.")
+                        || rawText.contains("@")
+                        || (rawText.length() >= 7 && rawText.contains("+"));
+                android.text.SpannableString spanned;
+                if (mightHaveLink) {
+                    spanned = new android.text.SpannableString(rawText);
+                    android.text.util.Linkify.addLinks(spanned,
+                            android.text.util.Linkify.WEB_URLS |
+                            android.text.util.Linkify.PHONE_NUMBERS |
+                            android.text.util.Linkify.EMAIL_ADDRESSES);
+                } else {
+                    spanned = new android.text.SpannableString(rawText);
+                }
                 int linkColor = sent ? 0xFFB3E5FC : 0xFF1565C0;
                 h.tvMessage.setLinkTextColor(linkColor);
                 h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
