@@ -166,42 +166,6 @@ public class MessagePagingAdapter
     private final SimpleDateFormat dateLabelFmt =
             new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
 
-    // ── PERF: timestamp → formatted string cache (LRU, 256 slots) ────────────
-    // Messages in the same minute share a key → very high hit rate.
-    // reuseDate avoids Date allocation on every format call.
-    private final android.util.LruCache<Long, String> timeStringCache =
-            new android.util.LruCache<>(256);
-    private final java.util.Date reuseDate = new java.util.Date();
-
-    private String formatTime(long ts) {
-        long key = (ts / 60_000L) * 60_000L;
-        String s = timeStringCache.get(key);
-        if (s != null) return s;
-        reuseDate.setTime(ts);
-        s = timeFmt.format(reuseDate);
-        timeStringCache.put(key, s);
-        return s;
-    }
-
-    // ── PERF: date-label cache — "Today"/"Yesterday"/"3 Jan" per day ─────────
-    // Keys are midnight-truncated timestamps. Recomputed once per day per key.
-    private final android.util.LruCache<Long, String> dateLabelCache =
-            new android.util.LruCache<>(64);
-
-    // ── PERF: isSameDay result cache — keyed by (ts1/day, ts2/day) ───────────
-    // Called on every row to decide whether to show the date separator.
-    // A flat LongSparseArray isn't practical for two keys; use a small HashMap
-    // of combined keys. Cache size capped — at most one entry per unique pair
-    // in a visible window (~20 rows = ~20 unique pairs at most).
-    private final java.util.HashMap<Long, Boolean> sameDayCache =
-            new java.util.HashMap<>(32);
-
-    // ── PERF: static Typeface — Typeface.create() is measured at ~0.5–2ms ────
-    private static final android.graphics.Typeface TF_NORMAL =
-            android.graphics.Typeface.create(
-                    android.graphics.Typeface.SANS_SERIF,
-                    android.graphics.Typeface.NORMAL);
-
     private ActionListener actionListener;
     private MediaPlayer player;
     private int playingPos = -1;
@@ -372,24 +336,16 @@ public class MessagePagingAdapter
         return result;
     }
 
-    private static final int TAG_KEY_SELECTED = 0x7F_0B_0001;
-
     private void applySelectionHighlight(VH h, Message m) {
         String id = m.messageId != null ? m.messageId : m.id;
         boolean selected = id != null && selectedMessageIds.contains(id);
         if (multiSelectMode) {
             h.itemView.setAlpha(selected ? 1.0f : 0.55f);
-            Boolean was = (Boolean) h.itemView.getTag(TAG_KEY_SELECTED);
-            if (was == null || was != selected) {
-                h.itemView.setBackgroundColor(selected ? 0x336200EE : android.graphics.Color.TRANSPARENT);
-                h.itemView.setTag(TAG_KEY_SELECTED, selected);
-            }
+            // FIX: holo_blue_light is outdated/ugly. Use a translucent brand-aware overlay instead.
+            h.itemView.setBackgroundColor(selected ? 0x336200EE : android.graphics.Color.TRANSPARENT);
         } else {
-            if (h.itemView.isActivated() || h.itemView.getTag(TAG_KEY_SELECTED) != null) {
-                h.itemView.setAlpha(1.0f);
-                h.itemView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-                h.itemView.setTag(TAG_KEY_SELECTED, null);
-            }
+            h.itemView.setAlpha(1.0f);
+            h.itemView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         }
     }
 
@@ -442,12 +398,6 @@ public class MessagePagingAdapter
         else                                   layout = R.layout.item_message_received;
         View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
         VH vh = new VH(v);
-        // ── One-time constant setup — keeps onBindViewHolder lean ────────────
-        if (vh.tvMessage != null) {
-            vh.tvMessage.setTypeface(TF_NORMAL);
-            vh.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
-                    com.callx.app.utils.MessageFontSizeManager.get(parent.getContext()).getFontSizeSp());
-        }
         // ── Apply 70% screen-width cap ──
         int screenW = parent.getContext().getResources().getDisplayMetrics().widthPixels;
         int maxW = (int) (screenW * 0.70f);
@@ -571,7 +521,7 @@ public class MessagePagingAdapter
 
         // Time
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(formatTime(m.timestamp));
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
     }
 
@@ -665,7 +615,7 @@ public class MessagePagingAdapter
         // Time
         android.widget.TextView tvTime = h.tvStatusSeenTime;
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(formatTime(m.timestamp));
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
     }
 
@@ -753,7 +703,7 @@ public class MessagePagingAdapter
         // Time
         android.widget.TextView tvTime = h.tvReelSeenTime;
         if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-            tvTime.setText(formatTime(m.timestamp));
+            tvTime.setText(timeFmt.format(new java.util.Date(m.timestamp)));
         }
     }
 
@@ -762,14 +712,8 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // ──────────────────────────────────────────────────────────────
     // Date separator helper — returns "Today", "Yesterday", or "3 Jan 2025"
-    // PERF: result is cached per midnight-truncated timestamp so Calendar
-    // isn't allocated on every row during a scroll.
     // ──────────────────────────────────────────────────────────────
-    private String formatDateLabel(long timestamp) {
-        long dayKey = (timestamp / 86_400_000L) * 86_400_000L;
-        String cached = dateLabelCache.get(dayKey);
-        if (cached != null) return cached;
-
+    private static String formatDateLabel(long timestamp) {
         java.util.Calendar msgCal = java.util.Calendar.getInstance();
         msgCal.setTimeInMillis(timestamp);
         java.util.Calendar today = java.util.Calendar.getInstance();
@@ -781,42 +725,25 @@ public class MessagePagingAdapter
         boolean isYesterday = msgCal.get(java.util.Calendar.YEAR) == yesterday.get(java.util.Calendar.YEAR)
                 && msgCal.get(java.util.Calendar.DAY_OF_YEAR) == yesterday.get(java.util.Calendar.DAY_OF_YEAR);
 
-        String label;
-        if (isToday) {
-            label = "Today";
-        } else if (isYesterday) {
-            label = "Yesterday";
-        } else {
-            boolean sameYear = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR);
-            reuseDate.setTime(timestamp);
-            label = (sameYear ? dateLabelFmt : new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()))
-                    .format(reuseDate);
+        if (isToday) return "Today";
+        if (isYesterday) return "Yesterday";
+        // Older: "3 Jan 2025" or just "3 Jan" if same year
+        boolean sameYear = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR);
+        if (sameYear) {
+            return new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+                    .format(new java.util.Date(timestamp));
         }
-        // Don't cache "Today" / "Yesterday" — they become stale at midnight.
-        // Cache only absolute date strings which never change.
-        if (!label.equals("Today") && !label.equals("Yesterday")) {
-            dateLabelCache.put(dayKey, label);
-        }
-        return label;
+        return new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault())
+                .format(new java.util.Date(timestamp));
     }
 
-    // PERF: isSameDay — cached by combined day-truncated key pair.
-    // Avoids two Calendar.getInstance() + setTimeInMillis on every row.
-    private boolean isSameDay(long ts1, long ts2) {
-        long day1 = ts1 / 86_400_000L;
-        long day2 = ts2 / 86_400_000L;
-        if (day1 == day2) return true;          // fast path — same millisecond-day bucket
-        long cacheKey = (day1 << 20) ^ day2;    // combine; collisions harmless (fallback to Calendar)
-        Boolean hit = sameDayCache.get(cacheKey);
-        if (hit != null) return hit;
+    private static boolean isSameDay(long ts1, long ts2) {
         java.util.Calendar c1 = java.util.Calendar.getInstance();
         java.util.Calendar c2 = java.util.Calendar.getInstance();
         c1.setTimeInMillis(ts1);
         c2.setTimeInMillis(ts2);
-        boolean same = c1.get(java.util.Calendar.YEAR) == c2.get(java.util.Calendar.YEAR)
+        return c1.get(java.util.Calendar.YEAR) == c2.get(java.util.Calendar.YEAR)
                 && c1.get(java.util.Calendar.DAY_OF_YEAR) == c2.get(java.util.Calendar.DAY_OF_YEAR);
-        sameDayCache.put(cacheKey, same);
-        return same;
     }
 
     private void bindMessage(@NonNull VH h, @NonNull Message m, int position) {
@@ -915,7 +842,7 @@ public class MessagePagingAdapter
 
         // Timestamp — append "(edited)" when applicable
         if (h.tvTime != null && m.timestamp > 0) {
-            String timeStr = formatTime(m.timestamp);
+            String timeStr = timeFmt.format(new java.util.Date(m.timestamp));
             boolean isEdited = Boolean.TRUE.equals(m.edited);
             if (isEdited) timeStr = timeStr + "  \u270F\uFE0F edited";
             h.tvTime.setText(timeStr);
@@ -1225,33 +1152,23 @@ public class MessagePagingAdapter
                 h.tvMessage.setVisibility(View.VISIBLE);
                 String txt = m.text != null ? m.text : "";
                 if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
-                // ── Font Style — cached static Typeface, no allocation ────────
-                h.tvMessage.setTypeface(TF_NORMAL);
-                // ── Font Size — moved to onCreateViewHolder for constant case ──
-                // Only call here for safety (noop if already set at create time)
+                // ── Font Style ───────────────────────────────────────────────
+                applyFontStyle(h.tvMessage, m.fontStyle);
+                // ── Font Size ────────────────────────────────────────────────
+                h.tvMessage.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                    com.callx.app.utils.MessageFontSizeManager.get(ctx).getFontSizeSp());
                 // ── Clickable links: URLs, phone numbers, emails ─────────────
-                boolean mightHaveLink = txt.contains("http://")
-                        || txt.contains("https://")
-                        || txt.contains("www.")
-                        || txt.contains("@")
-                        || (txt.length() >= 7 && txt.contains("+"));
                 android.text.SpannableString spanned = new android.text.SpannableString(txt);
-                if (mightHaveLink) {
-                    android.text.util.Linkify.addLinks(spanned,
-                        android.text.util.Linkify.WEB_URLS |
-                        android.text.util.Linkify.PHONE_NUMBERS |
-                        android.text.util.Linkify.EMAIL_ADDRESSES);
-                    // Link color matching bubble theme
-                    boolean isSentMsg = currentUid.equals(m.senderId);
-                    int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
-                    h.tvMessage.setLinkTextColor(linkColor);
-                    h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-                    h.tvMessage.setHighlightColor(0x33FFFFFF);
-                } else {
-                    // Plain text — remove MovementMethod so RecyclerView keeps scroll events
-                    h.tvMessage.setMovementMethod(null);
-                }
+                android.text.util.Linkify.addLinks(spanned,
+                    android.text.util.Linkify.WEB_URLS |
+                    android.text.util.Linkify.PHONE_NUMBERS |
+                    android.text.util.Linkify.EMAIL_ADDRESSES);
+                // Link color matching bubble theme
                 boolean isSentMsg = currentUid.equals(m.senderId);
+                int linkColor = isSentMsg ? 0xFFB3E5FC : 0xFF1565C0;
+                h.tvMessage.setLinkTextColor(linkColor);
+                h.tvMessage.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                h.tvMessage.setHighlightColor(0x33FFFFFF);
                 h.tvMessage.setAlpha(1f);
                 h.tvMessage.setTextColor(
                     com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(isSentMsg));
@@ -1544,21 +1461,11 @@ public class MessagePagingAdapter
         }
 
         if (h.llPollOptions != null) {
-            // PERF: recycle existing option rows instead of removeAllViews + inflate
-            int optCount = options.size();
-            while (h.llPollOptions.getChildCount() > optCount) {
-                h.llPollOptions.removeViewAt(h.llPollOptions.getChildCount() - 1);
-            }
-            for (int i = 0; i < optCount; i++) {
+            h.llPollOptions.removeAllViews();
+            for (int i = 0; i < options.size(); i++) {
                 final int optionIndex = i;
-                View row;
-                if (i < h.llPollOptions.getChildCount()) {
-                    row = h.llPollOptions.getChildAt(i);
-                } else {
-                    row = LayoutInflater.from(ctx)
-                            .inflate(R.layout.item_poll_option_row, h.llPollOptions, false);
-                    h.llPollOptions.addView(row);
-                }
+                View row = LayoutInflater.from(ctx)
+                        .inflate(R.layout.item_poll_option_row, h.llPollOptions, false);
                 TextView  tvText  = row.findViewById(R.id.tv_poll_option_text);
                 TextView  tvPct   = row.findViewById(R.id.tv_poll_option_pct);
                 ImageView ivCheck = row.findViewById(R.id.iv_poll_option_check);
@@ -1585,11 +1492,14 @@ public class MessagePagingAdapter
                         ivCheck.setImageResource(filledRes);
                     } else {
                         ivCheck.setImageResource(unselectedRes);
+                        // Dim the ring/box relative to the bubble's text color so it
+                        // recedes behind the option(s) the user actually picked.
                         int ringColor = (textColor & 0x00FFFFFF) | 0x80000000;
                         ivCheck.setColorFilter(ringColor, android.graphics.PorterDuff.Mode.SRC_IN);
                     }
                 }
 
+                // Row + fill-bar background reflect voted state.
                 row.setBackgroundResource(isMyVote
                         ? R.drawable.bg_poll_option_voted
                         : R.drawable.bg_poll_option);
@@ -1598,6 +1508,8 @@ public class MessagePagingAdapter
                             ? R.drawable.bg_poll_option_fill_voted
                             : R.drawable.bg_poll_option_fill);
 
+                    // Animate the fill width as a fraction of the row width once laid out,
+                    // smoothly growing/shrinking from whatever it last showed.
                     final View fillView = vFill;
                     final int fPct = pct;
                     vFill.post(() -> {
@@ -1606,6 +1518,9 @@ public class MessagePagingAdapter
                         int parentWidth = ((View) parentObj).getWidth();
                         if (parentWidth <= 0) return;
                         int targetWidth = Math.round(parentWidth * (fPct / 100f));
+                        Object tag = fillView.getTag();
+                        int startWidth = (tag instanceof Integer) ? (Integer) tag : fillView.getWidth();
+                        // Set width instantly — no animation for performance
                         android.view.ViewGroup.LayoutParams lp = fillView.getLayoutParams();
                         lp.width = targetWidth;
                         fillView.setLayoutParams(lp);
@@ -1620,6 +1535,8 @@ public class MessagePagingAdapter
                     }
                     if (actionListener != null) actionListener.onPollVote(m, optionIndex);
                 });
+
+                h.llPollOptions.addView(row);
             }
         }
 
