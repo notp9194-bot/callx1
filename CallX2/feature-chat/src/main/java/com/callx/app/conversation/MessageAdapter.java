@@ -1468,10 +1468,9 @@ public class MessageAdapter extends ListAdapter<Message, MessageAdapter.VH> {
     @Override
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
-        if (holder.activeCountDown != null) {
-            holder.activeCountDown.cancel();
-            holder.activeCountDown = null;
-        }
+        // FIX 2: activeCountDown removed — shared Handler manages all expiry ticks.
+        // Clear expiry tag so recycled VH doesn't tick for old message.
+        if (holder.tvExpiry != null) holder.tvExpiry.setTag(null);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

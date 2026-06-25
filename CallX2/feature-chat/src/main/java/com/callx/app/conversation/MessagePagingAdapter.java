@@ -26,6 +26,7 @@ import com.callx.app.utils.MediaCache;
 import java.text.SimpleDateFormat;
 import java.util.Locale;
 import com.callx.app.utils.LinkPreviewFetcher;
+import com.callx.app.chat.ui.AudioWaveformView;
 
 /**
  * MessagePagingAdapter — Paging 3 PagingDataAdapter for chat messages.
@@ -40,6 +41,13 @@ import com.callx.app.utils.LinkPreviewFetcher;
  *   viewModel.getPagedMessages(chatId).observe(this, pagingAdapter::submitData);
  */
 public class MessagePagingAdapter
+
+    // PERF FIX 1: Scroll guard — suppress link preview fetches during scroll.
+    private volatile boolean isScrollingPaused = false;
+
+    /** Called by ChatActivity OnScrollListener. */
+    public void setScrollingPaused(boolean paused) { this.isScrollingPaused = paused; }
+
         extends PagingDataAdapter<Message, MessagePagingAdapter.VH> {
 
     // ── DiffUtil — required by PagingDataAdapter ──────────────────
@@ -1356,6 +1364,10 @@ public class MessagePagingAdapter
                         h.llLinkPreview.setVisibility(View.INVISIBLE); // reserve space while loading
                         // FIX: must be final for use inside anonymous inner class
                         final String finalPreviewUrl = previewUrl;
+                        // PERF FIX 1: skip fetch during scroll; cache hits pass through instantly
+                        if (isScrollingPaused && com.callx.app.utils.LinkPreviewFetcher.getCached(finalPreviewUrl) == null) {
+                            h.llLinkPreview.setVisibility(android.view.View.GONE);
+                        } else
                         com.callx.app.utils.LinkPreviewFetcher.fetch(finalPreviewUrl,
                                 new com.callx.app.utils.LinkPreviewFetcher.Callback() {
                             @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
@@ -2073,6 +2085,7 @@ public class MessagePagingAdapter
         h.llAudio      = h.itemView.findViewById(R.id.ll_audio);
         h.btnPlayPause = h.itemView.findViewById(R.id.btn_play_pause);
         h.seekAudio    = h.itemView.findViewById(R.id.seek_audio);
+            h.waveformAudio = h.itemView.findViewById(R.id.waveform_audio);
         h.tvAudioDur   = h.itemView.findViewById(R.id.tv_audio_dur);
         if (h.tvAudioDur != null) {
             try {
@@ -2279,6 +2292,7 @@ public class MessagePagingAdapter
         ImageView    btnDownload;
         // FIX: SeekBar + duration label — wired for live progress updates
         android.widget.SeekBar seekAudio;
+        AudioWaveformView waveformAudio; // FIX 3
         TextView     tvAudioDur;
         // SwipeReplySystem v1: reply preview views
         LinearLayout llReplyPreview;
