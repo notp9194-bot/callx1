@@ -116,7 +116,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // INITIAL_LOAD 40→30: fetching 40 on first open is wasteful — user sees ~12 items.
     // PREFETCH_DIST 10→5: 10 items ahead = too eager on DB thread. 5 = half screen ahead, still smooth.
     private static final int    PAGE_SIZE     = 20;
-    private static final int    PREFETCH_DIST = 5;
+    private static final int    PREFETCH_DIST = 10; // PERF: preload 10 items ahead = half screen buffer
     private static final int    INITIAL_LOAD  = 30;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
 
@@ -1068,6 +1068,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Setting itemAnimator to null makes every insert/remove/move an
         // instant, non-animated layout pass.
         binding.rvMessages.setItemAnimator(null);
+        // PERF: disable nested scrolling — chat RV lives inside a CoordinatorLayout
+        // but should own its own fling; nested-scroll overhead adds friction and
+        // causes subtle frame drops during fast swipes.
+        binding.rvMessages.setNestedScrollingEnabled(false);
 
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
@@ -1947,6 +1951,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                // PERF: Glide pause/resume — during a fast fling, pausing Glide stops
+                // it from starting new image-decode tasks for off-screen items that
+                // will scroll past before they're needed. Resuming on idle/settling
+                // lets it catch up with whatever is now actually visible.
+                // This mirrors WhatsApp's image-loading strategy.
+                if (newState == RecyclerView.SCROLL_STATE_FLING) {
+                    com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequests();
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE
+                        || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    com.bumptech.glide.Glide.with(ChatActivity.this).resumeRequests();
+                }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
                 if (presenceController == null) return;
                 LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();

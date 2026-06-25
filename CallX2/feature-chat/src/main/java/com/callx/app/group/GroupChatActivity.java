@@ -84,7 +84,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     private static final String TAG           = "GroupChatActivity";
     private static final int    PAGE_SIZE     = 20;
-    private static final int    INITIAL_LOAD  = 40;
+    private static final int    INITIAL_LOAD  = 30; // PERF: 30 matches 1:1 chat; 40 was wasteful on cold open
     private static final int    PREFETCH_DIST = 10;
     private static final int    REQ_AUDIO     = 200;
 
@@ -501,6 +501,13 @@ public class GroupChatActivity extends AppCompatActivity
         groupPool.setMaxRecycledViews(5, 3);
         binding.rvMessages.setRecycledViewPool(groupPool);
         com.callx.app.chat.performance.SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
+        // PERF: kill default item animator — same WhatsApp-level fix as 1:1 chat.
+        // DefaultItemAnimator fades/moves every inserted row; with 20-30 messages
+        // landing on open, that shows as visible jank. Null = instant layout pass.
+        binding.rvMessages.setItemAnimator(null);
+        // PERF: disable nested scrolling — reduces scroll event overhead in
+        // CoordinatorLayout, gives smoother continuous flings.
+        binding.rvMessages.setNestedScrollingEnabled(false);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
@@ -524,6 +531,15 @@ public class GroupChatActivity extends AppCompatActivity
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                // PERF: Glide pause during fling — avoids decoding images for items
+                // that scroll past before becoming visible; resume on idle/drag so
+                // images load as soon as the user stops or slows down.
+                if (newState == RecyclerView.SCROLL_STATE_FLING) {
+                    com.bumptech.glide.Glide.with(GroupChatActivity.this).pauseRequests();
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE
+                        || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    com.bumptech.glide.Glide.with(GroupChatActivity.this).resumeRequests();
+                }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
                 if (watchingController == null) return;
                 LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();

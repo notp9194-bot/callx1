@@ -984,6 +984,7 @@ public class MessagePagingAdapter
                     Glide.with(ctx)
                         .load(thumbUrl)
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .thumbnail(0.1f) // PERF: render 10% low-res frame instantly, then upgrade
                         .override(480, 480)
                         .placeholder(R.drawable.ic_file)
                         .centerCrop()
