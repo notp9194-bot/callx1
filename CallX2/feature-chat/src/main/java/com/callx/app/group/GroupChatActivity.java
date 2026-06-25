@@ -484,7 +484,34 @@ public class GroupChatActivity extends AppCompatActivity
             }
         });
 
-        LinearLayoutManager llm = new LinearLayoutManager(this);
+        // PERF: Custom LinearLayoutManager — overrides calculateExtraLayoutSpace()
+        // to pre-layout 1.5× a full screen worth of items beyond each edge.
+        //
+        // Why 1.5× instead of 1× (like 1:1 ChatActivity)?
+        //   Group chats have more varied bubble heights (sender name label, group
+        //   avatars, system messages) so the average item is taller and fewer items
+        //   fit on screen. A fast fling therefore races through the pre-laid area
+        //   faster than in 1:1 chat. 1.5× gives the prefetch thread enough runway
+        //   to inflate the next batch before the viewport reaches it.
+        //
+        // Why calculateExtraLayoutSpace() instead of the deprecated setExtraLayoutSpace()?
+        //   setExtraLayoutSpace() was deprecated in RecyclerView 1.2.0 and calls through
+        //   to calculateExtraLayoutSpace() internally anyway. The override is the correct
+        //   modern API and avoids the compile-time deprecation warning.
+        //
+        // [0] = extra space BEFORE the first visible item (for reverse-scroll buffer).
+        // [1] = extra space AFTER  the last  visible item (primary scroll-forward buffer).
+        LinearLayoutManager llm = new LinearLayoutManager(this) {
+            @Override
+            protected void calculateExtraLayoutSpace(@NonNull RecyclerView.State state,
+                                                     @NonNull int[] extraLayoutSpace) {
+                int screenHeight = getResources().getDisplayMetrics().heightPixels;
+                // 1.5× pre-layout in both directions for group chat.
+                int extra = (int) (screenHeight * 1.5f);
+                extraLayoutSpace[0] = extra;
+                extraLayoutSpace[1] = extra;
+            }
+        };
         llm.setStackFromEnd(true);
         llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
