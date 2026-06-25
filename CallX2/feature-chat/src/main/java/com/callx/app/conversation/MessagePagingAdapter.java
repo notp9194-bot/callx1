@@ -1566,17 +1566,29 @@ public class MessagePagingAdapter
             for (int i = 0; i < optCount; i++) {
                 final int optionIndex = i;
                 View row;
+                PollOptionRowViews rowViews;
                 if (i < h.llPollOptions.getChildCount()) {
                     row = h.llPollOptions.getChildAt(i);
+                    rowViews = (PollOptionRowViews) row.getTag();
                 } else {
                     row = LayoutInflater.from(ctx)
                             .inflate(R.layout.item_poll_option_row, h.llPollOptions, false);
                     h.llPollOptions.addView(row);
+                    rowViews = null;
                 }
-                TextView  tvText  = row.findViewById(R.id.tv_poll_option_text);
-                TextView  tvPct   = row.findViewById(R.id.tv_poll_option_pct);
-                ImageView ivCheck = row.findViewById(R.id.iv_poll_option_check);
-                View      vFill   = row.findViewById(R.id.v_poll_option_fill);
+                // PERF: cache the 4 child views on the row itself via setTag().
+                // findViewById() walks the row's view tree; with rows being
+                // reused across binds (recycling, above) we'd otherwise pay
+                // that walk cost every single bind even though the row's
+                // structure never changes after first inflation.
+                if (rowViews == null) {
+                    rowViews = new PollOptionRowViews(row);
+                    row.setTag(rowViews);
+                }
+                TextView  tvText  = rowViews.tvText;
+                TextView  tvPct   = rowViews.tvPct;
+                ImageView ivCheck = rowViews.ivCheck;
+                View      vFill   = rowViews.vFill;
 
                 int pct = total > 0 ? Math.round((counts[i] * 100f) / total) : 0;
                 boolean isMyVote  = myVotes.contains(optionIndex);
@@ -2248,7 +2260,23 @@ public class MessagePagingAdapter
         }
     }
 
-        static class VH extends RecyclerView.ViewHolder {
+    /** PERF: tiny view-cache for a poll option row, stashed via row.setTag().
+     *  See bindPoll() — avoids repeat findViewById() on every rebind of a
+     *  recycled poll-option row. */
+    private static final class PollOptionRowViews {
+        final TextView  tvText;
+        final TextView  tvPct;
+        final ImageView ivCheck;
+        final View      vFill;
+        PollOptionRowViews(View row) {
+            tvText  = row.findViewById(R.id.tv_poll_option_text);
+            tvPct   = row.findViewById(R.id.tv_poll_option_pct);
+            ivCheck = row.findViewById(R.id.iv_poll_option_check);
+            vFill   = row.findViewById(R.id.v_poll_option_fill);
+        }
+    }
+
+    static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d)
         ImageView    ivImage;

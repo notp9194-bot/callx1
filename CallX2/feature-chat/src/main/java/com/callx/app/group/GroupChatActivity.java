@@ -13,6 +13,7 @@ import android.widget.*;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -515,6 +516,11 @@ public class GroupChatActivity extends AppCompatActivity
         llm.setStackFromEnd(true);
         llm.setInitialPrefetchItemCount(6);
         binding.rvMessages.setLayoutManager(llm);
+        // PERF: same touch-slop fix as 1:1 ChatActivity — RV defaults to
+        // TOUCH_SLOP_PAGING (ViewPager-tuned, larger tolerance before a touch
+        // is recognized as a scroll). TOUCH_SLOP_DEFAULT matches ListView/ScrollView
+        // and makes group-chat scroll start responding a few ms earlier per swipe.
+        binding.rvMessages.setScrollingTouchSlop(RecyclerView.TOUCH_SLOP_DEFAULT);
         binding.rvMessages.setAdapter(pagingAdapter);
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
         binding.rvMessages.setHasFixedSize(true);
@@ -535,6 +541,53 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
         binding.rvMessages.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
         binding.rvMessages.setSaveEnabled(false);
+
+        // PERF: Glide RecyclerViewPreloader — group chats are media-heavy (photos,
+        // memes, forwarded images), so prefetching the next few media bubbles in the
+        // scroll direction matters even more here than in 1:1 chat. Same strategy:
+        // paused on SETTLING/DRAGGING (see scroll listener below), executed on IDLE.
+        com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>
+                groupSizeProvider = new com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>() {
+            @Override
+            public int[] getPreloadSize(@NonNull com.callx.app.models.Message item,
+                                        int adapterPosition, int perItemPosition) {
+                if (item.mediaUrl == null && item.thumbnailUrl == null) return null;
+                return new int[]{320, 320};
+            }
+        };
+        com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>
+                groupModelProvider = new com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>() {
+            @NonNull @Override
+            public java.util.List<com.callx.app.models.Message> getPreloadItems(int position) {
+                com.callx.app.models.Message m = pagingAdapter.peek(position);
+                if (m == null) return java.util.Collections.emptyList();
+                String type = m.type != null ? m.type : "";
+                boolean isMedia = "image".equals(type) || "gif".equals(type) || "video".equals(type);
+                if (!isMedia || (m.mediaUrl == null && m.thumbnailUrl == null))
+                    return java.util.Collections.emptyList();
+                return java.util.Collections.singletonList(m);
+            }
+            @Nullable @Override
+            public com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable>
+                    getPreloadRequestBuilder(@NonNull com.callx.app.models.Message item) {
+                String url = "video".equals(item.type)
+                        ? (item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl)
+                        : (item.mediaUrl != null ? item.mediaUrl : item.imageUrl);
+                if (url == null) return null;
+                return com.bumptech.glide.Glide.with(GroupChatActivity.this)
+                        .load(url)
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                        .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                        .override(320, 320);
+            }
+        };
+        com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<com.callx.app.models.Message>
+                groupGlidePreloader = new com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<>(
+                        com.bumptech.glide.Glide.with(this),
+                        groupModelProvider,
+                        groupSizeProvider,
+                        5 /* preload 5 items in the scroll direction */);
+        binding.rvMessages.addOnScrollListener(groupGlidePreloader);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
