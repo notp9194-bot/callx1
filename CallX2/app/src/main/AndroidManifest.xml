@@ -304,6 +304,22 @@
             android:theme="@style/Theme.CallX.Fullscreen"
             android:screenOrientation="portrait"/>
 
+        <!-- ── Sound Playlist / Collection ── -->
+        <activity android:name="com.callx.app.music.SoundPlaylistActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
+        <!-- ── Sound Upload (Creator original audio) ── -->
+        <activity android:name="com.callx.app.music.SoundUploadActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- ── Sound Analytics (Creator stats) ── -->
+        <activity android:name="com.callx.app.music.SoundAnalyticsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+
         <!-- ── Reel Filters & Effects ── -->
         <activity android:name=".activities.ReelFiltersActivity"
             android:exported="false"
