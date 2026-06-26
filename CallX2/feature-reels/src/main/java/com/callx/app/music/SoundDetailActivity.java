@@ -262,6 +262,10 @@ public class SoundDetailActivity extends AppCompatActivity {
                     Long saves   = snap.child("total_saves").getValue(Long.class);
                     Boolean orig = snap.child("is_original").getValue(Boolean.class);
                     Boolean ver  = snap.child("is_verified").getValue(Boolean.class);
+                    // ✅ Simple race-safe trending flag (set once reel_count crosses a
+                    // threshold at upload time) — used as a fallback for the badge
+                    // since trending_rank is never actually computed/written anywhere.
+                    Boolean trendingFlag = snap.child("is_trending").getValue(Boolean.class);
 
                     // ✅ FIX: fetch audioUrl from Firebase and update soundUrl if it was missing
                     if (soundUrl == null || soundUrl.isEmpty()) {
@@ -308,6 +312,9 @@ public class SoundDetailActivity extends AppCompatActivity {
                         if (rank > 0 && rank <= 50) {
                             tvTrendingRank.setVisibility(View.VISIBLE);
                             tvTrendingRank.setText("#" + rank + " Trending");
+                        } else if (Boolean.TRUE.equals(trendingFlag)) {
+                            tvTrendingRank.setVisibility(View.VISIBLE);
+                            tvTrendingRank.setText("🔥 Trending");
                         } else {
                             tvTrendingRank.setVisibility(View.GONE);
                         }

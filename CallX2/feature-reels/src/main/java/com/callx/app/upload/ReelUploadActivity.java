@@ -114,6 +114,8 @@ public class ReelUploadActivity extends AppCompatActivity {
     private static final int REQ_PERM_PHOTOS  = 904;
     private static final int REQ_PHOTO_EDIT   = 905;
     private static final int MAX_PHOTOS       = 10;
+    /** Minimum reels-using-this-sound count before it's flagged "🔥 Trending". */
+    private static final long TRENDING_REEL_THRESHOLD = 5L;
 
     private PlayerView        playerPreview;
     private ImageView         ivThumbPreview;
@@ -1632,34 +1634,48 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                         // ── Background: extract + upload original audio ───────
                         // This runs after the reel is already live, so user doesn't wait.
-                        java.io.File videoFileForAudio = new java.io.File(videoPath);
-                        if (videoFileForAudio.exists()) {
-                            final String soundChosenId = b.preSelectedSoundId;
-                            VideoUploader.uploadOriginalAudio(b, videoFileForAudio,
-                                new VideoUploader.AudioUploadCallback() {
-                                    @Override
-                                    public void onSuccess(String audioUrl) {
-                                        // Save originalAudioUrl to Firebase
-                                        FirebaseUtils.getReelsRef()
-                                            .child(finalReelId)
-                                            .child("originalAudioUrl")
-                                            .setValue(audioUrl);
-                                        Log.d("ReelUpload",
-                                            "originalAudioUrl saved: " + audioUrl);
+                        if (!b.preSelectedSoundId.isEmpty()) {
+                            // ✅ OPTIMIZATION: the creator picked an EXISTING sound — we
+                            // already know its canonical audioUrl (preSelectedSoundUrl,
+                            // carried through Camera → Editor → Upload). Re-extracting the
+                            // video's own audio track and re-uploading it as a brand-new
+                            // Cloudinary file would just waste bandwidth/storage and create
+                            // a duplicate copy of audio we already have. So skip extraction
+                            // entirely here — just link this reel to the existing sound and
+                            // bump its reel_count right away (no need to wait on extraction).
+                            registerOrLinkSound(b, finalReelId, myUid, myName,
+                                thumbUrl, videoUrl, b.preSelectedSoundUrl, b.preSelectedSoundId);
+                        } else {
+                            // True original audio — extract it from the recorded video and
+                            // upload it once, then register it as a brand-new reusable sound.
+                            java.io.File videoFileForAudio = new java.io.File(videoPath);
+                            if (videoFileForAudio.exists()) {
+                                VideoUploader.uploadOriginalAudio(b, videoFileForAudio,
+                                    new VideoUploader.AudioUploadCallback() {
+                                        @Override
+                                        public void onSuccess(String audioUrl) {
+                                            // Save originalAudioUrl to Firebase
+                                            FirebaseUtils.getReelsRef()
+                                                .child(finalReelId)
+                                                .child("originalAudioUrl")
+                                                .setValue(audioUrl);
+                                            Log.d("ReelUpload",
+                                                "originalAudioUrl saved: " + audioUrl);
 
-                                        // ✅ Make this audio reusable/discoverable, Instagram-style:
-                                        // register it as a proper "sounds/{soundId}" entity so
-                                        // other users can find it, see waveform/reel-count, and
-                                        // use it on their own reels — not just play it back here.
-                                        registerOrLinkSound(b, finalReelId, myUid, myName,
-                                            thumbUrl, videoUrl, audioUrl, soundChosenId);
-                                    }
-                                    @Override
-                                    public void onError(Exception e) {
-                                        Log.w("ReelUpload",
-                                            "Audio upload failed (non-fatal): " + e.getMessage());
-                                    }
-                                });
+                                            // ✅ Make this audio reusable/discoverable, Instagram-style:
+                                            // register it as a proper "sounds/{soundId}" entity so
+                                            // other users can find it, see waveform/reel-count, and
+                                            // use it on their own reels — not just play it back here.
+                                            registerOrLinkSound(b, finalReelId, myUid, myName,
+                                                thumbUrl, videoUrl, audioUrl, "");
+                                        }
+                                        @Override
+                                        public void onError(Exception e) {
+                                            Log.w("ReelUpload",
+                                                "Audio upload failed (non-fatal): " + e.getMessage());
+                                        }
+                                    });
+                            }
                         }
                         // ─────────────────────────────────────────────────────
 
@@ -1749,7 +1765,22 @@ public class ReelUploadActivity extends AppCompatActivity {
                 d.setValue((cur != null ? cur : 0) + 1);
                 return Transaction.success(d);
             }
-            @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {}
+            @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {
+                // ✅ Trending badge: trending_rank was always being written as 0
+                // and nothing ever updated it, so the "🔥 Trending" badge could
+                // never actually show. Instead of a precise global leaderboard
+                // rank (which needs a real backend job to compute safely across
+                // many concurrent writers), use a simple, race-safe threshold:
+                // once a sound crosses TRENDING_REEL_THRESHOLD uses, flip a
+                // boolean flag. SoundDetailActivity shows the badge off this
+                // flag directly — no separate ranking computation needed.
+                if (e == null && committed && s != null) {
+                    Long count = s.getValue(Long.class);
+                    if (count != null && count >= TRENDING_REEL_THRESHOLD) {
+                        soundRef.child("is_trending").setValue(true);
+                    }
+                }
+            }
         });
 
         if (usingExistingSound) {
